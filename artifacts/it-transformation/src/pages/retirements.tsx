@@ -9,7 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit } from "lucide-react";
+import { Plus, Trash2, Edit, Search, X } from "lucide-react";
+import { useMemo } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Retirement } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useCurrency } from "@/contexts/currency-context";
@@ -31,9 +33,22 @@ export default function Retirements() {
   const deleteItem = useDeleteRetirement();
 
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [filterBusiness, setFilterBusiness] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Retirement | null>(null);
   const [formData, setFormData] = useState<Partial<Retirement>>({}); 
+
+  const businesses = useMemo(() => [...new Set((items || []).map(i => i.business).filter(Boolean))].sort(), [items]);
+
+  const filteredItems = useMemo(() => (items || []).filter(item => {
+    const q = search.toLowerCase();
+    if (q && !item.appName?.toLowerCase().includes(q) && !item.business?.toLowerCase().includes(q) && !item.reason?.toLowerCase().includes(q)) return false;
+    if (filterBusiness !== "all" && item.business !== filterBusiness) return false;
+    if (filterStatus !== "all" && item.status !== filterStatus) return false;
+    return true;
+  }), [items, search, filterBusiness, filterStatus]);
 
   const handleOpenModal = (item: Retirement | null = null) => {
     setEditingItem(item);
@@ -76,8 +91,8 @@ export default function Retirements() {
   const inProgress = items?.filter(i => i.status === "In Progress").length || 0;
   const totalBudget = items?.reduce((sum, item) => sum + (item.budgetLakhs || 0), 0) || 0;
 
-  const totalPages = Math.max(1, Math.ceil((items?.length || 0) / PAGE_SIZE));
-  const pagedItems = (items || []).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const pagedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const getEffortBadge = (effort: string) => {
     if (effort === "High") return "bg-red-500/20 text-red-400 border-red-500/30";
@@ -92,20 +107,52 @@ export default function Retirements() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-5">
+      <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">App Retirement Plan</h2>
-          <p className="text-muted-foreground">Planned decommissioning of legacy systems</p>
+          <h2 className="text-xl font-bold tracking-tight">App Retirement Plan</h2>
+          <p className="text-xs text-muted-foreground">{totalPlanned} total · {filteredItems.length} shown</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <ImportExportMenu module="retirements" label="Retirements" onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListRetirementsQueryKey() })} />
           {isAdmin && (
-            <Button onClick={() => handleOpenModal(null)}>
+            <Button size="sm" onClick={() => handleOpenModal(null)}>
               <Plus className="mr-2 h-4 w-4" /> Add Plan
             </Button>
           )}
         </div>
+      </div>
+      {/* Search & Filters */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search app, business, reason…"
+            className="pl-8 h-8 text-xs"
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+          />
+          {search && <button onClick={() => { setSearch(""); setPage(1); }} className="absolute right-2 top-2"><X className="h-4 w-4 text-muted-foreground" /></button>}
+        </div>
+        <Select value={filterBusiness} onValueChange={v => { setFilterBusiness(v); setPage(1); }}>
+          <SelectTrigger className="h-8 text-xs w-40"><SelectValue placeholder="Business Unit" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Business Units</SelectItem>
+            {businesses.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterStatus} onValueChange={v => { setFilterStatus(v); setPage(1); }}>
+          <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            {["Planned", "In Progress", "Completed"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {(search || filterBusiness !== "all" || filterStatus !== "all") && (
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setSearch(""); setFilterBusiness("all"); setFilterStatus("all"); setPage(1); }}>
+            <X className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

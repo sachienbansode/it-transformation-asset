@@ -17,6 +17,7 @@ A full-stack IT Transformation Planning Suite built for the CTO of Ashika Group 
 - **Session Store:** connect-pg-simple (user_sessions table in DB)
 - **Auth:** bcryptjs (passwords), speakeasy (TOTP MFA), express-session
 - **Charts:** Recharts
+- **PPT Generation:** pptxgenjs (server-side PPTX generation)
 - **API:** REST, auto-generated `@workspace/api-client-react` hooks
 
 ---

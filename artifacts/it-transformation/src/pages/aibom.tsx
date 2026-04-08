@@ -10,7 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Edit, AlertTriangle, Search, X } from "lucide-react";
+import { useMemo } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { AibomEntry } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
@@ -34,9 +36,20 @@ export default function Aibom() {
   const { data: complianceStatuses } = useMasters("compliance_status");
 
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [filterRisk, setFilterRisk] = useState("all");
+  const [filterCompliance, setFilterCompliance] = useState("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AibomEntry | null>(null);
   const [formData, setFormData] = useState<Partial<AibomEntry>>({}); 
+
+  const filteredItems = useMemo(() => (items || []).filter(item => {
+    const q = search.toLowerCase();
+    if (q && !item.name?.toLowerCase().includes(q) && !item.provider?.toLowerCase().includes(q) && !item.type?.toLowerCase().includes(q)) return false;
+    if (filterRisk !== "all" && item.riskLevel !== filterRisk) return false;
+    if (filterCompliance !== "all" && item.complianceStatus !== filterCompliance) return false;
+    return true;
+  }), [items, search, filterRisk, filterCompliance]);
 
   const handleOpenModal = (item: AibomEntry | null = null) => {
     setEditingItem(item);
@@ -95,8 +108,8 @@ export default function Aibom() {
   const highRisk = items?.filter(i => i.riskLevel === "High" || i.riskLevel === "Critical").length || 0;
   const nonCompliant = items?.filter(i => i.complianceStatus === "Non-Compliant").length || 0;
 
-  const totalPages = Math.max(1, Math.ceil(totalComponents / PAGE_SIZE));
-  const pagedItems = (items || []).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const pagedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
@@ -128,6 +141,40 @@ export default function Aibom() {
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Non-Compliant</CardTitle></CardHeader>
           <CardContent><div className={`text-2xl font-bold ${nonCompliant > 0 ? "text-orange-500" : ""}`}>{nonCompliant}</div></CardContent>
         </Card>
+      </div>
+
+      {/* Search & Filters */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search name, provider, type…"
+            className="pl-8 h-8 text-xs"
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+          />
+          {search && <button onClick={() => { setSearch(""); setPage(1); }} className="absolute right-2 top-2"><X className="h-4 w-4 text-muted-foreground" /></button>}
+        </div>
+        <Select value={filterRisk} onValueChange={v => { setFilterRisk(v); setPage(1); }}>
+          <SelectTrigger className="h-8 text-xs w-40"><SelectValue placeholder="Risk Level" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Risk Levels</SelectItem>
+            {riskLevels?.map(r => <SelectItem key={r.id} value={r.label}>{r.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterCompliance} onValueChange={v => { setFilterCompliance(v); setPage(1); }}>
+          <SelectTrigger className="h-8 text-xs w-40"><SelectValue placeholder="Compliance" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            {complianceStatuses?.map(c => <SelectItem key={c.id} value={c.label}>{c.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {(search || filterRisk !== "all" || filterCompliance !== "all") && (
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setSearch(""); setFilterRisk("all"); setFilterCompliance("all"); setPage(1); }}>
+            <X className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        )}
+        <span className="text-xs text-muted-foreground ml-auto">{filteredItems.length} of {totalComponents} shown</span>
       </div>
 
       <Card>

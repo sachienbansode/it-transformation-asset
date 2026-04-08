@@ -81,9 +81,16 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     roadmapItems: roadmap.map(r => ({
       id: r.id, title: r.title, phase: r.phase, status: r.status,
       priority: r.priority, budgetLakhs: r.budgetLakhs, owner: r.owner,
+      business: r.business,
+    })),
+    applicationItems: apps.map(a => ({
+      id: a.id, appId: a.appId, name: a.name, business: a.business,
+      category: a.category, hosting: a.hosting, criticality: a.criticality,
+      applicationStatus: (a as any).applicationStatus ?? "Active",
+      lifecycle: a.lifecycle,
     })),
     retirementItems: retirements.map(r => ({
-      id: r.id, appName: r.appName, status: r.status,
+      id: r.id, appName: r.appName, status: r.status, business: r.business,
       retirementDate: r.retirementDate, reason: r.reason,
     })),
   });

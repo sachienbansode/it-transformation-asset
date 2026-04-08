@@ -13,6 +13,7 @@ import authRouter from "./auth";
 import businessUnitsRouter, { seedBusinessUnits } from "./business-units";
 import csvRouter from "./csv-routes";
 import auditRouter from "./audit-logs";
+import reportsRouter from "./reports";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -49,5 +50,6 @@ router.use(adminRouter);
 router.use(businessUnitsRouter);
 router.use(csvRouter);
 router.use(auditRouter);
+router.use(reportsRouter);
 
 export default router;
