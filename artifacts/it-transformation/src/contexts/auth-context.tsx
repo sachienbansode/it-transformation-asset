@@ -13,6 +13,7 @@ export interface AuthUser {
 
 interface AuthContextValue {
   user: AuthUser | null;
+  isAdmin: boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<{ requiresMfa?: boolean }>;
   loginMfa: (token: string) => Promise<void>;
@@ -62,8 +63,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const isAdmin = user?.role === "admin";
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginMfa, logout, refresh }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, login, loginMfa, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   );

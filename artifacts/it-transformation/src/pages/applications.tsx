@@ -15,10 +15,12 @@ import type { Application } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useCurrency } from "@/contexts/currency-context";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function Applications() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { isAdmin } = useAuth();
   const { data: items } = useListApplications();
   const { format } = useCurrency();
   
@@ -96,9 +98,11 @@ export default function Applications() {
           <h2 className="text-2xl font-bold tracking-tight">Application Inventory</h2>
           <p className="text-muted-foreground">Total apps: {items?.length || 0} | Filtered: {filteredItems?.length || 0}</p>
         </div>
-        <Button onClick={() => handleOpenModal(null)}>
-          <Plus className="mr-2 h-4 w-4" /> Add Application
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => handleOpenModal(null)}>
+            <Plus className="mr-2 h-4 w-4" /> Add Application
+          </Button>
+        )}
       </div>
 
       <div className="flex gap-4 items-center flex-wrap">
@@ -134,7 +138,7 @@ export default function Applications() {
               <TableHead>Criticality</TableHead>
               <TableHead>Support Status</TableHead>
               <TableHead>Annual Cost</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              {isAdmin && <TableHead className="text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -148,14 +152,16 @@ export default function Applications() {
                 <TableCell><Badge className={getCriticalityBadge(item.criticality)}>{item.criticality}</Badge></TableCell>
                 <TableCell><Badge className={item.supportStatus === 'Unsupported' ? 'bg-red-500/20 text-red-400 border-red-500/30' : item.supportStatus === 'Limited Support' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 'bg-green-500/20 text-green-400 border-green-500/30'}>{item.supportStatus}</Badge></TableCell>
                 <TableCell className="text-sm">{item.annualCostLakhs ? format(item.annualCostLakhs) : "-"}</TableCell>
-                <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </TableCell>
+                {isAdmin && (
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>

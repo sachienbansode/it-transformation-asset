@@ -15,9 +15,11 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recha
 import type { RoadmapItem } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useCurrency } from "@/contexts/currency-context";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function Roadmap() {
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const { toast } = useToast();
   const { data: items } = useListRoadmapItems();
   const { format } = useCurrency();
@@ -93,9 +95,11 @@ export default function Roadmap() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold tracking-tight">Transformation Roadmap</h2>
-        <Button onClick={() => handleOpenModal(null)}>
-          <Plus className="mr-2 h-4 w-4" /> Add Initiative
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => handleOpenModal(null)}>
+            <Plus className="mr-2 h-4 w-4" /> Add Initiative
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -149,10 +153,12 @@ export default function Roadmap() {
             <CardHeader className="pb-2">
               <div className="flex justify-between items-start">
                 <Badge variant="outline" className="mb-2">{item.phase.split(':')[0]}</Badge>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleOpenModal(item)}><Edit className="h-3 w-3" /></Button>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-3 w-3" /></Button>
-                </div>
+                {isAdmin && (
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleOpenModal(item)}><Edit className="h-3 w-3" /></Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-3 w-3" /></Button>
+                  </div>
+                )}
               </div>
               <CardTitle className="text-lg">{item.title}</CardTitle>
             </CardHeader>

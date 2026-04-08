@@ -15,10 +15,12 @@ import { Search, Plus, Trash2, Edit } from "lucide-react";
 import type { ChecklistItem } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function Checklist() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { isAdmin } = useAuth();
   const { data: items } = useListChecklistItems();
   
   const createItem = useCreateChecklistItem();
@@ -109,9 +111,11 @@ export default function Checklist() {
           <h2 className="text-2xl font-bold tracking-tight">IT Master Checklist</h2>
           <p className="text-muted-foreground">Total items: {items?.length || 0} | Filtered: {filteredItems?.length || 0}</p>
         </div>
-        <Button onClick={() => handleOpenModal(null)}>
-          <Plus className="mr-2 h-4 w-4" /> Add Item
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => handleOpenModal(null)}>
+            <Plus className="mr-2 h-4 w-4" /> Add Item
+          </Button>
+        )}
       </div>
 
       <div className="flex gap-4 items-center flex-wrap">
@@ -154,7 +158,7 @@ export default function Checklist() {
               <TableHead>Current App</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Priority</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              {isAdmin && <TableHead className="text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -166,14 +170,16 @@ export default function Checklist() {
                 <TableCell className="text-xs text-muted-foreground">{item.currentApp || "-"}</TableCell>
                 <TableCell><Badge className={getStatusBadge(item.status)}>{item.status}</Badge></TableCell>
                 <TableCell><Badge className={getPriorityBadge(item.priority)}>{item.priority}</Badge></TableCell>
-                <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </TableCell>
+                {isAdmin && (
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
             {filteredItems?.length === 0 && (

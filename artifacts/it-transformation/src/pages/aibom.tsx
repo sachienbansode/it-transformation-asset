@@ -14,10 +14,12 @@ import { Plus, Trash2, Edit, AlertTriangle } from "lucide-react";
 import type { AibomEntry } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function Aibom() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { isAdmin } = useAuth();
   const { data: items } = useListAibomEntries();
   
   const createItem = useCreateAibomEntry();
@@ -95,9 +97,11 @@ export default function Aibom() {
           <h2 className="text-2xl font-bold tracking-tight">AI Bill of Materials (AIBOM)</h2>
           <p className="text-muted-foreground">AI/ML components used across Ashika Group systems</p>
         </div>
-        <Button onClick={() => handleOpenModal(null)}>
-          <Plus className="mr-2 h-4 w-4" /> Add AI Component
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => handleOpenModal(null)}>
+            <Plus className="mr-2 h-4 w-4" /> Add AI Component
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -126,7 +130,7 @@ export default function Aibom() {
               <TableHead>Use Case</TableHead>
               <TableHead>Risk</TableHead>
               <TableHead>Compliance</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              {isAdmin && <TableHead className="text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -139,14 +143,16 @@ export default function Aibom() {
                 <TableCell className="text-xs text-muted-foreground max-w-32 truncate">{(item as any).useCase || "-"}</TableCell>
                 <TableCell><Badge className={getRiskBadgeClass(item.riskLevel)}>{item.riskLevel}</Badge></TableCell>
                 <TableCell><Badge className={getComplianceBadge(item.complianceStatus)}>{item.complianceStatus}</Badge></TableCell>
-                <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </TableCell>
+                {isAdmin && (
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
