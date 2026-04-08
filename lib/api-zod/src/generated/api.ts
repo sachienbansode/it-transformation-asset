@@ -268,6 +268,10 @@ export const ListApplicationsResponseItem = zod.object({
   owner: zod.string().nullish(),
   supportStatus: zod.string(),
   comments: zod.string().nullish(),
+  applicationStatus: zod.string().optional(),
+  dateOfOnboarding: zod.string().nullish(),
+  dateOfRetirement: zod.string().nullish(),
+  isActive: zod.boolean().optional(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -292,6 +296,10 @@ export const CreateApplicationBody = zod.object({
   owner: zod.string().nullish(),
   supportStatus: zod.string(),
   comments: zod.string().nullish(),
+  applicationStatus: zod.string().optional(),
+  dateOfOnboarding: zod.string().nullish(),
+  dateOfRetirement: zod.string().nullish(),
+  isActive: zod.boolean().optional(),
 });
 
 /**
@@ -316,6 +324,10 @@ export const UpdateApplicationBody = zod.object({
   owner: zod.string().nullish(),
   supportStatus: zod.string().optional(),
   comments: zod.string().nullish(),
+  applicationStatus: zod.string().optional(),
+  dateOfOnboarding: zod.string().nullish(),
+  dateOfRetirement: zod.string().nullish(),
+  isActive: zod.boolean().optional(),
 });
 
 export const UpdateApplicationResponse = zod.object({
@@ -335,6 +347,10 @@ export const UpdateApplicationResponse = zod.object({
   owner: zod.string().nullish(),
   supportStatus: zod.string(),
   comments: zod.string().nullish(),
+  applicationStatus: zod.string().optional(),
+  dateOfOnboarding: zod.string().nullish(),
+  dateOfRetirement: zod.string().nullish(),
+  isActive: zod.boolean().optional(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });

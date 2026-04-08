@@ -20,7 +20,10 @@ import { MasterSelect } from "@/components/master-select";
 import { useCurrency } from "@/contexts/currency-context";
 import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
+import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 10;
 
 // ─── Gantt Chart ─────────────────────────────────────────────────────────────
 
@@ -201,6 +204,10 @@ export default function Roadmap() {
   const [activeTab, setActiveTab] = useState("All");
   const [showTimeline, setShowTimeline] = useState(true);
   const [showInactive, setShowInactive] = useState(false);
+  const [page, setPage] = useState(1);
+
+  const setTabAndReset = (v: string) => { setActiveTab(v); setPage(1); };
+  const setShowInactiveAndReset = (v: boolean) => { setShowInactive(v); setPage(1); };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RoadmapItem | null>(null);
   const [formData, setFormData] = useState<FormData>({});
@@ -214,6 +221,9 @@ export default function Roadmap() {
       return inPhase && inActive;
     });
   }, [items, activeTab, showInactive]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const pagedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const activeItems = useMemo(() => items?.filter(i => (i as any).isActive !== false) ?? [], [items]);
 
@@ -331,7 +341,7 @@ export default function Roadmap() {
 
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={setTabAndReset}>
           <TabsList className="h-8">
             <TabsTrigger value="All" className="text-xs px-2.5 h-6">All</TabsTrigger>
             <TabsTrigger value="Phase 1: Quick Wins" className="text-xs px-2.5 h-6">Phase 1</TabsTrigger>
@@ -340,14 +350,14 @@ export default function Roadmap() {
           </TabsList>
         </Tabs>
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-          <Switch checked={showInactive} onCheckedChange={setShowInactive} className="scale-75" />
+          <Switch checked={showInactive} onCheckedChange={setShowInactiveAndReset} className="scale-75" />
           Show inactive
         </label>
       </div>
 
       {/* Initiative cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredItems.map(item => {
+        {pagedItems.map(item => {
           const color = getPhaseColor(item.phase);
           const isInactive = (item as any).isActive === false;
           return (
@@ -392,10 +402,17 @@ export default function Roadmap() {
             </Card>
           );
         })}
-        {filteredItems.length === 0 && (
+        {pagedItems.length === 0 && (
           <div className="col-span-3 py-12 text-center text-sm text-muted-foreground">No initiatives found.</div>
         )}
       </div>
+
+      {filteredItems.length > PAGE_SIZE && (
+        <Pagination
+          page={page} totalPages={totalPages} totalItems={filteredItems.length}
+          pageSize={PAGE_SIZE} onPageChange={setPage}
+        />
+      )}
 
       {/* ─── Timeline (bottom, hideable) ──────────── */}
       <Card>

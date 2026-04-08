@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth-context";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,11 +19,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield, Building2,
+  Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield, Building2, Clock,
+  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-type Tab = "settings" | "users" | "masters" | "business-units";
+type Tab = "settings" | "users" | "masters" | "business-units" | "audit";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
@@ -49,10 +50,19 @@ interface AdminSettings {
 export default function Admin() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
+  const search = useSearch();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [tab, setTab] = useState<Tab>("settings");
+  const tabFromUrl = new URLSearchParams(search).get("tab") as Tab | null;
+  const [tab, setTab] = useState<Tab>(tabFromUrl || "settings");
+
+  useEffect(() => {
+    const t = new URLSearchParams(search).get("tab") as Tab | null;
+    if (t && ["settings", "users", "masters", "business-units", "audit"].includes(t)) {
+      setTab(t);
+    }
+  }, [search]);
 
   useEffect(() => {
     if (user && user.role !== "admin") navigate("/");
@@ -74,7 +84,8 @@ export default function Admin() {
           ["users", Users, "User Management"],
           ["masters", Database, "Master Data"],
           ["business-units", Building2, "Business Units"],
-        ] as const).map(([t, Icon, label]) => (
+          ["audit", Clock, "Audit Trail"],
+        ] as [Tab, React.ElementType, string][]).map(([t, Icon, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -92,6 +103,7 @@ export default function Admin() {
       {tab === "users" && <UsersTab />}
       {tab === "masters" && <MastersTab />}
       {tab === "business-units" && <BusinessUnitsTab />}
+      {tab === "audit" && <AuditTrailTab />}
     </div>
   );
 }
@@ -838,6 +850,152 @@ function BusinessUnitsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ─── AUDIT TRAIL TAB ─────────────────────────────────────────────────────────
+
+interface AuditLog {
+  id: number;
+  entityType: string;
+  entityId?: number;
+  action: string;
+  performedBy?: string;
+  performedAt: string;
+  summary?: string;
+  oldValues?: unknown;
+  newValues?: unknown;
+}
+
+function AuditTrailTab() {
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [entityType, setEntityType] = useState("all");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: "20" });
+      if (entityType !== "all") params.set("entityType", entityType);
+      const result = await apiFetch<{ logs: AuditLog[]; hasMore: boolean }>(`/audit-logs?${params}`);
+      setLogs(result.logs);
+      setHasMore(result.hasMore);
+    } catch { setLogs([]); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { fetchLogs(); }, [entityType, page]);
+
+  const actionBadge = (action: string) => {
+    const map: Record<string, string> = {
+      create: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-400/10",
+      update: "border-blue-500/30 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-400/10",
+      delete: "border-red-500/30 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-400/10",
+      import: "border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-400/10",
+    };
+    return map[action] || "border-border text-muted-foreground";
+  };
+
+  return (
+    <div className="space-y-4 max-w-5xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Audit Trail</h2>
+          <p className="text-xs text-muted-foreground">All changes to application data, with before/after snapshots</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={entityType} onValueChange={v => { setEntityType(v); setPage(1); }}>
+            <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Entities</SelectItem>
+              <SelectItem value="application">Applications</SelectItem>
+              <SelectItem value="roadmap">Roadmap</SelectItem>
+              <SelectItem value="checklist">Checklist</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" onClick={fetchLogs}><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : logs.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
+          No audit records found.
+        </div>
+      ) : (
+        <div className="border border-border rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/40 border-b border-border">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-36">Time</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-24">Entity</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-20">Action</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Summary</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Performed By</th>
+                <th className="px-4 py-2.5 text-right text-xs font-semibold text-muted-foreground uppercase w-16">Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map(log => (
+                <React.Fragment key={log.id}>
+                  <tr className="border-t border-border hover:bg-muted/20">
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                      {new Date(log.performedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Badge variant="outline" className="text-[10px] capitalize">{log.entityType}</Badge>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Badge variant="outline" className={`text-[10px] capitalize border ${actionBadge(log.action)}`}>{log.action}</Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-xs truncate" title={log.summary}>{log.summary}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[160px]" title={log.performedBy}>{log.performedBy || "—"}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {(log.oldValues || log.newValues) && (
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
+                          {expandedId === log.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                  {expandedId === log.id && (
+                    <tr className="border-t border-border bg-muted/10">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="grid grid-cols-2 gap-4">
+                          {log.oldValues && (
+                            <div>
+                              <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5">Before</p>
+                              <pre className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{JSON.stringify(log.oldValues, null, 2)}</pre>
+                            </div>
+                          )}
+                          {log.newValues && (
+                            <div>
+                              <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5">After</p>
+                              <pre className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{JSON.stringify(log.newValues, null, 2)}</pre>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-1">
+        <span className="text-xs text-muted-foreground">Page {page}</span>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
+          <Button size="sm" variant="outline" disabled={!hasMore} onClick={() => setPage(p => p + 1)}>Next</Button>
+        </div>
+      </div>
     </div>
   );
 }

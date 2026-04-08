@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useListApplications, useCreateApplication, useUpdateApplication, useDeleteApplication, getListApplicationsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, Edit, Search } from "lucide-react";
@@ -17,6 +19,40 @@ import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useCurrency } from "@/contexts/currency-context";
 import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
+import { Pagination } from "@/components/pagination";
+import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 10;
+
+type FormData = Partial<Application> & {
+  applicationStatus?: string;
+  dateOfOnboarding?: string;
+  dateOfRetirement?: string;
+  isActive?: boolean;
+};
+
+function validateForm(f: FormData): Record<string, string> {
+  const errs: Record<string, string> = {};
+  if (!f.appId?.trim()) errs.appId = "App ID is required";
+  if (!f.name?.trim()) errs.name = "Name is required";
+  if (!f.business?.trim()) errs.business = "Business unit is required";
+  if (!f.category?.trim()) errs.category = "Category is required";
+  if (!f.hosting?.trim()) errs.hosting = "Hosting is required";
+  if (!f.criticality?.trim()) errs.criticality = "Criticality is required";
+  if (f.dateOfRetirement && f.dateOfOnboarding && f.dateOfRetirement <= f.dateOfOnboarding) {
+    errs.dateOfRetirement = "Retirement date must be after onboarding date";
+  }
+  if (f.applicationStatus === "Retired" && !f.dateOfRetirement) {
+    errs.dateOfRetirement = "Retirement date is required when status is Retired";
+  }
+  return errs;
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  Active: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-400/10",
+  Retired: "border-gray-400/30 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-400/10",
+  Stopped: "border-red-500/30 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-400/10",
+};
 
 export default function Applications() {
   const queryClient = useQueryClient();
@@ -24,7 +60,7 @@ export default function Applications() {
   const { isAdmin } = useAuth();
   const { data: items } = useListApplications();
   const { format } = useCurrency();
-  
+
   const createItem = useCreateApplication();
   const updateItem = useUpdateApplication();
   const deleteItem = useDeleteApplication();
@@ -36,39 +72,75 @@ export default function Applications() {
   const [search, setSearch] = useState("");
   const [filterBusiness, setFilterBusiness] = useState("");
   const [filterHosting, setFilterHosting] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Application | null>(null);
-  const [formData, setFormData] = useState<Partial<Application>>({});
+  const [formData, setFormData] = useState<FormData>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const filteredItems = items?.filter(item => {
+  const filteredItems = useMemo(() => items?.filter(item => {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase()) && !item.appId.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterBusiness && item.business !== filterBusiness) return false;
     if (filterHosting && item.hosting !== filterHosting) return false;
+    if (filterStatus && (item as any).applicationStatus !== filterStatus) return false;
     return true;
-  });
+  }) ?? [], [items, search, filterBusiness, filterHosting, filterStatus]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const pagedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleOpenModal = (item: Application | null = null) => {
     setEditingItem(item);
-    setFormData(item || { appId: "", name: "", business: "", category: "", hosting: "", criticality: "", supportStatus: "" });
+    if (item) {
+      setFormData({
+        ...item,
+        applicationStatus: (item as any).applicationStatus || "Active",
+        dateOfOnboarding: (item as any).dateOfOnboarding || "",
+        dateOfRetirement: (item as any).dateOfRetirement || "",
+        isActive: (item as any).isActive !== false,
+      });
+    } else {
+      setFormData({
+        appId: "", name: "", business: "", category: "", hosting: "",
+        criticality: "", supportStatus: "Active", applicationStatus: "Active",
+        dateOfOnboarding: "", dateOfRetirement: "", isActive: true,
+      });
+    }
+    setErrors({});
     setIsModalOpen(true);
   };
 
+  const set = (key: keyof FormData, value: unknown) => {
+    setFormData(p => ({ ...p, [key]: value }));
+    setErrors(e => { const n = { ...e }; delete n[key as string]; return n; });
+  };
+
   const handleSave = () => {
+    const errs = validateForm(formData);
+    if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+
+    const payload: any = { ...formData };
+    if (!payload.dateOfOnboarding) payload.dateOfOnboarding = null;
+    if (!payload.dateOfRetirement) payload.dateOfRetirement = null;
+
     if (editingItem) {
-      updateItem.mutate({ id: editingItem.id, data: formData as any }, {
+      updateItem.mutate({ id: editingItem.id, data: payload }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListApplicationsQueryKey() });
           setIsModalOpen(false);
           toast({ title: "Updated successfully" });
-        }
+        },
+        onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
       });
     } else {
-      createItem.mutate({ data: formData as any }, {
+      createItem.mutate({ data: payload }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListApplicationsQueryKey() });
           setIsModalOpen(false);
           toast({ title: "Created successfully" });
-        }
+        },
+        onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
       });
     }
   };
@@ -79,7 +151,7 @@ export default function Applications() {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListApplicationsQueryKey() });
           toast({ title: "Deleted successfully" });
-        }
+        },
       });
     }
   };
@@ -92,37 +164,51 @@ export default function Applications() {
     return "bg-green-500/20 text-green-400 border-green-500/30";
   };
 
+  const FieldError = ({ k }: { k: string }) =>
+    errors[k] ? <p className="text-xs text-destructive mt-0.5">{errors[k]}</p> : null;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Application Inventory</h2>
-          <p className="text-muted-foreground">Total apps: {items?.length || 0} | Filtered: {filteredItems?.length || 0}</p>
+          <h1 className="text-xl font-bold tracking-tight text-foreground">Application Inventory</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">{items?.length || 0} total · {filteredItems.length} filtered</p>
         </div>
         <div className="flex items-center gap-2">
           <ImportExportMenu module="applications" label="Applications" onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListApplicationsQueryKey() })} />
           {isAdmin && (
-            <Button onClick={() => handleOpenModal(null)}>
-              <Plus className="mr-2 h-4 w-4" /> Add Application
+            <Button size="sm" onClick={() => handleOpenModal(null)}>
+              <Plus className="mr-1.5 h-4 w-4" /> Add Application
             </Button>
           )}
         </div>
       </div>
 
-      <div className="flex gap-4 items-center flex-wrap">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search by name or ID..." className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
+      {/* Filters */}
+      <div className="flex gap-3 items-center flex-wrap">
+        <div className="relative flex-1 min-w-48 max-w-sm">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Search by name or ID..." className="pl-9 h-9" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <Select value={filterBusiness || "all"} onValueChange={v => setFilterBusiness(v === "all" ? "" : v)}>
-          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Businesses" /></SelectTrigger>
+        <Select value={filterBusiness || "all"} onValueChange={v => { setFilterBusiness(v === "all" ? "" : v); setPage(1); }}>
+          <SelectTrigger className="w-40 h-9 text-xs"><SelectValue placeholder="All BUs" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Businesses</SelectItem>
+            <SelectItem value="all">All Business Units</SelectItem>
             {businesses?.map(b => <SelectItem key={b.id} value={b.label}>{b.label}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={filterHosting || "all"} onValueChange={v => setFilterHosting(v === "all" ? "" : v)}>
-          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Hosting" /></SelectTrigger>
+        <Select value={filterStatus || "all"} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}>
+          <SelectTrigger className="w-36 h-9 text-xs"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="Active">Active</SelectItem>
+            <SelectItem value="Retired">Retired</SelectItem>
+            <SelectItem value="Stopped">Stopped</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filterHosting || "all"} onValueChange={v => { setFilterHosting(v === "all" ? "" : v); setPage(1); }}>
+          <SelectTrigger className="w-36 h-9 text-xs"><SelectValue placeholder="All Hosting" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Hosting</SelectItem>
             {hostings?.map(h => <SelectItem key={h.id} value={h.label}>{h.label}</SelectItem>)}
@@ -130,83 +216,182 @@ export default function Applications() {
         </Select>
       </div>
 
+      {/* Table */}
       <Card>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>App ID</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Business</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Hosting</TableHead>
-              <TableHead>Criticality</TableHead>
-              <TableHead>Support Status</TableHead>
-              <TableHead>Annual Cost</TableHead>
-              {isAdmin && <TableHead className="text-right">Actions</TableHead>}
+              <TableHead className="text-xs">App ID</TableHead>
+              <TableHead className="text-xs">Name</TableHead>
+              <TableHead className="text-xs">Business</TableHead>
+              <TableHead className="text-xs">Status</TableHead>
+              <TableHead className="text-xs">Onboarded</TableHead>
+              <TableHead className="text-xs">Retired On</TableHead>
+              <TableHead className="text-xs">Criticality</TableHead>
+              <TableHead className="text-xs">Active</TableHead>
+              {isAdmin && <TableHead className="text-right text-xs">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredItems?.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell className="font-mono text-xs">{item.appId}</TableCell>
-                <TableCell className="font-medium">{item.name}</TableCell>
-                <TableCell><Badge variant="outline">{item.business}</Badge></TableCell>
-                <TableCell className="text-xs text-muted-foreground">{item.category}</TableCell>
-                <TableCell><Badge variant="secondary">{item.hosting}</Badge></TableCell>
-                <TableCell><Badge className={getCriticalityBadge(item.criticality)}>{item.criticality}</Badge></TableCell>
-                <TableCell><Badge className={item.supportStatus === 'Unsupported' ? 'bg-red-500/20 text-red-400 border-red-500/30' : item.supportStatus === 'Limited Support' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 'bg-green-500/20 text-green-400 border-green-500/30'}>{item.supportStatus}</Badge></TableCell>
-                <TableCell className="text-sm">{item.annualCostLakhs ? format(item.annualCostLakhs) : "-"}</TableCell>
-                {isAdmin && (
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+            {pagedItems.map(item => {
+              const appStatus = (item as any).applicationStatus || "Active";
+              const isActive = (item as any).isActive !== false;
+              return (
+                <TableRow key={item.id} className={cn(!isActive && "opacity-60")}>
+                  <TableCell className="font-mono text-xs">{item.appId}</TableCell>
+                  <TableCell className="font-medium text-sm">{item.name}</TableCell>
+                  <TableCell><Badge variant="outline" className="text-[10px]">{item.business}</Badge></TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={cn("text-[10px] border", STATUS_BADGE[appStatus] || "")}>
+                      {appStatus}
+                    </Badge>
                   </TableCell>
-                )}
+                  <TableCell className="text-xs text-muted-foreground">{(item as any).dateOfOnboarding || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{(item as any).dateOfRetirement || "—"}</TableCell>
+                  <TableCell><Badge className={`text-[10px] border ${getCriticalityBadge(item.criticality)}`}>{item.criticality}</Badge></TableCell>
+                  <TableCell>
+                    <span className={cn("text-[10px] font-semibold", isActive ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+                      {isActive ? "Yes" : "No"}
+                    </span>
+                  </TableCell>
+                  {isAdmin && (
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleOpenModal(item)}>
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })}
+            {pagedItems.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">No applications found.</TableCell>
               </TableRow>
-            ))}
+            )}
           </TableBody>
         </Table>
+        <div className="px-4 pb-3">
+          <Pagination
+            page={page} totalPages={totalPages} totalItems={filteredItems.length}
+            pageSize={PAGE_SIZE} onPageChange={setPage}
+          />
+        </div>
       </Card>
 
+      {/* Add/Edit Dialog */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader><DialogTitle>{editingItem ? "Edit Application" : "Add Application"}</DialogTitle></DialogHeader>
-          <div className="grid gap-4 py-4 grid-cols-2">
-            <div className="grid gap-2"><Label>App ID</Label><Input value={formData.appId || ""} onChange={e => setFormData({...formData, appId: e.target.value})} placeholder="APP-001" /></div>
-            <div className="grid gap-2"><Label>Name</Label><Input value={formData.name || ""} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
-            <div className="grid gap-2">
-              <Label>Business Unit</Label>
-              <MasterSelect category="business" value={formData.business || ""} onChange={v => setFormData({...formData, business: v})} placeholder="Select business" />
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingItem ? "Edit Application" : "Add Application"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 grid-cols-2">
+            {/* App ID */}
+            <div className="grid gap-1.5">
+              <Label>App ID <span className="text-destructive">*</span></Label>
+              <Input value={formData.appId || ""} onChange={e => set("appId", e.target.value)} placeholder="APP-001" className={errors.appId ? "border-destructive" : ""} />
+              <FieldError k="appId" />
             </div>
-            <div className="grid gap-2">
-              <Label>Category</Label>
-              <MasterSelect category="app_category" value={formData.category || ""} onChange={v => setFormData({...formData, category: v})} placeholder="Select category" />
+            {/* Name */}
+            <div className="grid gap-1.5">
+              <Label>Name <span className="text-destructive">*</span></Label>
+              <Input value={formData.name || ""} onChange={e => set("name", e.target.value)} className={errors.name ? "border-destructive" : ""} />
+              <FieldError k="name" />
             </div>
-            <div className="grid gap-2">
-              <Label>Hosting</Label>
-              <MasterSelect category="hosting" value={formData.hosting || ""} onChange={v => setFormData({...formData, hosting: v})} placeholder="Select hosting" />
+            {/* Business Unit */}
+            <div className="grid gap-1.5">
+              <Label>Business Unit <span className="text-destructive">*</span></Label>
+              <MasterSelect category="business" value={formData.business || ""} onChange={v => set("business", v)} placeholder="Select business" />
+              <FieldError k="business" />
             </div>
-            <div className="grid gap-2">
-              <Label>Criticality</Label>
-              <MasterSelect category="criticality" value={formData.criticality || ""} onChange={v => setFormData({...formData, criticality: v})} placeholder="Select criticality" />
+            {/* Category */}
+            <div className="grid gap-1.5">
+              <Label>Category <span className="text-destructive">*</span></Label>
+              <MasterSelect category="app_category" value={formData.category || ""} onChange={v => set("category", v)} placeholder="Select category" />
+              <FieldError k="category" />
             </div>
-            <div className="grid gap-2">
+            {/* Hosting */}
+            <div className="grid gap-1.5">
+              <Label>Hosting <span className="text-destructive">*</span></Label>
+              <MasterSelect category="hosting" value={formData.hosting || ""} onChange={v => set("hosting", v)} placeholder="Select hosting" />
+              <FieldError k="hosting" />
+            </div>
+            {/* Criticality */}
+            <div className="grid gap-1.5">
+              <Label>Criticality <span className="text-destructive">*</span></Label>
+              <MasterSelect category="criticality" value={formData.criticality || ""} onChange={v => set("criticality", v)} placeholder="Select criticality" />
+              <FieldError k="criticality" />
+            </div>
+            {/* Application Status */}
+            <div className="grid gap-1.5">
+              <Label>Application Status</Label>
+              <Select value={formData.applicationStatus || "Active"} onValueChange={v => set("applicationStatus", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Retired">Retired</SelectItem>
+                  <SelectItem value="Stopped">Stopped</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Support Status */}
+            <div className="grid gap-1.5">
               <Label>Support Status</Label>
-              <MasterSelect category="support_status" value={formData.supportStatus || ""} onChange={v => setFormData({...formData, supportStatus: v})} placeholder="Select status" />
+              <MasterSelect category="support_status" value={formData.supportStatus || ""} onChange={v => set("supportStatus", v)} placeholder="Select status" />
             </div>
-            <div className="grid gap-2"><Label>Annual Cost (₹ Lakhs)</Label><Input type="number" value={formData.annualCostLakhs || 0} onChange={e => setFormData({...formData, annualCostLakhs: Number(e.target.value)})} /></div>
-            <div className="grid gap-2 col-span-2">
+            {/* Date of Onboarding */}
+            <div className="grid gap-1.5">
+              <Label>Date of Onboarding</Label>
+              <Input type="date" value={formData.dateOfOnboarding || ""} onChange={e => set("dateOfOnboarding", e.target.value)} />
+            </div>
+            {/* Date of Retirement */}
+            <div className="grid gap-1.5">
+              <Label>
+                Date of Retirement
+                {formData.applicationStatus === "Retired" && <span className="text-destructive"> *</span>}
+              </Label>
+              <Input
+                type="date"
+                value={formData.dateOfRetirement || ""}
+                onChange={e => set("dateOfRetirement", e.target.value)}
+                className={errors.dateOfRetirement ? "border-destructive" : ""}
+              />
+              <FieldError k="dateOfRetirement" />
+            </div>
+            {/* Annual Cost */}
+            <div className="grid gap-1.5">
+              <Label>Annual Cost (₹ Lakhs)</Label>
+              <Input type="number" min={0} value={formData.annualCostLakhs || 0} onChange={e => set("annualCostLakhs", Number(e.target.value))} />
+            </div>
+            {/* Vendor */}
+            <div className="grid gap-1.5">
               <Label>Vendor</Label>
-              <MasterSelect category="vendor" value={(formData as any).vendor || ""} onChange={v => setFormData({...formData, ...({vendor: v} as any)})} placeholder="Select vendor" />
+              <MasterSelect category="vendor" value={(formData as any).vendor || ""} onChange={v => set("vendor" as any, v)} placeholder="Select vendor" />
+            </div>
+            {/* Comments - full width */}
+            <div className="grid gap-1.5 col-span-2">
+              <Label>Comments</Label>
+              <Textarea
+                value={formData.comments || ""}
+                onChange={e => set("comments", e.target.value)}
+                rows={2}
+                placeholder="Any additional notes or comments about this application"
+              />
+            </div>
+            {/* Is Active */}
+            <div className="flex items-center gap-2 col-span-2">
+              <Switch checked={formData.isActive !== false} onCheckedChange={v => set("isActive", v)} />
+              <Label className="cursor-pointer">{formData.isActive !== false ? "Active" : "Inactive"}</Label>
             </div>
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave}>Save</Button>
+            <Button onClick={handleSave} disabled={createItem.isPending || updateItem.isPending}>
+              {editingItem ? "Update" : "Create"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

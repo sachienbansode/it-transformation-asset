@@ -16,6 +16,9 @@ import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
+import { Pagination } from "@/components/pagination";
+
+const PAGE_SIZE = 10;
 
 export default function Aibom() {
   const queryClient = useQueryClient();
@@ -30,9 +33,10 @@ export default function Aibom() {
   const { data: riskLevels } = useMasters("risk_level");
   const { data: complianceStatuses } = useMasters("compliance_status");
 
+  const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AibomEntry | null>(null);
-  const [formData, setFormData] = useState<Partial<AibomEntry>>({});
+  const [formData, setFormData] = useState<Partial<AibomEntry>>({}); 
 
   const handleOpenModal = (item: AibomEntry | null = null) => {
     setEditingItem(item);
@@ -91,6 +95,9 @@ export default function Aibom() {
   const highRisk = items?.filter(i => i.riskLevel === "High" || i.riskLevel === "Critical").length || 0;
   const nonCompliant = items?.filter(i => i.complianceStatus === "Non-Compliant").length || 0;
 
+  const totalPages = Math.max(1, Math.ceil(totalComponents / PAGE_SIZE));
+  const pagedItems = (items || []).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -138,7 +145,7 @@ export default function Aibom() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items?.map((item) => (
+            {pagedItems.map((item) => (
               <TableRow key={item.id}>
                 <TableCell className="font-mono text-xs">{item.componentId}</TableCell>
                 <TableCell className="font-medium">{item.name}</TableCell>
@@ -159,8 +166,14 @@ export default function Aibom() {
                 )}
               </TableRow>
             ))}
+            {pagedItems.length === 0 && (
+              <TableRow><TableCell colSpan={isAdmin ? 8 : 7} className="py-10 text-center text-sm text-muted-foreground">No AI components found.</TableCell></TableRow>
+            )}
           </TableBody>
         </Table>
+        <div className="px-4 pb-3">
+          <Pagination page={page} totalPages={totalPages} totalItems={totalComponents} pageSize={PAGE_SIZE} onPageChange={setPage} />
+        </div>
       </Card>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

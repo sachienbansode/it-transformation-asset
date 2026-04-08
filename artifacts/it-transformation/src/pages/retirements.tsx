@@ -15,6 +15,9 @@ import { MasterSelect } from "@/components/master-select";
 import { useCurrency } from "@/contexts/currency-context";
 import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
+import { Pagination } from "@/components/pagination";
+
+const PAGE_SIZE = 10;
 
 export default function Retirements() {
   const queryClient = useQueryClient();
@@ -27,9 +30,10 @@ export default function Retirements() {
   const updateItem = useUpdateRetirement();
   const deleteItem = useDeleteRetirement();
 
+  const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Retirement | null>(null);
-  const [formData, setFormData] = useState<Partial<Retirement>>({});
+  const [formData, setFormData] = useState<Partial<Retirement>>({}); 
 
   const handleOpenModal = (item: Retirement | null = null) => {
     setEditingItem(item);
@@ -71,6 +75,9 @@ export default function Retirements() {
   const totalPlanned = items?.length || 0;
   const inProgress = items?.filter(i => i.status === "In Progress").length || 0;
   const totalBudget = items?.reduce((sum, item) => sum + (item.budgetLakhs || 0), 0) || 0;
+
+  const totalPages = Math.max(1, Math.ceil((items?.length || 0) / PAGE_SIZE));
+  const pagedItems = (items || []).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const getEffortBadge = (effort: string) => {
     if (effort === "High") return "bg-red-500/20 text-red-400 border-red-500/30";
@@ -132,7 +139,7 @@ export default function Retirements() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items?.map((item) => (
+            {pagedItems.map((item) => (
               <TableRow key={item.id}>
                 <TableCell className="font-medium">{item.appName}</TableCell>
                 <TableCell><Badge variant="outline">{item.business}</Badge></TableCell>
@@ -154,8 +161,14 @@ export default function Retirements() {
                 )}
               </TableRow>
             ))}
+            {pagedItems.length === 0 && (
+              <TableRow><TableCell colSpan={isAdmin ? 9 : 8} className="py-10 text-center text-sm text-muted-foreground">No retirement plans found.</TableCell></TableRow>
+            )}
           </TableBody>
         </Table>
+        <div className="px-4 pb-3">
+          <Pagination page={page} totalPages={totalPages} totalItems={items?.length || 0} pageSize={PAGE_SIZE} onPageChange={setPage} />
+        </div>
       </Card>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

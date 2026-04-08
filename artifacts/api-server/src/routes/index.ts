@@ -12,6 +12,7 @@ import adminRouter from "./admin";
 import authRouter from "./auth";
 import businessUnitsRouter, { seedBusinessUnits } from "./business-units";
 import csvRouter from "./csv-routes";
+import auditRouter from "./audit-logs";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -47,5 +48,6 @@ router.use(mastersRouter);
 router.use(adminRouter);
 router.use(businessUnitsRouter);
 router.use(csvRouter);
+router.use(auditRouter);
 
 export default router;

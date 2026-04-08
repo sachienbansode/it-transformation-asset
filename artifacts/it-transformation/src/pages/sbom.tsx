@@ -16,6 +16,9 @@ import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
+import { Pagination } from "@/components/pagination";
+
+const PAGE_SIZE = 10;
 
 export default function Sbom() {
   const queryClient = useQueryClient();
@@ -31,6 +34,7 @@ export default function Sbom() {
   const { data: licenseTypes } = useMasters("license_type");
 
   const [filterRisk, setFilterRisk] = useState("all");
+  const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<SbomEntry | null>(null);
   const [formData, setFormData] = useState<Partial<SbomEntry>>({});
@@ -38,7 +42,7 @@ export default function Sbom() {
   const filteredItems = items?.filter(item => {
     if (filterRisk !== "all" && item.riskLevel !== filterRisk) return false;
     return true;
-  });
+  }) ?? [];
 
   const handleOpenModal = (item: SbomEntry | null = null) => {
     setEditingItem(item);
@@ -88,6 +92,9 @@ export default function Sbom() {
   const totalComponents = items?.length || 0;
   const highRisk = items?.filter(i => i.riskLevel === "High" || i.riskLevel === "Critical").length || 0;
   const criticalCves = items?.filter(i => i.cve && i.cve !== "None" && i.cve !== "").length || 0;
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const pagedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
@@ -145,7 +152,7 @@ export default function Sbom() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredItems?.map((item) => (
+            {pagedItems.map((item) => (
               <TableRow key={item.id}>
                 <TableCell className="font-medium font-mono text-sm">{item.name}</TableCell>
                 <TableCell className="text-muted-foreground text-xs">{item.version}</TableCell>
@@ -171,8 +178,14 @@ export default function Sbom() {
                 )}
               </TableRow>
             ))}
+            {pagedItems.length === 0 && (
+              <TableRow><TableCell colSpan={isAdmin ? 7 : 6} className="py-10 text-center text-sm text-muted-foreground">No SBOM entries found.</TableCell></TableRow>
+            )}
           </TableBody>
         </Table>
+        <div className="px-4 pb-3">
+          <Pagination page={page} totalPages={totalPages} totalItems={filteredItems.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+        </div>
       </Card>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

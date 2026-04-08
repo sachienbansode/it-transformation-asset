@@ -20,7 +20,7 @@ import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ImportExportMenu } from "@/components/import-export-menu";
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
 
 interface BusinessUnit { id: number; name: string; code: string; }
 

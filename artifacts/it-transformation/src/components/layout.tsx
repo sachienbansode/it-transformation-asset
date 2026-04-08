@@ -7,7 +7,7 @@ import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
-  PanelLeftClose, PanelLeftOpen, Menu, X, Building2,
+  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -38,10 +38,11 @@ const DRISHTI_ITEMS = [
 ];
 
 const ADMIN_ITEMS = [
-  { href: "/admin", label: "Settings", icon: Sliders },
-  { href: "/admin?tab=users", label: "User Management", icon: Users },
-  { href: "/admin?tab=masters", label: "Master Data", icon: Database },
-  { href: "/admin?tab=business-units", label: "Business Units", icon: Building2 },
+  { href: "/admin", label: "Settings", icon: Sliders, tab: "settings" },
+  { href: "/admin?tab=users", label: "User Management", icon: Users, tab: "users" },
+  { href: "/admin?tab=masters", label: "Master Data", icon: Database, tab: "masters" },
+  { href: "/admin?tab=business-units", label: "Business Units", icon: Building2, tab: "business-units" },
+  { href: "/admin?tab=audit", label: "Audit Trail", icon: Clock, tab: "audit" },
 ];
 
 function NavItem({
@@ -137,31 +138,43 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
           {/* Brand */}
           <div className={cn(
-            "h-12 flex items-center border-b border-sidebar-border/50 shrink-0 gap-2.5",
-            isCollapsed ? "px-2.5 justify-center" : "px-3"
+            "h-12 flex items-center border-b border-sidebar-border/50 shrink-0 gap-2",
+            isCollapsed ? "px-1.5 justify-center" : "px-2.5"
           )}>
-            {appConfig.logoUrl ? (
-              <img src={appConfig.logoUrl} alt="Logo" className="h-6 w-6 object-contain rounded flex-shrink-0" />
-            ) : (
-              <div className="h-6 w-6 rounded bg-sidebar-primary/20 border border-sidebar-primary/30 flex items-center justify-center flex-shrink-0">
-                <span className="text-sidebar-primary font-black text-[9px]">AD</span>
-              </div>
-            )}
+            {/* Collapse toggle — always visible in header */}
+            <button
+              onClick={() => setSidebarState(isCollapsed ? "expanded" : "collapsed")}
+              className="h-7 w-7 flex items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent transition-colors flex-shrink-0"
+              title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {isCollapsed
+                ? <PanelLeftOpen className="h-3.5 w-3.5" />
+                : <PanelLeftClose className="h-3.5 w-3.5" />
+              }
+            </button>
+
             {!isCollapsed && (
-              <div className="min-w-0 flex-1">
-                <div className="font-bold text-[12px] text-white/90 tracking-tight leading-tight truncate">
-                  {appConfig.appName}
+              <>
+                {appConfig.logoUrl ? (
+                  <img src={appConfig.logoUrl} alt="Logo" className="h-6 w-6 object-contain rounded flex-shrink-0" />
+                ) : (
+                  <div className="h-5 w-5 rounded bg-sidebar-primary/20 border border-sidebar-primary/30 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sidebar-primary font-black text-[8px]">AD</span>
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-[11px] text-white/90 tracking-tight leading-tight truncate">
+                    {appConfig.appName}
+                  </div>
                 </div>
-              </div>
-            )}
-            {!isCollapsed && (
-              <button
-                onClick={() => setSidebarState("hidden")}
-                className="flex-shrink-0 text-sidebar-foreground/30 hover:text-sidebar-foreground/70 transition-colors"
-                title="Hide sidebar"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+                <button
+                  onClick={() => setSidebarState("hidden")}
+                  className="flex-shrink-0 text-sidebar-foreground/30 hover:text-sidebar-foreground/70 transition-colors"
+                  title="Hide sidebar"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </>
             )}
           </div>
 
@@ -195,20 +208,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             )}
           </nav>
 
-          {/* Collapse toggle + User footer */}
+          {/* User footer */}
           <div className="border-t border-sidebar-border/50 shrink-0">
-            {/* Collapse toggle button */}
-            <button
-              onClick={() => setSidebarState(isCollapsed ? "expanded" : "collapsed")}
-              className={cn(
-                "w-full flex items-center gap-2 py-1.5 px-2.5 text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors text-[11px]",
-                isCollapsed ? "justify-center" : ""
-              )}
-              title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {isCollapsed ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <><PanelLeftClose className="h-3.5 w-3.5" /><span>Collapse</span></>}
-            </button>
-
             {/* User info */}
             {!isCollapsed ? (
               <div className="px-2 pb-2">
