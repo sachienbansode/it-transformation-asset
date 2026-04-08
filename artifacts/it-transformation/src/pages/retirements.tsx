@@ -14,6 +14,7 @@ import type { Retirement } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useCurrency } from "@/contexts/currency-context";
 import { useAuth } from "@/contexts/auth-context";
+import { ImportExportMenu } from "@/components/import-export-menu";
 
 export default function Retirements() {
   const queryClient = useQueryClient();
@@ -90,11 +91,14 @@ export default function Retirements() {
           <h2 className="text-2xl font-bold tracking-tight">App Retirement Plan</h2>
           <p className="text-muted-foreground">Planned decommissioning of legacy systems</p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => handleOpenModal(null)}>
-            <Plus className="mr-2 h-4 w-4" /> Add Plan
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ImportExportMenu module="retirements" label="Retirements" onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListRetirementsQueryKey() })} />
+          {isAdmin && (
+            <Button onClick={() => handleOpenModal(null)}>
+              <Plus className="mr-2 h-4 w-4" /> Add Plan
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

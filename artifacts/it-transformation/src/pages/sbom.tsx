@@ -15,6 +15,7 @@ import type { SbomEntry } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useAuth } from "@/contexts/auth-context";
+import { ImportExportMenu } from "@/components/import-export-menu";
 
 export default function Sbom() {
   const queryClient = useQueryClient();
@@ -95,11 +96,14 @@ export default function Sbom() {
           <h2 className="text-2xl font-bold tracking-tight">Software Bill of Materials (SBOM)</h2>
           <p className="text-muted-foreground">Third-party software dependencies and CVE tracking</p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => handleOpenModal(null)}>
-            <Plus className="mr-2 h-4 w-4" /> Add SBOM Entry
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ImportExportMenu module="sbom" label="SBOM" onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListSbomEntriesQueryKey() })} />
+          {isAdmin && (
+            <Button onClick={() => handleOpenModal(null)}>
+              <Plus className="mr-2 h-4 w-4" /> Add SBOM Entry
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -224,29 +224,67 @@ function SettingsTab() {
               placeholder="IT Transformation Planning Suite — Ashika Group"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Logo URL</Label>
-            <Input
-              value={(settings["logo_url"] as string) || ""}
-              onChange={e => set("logo_url", e.target.value)}
-              placeholder="https://example.com/logo.png (leave blank for default icon)"
-            />
-            {(settings["logo_url"] as string) && (
-              <img
-                src={settings["logo_url"] as string}
-                alt="Logo preview"
-                className="h-12 w-12 object-contain rounded border border-border mt-2"
-                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-              />
-            )}
-            <p className="text-xs text-muted-foreground">Enter a publicly accessible image URL. Supported: PNG, SVG, JPG.</p>
-          </div>
+          <LogoUpload
+            value={(settings["logo_url"] as string) || ""}
+            onChange={v => set("logo_url", v)}
+          />
         </CardContent>
       </Card>
 
       <Button onClick={save} disabled={saving} className="min-w-32">
         {saving ? "Saving..." : "Save Settings"}
       </Button>
+    </div>
+  );
+}
+
+function LogoUpload({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onChange(reader.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+  return (
+    <div className="space-y-2">
+      <Label>Logo</Label>
+      <div className="flex items-center gap-3">
+        {value ? (
+          <div className="relative group">
+            <img
+              src={value}
+              alt="Logo"
+              className="h-14 w-14 object-contain rounded-lg border border-border bg-muted"
+              onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+            <button
+              type="button"
+              onClick={() => onChange("")}
+              className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Remove logo"
+            >×</button>
+          </div>
+        ) : (
+          <div className="h-14 w-14 rounded-lg border-2 border-dashed border-border flex items-center justify-center bg-muted/50">
+            <span className="text-[10px] text-muted-foreground font-medium">No logo</span>
+          </div>
+        )}
+        <div className="space-y-1.5">
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+          <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+            Upload Logo
+          </Button>
+          {value && (
+            <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive ml-2" onClick={() => onChange("")}>
+              Remove
+            </Button>
+          )}
+          <p className="text-xs text-muted-foreground">PNG, SVG, JPG · Recommended: 64×64 px</p>
+        </div>
+      </div>
     </div>
   );
 }

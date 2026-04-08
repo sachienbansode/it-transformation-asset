@@ -38,7 +38,7 @@ A full-stack IT Transformation Planning Suite built for the CTO of Ashika Group 
 |--------|------|---------|
 | Executive Dashboard | `/` | KPIs + Recharts (pie, bar) |
 | IT Master Checklist | `/checklist` | 62 items |
-| Transformation Roadmap | `/roadmap` | Gantt-style, ₹1520L total |
+| Transformation Roadmap | `/roadmap` | Custom CSS Gantt chart (with dates + months), hide/show toggle, isActive flag |
 | App Retirement Plan | `/retirements` | 15 apps |
 | Application Inventory | `/applications` | 20 apps |
 | AI Bill of Materials | `/aibom` | 10 AI components |

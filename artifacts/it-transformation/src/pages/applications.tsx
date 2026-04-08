@@ -16,6 +16,7 @@ import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useCurrency } from "@/contexts/currency-context";
 import { useAuth } from "@/contexts/auth-context";
+import { ImportExportMenu } from "@/components/import-export-menu";
 
 export default function Applications() {
   const queryClient = useQueryClient();
@@ -98,11 +99,14 @@ export default function Applications() {
           <h2 className="text-2xl font-bold tracking-tight">Application Inventory</h2>
           <p className="text-muted-foreground">Total apps: {items?.length || 0} | Filtered: {filteredItems?.length || 0}</p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => handleOpenModal(null)}>
-            <Plus className="mr-2 h-4 w-4" /> Add Application
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ImportExportMenu module="applications" label="Applications" onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListApplicationsQueryKey() })} />
+          {isAdmin && (
+            <Button onClick={() => handleOpenModal(null)}>
+              <Plus className="mr-2 h-4 w-4" /> Add Application
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-4 items-center flex-wrap">

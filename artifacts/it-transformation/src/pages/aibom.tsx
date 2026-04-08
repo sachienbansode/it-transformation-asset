@@ -15,6 +15,7 @@ import type { AibomEntry } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useAuth } from "@/contexts/auth-context";
+import { ImportExportMenu } from "@/components/import-export-menu";
 
 export default function Aibom() {
   const queryClient = useQueryClient();
@@ -97,11 +98,14 @@ export default function Aibom() {
           <h2 className="text-2xl font-bold tracking-tight">AI Bill of Materials (AIBOM)</h2>
           <p className="text-muted-foreground">AI/ML components used across Ashika Group systems</p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => handleOpenModal(null)}>
-            <Plus className="mr-2 h-4 w-4" /> Add AI Component
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ImportExportMenu module="aibom" label="AIBOM" onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListAibomEntriesQueryKey() })} />
+          {isAdmin && (
+            <Button onClick={() => handleOpenModal(null)}>
+              <Plus className="mr-2 h-4 w-4" /> Add AI Component
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

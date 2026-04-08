@@ -18,6 +18,7 @@ import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ImportExportMenu } from "@/components/import-export-menu";
 
 const PAGE_SIZE = 15;
 
@@ -247,11 +248,14 @@ export default function Checklist() {
             {items?.length ?? 0} total items · {filteredItems.length} filtered
           </p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => handleOpenModal(null)} size="sm">
-            <Plus className="mr-1.5 h-4 w-4" /> Add Item
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ImportExportMenu module="checklist" label="Checklist" onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListChecklistItemsQueryKey() })} />
+          {isAdmin && (
+            <Button onClick={() => handleOpenModal(null)} size="sm">
+              <Plus className="mr-1.5 h-4 w-4" /> Add Item
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filter bar */}
