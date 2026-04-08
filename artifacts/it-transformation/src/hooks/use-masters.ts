@@ -21,9 +21,9 @@ export function useMasters(category: string) {
 
 export function useAllMasters() {
   return useQuery<Master[]>({
-    queryKey: ["masters", "all"],
+    queryKey: ["masters-admin-all"],
     queryFn: () => apiFetch<Master[]>("/masters?showAll=true"),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
   });
 }
 

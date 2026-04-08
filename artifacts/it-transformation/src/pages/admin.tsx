@@ -561,6 +561,12 @@ function MastersTab() {
     setModalOpen(true);
   };
 
+  const invalidateMasters = () => {
+    queryClient.invalidateQueries({ queryKey: ["masters-admin-all"] });
+    queryClient.invalidateQueries({ queryKey: ["masters"] });
+    refetch();
+  };
+
   const handleSave = async () => {
     try {
       if (editItem) {
@@ -572,8 +578,17 @@ function MastersTab() {
         toast({ title: "Master added" });
       }
       setModalOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["masters"] });
-      refetch();
+      invalidateMasters();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleToggleActive = async (item: any) => {
+    try {
+      await apiFetch(`/masters/${item.id}`, { method: "PATCH", body: JSON.stringify({ isActive: !item.isActive }) });
+      toast({ title: item.isActive ? "Item deactivated" : "Item reactivated" });
+      invalidateMasters();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -584,8 +599,7 @@ function MastersTab() {
     try {
       await apiFetch(`/masters/${item.id}`, { method: "DELETE" });
       toast({ title: "Deleted" });
-      queryClient.invalidateQueries({ queryKey: ["masters"] });
-      refetch();
+      invalidateMasters();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -636,7 +650,7 @@ function MastersTab() {
                 </thead>
                 <tbody>
                   {filtered.map(item => (
-                    <tr key={item.id} className="border-t border-border hover:bg-muted/30">
+                    <tr key={item.id} className={`border-t border-border hover:bg-muted/30 ${!item.isActive ? "opacity-60" : ""}`}>
                       <td className="px-3 py-2 font-medium">{item.label}</td>
                       <td className="px-3 py-2">
                         {item.color ? (
@@ -649,9 +663,19 @@ function MastersTab() {
                           {item.isActive ? "Active" : "Inactive"}
                         </Badge>
                       </td>
-                      <td className="px-3 py-2 flex gap-1">
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(item)}><Pencil className="h-3 w-3" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(item)}><Trash2 className="h-3 w-3" /></Button>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost" size="sm"
+                            className={`h-7 px-2 text-xs ${item.isActive ? "text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20" : "text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"}`}
+                            onClick={() => handleToggleActive(item)}
+                            title={item.isActive ? "Deactivate" : "Reactivate"}
+                          >
+                            {item.isActive ? "Deactivate" : "Reactivate"}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(item)}><Pencil className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(item)}><Trash2 className="h-3 w-3" /></Button>
+                        </div>
                       </td>
                     </tr>
                   ))}

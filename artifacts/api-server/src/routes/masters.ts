@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, mastersTable } from "@workspace/db";
+import { db, mastersTable, usersTable } from "@workspace/db";
 import { z } from "zod";
 import { requireAuth, requireAdmin } from "./auth";
 
@@ -10,19 +10,24 @@ const router = Router();
 // ?showAll=true (admin only) returns inactive items too
 router.get("/masters", async (req, res): Promise<void> => {
   const category = req.query.category as string | undefined;
-  const showAll = req.query.showAll === "true" && (req.session as any)?.user?.role === "admin";
 
-  let query = db.select().from(mastersTable);
-  if (showAll) {
-    // admin view: all items, optionally by category
-    const items = await query
+  let isAdmin = false;
+  if (req.query.showAll === "true" && req.session.userId) {
+    const [u] = await db.select({ role: usersTable.role }).from(usersTable).where(eq(usersTable.id, req.session.userId));
+    isAdmin = u?.role === "admin";
+  }
+
+  if (isAdmin) {
+    // Admin view: return all items (active + inactive), optionally by category
+    const items = await db.select().from(mastersTable)
       .where(category ? eq(mastersTable.category, category) : undefined)
       .orderBy(mastersTable.category, mastersTable.sortOrder, mastersTable.label);
     res.json(items);
     return;
   }
-  // default: only active
-  const items = await query
+
+  // Default: only active items
+  const items = await db.select().from(mastersTable)
     .where(
       category
         ? and(eq(mastersTable.category, category), eq(mastersTable.isActive, true))
