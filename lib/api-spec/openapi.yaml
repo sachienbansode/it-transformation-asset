@@ -3,20 +3,34 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: IT Transformation Planning Suite API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: checklist
+    description: IT Checklist items
+  - name: roadmap
+    description: Transformation roadmap initiatives
+  - name: applications
+    description: Application inventory
+  - name: retirements
+    description: App retirement plans
+  - name: aibom
+    description: AI Bill of Materials
+  - name: sbom
+    description: Software Bill of Materials
+  - name: dashboard
+    description: Dashboard summary data
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +38,531 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── DASHBOARD ───────────────────────────────────────────────
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get executive dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  # ─── CHECKLIST ───────────────────────────────────────────────
+  /checklist:
+    get:
+      operationId: listChecklistItems
+      tags: [checklist]
+      summary: List all IT checklist items
+      parameters:
+        - name: business
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: priority
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of checklist items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChecklistItem"
+    post:
+      operationId: createChecklistItem
+      tags: [checklist]
+      summary: Create a checklist item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChecklistItemBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChecklistItem"
+
+  /checklist/{id}:
+    patch:
+      operationId: updateChecklistItem
+      tags: [checklist]
+      summary: Update a checklist item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateChecklistItemBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChecklistItem"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteChecklistItem
+      tags: [checklist]
+      summary: Delete a checklist item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /checklist/stats:
+    get:
+      operationId: getChecklistStats
+      tags: [checklist]
+      summary: Get checklist statistics grouped by status, business, category
+      responses:
+        "200":
+          description: Checklist stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChecklistStats"
+
+  # ─── ROADMAP ─────────────────────────────────────────────────
+  /roadmap:
+    get:
+      operationId: listRoadmapItems
+      tags: [roadmap]
+      summary: List all roadmap initiatives
+      parameters:
+        - name: phase
+          in: query
+          schema:
+            type: string
+        - name: business
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of roadmap items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoadmapItem"
+    post:
+      operationId: createRoadmapItem
+      tags: [roadmap]
+      summary: Create a roadmap initiative
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoadmapItemBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoadmapItem"
+
+  /roadmap/{id}:
+    patch:
+      operationId: updateRoadmapItem
+      tags: [roadmap]
+      summary: Update a roadmap initiative
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoadmapItemBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoadmapItem"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteRoadmapItem
+      tags: [roadmap]
+      summary: Delete a roadmap initiative
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ─── APPLICATIONS ─────────────────────────────────────────────
+  /applications:
+    get:
+      operationId: listApplications
+      tags: [applications]
+      summary: List all applications
+      parameters:
+        - name: business
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: criticality
+          in: query
+          schema:
+            type: string
+        - name: hosting
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Application"
+    post:
+      operationId: createApplication
+      tags: [applications]
+      summary: Create an application record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApplicationBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+
+  /applications/{id}:
+    patch:
+      operationId: updateApplication
+      tags: [applications]
+      summary: Update an application
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateApplicationBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteApplication
+      tags: [applications]
+      summary: Delete an application
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ─── RETIREMENTS ─────────────────────────────────────────────
+  /retirements:
+    get:
+      operationId: listRetirements
+      tags: [retirements]
+      summary: List all retirement plans
+      responses:
+        "200":
+          description: List of retirement plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Retirement"
+    post:
+      operationId: createRetirement
+      tags: [retirements]
+      summary: Create a retirement plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRetirementBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Retirement"
+
+  /retirements/{id}:
+    patch:
+      operationId: updateRetirement
+      tags: [retirements]
+      summary: Update a retirement plan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRetirementBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Retirement"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteRetirement
+      tags: [retirements]
+      summary: Delete a retirement plan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ─── AIBOM ───────────────────────────────────────────────────
+  /aibom:
+    get:
+      operationId: listAibomEntries
+      tags: [aibom]
+      summary: List all AI BOM entries
+      responses:
+        "200":
+          description: List of AIBOM entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AibomEntry"
+    post:
+      operationId: createAibomEntry
+      tags: [aibom]
+      summary: Create an AIBOM entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAibomEntryBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AibomEntry"
+
+  /aibom/{id}:
+    patch:
+      operationId: updateAibomEntry
+      tags: [aibom]
+      summary: Update an AIBOM entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAibomEntryBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AibomEntry"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteAibomEntry
+      tags: [aibom]
+      summary: Delete an AIBOM entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ─── SBOM ────────────────────────────────────────────────────
+  /sbom:
+    get:
+      operationId: listSbomEntries
+      tags: [sbom]
+      summary: List all SBOM entries
+      responses:
+        "200":
+          description: List of SBOM entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SbomEntry"
+    post:
+      operationId: createSbomEntry
+      tags: [sbom]
+      summary: Create an SBOM entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSbomEntryBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SbomEntry"
+
+  /sbom/{id}:
+    patch:
+      operationId: updateSbomEntry
+      tags: [sbom]
+      summary: Update an SBOM entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSbomEntryBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SbomEntry"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteSbomEntry
+      tags: [sbom]
+      summary: Delete an SBOM entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +570,575 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    # ─── DASHBOARD ─────────────────────────────────────────────
+    DashboardSummary:
+      type: object
+      properties:
+        totalApplications:
+          type: integer
+        appsToRetire:
+          type: integer
+        checklistTotal:
+          type: integer
+        checklistAvailable:
+          type: integer
+        checklistNotAvailable:
+          type: integer
+        checklistLegacy:
+          type: integer
+        roadmapTotal:
+          type: integer
+        roadmapBudgetLakhs:
+          type: integer
+        aibomTotal:
+          type: integer
+        sbomTotal:
+          type: integer
+        sbomCriticalCves:
+          type: integer
+        checklistByBusiness:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountByKey"
+        checklistByStatus:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountByKey"
+        roadmapByPhase:
+          type: array
+          items:
+            $ref: "#/components/schemas/BudgetByKey"
+      required:
+        - totalApplications
+        - appsToRetire
+        - checklistTotal
+        - checklistAvailable
+        - checklistNotAvailable
+        - checklistLegacy
+        - roadmapTotal
+        - roadmapBudgetLakhs
+        - aibomTotal
+        - sbomTotal
+        - sbomCriticalCves
+        - checklistByBusiness
+        - checklistByStatus
+        - roadmapByPhase
+
+    CountByKey:
+      type: object
+      properties:
+        key:
+          type: string
+        count:
+          type: integer
+      required: [key, count]
+
+    BudgetByKey:
+      type: object
+      properties:
+        key:
+          type: string
+        count:
+          type: integer
+        budgetLakhs:
+          type: integer
+      required: [key, count, budgetLakhs]
+
+    # ─── CHECKLIST ─────────────────────────────────────────────
+    ChecklistItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        feature:
+          type: string
+        business:
+          type: string
+        currentApp:
+          type: ["string", "null"]
+        status:
+          type: string
+        priority:
+          type: string
+        comments:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, category, feature, business, status, priority, createdAt, updatedAt]
+
+    CreateChecklistItemBody:
+      type: object
+      properties:
+        category:
+          type: string
+        feature:
+          type: string
+        business:
+          type: string
+        currentApp:
+          type: ["string", "null"]
+        status:
+          type: string
+        priority:
+          type: string
+        comments:
+          type: ["string", "null"]
+      required: [category, feature, business, status, priority]
+
+    UpdateChecklistItemBody:
+      type: object
+      properties:
+        category:
+          type: string
+        feature:
+          type: string
+        business:
+          type: string
+        currentApp:
+          type: ["string", "null"]
+        status:
+          type: string
+        priority:
+          type: string
+        comments:
+          type: ["string", "null"]
+
+    ChecklistStats:
+      type: object
+      properties:
+        byStatus:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountByKey"
+        byBusiness:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountByKey"
+        byCategory:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountByKey"
+        byPriority:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountByKey"
+      required: [byStatus, byBusiness, byCategory, byPriority]
+
+    # ─── ROADMAP ───────────────────────────────────────────────
+    RoadmapItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        phase:
+          type: string
+        business:
+          type: string
+        status:
+          type: string
+        priority:
+          type: string
+        budgetLakhs:
+          type: integer
+        startMonth:
+          type: integer
+        endMonth:
+          type: integer
+        owner:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, title, phase, business, status, priority, budgetLakhs, startMonth, endMonth, createdAt, updatedAt]
+
+    CreateRoadmapItemBody:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        phase:
+          type: string
+        business:
+          type: string
+        status:
+          type: string
+        priority:
+          type: string
+        budgetLakhs:
+          type: integer
+        startMonth:
+          type: integer
+        endMonth:
+          type: integer
+        owner:
+          type: ["string", "null"]
+      required: [title, phase, business, status, priority, budgetLakhs, startMonth, endMonth]
+
+    UpdateRoadmapItemBody:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        phase:
+          type: string
+        business:
+          type: string
+        status:
+          type: string
+        priority:
+          type: string
+        budgetLakhs:
+          type: integer
+        startMonth:
+          type: integer
+        endMonth:
+          type: integer
+        owner:
+          type: ["string", "null"]
+
+    # ─── APPLICATION ───────────────────────────────────────────
+    Application:
+      type: object
+      properties:
+        id:
+          type: integer
+        appId:
+          type: string
+        name:
+          type: string
+        vendor:
+          type: ["string", "null"]
+        version:
+          type: ["string", "null"]
+        business:
+          type: string
+        category:
+          type: string
+        hosting:
+          type: string
+        criticality:
+          type: string
+        licenseType:
+          type: ["string", "null"]
+        licenseExpiry:
+          type: ["string", "null"]
+        annualCostLakhs:
+          type: ["integer", "null"]
+        dataClassification:
+          type: ["string", "null"]
+        owner:
+          type: ["string", "null"]
+        supportStatus:
+          type: string
+        comments:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, appId, name, business, category, hosting, criticality, supportStatus, createdAt, updatedAt]
+
+    CreateApplicationBody:
+      type: object
+      properties:
+        appId:
+          type: string
+        name:
+          type: string
+        vendor:
+          type: ["string", "null"]
+        version:
+          type: ["string", "null"]
+        business:
+          type: string
+        category:
+          type: string
+        hosting:
+          type: string
+        criticality:
+          type: string
+        licenseType:
+          type: ["string", "null"]
+        licenseExpiry:
+          type: ["string", "null"]
+        annualCostLakhs:
+          type: ["integer", "null"]
+        dataClassification:
+          type: ["string", "null"]
+        owner:
+          type: ["string", "null"]
+        supportStatus:
+          type: string
+        comments:
+          type: ["string", "null"]
+      required: [appId, name, business, category, hosting, criticality, supportStatus]
+
+    UpdateApplicationBody:
+      type: object
+      properties:
+        name:
+          type: string
+        vendor:
+          type: ["string", "null"]
+        version:
+          type: ["string", "null"]
+        business:
+          type: string
+        category:
+          type: string
+        hosting:
+          type: string
+        criticality:
+          type: string
+        licenseType:
+          type: ["string", "null"]
+        licenseExpiry:
+          type: ["string", "null"]
+        annualCostLakhs:
+          type: ["integer", "null"]
+        dataClassification:
+          type: ["string", "null"]
+        owner:
+          type: ["string", "null"]
+        supportStatus:
+          type: string
+        comments:
+          type: ["string", "null"]
+
+    # ─── RETIREMENT ────────────────────────────────────────────
+    Retirement:
+      type: object
+      properties:
+        id:
+          type: integer
+        appName:
+          type: string
+        business:
+          type: string
+        reason:
+          type: string
+        targetDate:
+          type: ["string", "null"]
+        successor:
+          type: ["string", "null"]
+        migrationEffort:
+          type: string
+        budgetLakhs:
+          type: ["integer", "null"]
+        status:
+          type: string
+        comments:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, appName, business, reason, migrationEffort, status, createdAt, updatedAt]
+
+    CreateRetirementBody:
+      type: object
+      properties:
+        appName:
+          type: string
+        business:
+          type: string
+        reason:
+          type: string
+        targetDate:
+          type: ["string", "null"]
+        successor:
+          type: ["string", "null"]
+        migrationEffort:
+          type: string
+        budgetLakhs:
+          type: ["integer", "null"]
+        status:
+          type: string
+        comments:
+          type: ["string", "null"]
+      required: [appName, business, reason, migrationEffort, status]
+
+    UpdateRetirementBody:
+      type: object
+      properties:
+        appName:
+          type: string
+        business:
+          type: string
+        reason:
+          type: string
+        targetDate:
+          type: ["string", "null"]
+        successor:
+          type: ["string", "null"]
+        migrationEffort:
+          type: string
+        budgetLakhs:
+          type: ["integer", "null"]
+        status:
+          type: string
+        comments:
+          type: ["string", "null"]
+
+    # ─── AIBOM ─────────────────────────────────────────────────
+    AibomEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        componentId:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        provider:
+          type: string
+        useCase:
+          type: ["string", "null"]
+        dataUsed:
+          type: ["string", "null"]
+        riskLevel:
+          type: string
+        complianceStatus:
+          type: string
+        governanceReviewDate:
+          type: ["string", "null"]
+        comments:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, componentId, name, type, provider, riskLevel, complianceStatus, createdAt, updatedAt]
+
+    CreateAibomEntryBody:
+      type: object
+      properties:
+        componentId:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        provider:
+          type: string
+        useCase:
+          type: ["string", "null"]
+        dataUsed:
+          type: ["string", "null"]
+        riskLevel:
+          type: string
+        complianceStatus:
+          type: string
+        governanceReviewDate:
+          type: ["string", "null"]
+        comments:
+          type: ["string", "null"]
+      required: [componentId, name, type, provider, riskLevel, complianceStatus]
+
+    UpdateAibomEntryBody:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        provider:
+          type: string
+        useCase:
+          type: ["string", "null"]
+        dataUsed:
+          type: ["string", "null"]
+        riskLevel:
+          type: string
+        complianceStatus:
+          type: string
+        governanceReviewDate:
+          type: ["string", "null"]
+        comments:
+          type: ["string", "null"]
+
+    # ─── SBOM ──────────────────────────────────────────────────
+    SbomEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        version:
+          type: ["string", "null"]
+        licenseType:
+          type: ["string", "null"]
+        cve:
+          type: ["string", "null"]
+        lastScan:
+          type: ["string", "null"]
+        usedIn:
+          type: ["string", "null"]
+        riskLevel:
+          type: string
+        actionRequired:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, name, riskLevel, createdAt, updatedAt]
+
+    CreateSbomEntryBody:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: ["string", "null"]
+        licenseType:
+          type: ["string", "null"]
+        cve:
+          type: ["string", "null"]
+        lastScan:
+          type: ["string", "null"]
+        usedIn:
+          type: ["string", "null"]
+        riskLevel:
+          type: string
+        actionRequired:
+          type: ["string", "null"]
+      required: [name, riskLevel]
+
+    UpdateSbomEntryBody:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: ["string", "null"]
+        licenseType:
+          type: ["string", "null"]
+        cve:
+          type: ["string", "null"]
+        lastScan:
+          type: ["string", "null"]
+        usedIn:
+          type: ["string", "null"]
+        riskLevel:
+          type: string
+        actionRequired:
+          type: ["string", "null"]
