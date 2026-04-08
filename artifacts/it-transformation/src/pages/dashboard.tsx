@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
+import { StatCard } from "@/components/stat-card";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const CHART_COLORS = ["#d97706","#2563eb","#16a34a","#dc2626","#9333ea","#ea580c","#0891b2","#db2777"];
@@ -60,38 +61,25 @@ function renderPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, n
   );
 }
 
-// ─── Sub-components ─────────────────────────────────────────────────────────
+// KpiCard is now an alias for StatCard with dashboard-specific prop names
 function KpiCard({
-  title, value, sub, icon: Icon, iconBg, iconColor, border, progress, progressColor,
+  title, value, sub, icon, iconBg, iconColor, border, progress, progressColor,
 }: {
   title: string; value: string | number; sub?: string; icon: React.ElementType;
   iconBg?: string; iconColor?: string; border?: string; progress?: number; progressColor?: string;
 }) {
   return (
-    <Card className={cn("relative overflow-hidden", border ? `border-l-4 ${border}` : "")}>
-      <CardContent className="p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{title}</p>
-            <p className="text-xl font-bold text-foreground leading-none">{value}</p>
-            {sub && <p className="text-[10px] text-muted-foreground mt-1.5 leading-tight">{sub}</p>}
-          </div>
-          <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0", iconBg || "bg-muted")}>
-            <Icon className={cn("h-3.5 w-3.5", iconColor || "text-muted-foreground")} />
-          </div>
-        </div>
-        {progress !== undefined && (
-          <div className="mt-3">
-            <div className="flex justify-between text-[9px] text-muted-foreground mb-1">
-              <span>Progress</span><span className="font-semibold">{progress}%</span>
-            </div>
-            <div className="h-1 bg-muted rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: progressColor || "#16a34a" }} />
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <StatCard
+      label={title}
+      value={value}
+      sub={sub}
+      icon={icon as any}
+      iconBg={iconBg}
+      iconColor={iconColor}
+      borderColor={border}
+      progress={progress}
+      progressColor={progressColor}
+    />
   );
 }
 

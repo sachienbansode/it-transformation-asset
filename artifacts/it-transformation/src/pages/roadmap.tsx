@@ -14,7 +14,9 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus, Trash2, Edit, Eye, EyeOff, ChevronRight,
   IndianRupee, Calendar, ChevronDown, ChevronUp,
+  ListTodo, CheckCircle2, Clock,
 } from "lucide-react";
+import { StatCard } from "@/components/stat-card";
 import type { RoadmapItem } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useCurrency } from "@/contexts/currency-context";
@@ -323,20 +325,11 @@ export default function Roadmap() {
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Total Initiatives", value: items?.length ?? 0, color: "border-l-blue-400" },
-          { label: "Total Budget", value: format(totalBudget, 0), color: "border-l-yellow-400" },
-          { label: "Completed", value: completedCount, color: "border-l-emerald-400" },
-          { label: "In Progress", value: inProgressCount, color: "border-l-purple-400" },
-        ].map(({ label, value, color }) => (
-          <Card key={label} className={`border-l-4 ${color}`}>
-            <CardContent className="p-3">
-              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">{label}</p>
-              <p className="text-xl font-bold mt-0.5">{value}</p>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Total Initiatives" value={items?.length ?? 0} sub="roadmap items" icon={ListTodo} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" borderColor="border-l-blue-400" />
+        <StatCard label="Total Budget" value={format(totalBudget, 0)} sub="planned spend" icon={IndianRupee} iconBg="bg-yellow-50 dark:bg-yellow-400/10" iconColor="text-yellow-600" borderColor="border-l-yellow-400" />
+        <StatCard label="Completed" value={completedCount} sub="initiatives done" icon={CheckCircle2} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" borderColor="border-l-emerald-400" valueColor={completedCount > 0 ? "text-emerald-600" : undefined} />
+        <StatCard label="In Progress" value={inProgressCount} sub="active initiatives" icon={Clock} iconBg="bg-purple-50 dark:bg-purple-400/10" iconColor="text-purple-600" borderColor="border-l-purple-400" valueColor={inProgressCount > 0 ? "text-purple-600" : undefined} />
       </div>
 
       {/* Filter bar */}

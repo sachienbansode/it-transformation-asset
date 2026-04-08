@@ -12,15 +12,16 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, Edit, Search, X, User, Upload, FileText,
-  Download, AlertCircle, Paperclip,
+  Download, AlertCircle, Paperclip, Archive, Clock, IndianRupee,
 } from "lucide-react";
+import { StatCard } from "@/components/stat-card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MasterSelect } from "@/components/master-select";
 import { useCurrency } from "@/contexts/currency-context";
@@ -335,30 +336,9 @@ export default function Retirements() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Card>
-          <CardContent className="p-3 flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-400/10 flex items-center justify-center shrink-0">
-              <span className="text-base font-bold text-blue-600">{totalPlanned}</span>
-            </div>
-            <div><p className="text-xs font-semibold">Total Planned</p><p className="text-[10px] text-muted-foreground">retirement entries</p></div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-orange-50 dark:bg-orange-400/10 flex items-center justify-center shrink-0">
-              <span className="text-base font-bold text-orange-600">{inProgress}</span>
-            </div>
-            <div><p className="text-xs font-semibold">In Progress</p><p className="text-[10px] text-muted-foreground">actively being retired</p></div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-emerald-50 dark:bg-emerald-400/10 flex items-center justify-center shrink-0">
-              <span className="text-[11px] font-bold text-emerald-600">₹</span>
-            </div>
-            <div><p className="text-xs font-semibold">{formatINR(totalBudget)}</p><p className="text-[10px] text-muted-foreground">total budget</p></div>
-          </CardContent>
-        </Card>
+        <StatCard label="Total Planned" value={totalPlanned} sub="retirement entries" icon={Archive} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" />
+        <StatCard label="In Progress" value={inProgress} sub="actively being retired" icon={Clock} iconBg="bg-orange-50 dark:bg-orange-400/10" iconColor="text-orange-500" valueColor={inProgress > 0 ? "text-orange-500" : undefined} />
+        <StatCard label="Total Budget" value={formatINR(totalBudget)} sub="planned spend" icon={IndianRupee} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" />
       </div>
 
       {/* Table */}

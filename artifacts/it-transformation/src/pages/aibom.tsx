@@ -17,8 +17,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, Edit, Search, X, Bot,
-  ChevronDown, ChevronUp, ShieldCheck, AlertTriangle,
+  ChevronDown, ChevronUp, ShieldCheck, AlertTriangle, ShieldX,
 } from "lucide-react";
+import { StatCard } from "@/components/stat-card";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useAuth } from "@/contexts/auth-context";
@@ -39,17 +40,6 @@ type AibomExtended = AibomEntry & {
 const DATA_CLASSIFICATIONS = ["Public", "Internal", "Confidential", "Restricted"];
 const GOVERNANCE_FRAMEWORKS = ["ISO 42001", "EU AI Act", "RBI AI Guidelines", "SEBI AI Framework", "NIST AI RMF", "Internal Policy"];
 
-function KpiMini({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: string }) {
-  return (
-    <Card>
-      <CardContent className="p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className={cn("text-xl font-bold leading-none mt-0.5", accent)}>{value}</p>
-        {sub && <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>}
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function Aibom() {
   const queryClient = useQueryClient();
@@ -178,10 +168,10 @@ export default function Aibom() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiMini label="Total AI Components" value={totalComponents} sub="tracked in inventory" />
-        <KpiMini label="High / Critical Risk" value={highRisk} sub="requiring attention" accent={highRisk > 0 ? "text-destructive" : undefined} />
-        <KpiMini label="Non-Compliant" value={nonCompliant} sub="compliance issues" accent={nonCompliant > 0 ? "text-orange-500" : undefined} />
-        <KpiMini label="With Governance" value={`${governed}/${totalComponents}`} sub="governance framework set" accent="text-primary" />
+        <StatCard label="Total AI Components" value={totalComponents} sub="tracked in inventory" icon={Bot} iconBg="bg-purple-50 dark:bg-purple-400/10" iconColor="text-purple-600" />
+        <StatCard label="High / Critical Risk" value={highRisk} sub="requiring attention" icon={AlertTriangle} iconBg="bg-red-50 dark:bg-red-400/10" iconColor="text-destructive" valueColor={highRisk > 0 ? "text-destructive" : undefined} />
+        <StatCard label="Non-Compliant" value={nonCompliant} sub="compliance issues" icon={ShieldX} iconBg="bg-orange-50 dark:bg-orange-400/10" iconColor="text-orange-500" valueColor={nonCompliant > 0 ? "text-orange-500" : undefined} />
+        <StatCard label="With Governance" value={`${governed}/${totalComponents}`} sub="governance framework set" icon={ShieldCheck} iconBg="bg-green-50 dark:bg-green-400/10" iconColor="text-green-600" valueColor="text-primary" />
       </div>
 
       {/* Search & Filters */}

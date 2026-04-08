@@ -17,8 +17,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, Edit, ShieldAlert, Search, X, Package,
-  AlertCircle, CheckCircle2, ExternalLink, ChevronDown, ChevronUp,
+  AlertCircle, CheckCircle2, ChevronDown, ChevronUp, ScanLine,
 } from "lucide-react";
+import { StatCard } from "@/components/stat-card";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 import { useAuth } from "@/contexts/auth-context";
@@ -28,19 +29,6 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
 
-function KpiMini({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: string }) {
-  return (
-    <Card>
-      <CardContent className="p-3 flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-          <p className={cn("text-xl font-bold leading-none mt-0.5", accent)}>{value}</p>
-          {sub && <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function Sbom() {
   const queryClient = useQueryClient();
@@ -150,12 +138,12 @@ export default function Sbom() {
         </div>
       </div>
 
-      {/* KPI Cards — compact */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiMini label="Total Packages" value={totalComponents} sub="tracked components" />
-        <KpiMini label="Known CVEs" value={knownCves} sub="with CVE identifiers" accent={knownCves > 0 ? "text-destructive" : undefined} />
-        <KpiMini label="Critical / High" value={`${critical} / ${high}`} sub="risk entries" accent={(critical + high) > 0 ? "text-orange-500" : undefined} />
-        <KpiMini label="Scan Coverage" value={`${scanned}/${totalComponents}`} sub="entries with scan date" accent="text-primary" />
+        <StatCard label="Total Packages" value={totalComponents} sub="tracked components" icon={Package} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" />
+        <StatCard label="Known CVEs" value={knownCves} sub="with CVE identifiers" icon={ShieldAlert} iconBg="bg-red-50 dark:bg-red-400/10" iconColor="text-destructive" valueColor={knownCves > 0 ? "text-destructive" : undefined} />
+        <StatCard label="Critical / High" value={`${critical} / ${high}`} sub="risk entries" icon={AlertCircle} iconBg="bg-orange-50 dark:bg-orange-400/10" iconColor="text-orange-500" valueColor={(critical + high) > 0 ? "text-orange-500" : undefined} />
+        <StatCard label="Scan Coverage" value={`${scanned}/${totalComponents}`} sub="entries with scan date" icon={ScanLine} iconBg="bg-green-50 dark:bg-green-400/10" iconColor="text-green-600" valueColor="text-primary" />
       </div>
 
       {/* Search & Filters */}
