@@ -331,9 +331,9 @@ export default function Roadmap() {
           { label: "In Progress", value: inProgressCount, color: "border-l-purple-400" },
         ].map(({ label, value, color }) => (
           <Card key={label} className={`border-l-4 ${color}`}>
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{label}</p>
-              <p className="text-2xl font-bold mt-1">{value}</p>
+            <CardContent className="p-3">
+              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">{label}</p>
+              <p className="text-xl font-bold mt-0.5">{value}</p>
             </CardContent>
           </Card>
         ))}

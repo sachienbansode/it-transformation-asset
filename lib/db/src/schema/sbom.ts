@@ -6,12 +6,16 @@ export const sbomEntriesTable = pgTable("sbom_entries", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   version: text("version"),
-  licenseType: text("license_type"), // MIT, Apache, GPL, Commercial, LGPL
+  licenseType: text("license_type"),
   cve: text("cve"),
-  lastScan: text("last_scan"),
-  usedIn: text("used_in"),
-  riskLevel: text("risk_level").notNull(), // Critical, High, Medium, Low
+  severity: text("severity"),           // CVSS score or label: Critical/High/Medium/Low
+  purl: text("purl"),                   // Package URL e.g. pkg:npm/lodash@4.17.21
+  supplier: text("supplier"),           // Vendor / package supplier
+  lastScan: text("last_scan"),          // Date of last scan
+  usedIn: text("used_in"),              // Which apps/services use this
+  riskLevel: text("risk_level").notNull(),
   actionRequired: text("action_required"),
+  comments: text("comments"),           // Analyst notes
   createdBy: text("created_by"),
   modifiedBy: text("modified_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

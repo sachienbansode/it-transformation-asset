@@ -6,13 +6,18 @@ export const aibomEntriesTable = pgTable("aibom_entries", {
   id: serial("id").primaryKey(),
   componentId: text("component_id").notNull().unique(),
   name: text("name").notNull(),
-  type: text("type").notNull(), // LLM, ML Model, Chatbot, RPA, Analytics
+  version: text("version"),                    // Model / component version
+  type: text("type").notNull(),                // LLM, ML Model, Chatbot, RPA, Analytics
   provider: text("provider").notNull(),
+  endpoint: text("endpoint"),                  // API endpoint or deployment URL
   useCase: text("use_case"),
   dataUsed: text("data_used"),
-  riskLevel: text("risk_level").notNull(), // High, Medium, Low
-  complianceStatus: text("compliance_status").notNull(), // Compliant, Review Needed, Non-Compliant
+  dataClassification: text("data_classification"), // Public, Internal, Confidential, Restricted
+  riskLevel: text("risk_level").notNull(),
+  complianceStatus: text("compliance_status").notNull(),
+  governanceFramework: text("governance_framework"), // ISO 42001, EU AI Act, RBI AI Guidelines
   governanceReviewDate: text("governance_review_date"),
+  lastAuditDate: text("last_audit_date"),
   comments: text("comments"),
   createdBy: text("created_by"),
   modifiedBy: text("modified_by"),
