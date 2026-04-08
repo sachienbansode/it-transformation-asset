@@ -10,6 +10,7 @@ import dashboardRouter from "./dashboard";
 import mastersRouter from "./masters";
 import adminRouter from "./admin";
 import authRouter from "./auth";
+import businessUnitsRouter, { seedBusinessUnits } from "./business-units";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -17,9 +18,13 @@ const router: IRouter = Router();
 router.use(authRouter);
 router.use(healthRouter);
 
+// Seed business units on startup (idempotent)
+seedBusinessUnits().catch(console.error);
+
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/masters" && req.method === "GET") return next();
   if (req.path === "/config" && req.method === "GET") return next();
+  if (req.path === "/business-units" && req.method === "GET") return next();
   requireAuth(req, res, next);
 });
 
@@ -39,5 +44,6 @@ router.use(aibomRouter);
 router.use(sbomRouter);
 router.use(mastersRouter);
 router.use(adminRouter);
+router.use(businessUnitsRouter);
 
 export default router;

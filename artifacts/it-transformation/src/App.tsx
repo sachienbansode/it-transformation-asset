@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { CurrencyProvider } from "@/contexts/currency-context";
+import { ThemeProvider } from "@/contexts/theme-context";
 import { Layout } from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
@@ -91,6 +92,7 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
       <AuthProvider>
         <CurrencyProvider>
           <TooltipProvider>
@@ -101,6 +103,7 @@ function App() {
           </TooltipProvider>
         </CurrencyProvider>
       </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

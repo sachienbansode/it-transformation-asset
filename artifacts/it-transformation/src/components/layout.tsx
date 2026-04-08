@@ -2,10 +2,11 @@ import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { useCurrency } from "@/contexts/currency-context";
+import { useTheme } from "@/contexts/theme-context";
 import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
-  Users, Sliders, Database, ChevronRight,
+  Users, Sliders, Database, ChevronRight, Sun, Moon,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -33,9 +34,10 @@ const DRISHTI_ITEMS = [
 ];
 
 const ADMIN_ITEMS = [
-  { href: "/admin", label: "System Settings", icon: Sliders },
+  { href: "/admin", label: "Settings", icon: Sliders },
   { href: "/admin?tab=users", label: "User Management", icon: Users },
   { href: "/admin?tab=masters", label: "Master Data", icon: Database },
+  { href: "/admin?tab=business-units", label: "Business Units", icon: LayoutDashboard },
 ];
 
 function NavItem({ href, label, icon: Icon, active }: { href: string; label: string; icon: React.ElementType; active: boolean }) {
@@ -44,12 +46,12 @@ function NavItem({ href, label, icon: Icon, active }: { href: string; label: str
       <div className={cn(
         "group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 cursor-pointer",
         active
-          ? "bg-primary/15 text-primary border border-primary/20 shadow-sm"
-          : "text-sidebar-foreground/70 hover:bg-white/5 hover:text-sidebar-foreground"
+          ? "bg-sidebar-primary/20 text-sidebar-primary border border-sidebar-primary/25"
+          : "text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground"
       )}>
-        <Icon className={cn("w-4 h-4 flex-shrink-0 transition-colors", active ? "text-primary" : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground/80")} />
-        <span className="truncate leading-tight">{label}</span>
-        {active && <ChevronRight className="w-3 h-3 ml-auto text-primary/60" />}
+        <Icon className={cn("w-4 h-4 flex-shrink-0 transition-colors", active ? "text-sidebar-primary" : "text-sidebar-foreground/40 group-hover:text-sidebar-foreground/70")} />
+        <span className="truncate text-[13px] leading-tight">{label}</span>
+        {active && <ChevronRight className="w-3 h-3 ml-auto text-sidebar-primary/60 flex-shrink-0" />}
       </div>
     </Link>
   );
@@ -57,8 +59,8 @@ function NavItem({ href, label, icon: Icon, active }: { href: string; label: str
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-3 mb-1 mt-4 first:mt-0">
-      <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-sidebar-foreground/35 select-none">
+    <div className="px-3 pt-4 pb-1">
+      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-sidebar-foreground/30 select-none">
         {children}
       </span>
     </div>
@@ -69,6 +71,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
   const { user, logout, isAdmin } = useAuth();
   const { unit, cycle } = useCurrency();
+  const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
   const [appConfig, setAppConfig] = useState<AppConfig>({
     appName: "Ashika Drishti Transform",
@@ -83,43 +86,39 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const handleLogout = async () => {
     await logout();
     navigate("/login");
-    toast({ title: "Signed out", description: "You have been signed out successfully." });
+    toast({ title: "Signed out" });
   };
 
-  const currentPage = DRISHTI_ITEMS.find(i => {
-    if (i.href === "/") return location === "/";
-    return location.startsWith(i.href);
-  })?.label
+  const currentPage =
+    DRISHTI_ITEMS.find(i => i.href === "/" ? location === "/" : location.startsWith(i.href))?.label
     ?? (location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : "");
 
   const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
-  const nextLabels: Record<string, string> = { lakhs: "→ Crore", crores: "→ Million", millions: "→ Lakh" };
 
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground">
 
-      {/* ─── Sidebar ─────────────────────────────── */}
-      <aside className="w-60 flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col">
+      {/* ─── Sidebar ─────────────────────────────────────── */}
+      <aside className="w-56 flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col shadow-md">
 
-        {/* Brand Header */}
-        <div className="h-14 flex items-center px-4 border-b border-sidebar-border/60 gap-3 shrink-0">
+        {/* Brand */}
+        <div className="h-14 flex items-center px-4 border-b border-sidebar-border/50 gap-3 shrink-0">
           {appConfig.logoUrl ? (
             <img src={appConfig.logoUrl} alt="Logo" className="h-7 w-7 object-contain rounded flex-shrink-0" />
           ) : (
-            <div className="h-7 w-7 rounded-md bg-primary/20 border border-primary/30 flex items-center justify-center flex-shrink-0">
-              <span className="text-primary font-bold text-xs">AD</span>
+            <div className="h-7 w-7 rounded-md bg-sidebar-primary/20 border border-sidebar-primary/30 flex items-center justify-center flex-shrink-0">
+              <span className="text-sidebar-primary font-black text-xs">AD</span>
             </div>
           )}
           <div className="min-w-0">
-            <div className="font-bold text-sm text-foreground tracking-tight leading-tight truncate">
+            <div className="font-bold text-[13px] text-white/90 tracking-tight leading-tight truncate">
               {appConfig.appName}
             </div>
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
           <SectionLabel>IT – Drishti</SectionLabel>
           {DRISHTI_ITEMS.map(item => (
             <NavItem
@@ -130,13 +129,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
               active={item.href === "/" ? location === "/" : location.startsWith(item.href)}
             />
           ))}
-
           {isAdmin && (
             <>
               <SectionLabel>Admin Controls</SectionLabel>
               {ADMIN_ITEMS.map(item => (
                 <NavItem
-                  key={item.href}
+                  key={item.href + item.label}
                   href={item.href}
                   label={item.label}
                   icon={item.icon}
@@ -148,22 +146,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* User Footer */}
-        <div className="border-t border-sidebar-border/60 p-3 shrink-0">
+        <div className="border-t border-sidebar-border/50 p-3 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs text-primary font-bold">{user?.name?.[0]?.toUpperCase()}</span>
+            <div className="h-8 w-8 rounded-full bg-sidebar-primary/20 border border-sidebar-primary/30 flex items-center justify-center flex-shrink-0">
+              <span className="text-xs text-sidebar-primary font-bold">{user?.name?.[0]?.toUpperCase()}</span>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold text-foreground truncate">{user?.name}</div>
-              <div className="flex gap-1 mt-0.5">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-sm border leading-none ${
-                  user?.role === "admin" ? "border-yellow-500/40 text-yellow-400 bg-yellow-400/5" : "border-gray-500/40 text-gray-400 bg-gray-400/5"
+              <div className="text-xs font-semibold text-white/80 truncate">{user?.name}</div>
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className={`text-[10px] px-1.5 py-px rounded-sm border leading-none ${
+                  user?.role === "admin" ? "border-yellow-500/40 text-yellow-400/90 bg-yellow-400/5" : "border-white/20 text-white/40 bg-white/5"
                 }`}>{user?.role}</span>
               </div>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0 text-muted-foreground hover:text-foreground">
+                <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0 text-white/40 hover:text-white hover:bg-sidebar-accent">
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -191,39 +189,44 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* ─── Main ─────────────────────────────────── */}
+      {/* ─── Main ─────────────────────────────────────────── */}
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
 
-        {/* Top Header */}
-        <header className="h-14 border-b border-border bg-card/80 backdrop-blur-sm flex items-center justify-between px-6 shrink-0 gap-4">
+        {/* Header */}
+        <header className="h-14 border-b border-border bg-card flex items-center justify-between px-6 shrink-0 gap-4 shadow-sm">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xs text-muted-foreground hidden sm:block">Ashika Group</span>
+            <span className="text-xs text-muted-foreground hidden sm:block font-medium">Ashika Group</span>
             {currentPage && (
               <>
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 hidden sm:block" />
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 hidden sm:block" />
                 <span className="text-sm font-semibold text-foreground truncate">{currentPage}</span>
               </>
             )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* 3-way currency toggle */}
+            {/* 3-way currency cycle */}
             <button
               onClick={cycle}
-              title={`Switch currency — next: ${nextLabels[unit]}`}
-              className="group flex items-center gap-1.5 text-xs bg-muted/60 hover:bg-muted border border-border/60 hover:border-border rounded-lg px-3 py-1.5 transition-all font-medium select-none"
+              className="flex items-center gap-1 text-xs bg-muted hover:bg-muted/80 border border-border rounded-md px-2.5 py-1.5 transition-colors font-semibold select-none text-foreground"
             >
-              <span className="text-primary font-semibold">{unitLabels[unit]}</span>
-              <span className="text-muted-foreground/60 text-[10px] ml-1 group-hover:text-muted-foreground transition-colors">
-                {nextLabels[unit]}
-              </span>
+              {unitLabels[unit]}
             </button>
 
-            {/* User avatar trigger */}
+            {/* Dark/Light toggle */}
+            <button
+              onClick={toggleTheme}
+              className="flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted hover:bg-muted/80 transition-colors text-muted-foreground hover:text-foreground"
+              title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+            >
+              {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            </button>
+
+            {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="flex items-center gap-2 h-8 px-2">
-                  <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
+                <Button variant="ghost" size="sm" className="flex items-center gap-2 h-8 px-2 border border-border">
+                  <div className="w-6 h-6 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center">
                     <span className="text-xs text-primary font-bold">{user?.name?.[0]?.toUpperCase()}</span>
                   </div>
                   <span className="text-sm font-medium max-w-20 truncate hidden sm:block">{user?.name?.split(" ")[0]}</span>
@@ -254,7 +257,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto bg-background">
           <div className="min-h-full p-6">
             {children}
           </div>

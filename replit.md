@@ -84,6 +84,11 @@ A full-stack IT Transformation Planning Suite built for the CTO of Ashika Group 
 - Add / Edit / Deactivate any master value
 - Color coding for badge rendering
 
+### Business Units Tab
+- List all 6 business units (active + inactive)
+- Create, edit, activate/deactivate any unit
+- Uses `/api/business-units/all` and `/api/admin/business-units` endpoints
+
 ---
 
 ## Dynamic Dropdowns (MasterSelect)
@@ -93,12 +98,32 @@ Categories: vendor, business, app_category, hosting, criticality, support_status
 
 ---
 
+## Theme System
+- `ThemeProvider` context wraps entire app in `App.tsx`
+- `useTheme()` → `{ theme, toggleTheme }` — toggles `.light` / `.dark` on `<html>`
+- Default: **light** theme
+- Persisted in `localStorage` via `theme-preference` key
+- Dark theme context file: `src/contexts/theme-context.tsx`
+- CSS: `:root` = light, `.dark` = dark; sidebar stays dark navy in both modes
+
+---
+
 ## Currency Toggle
 - Context: `CurrencyProvider` → `useCurrency()` hook
-- Toggle: ₹L (lakhs) ↔ ₹M (millions)  
-- Formula: 1 million = 10 lakhs
-- `format(n)` converts lakhs to the selected unit string
+- 3-way cycle: ₹ Lakhs → ₹ Crores → ₹ Millions (use `cycle()` not `toggle()`)
+- Exports: `format(n, decimals)`, `formatShort(n)`, `label`, `unitLabel`, `unit`, `setUnit`
 - Toggle button in the layout header, visible on all pages
+
+---
+
+## Business Units
+- Separate `business_units` DB table (id, name, code, description, isActive, sortOrder, createdAt)
+- Seeded: AIF, IE, Broking (BROKING), MF, IB, NBFC
+- Public API: `GET /api/business-units` (active only)
+- Admin API: `GET /api/business-units/all`, `POST /admin/business-units`, `PATCH /admin/business-units/:id`
+- Admin tab in admin panel: "Business Units" tab for CRUD management
+- Route file: `artifacts/api-server/src/routes/business-units.ts`
+- Seeded on server startup via `seedBusinessUnits()` (idempotent)
 
 ---
 
@@ -116,6 +141,7 @@ Categories: vendor, business, app_category, hosting, criticality, support_status
 | users | User accounts + MFA secrets |
 | settings | Admin configuration (13 keys) |
 | user_sessions | Session store (connect-pg-simple) |
+| business_units | Business unit structure (6 units) |
 
 ---
 
@@ -123,11 +149,12 @@ Categories: vendor, business, app_category, hosting, criticality, support_status
 
 ```
 artifacts/it-transformation/src/
-  App.tsx                         — Router + AuthProvider + CurrencyProvider
+  App.tsx                         — Router + ThemeProvider + AuthProvider + CurrencyProvider
   contexts/auth-context.tsx       — Auth state + login/logout/MFA
-  contexts/currency-context.tsx   — ₹L/₹M toggle context
+  contexts/currency-context.tsx   — ₹ Lakhs/Crores/Millions cycle context
+  contexts/theme-context.tsx      — Light/dark theme toggle context (default: light)
   hooks/use-masters.ts            — useMasters(category) hook
-  components/layout.tsx           — Sidebar + header + user menu + currency toggle
+  components/layout.tsx           — Sidebar + header + theme toggle + currency cycle
   components/master-select.tsx    — Dynamic dropdown component
   lib/api.ts                      — apiFetch helper (credentials: include)
   pages/login.tsx                 — Login page (Internal/External, MFA, SSO)
@@ -135,11 +162,12 @@ artifacts/it-transformation/src/
   pages/profile.tsx               — Profile + password change + MFA setup
 
 artifacts/api-server/src/routes/
-  auth.ts          — Login, logout, MFA setup/enable/disable, SSO, profile
-  masters.ts       — CRUD for master data (GET public, write admin-only)
-  admin.ts         — Admin settings + user management
-  dashboard.ts     — KPI aggregation
-  [all modules].ts — CRUD for each data module
+  auth.ts              — Login, logout, MFA setup/enable/disable, SSO, profile
+  masters.ts           — CRUD for master data (GET public, write admin-only)
+  admin.ts             — Admin settings + user management
+  dashboard.ts         — KPI aggregation
+  business-units.ts    — Business units CRUD + seed on startup
+  [all modules].ts     — CRUD for each data module
 
 lib/db/src/
   schema/index.ts        — All table definitions (Drizzle)

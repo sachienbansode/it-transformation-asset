@@ -66,15 +66,83 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ─── LIGHT THEME (default) ──────────────────────── */
 :root {
+  --button-outline: rgba(0,0,0, .08);
+  --badge-outline: rgba(0,0,0, .04);
+  --opaque-button-border-intensity: 9;
+  --chart-hover-bg: rgba(0,0,0,0.04);
+
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .06);
+
+  --background: 210 20% 97%;
+  --foreground: 222 47% 11%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-border: 214 31% 91%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border: 214 31% 91%;
+
+  /* Gold — Ashika brand */
+  --primary: 43 74% 42%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 210 20% 93%;
+  --secondary-foreground: 222 47% 11%;
+
+  --muted: 210 20% 93%;
+  --muted-foreground: 215 16% 47%;
+
+  --accent: 210 20% 93%;
+  --accent-foreground: 222 47% 11%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 214 31% 91%;
+  --input: 214 31% 91%;
+  --ring: 43 74% 42%;
+
+  /* Dark Navy Sidebar — stays dark for brand identity */
+  --sidebar: 224 47% 12%;
+  --sidebar-foreground: 210 40% 92%;
+  --sidebar-border: 224 35% 18%;
+  --sidebar-primary: 43 74% 49%;
+  --sidebar-primary-foreground: 222 47% 11%;
+  --sidebar-accent: 224 40% 17%;
+  --sidebar-accent-foreground: 210 40% 92%;
+  --sidebar-ring: 43 74% 49%;
+
+  --chart-1: 43 74% 49%;
+  --chart-2: 210 80% 48%;
+  --chart-3: 140 65% 40%;
+  --chart-4: 350 70% 50%;
+  --chart-5: 280 70% 50%;
+
+  --app-font-sans: 'Inter', sans-serif;
+  --app-font-serif: Georgia, serif;
+  --app-font-mono: Menlo, monospace;
+  --radius: .375rem;
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+/* ─── DARK THEME ─────────────────────────────────── */
+.dark {
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
-  --opaque-button-border-intensity: 9;
+  --chart-hover-bg: rgba(255,255,255,0.04);
 
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  /* Dark Slate Theme for main content */
   --background: 222 47% 11%;
   --foreground: 210 40% 98%;
 
@@ -86,7 +154,6 @@
   --popover-foreground: 210 40% 98%;
   --popover-border: 217.2 32.6% 17.5%;
 
-  /* Gold */
   --primary: 43 74% 49%;
   --primary-foreground: 222 47% 11%;
 
@@ -106,7 +173,6 @@
   --input: 217.2 32.6% 17.5%;
   --ring: 43 74% 49%;
 
-  /* Navy Sidebar */
   --sidebar: 224 47% 8%;
   --sidebar-foreground: 210 40% 98%;
   --sidebar-border: 217.2 32.6% 17.5%;
@@ -122,23 +188,10 @@
   --chart-4: 350 70% 50%;
   --chart-5: 280 70% 50%;
 
-  --app-font-sans: 'Inter', sans-serif;
-  --app-font-serif: Georgia, serif;
-  --app-font-mono: Menlo, monospace;
-  --radius: .3rem;
-
-  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
-}
-
-.dark {
-  /* Same variables to force dark mode */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5);
 }
 
 @layer base {

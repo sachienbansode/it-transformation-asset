@@ -19,10 +19,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield,
+  Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield, Building2,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
-type Tab = "settings" | "users" | "masters";
+type Tab = "settings" | "users" | "masters" | "business-units";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
@@ -67,8 +68,13 @@ export default function Admin() {
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-border pb-0">
-        {([ ["settings", Settings, "Settings"], ["users", Users, "User Management"], ["masters", Database, "Master Data"]] as const).map(([t, Icon, label]) => (
+      <div className="flex gap-1 border-b border-border pb-0 flex-wrap">
+        {([
+          ["settings", Settings, "Settings"],
+          ["users", Users, "User Management"],
+          ["masters", Database, "Master Data"],
+          ["business-units", Building2, "Business Units"],
+        ] as const).map(([t, Icon, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -85,6 +91,7 @@ export default function Admin() {
       {tab === "settings" && <SettingsTab />}
       {tab === "users" && <UsersTab />}
       {tab === "masters" && <MastersTab />}
+      {tab === "business-units" && <BusinessUnitsTab />}
     </div>
   );
 }
@@ -635,6 +642,161 @@ function MastersTab() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave}>{editItem ? "Update" : "Add"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── BUSINESS UNITS TAB ───────────────────────────────────────────────────────
+
+interface BUItem {
+  id: number; name: string; code: string; description?: string;
+  isActive: boolean; sortOrder: number;
+}
+
+function BusinessUnitsTab() {
+  const { toast } = useToast();
+  const { data: allUnits, refetch, isLoading } = useQuery({
+    queryKey: ["admin-business-units"],
+    queryFn: () => apiFetch<BUItem[]>("/business-units/all"),
+  });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editBU, setEditBU] = useState<BUItem | null>(null);
+  const [form, setForm] = useState({ name: "", code: "", description: "", sortOrder: 0, isActive: true });
+
+  const openCreate = () => {
+    setEditBU(null);
+    setForm({ name: "", code: "", description: "", sortOrder: (allUnits?.length ?? 0) + 1, isActive: true });
+    setModalOpen(true);
+  };
+  const openEdit = (bu: BUItem) => {
+    setEditBU(bu);
+    setForm({ name: bu.name, code: bu.code, description: bu.description ?? "", sortOrder: bu.sortOrder, isActive: bu.isActive });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    try {
+      if (editBU) {
+        await apiFetch(`/admin/business-units/${editBU.id}`, {
+          method: "PATCH", body: JSON.stringify(form),
+        });
+        toast({ title: "Business unit updated" });
+      } else {
+        await apiFetch("/admin/business-units", {
+          method: "POST", body: JSON.stringify(form),
+        });
+        toast({ title: "Business unit created" });
+      }
+      setModalOpen(false);
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleToggle = async (bu: BUItem) => {
+    try {
+      await apiFetch(`/admin/business-units/${bu.id}`, {
+        method: "PATCH", body: JSON.stringify({ isActive: !bu.isActive }),
+      });
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  if (isLoading) return <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>;
+
+  return (
+    <div className="space-y-4 max-w-3xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Business Units</h2>
+          <p className="text-xs text-muted-foreground">Manage the Ashika Group business unit structure</p>
+        </div>
+        <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4 mr-1.5" /> Add Unit</Button>
+      </div>
+
+      <div className="border border-border rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/40 border-b border-border">
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Name</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Code</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Description</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Order</th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Status</th>
+              <th className="px-4 py-2.5 text-right text-xs font-semibold text-muted-foreground uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(allUnits ?? []).map(bu => (
+              <tr key={bu.id} className="border-t border-border hover:bg-muted/20">
+                <td className="px-4 py-3 font-semibold">{bu.name}</td>
+                <td className="px-4 py-3">
+                  <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-xs font-mono font-bold border border-primary/20">{bu.code}</span>
+                </td>
+                <td className="px-4 py-3 text-xs text-muted-foreground max-w-48 truncate">{bu.description || "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground text-xs">{bu.sortOrder}</td>
+                <td className="px-4 py-3">
+                  <Badge variant="outline" className={bu.isActive ? "border-green-500/30 text-green-600 dark:text-green-400" : "border-red-500/30 text-red-600 dark:text-red-400"}>
+                    {bu.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(bu)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => handleToggle(bu)}
+                      title={bu.isActive ? "Deactivate" : "Activate"}>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editBU ? "Edit Business Unit" : "Add Business Unit"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Name</Label>
+                <Input value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} placeholder="e.g. AIF" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Code <span className="text-muted-foreground text-xs">(unique)</span></Label>
+                <Input value={form.code} onChange={e => setForm(f => ({...f, code: e.target.value.toUpperCase()}))} placeholder="e.g. AIF" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} placeholder="Brief description" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Sort Order</Label>
+                <Input type="number" value={form.sortOrder} onChange={e => setForm(f => ({...f, sortOrder: +e.target.value}))} />
+              </div>
+              <div className="flex items-center gap-2 pt-6">
+                <Switch checked={form.isActive} onCheckedChange={v => setForm(f => ({...f, isActive: v}))} />
+                <Label>Active</Label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave}>{editBU ? "Update" : "Create"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
