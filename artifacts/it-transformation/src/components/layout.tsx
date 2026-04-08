@@ -133,7 +133,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* ─── Sidebar ─────────────────────────────────────── */}
       {!isHidden && (
         <aside className={cn(
-          "flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col shadow-md transition-all duration-200",
+          "flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col shadow-md transition-all duration-200 h-screen sticky top-0",
           isCollapsed ? "w-13" : "w-56"
         )}>
 
@@ -180,7 +180,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 px-1.5 py-1.5 space-y-0.5 overflow-hidden">
+          <nav className="flex-1 px-1.5 py-1.5 space-y-0.5 overflow-y-auto min-h-0">
             <SectionLabel collapsed={isCollapsed}>IT – Drishti</SectionLabel>
             {DRISHTI_ITEMS.map(item => (
               <NavItem

@@ -22,7 +22,7 @@ export function useMasters(category: string) {
 export function useAllMasters() {
   return useQuery<Master[]>({
     queryKey: ["masters", "all"],
-    queryFn: () => apiFetch<Master[]>("/masters"),
+    queryFn: () => apiFetch<Master[]>("/masters?showAll=true"),
     staleTime: 5 * 60 * 1000,
   });
 }

@@ -7,11 +7,22 @@ import { requireAuth, requireAdmin } from "./auth";
 const router = Router();
 
 // GET /masters — list all, optionally filter by category
+// ?showAll=true (admin only) returns inactive items too
 router.get("/masters", async (req, res): Promise<void> => {
   const category = req.query.category as string | undefined;
-  const items = await db
-    .select()
-    .from(mastersTable)
+  const showAll = req.query.showAll === "true" && (req.session as any)?.user?.role === "admin";
+
+  let query = db.select().from(mastersTable);
+  if (showAll) {
+    // admin view: all items, optionally by category
+    const items = await query
+      .where(category ? eq(mastersTable.category, category) : undefined)
+      .orderBy(mastersTable.category, mastersTable.sortOrder, mastersTable.label);
+    res.json(items);
+    return;
+  }
+  // default: only active
+  const items = await query
     .where(
       category
         ? and(eq(mastersTable.category, category), eq(mastersTable.isActive, true))

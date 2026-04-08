@@ -287,14 +287,19 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
 }
 
 // ─── Tab: Applications ───────────────────────────────────────────────────────
-function ApplicationsTab({ s, filterBU, format }: { s: any; filterBU: string; format: any }) {
+function ApplicationsTab({ filterBU, format }: { filterBU: string; format: any }) {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 8;
 
+  const { data: allApps = [], isLoading: appsLoading } = useQuery<any[]>({
+    queryKey: ["applications-dashboard"],
+    queryFn: () => apiFetch<any[]>("/applications"),
+    staleTime: 60_000,
+  });
+
   const filtApps = useMemo(() => {
-    const apps: any[] = s.applicationItems ?? [];
-    return filterBU === "all" ? apps : apps.filter((a: any) => a.business === filterBU);
-  }, [s, filterBU]);
+    return filterBU === "all" ? allApps : allApps.filter((a: any) => a.business === filterBU);
+  }, [allApps, filterBU]);
 
   const pagedApps = filtApps.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -315,6 +320,8 @@ function ApplicationsTab({ s, filterBU, format }: { s: any; filterBU: string; fo
     filtApps.forEach((a: any) => { const k = a.applicationStatus || "Active"; m[k] = (m[k] || 0) + 1; });
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
   }, [filtApps]);
+
+  if (appsLoading) return <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">Loading applications…</div>;
 
   return (
     <div className="space-y-4">
@@ -546,7 +553,7 @@ function ChecklistTab({ s, filterBU }: { s: any; filterBU: string }) {
           <CardContent className="p-3">
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
-                <Pie data={statusData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={2} dataKey="count" nameKey="key" label={({ key, percent }) => `${key} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                <Pie data={statusData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={2} dataKey="count" nameKey="key">
                   {statusData.map((e: any, i: number) => <Cell key={i} fill={STATUS_COLORS[e.key] || CHART_COLORS[i]} />)}
                 </Pie>
                 <Tooltip content={(props: any) => props.active && props.payload?.length ? (
@@ -745,7 +752,7 @@ export default function Dashboard() {
       {/* ── Tab Content ────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-auto">
         {activeTab === "overview" && <OverviewTab s={s} filterBU={filterBU} format={format} unit={unit} />}
-        {activeTab === "applications" && <ApplicationsTab s={s} filterBU={filterBU} format={format} />}
+        {activeTab === "applications" && <ApplicationsTab filterBU={filterBU} format={format} />}
         {activeTab === "roadmap" && <RoadmapTab s={s} filterBU={filterBU} format={format} unit={unit} />}
         {activeTab === "checklist" && <ChecklistTab s={s} filterBU={filterBU} />}
         {activeTab === "security" && <SecurityTab s={s} format={format} />}
