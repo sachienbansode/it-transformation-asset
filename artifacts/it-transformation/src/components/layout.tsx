@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { useCurrency } from "@/contexts/currency-context";
@@ -12,12 +12,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api";
+
+interface AppConfig {
+  appName: string;
+  appTagline: string;
+  logoUrl: string;
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
   const { user, logout } = useAuth();
   const { unit, toggle, label } = useCurrency();
   const { toast } = useToast();
+  const [appConfig, setAppConfig] = useState<AppConfig>({
+    appName: "Ashika Drishti Transform",
+    appTagline: "",
+    logoUrl: "",
+  });
+
+  useEffect(() => {
+    apiFetch<AppConfig>("/config").then(setAppConfig).catch(() => {});
+  }, []);
 
   const navItems = [
     { href: "/", label: "Executive Summary", icon: LayoutDashboard },
@@ -40,9 +56,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <aside className="w-64 flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col">
         {/* Logo */}
-        <div className="h-16 flex items-center px-6 border-b border-sidebar-border bg-sidebar-accent/50 shrink-0">
-          <div className="font-bold text-lg text-primary tracking-tight">
-            ASHIKA IT <span className="text-muted-foreground font-medium text-sm">TransForm</span>
+        <div className="h-16 flex items-center px-4 border-b border-sidebar-border bg-sidebar-accent/50 shrink-0 gap-3">
+          {appConfig.logoUrl ? (
+            <img src={appConfig.logoUrl} alt="Logo" className="h-8 w-8 object-contain rounded flex-shrink-0" />
+          ) : null}
+          <div className="font-bold text-base text-primary tracking-tight leading-tight truncate">
+            {appConfig.appName}
           </div>
         </div>
 

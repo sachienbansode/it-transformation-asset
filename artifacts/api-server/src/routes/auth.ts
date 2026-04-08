@@ -60,7 +60,10 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     userType: usersTable.userType,
     role: usersTable.role,
     department: usersTable.department,
+    mobile: usersTable.mobile,
     mfaEnabled: usersTable.mfaEnabled,
+    mfaMethod: usersTable.mfaMethod,
+    status: usersTable.status,
   }).from(usersTable).where(eq(usersTable.id, req.session.userId));
   if (!user) {
     req.session.destroy(() => {});
@@ -79,7 +82,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   if (!body.success) { res.status(400).json({ error: "Invalid request" }); return; }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, body.data.email.toLowerCase()));
-  if (!user || !user.isActive) {
+  if (!user) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
@@ -90,6 +93,26 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   const valid = await bcrypt.compare(body.data.password, user.passwordHash);
   if (!valid) {
     res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  // Auto-dormant: mark active users who haven't logged in for 30+ days
+  if (user.status === "active" && user.lastLoginAt) {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    if (new Date(user.lastLoginAt) < thirtyDaysAgo) {
+      await db.update(usersTable).set({ status: "dormant" }).where(eq(usersTable.id, user.id));
+      res.status(403).json({ error: "Your account has been marked dormant due to inactivity. Please contact your administrator." });
+      return;
+    }
+  }
+
+  // Status gate
+  if (user.status === "dormant") {
+    res.status(403).json({ error: "Account is dormant due to inactivity. Please contact your administrator." });
+    return;
+  }
+  if (user.status === "inactive" || !user.isActive) {
+    res.status(403).json({ error: "Your account has been deactivated. Please contact your administrator." });
     return;
   }
 
@@ -105,11 +128,12 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   req.session.userId = user.id;
   req.session.mfaVerified = true;
   await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
-  await db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
+  await db.update(usersTable).set({ lastLoginAt: new Date(), status: "active" }).where(eq(usersTable.id, user.id));
   res.json({
     id: user.id, email: user.email, name: user.name,
     userType: user.userType, role: user.role, department: user.department,
-    mfaEnabled: user.mfaEnabled,
+    mobile: user.mobile, mfaEnabled: user.mfaEnabled, mfaMethod: user.mfaMethod,
+    status: user.status,
   });
 });
 
@@ -242,6 +266,18 @@ router.post("/auth/mfa/disable", requireAuth, async (req, res): Promise<void> =>
 });
 
 // ─── MS SSO ──────────────────────────────────────────────────
+
+// GET /config — public branding config (no auth required)
+router.get("/config", async (_req, res): Promise<void> => {
+  const appName = await getSetting("app_name");
+  const appTagline = await getSetting("app_tagline");
+  const logoUrl = await getSetting("logo_url");
+  res.json({
+    appName: appName || "Ashika Drishti Transform",
+    appTagline: appTagline || "IT Transformation Planning Suite — Ashika Group",
+    logoUrl: logoUrl || "",
+  });
+});
 
 // GET /auth/sso/config — check if SSO is configured & enabled
 router.get("/auth/sso/config", async (_req, res): Promise<void> => {

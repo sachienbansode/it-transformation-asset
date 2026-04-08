@@ -19,6 +19,7 @@ router.use(healthRouter);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/masters" && req.method === "GET") return next();
+  if (req.path === "/config" && req.method === "GET") return next();
   requireAuth(req, res, next);
 });
 

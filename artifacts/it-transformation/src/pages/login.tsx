@@ -12,6 +12,12 @@ import { Shield, Building2, User, Loader2 } from "lucide-react";
 type UserType = "internal" | "external";
 type LoginStep = "credentials" | "mfa";
 
+interface AppConfig {
+  appName: string;
+  appTagline: string;
+  logoUrl: string;
+}
+
 export default function Login() {
   const { login, loginMfa, user } = useAuth();
   const [, navigate] = useLocation();
@@ -24,6 +30,11 @@ export default function Login() {
   const [mfaToken, setMfaToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [ssoConfig, setSsoConfig] = useState<{ enabled: boolean; configured: boolean } | null>(null);
+  const [appConfig, setAppConfig] = useState<AppConfig>({
+    appName: "Ashika Drishti Transform",
+    appTagline: "IT Transformation Planning Suite — Ashika Group",
+    logoUrl: "",
+  });
 
   useEffect(() => {
     if (user) navigate("/");
@@ -33,6 +44,9 @@ export default function Login() {
     apiFetch<{ enabled: boolean; configured: boolean }>("/auth/sso/config")
       .then(setSsoConfig)
       .catch(() => setSsoConfig({ enabled: false, configured: false }));
+    apiFetch<AppConfig>("/config")
+      .then(setAppConfig)
+      .catch(() => {});
   }, []);
 
   const handleCredentials = async (e: React.FormEvent) => {
@@ -77,16 +91,22 @@ export default function Login() {
     }
   };
 
+  const isDev = import.meta.env.DEV;
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-md space-y-6 px-4">
         {/* Logo / Header */}
         <div className="text-center space-y-2">
-          <div className="flex items-center justify-center gap-2">
-            <Shield className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold text-foreground">ASHIKA IT <span className="text-primary">TransForm</span></span>
+          <div className="flex items-center justify-center gap-3">
+            {appConfig.logoUrl ? (
+              <img src={appConfig.logoUrl} alt="Logo" className="h-10 w-10 object-contain rounded" />
+            ) : (
+              <Shield className="h-8 w-8 text-primary" />
+            )}
+            <span className="text-2xl font-bold text-foreground">{appConfig.appName}</span>
           </div>
-          <p className="text-sm text-muted-foreground">IT Transformation Planning Suite — Ashika Group</p>
+          <p className="text-sm text-muted-foreground">{appConfig.appTagline}</p>
         </div>
 
         {/* User Type Toggle */}
@@ -198,7 +218,7 @@ export default function Login() {
                 <div className="text-center py-4">
                   <Shield className="h-12 w-12 text-primary mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">
-                    Open your authenticator app (Google Authenticator, Authy, etc.) and enter the code for Ashika IT Suite.
+                    Open your authenticator app (Google Authenticator, Authy, etc.) and enter the code.
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -227,6 +247,34 @@ export default function Login() {
             )}
           </CardContent>
         </Card>
+
+        {/* Dev credentials — visible only in development */}
+        {isDev && (
+          <Card className="border-dashed border-primary/40 bg-primary/5">
+            <CardContent className="py-3 px-4">
+              <p className="text-xs font-semibold text-primary mb-2">Dev Environment — Sample Credentials</p>
+              <div className="space-y-1 text-xs font-mono text-muted-foreground">
+                <div className="flex justify-between">
+                  <span>admin@ashikagroup.com</span>
+                  <span className="text-foreground">Ashika@2025</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>sachin.b@ashikagroup.com</span>
+                  <span className="text-foreground">Ashika@2025</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>arunava.nandi@ashikagroup.com</span>
+                  <span className="text-foreground">Ashika@2025</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>vishal.c@ashikagroup.com</span>
+                  <span className="text-foreground">Ashika@2025</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2 italic">This panel is hidden in production.</p>
+            </CardContent>
+          </Card>
+        )}
 
         <p className="text-center text-xs text-muted-foreground">
           Protected under Ashika Group IT Security Policy &mdash; Unauthorized access is prohibited.

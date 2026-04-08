@@ -26,8 +26,9 @@ type Tab = "settings" | "users" | "masters";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
-  role: string; department?: string; mfaEnabled: boolean;
-  isActive: boolean; lastLoginAt?: string; createdAt: string;
+  role: string; department?: string; mobile?: string; mfaEnabled: boolean;
+  mfaMethod?: string; isActive: boolean; status: string;
+  lastLoginAt?: string; createdAt: string;
 }
 interface AdminSettings {
   "auth.selfRegistration"?: boolean;
@@ -39,8 +40,9 @@ interface AdminSettings {
   "sso.tenantId"?: string;
   "sso.clientSecret"?: string;
   "sso.redirectUri"?: string;
-  "ui.appName"?: string;
-  "ui.companyName"?: string;
+  "app_name"?: string;
+  "app_tagline"?: string;
+  "logo_url"?: string;
 }
 
 export default function Admin() {
@@ -194,23 +196,43 @@ function SettingsTab() {
 
       {/* Branding */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Branding</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">Branding</CardTitle>
+          <CardDescription>Configure the application name, tagline, and logo. Changes take effect immediately on all screens.</CardDescription>
+        </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Application Name</Label>
-              <Input
-                value={(settings["ui.appName"] as string) || ""}
-                onChange={e => set("ui.appName", e.target.value)}
+          <div className="space-y-1.5">
+            <Label>Application Name</Label>
+            <Input
+              value={(settings["app_name"] as string) || ""}
+              onChange={e => set("app_name", e.target.value)}
+              placeholder="Ashika Drishti Transform"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Tagline</Label>
+            <Input
+              value={(settings["app_tagline"] as string) || ""}
+              onChange={e => set("app_tagline", e.target.value)}
+              placeholder="IT Transformation Planning Suite — Ashika Group"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Logo URL</Label>
+            <Input
+              value={(settings["logo_url"] as string) || ""}
+              onChange={e => set("logo_url", e.target.value)}
+              placeholder="https://example.com/logo.png (leave blank for default icon)"
+            />
+            {(settings["logo_url"] as string) && (
+              <img
+                src={settings["logo_url"] as string}
+                alt="Logo preview"
+                className="h-12 w-12 object-contain rounded border border-border mt-2"
+                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Company Name</Label>
-              <Input
-                value={(settings["ui.companyName"] as string) || ""}
-                onChange={e => set("ui.companyName", e.target.value)}
-              />
-            </div>
+            )}
+            <p className="text-xs text-muted-foreground">Enter a publicly accessible image URL. Supported: PNG, SVG, JPG.</p>
           </div>
         </CardContent>
       </Card>
@@ -242,7 +264,7 @@ function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", isActive: true });
+  const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", mobile: "", status: "active", isActive: true });
 
   const load = async () => {
     setLoading(true);
@@ -256,25 +278,25 @@ function UsersTab() {
 
   const openAdd = () => {
     setEditUser(null);
-    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", isActive: true });
+    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", mobile: "", status: "active", isActive: true });
     setModalOpen(true);
   };
 
   const openEdit = (u: AdminUser) => {
     setEditUser(u);
-    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", isActive: u.isActive });
+    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive });
     setModalOpen(true);
   };
 
   const handleSave = async () => {
     try {
       if (editUser) {
-        const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, isActive: form.isActive };
+        const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
         await apiFetch(`/admin/users/${editUser.id}`, { method: "PATCH", body: JSON.stringify(body) });
         toast({ title: "User updated" });
       } else {
-        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, isActive: form.isActive };
+        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
         await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
         toast({ title: "User created" });
@@ -322,7 +344,7 @@ function UsersTab() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["Name", "Email", "Type", "Role", "Department", "MFA", "Status", "Last Login", ""].map(h => (
+                {["Name", "Email", "Mobile", "Type", "Role", "Dept", "MFA", "Status", "Last Login", ""].map(h => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{h}</th>
                 ))}
               </tr>
@@ -332,6 +354,7 @@ function UsersTab() {
                 <tr key={u.id} className="border-t border-border hover:bg-muted/30">
                   <td className="px-4 py-2.5 font-medium">{u.name}</td>
                   <td className="px-4 py-2.5 text-muted-foreground text-xs">{u.email}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{u.mobile || "-"}</td>
                   <td className="px-4 py-2.5">
                     <Badge variant="outline" className={u.userType === "internal" ? "border-blue-500/30 text-blue-400" : "border-purple-500/30 text-purple-400"}>
                       {u.userType === "internal" ? "Internal" : "External"}
@@ -349,9 +372,11 @@ function UsersTab() {
                     </Badge>
                   </td>
                   <td className="px-4 py-2.5">
-                    <Badge variant="outline" className={u.isActive ? "border-green-500/30 text-green-400" : "border-red-500/30 text-red-400"}>
-                      {u.isActive ? "Active" : "Inactive"}
-                    </Badge>
+                    {(() => {
+                      const s = u.status || (u.isActive ? "active" : "inactive");
+                      const cls = s === "active" ? "border-green-500/30 text-green-400" : s === "dormant" ? "border-yellow-500/30 text-yellow-400" : "border-red-500/30 text-red-400";
+                      return <Badge variant="outline" className={cls}>{s.charAt(0).toUpperCase() + s.slice(1)}</Badge>;
+                    })()}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
                     {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString("en-IN") : "Never"}
@@ -377,6 +402,10 @@ function UsersTab() {
             {!editUser && <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></div>}
             <div className="space-y-1.5"><Label>Password {editUser && "(leave blank to keep)"}</Label><Input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} /></div>
             <div className="space-y-1.5">
+              <Label>Mobile Number</Label>
+              <Input value={form.mobile} onChange={e => setForm(f => ({...f, mobile: e.target.value}))} placeholder="+91 99999 99999" />
+            </div>
+            <div className="space-y-1.5">
               <Label>User Type</Label>
               <Select value={form.userType} onValueChange={v => setForm(f => ({...f, userType: v}))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -391,8 +420,8 @@ function UsersTab() {
               <Select value={form.role} onValueChange={v => setForm(f => ({...f, role: v}))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">User</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="user">User (Read-Only)</SelectItem>
+                  <SelectItem value="admin">Admin (Full Access)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -405,9 +434,16 @@ function UsersTab() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2 pt-4 col-span-2">
-              <Switch checked={form.isActive} onCheckedChange={v => setForm(f => ({...f, isActive: v}))} />
-              <Label>Active account</Label>
+            <div className="space-y-1.5">
+              <Label>Account Status</Label>
+              <Select value={form.status} onValueChange={v => setForm(f => ({...f, status: v}))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="dormant">Dormant</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>

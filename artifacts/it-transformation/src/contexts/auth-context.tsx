@@ -8,7 +8,10 @@ export interface AuthUser {
   userType: "internal" | "external";
   role: "admin" | "user";
   department?: string;
+  mobile?: string;
   mfaEnabled: boolean;
+  mfaMethod: "totp" | "sms_otp" | "email_otp";
+  status: "active" | "inactive" | "dormant";
 }
 
 interface AuthContextValue {
