@@ -5,6 +5,7 @@ import { useCurrency } from "@/contexts/currency-context";
 import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
+  Users, Sliders, Database, ChevronRight,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -13,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface AppConfig {
   appName: string;
@@ -20,10 +22,53 @@ interface AppConfig {
   logoUrl: string;
 }
 
+const DRISHTI_ITEMS = [
+  { href: "/", label: "Executive Dashboard", icon: LayoutDashboard },
+  { href: "/checklist", label: "IT Master Checklist", icon: CheckSquare },
+  { href: "/roadmap", label: "Transformation Roadmap", icon: Map },
+  { href: "/retirements", label: "App Retirement Plan", icon: Archive },
+  { href: "/applications", label: "Application Inventory", icon: Server },
+  { href: "/aibom", label: "AI Bill of Materials", icon: BrainCircuit },
+  { href: "/sbom", label: "Software BOM", icon: ShieldCheck },
+];
+
+const ADMIN_ITEMS = [
+  { href: "/admin", label: "System Settings", icon: Sliders },
+  { href: "/admin?tab=users", label: "User Management", icon: Users },
+  { href: "/admin?tab=masters", label: "Master Data", icon: Database },
+];
+
+function NavItem({ href, label, icon: Icon, active }: { href: string; label: string; icon: React.ElementType; active: boolean }) {
+  return (
+    <Link href={href}>
+      <div className={cn(
+        "group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 cursor-pointer",
+        active
+          ? "bg-primary/15 text-primary border border-primary/20 shadow-sm"
+          : "text-sidebar-foreground/70 hover:bg-white/5 hover:text-sidebar-foreground"
+      )}>
+        <Icon className={cn("w-4 h-4 flex-shrink-0 transition-colors", active ? "text-primary" : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground/80")} />
+        <span className="truncate leading-tight">{label}</span>
+        {active && <ChevronRight className="w-3 h-3 ml-auto text-primary/60" />}
+      </div>
+    </Link>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3 mb-1 mt-4 first:mt-0">
+      <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-sidebar-foreground/35 select-none">
+        {children}
+      </span>
+    </div>
+  );
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
-  const { user, logout } = useAuth();
-  const { unit, toggle, label } = useCurrency();
+  const { user, logout, isAdmin } = useAuth();
+  const { unit, cycle } = useCurrency();
   const { toast } = useToast();
   const [appConfig, setAppConfig] = useState<AppConfig>({
     appName: "Ashika Drishti Transform",
@@ -35,90 +80,153 @@ export function Layout({ children }: { children: React.ReactNode }) {
     apiFetch<AppConfig>("/config").then(setAppConfig).catch(() => {});
   }, []);
 
-  const navItems = [
-    { href: "/", label: "Executive Summary", icon: LayoutDashboard },
-    { href: "/checklist", label: "IT Master Checklist", icon: CheckSquare },
-    { href: "/roadmap", label: "Transformation Roadmap", icon: Map },
-    { href: "/retirements", label: "App Retirement Plan", icon: Archive },
-    { href: "/applications", label: "Application Inventory", icon: Server },
-    { href: "/aibom", label: "AI Bill of Materials", icon: BrainCircuit },
-    { href: "/sbom", label: "Software Bill of Materials", icon: ShieldCheck },
-  ];
-
   const handleLogout = async () => {
     await logout();
     navigate("/login");
     toast({ title: "Signed out", description: "You have been signed out successfully." });
   };
 
+  const currentPage = DRISHTI_ITEMS.find(i => {
+    if (i.href === "/") return location === "/";
+    return location.startsWith(i.href);
+  })?.label
+    ?? (location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : "");
+
+  const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
+  const nextLabels: Record<string, string> = { lakhs: "→ Crore", crores: "→ Million", millions: "→ Lakh" };
+
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground">
-      {/* Sidebar */}
-      <aside className="w-64 flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col">
-        {/* Logo */}
-        <div className="h-16 flex items-center px-4 border-b border-sidebar-border bg-sidebar-accent/50 shrink-0 gap-3">
+
+      {/* ─── Sidebar ─────────────────────────────── */}
+      <aside className="w-60 flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col">
+
+        {/* Brand Header */}
+        <div className="h-14 flex items-center px-4 border-b border-sidebar-border/60 gap-3 shrink-0">
           {appConfig.logoUrl ? (
-            <img src={appConfig.logoUrl} alt="Logo" className="h-8 w-8 object-contain rounded flex-shrink-0" />
-          ) : null}
-          <div className="font-bold text-base text-primary tracking-tight leading-tight truncate">
-            {appConfig.appName}
+            <img src={appConfig.logoUrl} alt="Logo" className="h-7 w-7 object-contain rounded flex-shrink-0" />
+          ) : (
+            <div className="h-7 w-7 rounded-md bg-primary/20 border border-primary/30 flex items-center justify-center flex-shrink-0">
+              <span className="text-primary font-bold text-xs">AD</span>
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="font-bold text-sm text-foreground tracking-tight leading-tight truncate">
+              {appConfig.appName}
+            </div>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="p-4 space-y-1 flex-1">
-          {navItems.map((item) => {
-            const isActive = location === item.href;
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isActive ? "opacity-100" : "opacity-70"}`} />
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
+
+          <SectionLabel>IT – Drishti</SectionLabel>
+          {DRISHTI_ITEMS.map(item => (
+            <NavItem
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={item.icon}
+              active={item.href === "/" ? location === "/" : location.startsWith(item.href)}
+            />
+          ))}
+
+          {isAdmin && (
+            <>
+              <SectionLabel>Admin Controls</SectionLabel>
+              {ADMIN_ITEMS.map(item => (
+                <NavItem
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={location.startsWith("/admin")}
+                />
+              ))}
+            </>
+          )}
         </nav>
 
-        {/* User info at bottom */}
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="text-xs text-muted-foreground mb-1 px-1">Signed in as</div>
-          <div className="text-sm font-medium px-1 truncate">{user?.name}</div>
-          <div className="text-xs text-muted-foreground px-1 truncate">{user?.email}</div>
+        {/* User Footer */}
+        <div className="border-t border-sidebar-border/60 p-3 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center flex-shrink-0">
+              <span className="text-xs text-primary font-bold">{user?.name?.[0]?.toUpperCase()}</span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-foreground truncate">{user?.name}</div>
+              <div className="flex gap-1 mt-0.5">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-sm border leading-none ${
+                  user?.role === "admin" ? "border-yellow-500/40 text-yellow-400 bg-yellow-400/5" : "border-gray-500/40 text-gray-400 bg-gray-400/5"
+                }`}>{user?.role}</span>
+              </div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0 text-muted-foreground hover:text-foreground">
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="end" className="w-52">
+                <div className="px-3 py-2">
+                  <p className="text-sm font-medium">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate("/profile")}>
+                  <User className="h-4 w-4 mr-2" /> Profile & Security
+                </DropdownMenuItem>
+                {isAdmin && (
+                  <DropdownMenuItem onClick={() => navigate("/admin")}>
+                    <Settings className="h-4 w-4 mr-2" /> Admin Panel
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                  <LogOut className="h-4 w-4 mr-2" /> Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <header className="h-16 border-b border-border bg-card flex items-center justify-between px-8 shrink-0">
-          <h1 className="text-lg font-semibold">IT Transformation Planning Suite</h1>
-          <div className="flex items-center gap-3">
-            {/* Currency toggle */}
+      {/* ─── Main ─────────────────────────────────── */}
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        {/* Top Header */}
+        <header className="h-14 border-b border-border bg-card/80 backdrop-blur-sm flex items-center justify-between px-6 shrink-0 gap-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs text-muted-foreground hidden sm:block">Ashika Group</span>
+            {currentPage && (
+              <>
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 hidden sm:block" />
+                <span className="text-sm font-semibold text-foreground truncate">{currentPage}</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* 3-way currency toggle */}
             <button
-              onClick={toggle}
-              className="flex items-center gap-1.5 text-xs bg-muted hover:bg-muted/80 border border-border rounded-md px-3 py-1.5 transition-colors font-medium"
+              onClick={cycle}
+              title={`Switch currency — next: ${nextLabels[unit]}`}
+              className="group flex items-center gap-1.5 text-xs bg-muted/60 hover:bg-muted border border-border/60 hover:border-border rounded-lg px-3 py-1.5 transition-all font-medium select-none"
             >
-              <span className={unit === "lakhs" ? "text-primary" : "text-muted-foreground"}>₹L</span>
-              <span className="text-muted-foreground">/</span>
-              <span className={unit === "millions" ? "text-primary" : "text-muted-foreground"}>₹M</span>
+              <span className="text-primary font-semibold">{unitLabels[unit]}</span>
+              <span className="text-muted-foreground/60 text-[10px] ml-1 group-hover:text-muted-foreground transition-colors">
+                {nextLabels[unit]}
+              </span>
             </button>
 
-            {/* User menu */}
+            {/* User avatar trigger */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="flex items-center gap-2 h-8">
+                <Button variant="ghost" size="sm" className="flex items-center gap-2 h-8 px-2">
                   <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
                     <span className="text-xs text-primary font-bold">{user?.name?.[0]?.toUpperCase()}</span>
                   </div>
-                  <span className="text-sm font-medium max-w-24 truncate">{user?.name?.split(" ")[0]}</span>
+                  <span className="text-sm font-medium max-w-20 truncate hidden sm:block">{user?.name?.split(" ")[0]}</span>
                   <ChevronDown className="h-3 w-3 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -126,36 +234,28 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <div className="px-3 py-2">
                   <p className="text-sm font-medium">{user?.name}</p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
-                  <div className="flex gap-1 mt-1">
-                    <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                      user?.userType === "internal" ? "border-blue-500/30 text-blue-400" : "border-purple-500/30 text-purple-400"
-                    }`}>{user?.userType}</span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                      user?.role === "admin" ? "border-yellow-500/30 text-yellow-400" : "border-gray-500/30 text-gray-400"
-                    }`}>{user?.role}</span>
-                  </div>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate("/profile")}>
-                  <User className="h-4 w-4 mr-2" />Profile & Security
+                  <User className="h-4 w-4 mr-2" /> Profile & Security
                 </DropdownMenuItem>
-                {user?.role === "admin" && (
+                {isAdmin && (
                   <DropdownMenuItem onClick={() => navigate("/admin")}>
-                    <Settings className="h-4 w-4 mr-2" />Admin Panel
+                    <Settings className="h-4 w-4 mr-2" /> Admin Panel
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
-                  <LogOut className="h-4 w-4 mr-2" />Sign Out
+                  <LogOut className="h-4 w-4 mr-2" /> Sign Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </header>
 
-        {/* Page content */}
-        <div className="flex-1 overflow-auto p-8">
-          <div className="max-w-7xl mx-auto space-y-8">
+        {/* Content */}
+        <div className="flex-1 overflow-auto">
+          <div className="min-h-full p-6">
             {children}
           </div>
         </div>

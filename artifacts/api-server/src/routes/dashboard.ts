@@ -33,24 +33,59 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     return Object.entries(map).map(([key, v]) => ({ key, count: v.count, budgetLakhs: v.budgetLakhs }));
   })();
 
+  const roadmapByStatus = groupBy(roadmap, "status");
+  const retirementsByStatus = groupBy(retirements, "status");
+  const appsByLifecycle = groupBy(apps, "lifecycle");
+  const sbomByRisk = groupBy(sbom, "riskLevel");
+  const aibomByCategory = groupBy(aibom, "category");
+
   const totalBudget = roadmap.reduce((sum, i) => sum + (i.budgetLakhs ?? 0), 0);
+  const spentBudget = roadmap.filter(r => r.status === "Completed").reduce((s, i) => s + (i.budgetLakhs ?? 0), 0);
   const criticalCves = sbom.filter(s => s.cve && s.cve !== "None" && s.riskLevel === "Critical").length;
+  const highCves = sbom.filter(s => s.cve && s.cve !== "None" && s.riskLevel === "High").length;
+  const checklistCompleted = checklist.filter(c => c.status === "Available").length;
+
+  // Unique business units & phases for filters
+  const businessUnits = [...new Set(checklist.map(c => c.business).filter(Boolean))].sort();
+  const phases = [...new Set(roadmap.map(r => r.phase).filter(Boolean))].sort();
 
   res.json({
     totalApplications: apps.length,
     appsToRetire: retirements.filter(r => r.status !== "Completed").length,
+    appsRetired: retirements.filter(r => r.status === "Completed").length,
     checklistTotal: checklist.length,
-    checklistAvailable: checklist.filter(c => c.status === "Available").length,
+    checklistAvailable: checklistCompleted,
     checklistNotAvailable: checklist.filter(c => c.status === "Not Available").length,
     checklistLegacy: checklist.filter(c => c.status === "Legacy").length,
+    checklistCompletionPct: checklist.length ? Math.round((checklistCompleted / checklist.length) * 100) : 0,
     roadmapTotal: roadmap.length,
     roadmapBudgetLakhs: totalBudget,
+    roadmapSpentLakhs: spentBudget,
+    roadmapCompletedItems: roadmap.filter(r => r.status === "Completed").length,
     aibomTotal: aibom.length,
     sbomTotal: sbom.length,
     sbomCriticalCves: criticalCves,
+    sbomHighCves: highCves,
+    sbomTotalVulns: criticalCves + highCves,
     checklistByBusiness: groupBy(checklist, "business"),
     checklistByStatus: groupBy(checklist, "status"),
     roadmapByPhase,
+    roadmapByStatus,
+    retirementsByStatus,
+    appsByLifecycle,
+    sbomByRisk,
+    aibomByCategory,
+    businessUnits,
+    phases,
+    // Drill-down datasets
+    roadmapItems: roadmap.map(r => ({
+      id: r.id, title: r.title, phase: r.phase, status: r.status,
+      priority: r.priority, budgetLakhs: r.budgetLakhs, owner: r.owner,
+    })),
+    retirementItems: retirements.map(r => ({
+      id: r.id, appName: r.appName, status: r.status,
+      retirementDate: r.retirementDate, reason: r.reason,
+    })),
   });
 });
 
