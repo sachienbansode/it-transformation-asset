@@ -1,0 +1,607 @@
+import React, { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/auth-context";
+import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api";
+import { useAllMasters, getBadgeClass } from "@/hooks/use-masters";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield,
+} from "lucide-react";
+
+type Tab = "settings" | "users" | "masters";
+
+interface AdminUser {
+  id: number; email: string; name: string; userType: string;
+  role: string; department?: string; mfaEnabled: boolean;
+  isActive: boolean; lastLoginAt?: string; createdAt: string;
+}
+interface AdminSettings {
+  "auth.selfRegistration"?: boolean;
+  "auth.mfaDefault"?: boolean;
+  "auth.mfaRequired.internal"?: boolean;
+  "auth.mfaRequired.external"?: boolean;
+  "sso.msEnabled"?: boolean;
+  "sso.clientId"?: string;
+  "sso.tenantId"?: string;
+  "sso.clientSecret"?: string;
+  "sso.redirectUri"?: string;
+  "ui.appName"?: string;
+  "ui.companyName"?: string;
+}
+
+export default function Admin() {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [tab, setTab] = useState<Tab>("settings");
+
+  useEffect(() => {
+    if (user && user.role !== "admin") navigate("/");
+  }, [user]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Shield className="h-6 w-6 text-primary" />
+        <div>
+          <h1 className="text-xl font-bold">Admin Configuration</h1>
+          <p className="text-sm text-muted-foreground">Manage authentication, users, and master data</p>
+        </div>
+      </div>
+
+      <div className="flex gap-1 border-b border-border pb-0">
+        {([ ["settings", Settings, "Settings"], ["users", Users, "User Management"], ["masters", Database, "Master Data"]] as const).map(([t, Icon, label]) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "settings" && <SettingsTab />}
+      {tab === "users" && <UsersTab />}
+      {tab === "masters" && <MastersTab />}
+    </div>
+  );
+}
+
+// ─── SETTINGS TAB ────────────────────────────────────────────────────────────
+
+function SettingsTab() {
+  const { toast } = useToast();
+  const [settings, setSettings] = useState<AdminSettings>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiFetch<AdminSettings>("/admin/settings").then(s => { setSettings(s); setLoading(false); });
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiFetch("/admin/settings", { method: "PUT", body: JSON.stringify(settings) });
+      toast({ title: "Settings saved", description: "Configuration updated successfully." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  const set = (key: keyof AdminSettings, value: unknown) =>
+    setSettings(s => ({ ...s, [key]: value }));
+
+  if (loading) return <div className="space-y-4">{[1,2,3,4].map(i => <Skeleton key={i} className="h-20 w-full" />)}</div>;
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      {/* Auth Settings */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Authentication</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <SettingToggle
+            label="Allow External Self-Registration"
+            description="External users can create their own accounts"
+            checked={!!settings["auth.selfRegistration"]}
+            onChange={v => set("auth.selfRegistration", v)}
+          />
+          <SettingToggle
+            label="Require MFA for Internal Users"
+            description="All internal users must set up MFA"
+            checked={!!settings["auth.mfaRequired.internal"]}
+            onChange={v => set("auth.mfaRequired.internal", v)}
+          />
+          <SettingToggle
+            label="Require MFA for External Users"
+            description="All external users must set up MFA"
+            checked={!!settings["auth.mfaRequired.external"]}
+            onChange={v => set("auth.mfaRequired.external", v)}
+          />
+        </CardContent>
+      </Card>
+
+      {/* MS SSO */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Microsoft SSO</CardTitle>
+          <CardDescription>Configure Azure AD for internal user single sign-on. Only available for internal users.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <SettingToggle
+            label="Enable Microsoft SSO"
+            description="Show 'Sign in with Microsoft' button for internal users"
+            checked={!!settings["sso.msEnabled"]}
+            onChange={v => set("sso.msEnabled", v)}
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Azure AD Client ID</Label>
+              <Input
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={(settings["sso.clientId"] as string) || ""}
+                onChange={e => set("sso.clientId", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Azure AD Tenant ID</Label>
+              <Input
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={(settings["sso.tenantId"] as string) || ""}
+                onChange={e => set("sso.tenantId", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Client Secret</Label>
+              <Input
+                type="password"
+                placeholder="Azure AD client secret"
+                value={(settings["sso.clientSecret"] as string) || ""}
+                onChange={e => set("sso.clientSecret", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Redirect URI (optional)</Label>
+              <Input
+                placeholder="https://yourdomain.com/api/auth/sso/callback"
+                value={(settings["sso.redirectUri"] as string) || ""}
+                onChange={e => set("sso.redirectUri", e.target.value)}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Branding */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Branding</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Application Name</Label>
+              <Input
+                value={(settings["ui.appName"] as string) || ""}
+                onChange={e => set("ui.appName", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Company Name</Label>
+              <Input
+                value={(settings["ui.companyName"] as string) || ""}
+                onChange={e => set("ui.companyName", e.target.value)}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Button onClick={save} disabled={saving} className="min-w-32">
+        {saving ? "Saving..." : "Save Settings"}
+      </Button>
+    </div>
+  );
+}
+
+function SettingToggle({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <div>
+        <p className="text-sm font-medium">{label}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+// ─── USERS TAB ───────────────────────────────────────────────────────────────
+
+function UsersTab() {
+  const { toast } = useToast();
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editUser, setEditUser] = useState<AdminUser | null>(null);
+  const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", isActive: true });
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch<AdminUser[]>("/admin/users");
+      setUsers(data);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const openAdd = () => {
+    setEditUser(null);
+    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", isActive: true });
+    setModalOpen(true);
+  };
+
+  const openEdit = (u: AdminUser) => {
+    setEditUser(u);
+    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", isActive: u.isActive });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    try {
+      if (editUser) {
+        const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, isActive: form.isActive };
+        if (form.password) body.password = form.password;
+        await apiFetch(`/admin/users/${editUser.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        toast({ title: "User updated" });
+      } else {
+        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, isActive: form.isActive };
+        if (form.password) body.password = form.password;
+        await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
+        toast({ title: "User created" });
+      }
+      setModalOpen(false);
+      load();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (u: AdminUser) => {
+    if (!confirm(`Delete user ${u.name}?`)) return;
+    try {
+      await apiFetch(`/admin/users/${u.id}`, { method: "DELETE" });
+      toast({ title: "User deleted" });
+      load();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const DEPARTMENTS = ["it","risk","compliance","operations","finance","broking_ops","nbfc_ops","aif_ops","institutional","hr","management"];
+  const DEPT_LABELS: Record<string, string> = {
+    it: "Information Technology", risk: "Risk Management", compliance: "Compliance & Legal",
+    operations: "Operations", finance: "Finance & Accounts", broking_ops: "Broking Operations",
+    nbfc_ops: "NBFC Operations", aif_ops: "AIF Operations", institutional: "Institutional Equities",
+    hr: "Human Resources", management: "Senior Management"
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Total: {users.length} users</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</Button>
+          <Button size="sm" onClick={openAdd}><Plus className="h-3.5 w-3.5 mr-1" />Add User</Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : (
+        <div className="border border-border rounded-md overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                {["Name", "Email", "Type", "Role", "Department", "MFA", "Status", "Last Login", ""].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id} className="border-t border-border hover:bg-muted/30">
+                  <td className="px-4 py-2.5 font-medium">{u.name}</td>
+                  <td className="px-4 py-2.5 text-muted-foreground text-xs">{u.email}</td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant="outline" className={u.userType === "internal" ? "border-blue-500/30 text-blue-400" : "border-purple-500/30 text-purple-400"}>
+                      {u.userType === "internal" ? "Internal" : "External"}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant="outline" className={u.role === "admin" ? "border-yellow-500/30 text-yellow-400" : "border-gray-500/30 text-gray-400"}>
+                      {u.role}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{DEPT_LABELS[u.department || ""] || u.department || "-"}</td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant="outline" className={u.mfaEnabled ? "border-green-500/30 text-green-400" : "border-gray-500/30 text-gray-400"}>
+                      {u.mfaEnabled ? "ON" : "OFF"}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant="outline" className={u.isActive ? "border-green-500/30 text-green-400" : "border-red-500/30 text-red-400"}>
+                      {u.isActive ? "Active" : "Inactive"}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString("en-IN") : "Never"}
+                  </td>
+                  <td className="px-4 py-2.5 flex gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(u)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editUser ? "Edit User" : "Add User"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-2">
+            <div className="space-y-1.5"><Label>Full Name</Label><Input value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} /></div>
+            {!editUser && <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></div>}
+            <div className="space-y-1.5"><Label>Password {editUser && "(leave blank to keep)"}</Label><Input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} /></div>
+            <div className="space-y-1.5">
+              <Label>User Type</Label>
+              <Select value={form.userType} onValueChange={v => setForm(f => ({...f, userType: v}))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="internal">Internal</SelectItem>
+                  <SelectItem value="external">External</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Select value={form.role} onValueChange={v => setForm(f => ({...f, role: v}))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Department</Label>
+              <Select value={form.department} onValueChange={v => setForm(f => ({...f, department: v}))}>
+                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+                <SelectContent>
+                  {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{DEPT_LABELS[d]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2 pt-4 col-span-2">
+              <Switch checked={form.isActive} onCheckedChange={v => setForm(f => ({...f, isActive: v}))} />
+              <Label>Active account</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave}>{editUser ? "Update" : "Create User"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── MASTERS TAB ─────────────────────────────────────────────────────────────
+
+const CATEGORIES = [
+  { key: "vendor", label: "Vendor" },
+  { key: "business", label: "Business Unit" },
+  { key: "app_category", label: "Application Category" },
+  { key: "hosting", label: "Hosting Type" },
+  { key: "criticality", label: "Criticality" },
+  { key: "license_type", label: "License Type" },
+  { key: "data_classification", label: "Data Classification" },
+  { key: "priority", label: "Priority" },
+  { key: "checklist_status", label: "Checklist Status" },
+  { key: "checklist_category", label: "Checklist Category" },
+  { key: "phase", label: "Roadmap Phase" },
+  { key: "roadmap_status", label: "Roadmap Status" },
+  { key: "retirement_reason", label: "Retirement Reason" },
+  { key: "retirement_status", label: "Retirement Status" },
+  { key: "migration_effort", label: "Migration Effort" },
+  { key: "support_status", label: "Support Status" },
+  { key: "ai_type", label: "AI Component Type" },
+  { key: "risk_level", label: "Risk Level" },
+  { key: "compliance_status", label: "Compliance Status" },
+  { key: "department", label: "Department" },
+];
+
+function MastersTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: allMasters, isLoading, refetch } = useAllMasters();
+  const [selectedCategory, setSelectedCategory] = useState("vendor");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editItem, setEditItem] = useState<any | null>(null);
+  const [form, setForm] = useState({ label: "", color: "", sortOrder: 0, isActive: true });
+
+  const filtered = (allMasters || []).filter(m => m.category === selectedCategory);
+
+  const openAdd = () => {
+    setEditItem(null);
+    setForm({ label: "", color: "", sortOrder: filtered.length + 1, isActive: true });
+    setModalOpen(true);
+  };
+
+  const openEdit = (item: any) => {
+    setEditItem(item);
+    setForm({ label: item.label, color: item.color || "", sortOrder: item.sortOrder, isActive: item.isActive });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    try {
+      if (editItem) {
+        await apiFetch(`/masters/${editItem.id}`, { method: "PATCH", body: JSON.stringify(form) });
+        toast({ title: "Master updated" });
+      } else {
+        const key = form.label.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        await apiFetch("/masters", { method: "POST", body: JSON.stringify({ category: selectedCategory, key, ...form }) });
+        toast({ title: "Master added" });
+      }
+      setModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["masters"] });
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (item: any) => {
+    if (!confirm(`Delete "${item.label}"?`)) return;
+    try {
+      await apiFetch(`/masters/${item.id}`, { method: "DELETE" });
+      toast({ title: "Deleted" });
+      queryClient.invalidateQueries({ queryKey: ["masters"] });
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-4">
+        {/* Category list */}
+        <div className="w-52 shrink-0 space-y-1">
+          {CATEGORIES.map(c => (
+            <button
+              key={c.key}
+              onClick={() => setSelectedCategory(c.key)}
+              className={`w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
+                selectedCategory === c.key ? "bg-primary/20 text-primary font-medium" : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              {c.label}
+              <span className="ml-1 text-xs opacity-60">
+                ({(allMasters || []).filter(m => m.category === c.key).length})
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Items table */}
+        <div className="flex-1 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">
+              {CATEGORIES.find(c => c.key === selectedCategory)?.label}
+              <span className="text-muted-foreground font-normal ml-2">({filtered.length} items)</span>
+            </h3>
+            <Button size="sm" onClick={openAdd}><Plus className="h-3.5 w-3.5 mr-1" />Add</Button>
+          </div>
+
+          {isLoading ? (
+            <Skeleton className="h-32 w-full" />
+          ) : (
+            <div className="border border-border rounded-md overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    {["Label", "Color", "Sort", "Active", ""].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(item => (
+                    <tr key={item.id} className="border-t border-border hover:bg-muted/30">
+                      <td className="px-3 py-2 font-medium">{item.label}</td>
+                      <td className="px-3 py-2">
+                        {item.color ? (
+                          <Badge variant="outline" className={`text-xs ${getBadgeClass(item.color)}`}>{item.color}</Badge>
+                        ) : "-"}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.sortOrder}</td>
+                      <td className="px-3 py-2">
+                        <Badge variant="outline" className={item.isActive ? "border-green-500/30 text-green-400" : "border-red-500/30 text-red-400"}>
+                          {item.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 flex gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(item)}><Pencil className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(item)}><Trash2 className="h-3 w-3" /></Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editItem ? "Edit Master" : "Add Master"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5"><Label>Label</Label><Input value={form.label} onChange={e => setForm(f => ({...f, label: e.target.value}))} /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Color (for badge)</Label>
+                <Select value={form.color || "none"} onValueChange={v => setForm(f => ({...f, color: v === "none" ? "" : v}))}>
+                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {["red","orange","yellow","green","blue","purple","teal","gray","indigo","pink"].map(c => (
+                      <SelectItem key={c} value={c}><span className={`inline-block w-3 h-3 rounded-full mr-2 bg-${c}-500`} />{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5"><Label>Sort Order</Label><Input type="number" value={form.sortOrder} onChange={e => setForm(f => ({...f, sortOrder: +e.target.value}))} /></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={form.isActive} onCheckedChange={v => setForm(f => ({...f, isActive: v}))} />
+              <Label>Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave}>{editItem ? "Update" : "Add"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

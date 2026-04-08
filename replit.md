@@ -1,61 +1,178 @@
-# Workspace
+# Ashika Group — IT Transformation Planning Suite
 
-## Overview
+## Project Overview
+A full-stack IT Transformation Planning Suite built for the CTO of Ashika Group — a listed Indian financial services conglomerate operating Broking, AIF, Institutional Equities, and NBFC businesses.
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+**Design aesthetic:** Bloomberg Terminal (dark navy, gold primary, teal accents)  
+**Currency:** ₹ INR with lakhs/millions toggle  
+**Regulatory context:** SEBI, RBI, BSE, NSE, CDSL, NSDL compliance throughout data
 
-## Preferred Technology Stack
+---
 
-The user's preferred stack for all applications in this project:
-- **Cloud**: AWS (EC2, RDS, S3, CloudFront, etc.)
-- **Backend**: Node.js + Express
-- **Frontend**: React.js + Vite
-- **Database**: PostgreSQL (via Drizzle ORM)
-- **File Storage**: AWS S3 (for exports, uploads, documents)
+## Tech Stack
+- **Frontend:** React + Vite + TypeScript + TailwindCSS + shadcn/ui
+- **Backend:** Node.js + Express + TypeScript  
+- **ORM:** Drizzle ORM
+- **Database:** PostgreSQL (Replit managed)
+- **Session Store:** connect-pg-simple (user_sessions table in DB)
+- **Auth:** bcryptjs (passwords), speakeasy (TOTP MFA), express-session
+- **Charts:** Recharts
+- **API:** REST, auto-generated `@workspace/api-client-react` hooks
 
-Always use this stack when building new applications unless the user explicitly requests otherwise.
+---
 
-## Monorepo Stack
+## Architecture
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
-- **File Storage**: AWS S3 (via `@aws-sdk/client-s3`)
+```
+/artifacts/api-server      — Express REST API (port 8080)
+/artifacts/it-transformation — React frontend (port 22340, proxied to /)
+/lib/db                    — Drizzle schema + seed scripts
+/lib/api-client-react      — Auto-generated React Query hooks
+```
 
-## Key Commands
+---
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
+## 7 Data Modules (All Seeded)
 
-## Applications Built
+| Module | Page | Records |
+|--------|------|---------|
+| Executive Dashboard | `/` | KPIs + Recharts (pie, bar) |
+| IT Master Checklist | `/checklist` | 62 items |
+| Transformation Roadmap | `/roadmap` | Gantt-style, ₹1520L total |
+| App Retirement Plan | `/retirements` | 15 apps |
+| Application Inventory | `/applications` | 20 apps |
+| AI Bill of Materials | `/aibom` | 10 AI components |
+| Software Bill of Materials | `/sbom` | 15 packages, CVE tracking |
 
-### IT Transformation Planning Suite (`artifacts/it-transformation/`)
-Full-stack planning tool for the CTO of Ashika Group — a listed Indian financial services conglomerate (Broking, AIF, Institutional Equities, NBFC).
+---
 
-**Theme**: Dark Bloomberg Terminal aesthetic (navy/gold/teal). INR (₹ Lakhs) throughout. SEBI/RBI/NSE/BSE/CDSL/NSDL context.
+## Authentication System
 
-**7 modules**:
-1. **Executive Dashboard** — KPI cards, pie chart (checklist status), bar charts (roadmap budget by phase, checklist by BU), security score
-2. **IT Master Checklist** — 62+ items tagged by category/business/status/priority. Search, filter, inline CRUD.
-3. **Transformation Roadmap** — 16 initiatives across 3 phases, Gantt-style bar chart, phase tabs, budget tracking (₹1520L total)
-4. **App Retirement Plan** — 8 retirements planned (₹373L), successor apps, migration effort tracking
-5. **Application Inventory** — 20 applications with vendor, hosting, criticality, license, cost data
-6. **AI Bill of Materials (AIBOM)** — 10 AI/ML components with risk & SEBI/RBI compliance governance
-7. **Software Bill of Materials (SBOM)** — 15 OSS packages with CVE tracking, 3 critical CVEs flagged
+### Credentials
+- **Admin:** admin@ashikagroup.com / Ashika@2025
+- **Default role:** admin
 
-**Architecture**:
-- Frontend: React + Vite + Wouter + TanStack Query + Recharts + shadcn/ui
-- API: Express 5 + Zod validation from OpenAPI spec (Orval codegen)
-- DB: PostgreSQL + Drizzle ORM, 6 tables: checklist_items, roadmap_items, applications, retirements, aibom_entries, sbom_entries
-- Seed script: `lib/db/src/seed.ts` (run via `pnpm --filter @workspace/db exec tsx src/seed.ts`)
+### Features
+- Password login with bcrypt hashing
+- TOTP MFA (speakeasy) — users can set up via Profile page
+- Microsoft SSO (Azure AD OAuth2 redirect) — configurable via Admin Panel
+- Session-based auth (express-session + connect-pg-simple)
+- Internal vs External user type classification
+- Protected routes redirect to `/login` when unauthenticated
+- Admin-only routes for `/admin`
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+---
+
+## Admin Panel (`/admin`)
+
+### Settings Tab
+- Authentication settings (self-registration, MFA requirements)
+- Microsoft SSO configuration (clientId, tenantId, clientSecret, redirectUri)
+- Branding settings (app name, company name)
+
+### User Management Tab
+- CRUD operations for all users
+- Role assignment (admin / user)
+- User type (internal / external)
+- Department assignment
+- Active/inactive toggle
+- Last login tracking
+
+### Master Data Tab
+- 20 categories of dropdown values (vendor, business, app_category, hosting, criticality, license_type, data_classification, priority, etc.)
+- 145 seeded records covering Ashika Group context
+- Add / Edit / Deactivate any master value
+- Color coding for badge rendering
+
+---
+
+## Dynamic Dropdowns (MasterSelect)
+
+All module form modals use `<MasterSelect category="..." />` which fetches live from `/api/masters?category=xxx`.  
+Categories: vendor, business, app_category, hosting, criticality, support_status, license_type, risk_level, compliance_status, checklist_status, checklist_category, priority, phase, roadmap_status, retirement_reason, retirement_status, migration_effort, ai_type, data_classification, department
+
+---
+
+## Currency Toggle
+- Context: `CurrencyProvider` → `useCurrency()` hook
+- Toggle: ₹L (lakhs) ↔ ₹M (millions)  
+- Formula: 1 million = 10 lakhs
+- `format(n)` converts lakhs to the selected unit string
+- Toggle button in the layout header, visible on all pages
+
+---
+
+## Database Tables
+
+| Table | Purpose |
+|-------|---------|
+| checklist_items | IT checklist (62 items) |
+| roadmap_items | Transformation roadmap |
+| applications | Application inventory |
+| retirements | App retirement plans |
+| aibom_entries | AI components |
+| sbom_entries | Software packages + CVEs |
+| masters | Dynamic dropdown values (145 records) |
+| users | User accounts + MFA secrets |
+| settings | Admin configuration (13 keys) |
+| user_sessions | Session store (connect-pg-simple) |
+
+---
+
+## Key Files
+
+```
+artifacts/it-transformation/src/
+  App.tsx                         — Router + AuthProvider + CurrencyProvider
+  contexts/auth-context.tsx       — Auth state + login/logout/MFA
+  contexts/currency-context.tsx   — ₹L/₹M toggle context
+  hooks/use-masters.ts            — useMasters(category) hook
+  components/layout.tsx           — Sidebar + header + user menu + currency toggle
+  components/master-select.tsx    — Dynamic dropdown component
+  lib/api.ts                      — apiFetch helper (credentials: include)
+  pages/login.tsx                 — Login page (Internal/External, MFA, SSO)
+  pages/admin.tsx                 — Admin panel (settings/users/masters)
+  pages/profile.tsx               — Profile + password change + MFA setup
+
+artifacts/api-server/src/routes/
+  auth.ts          — Login, logout, MFA setup/enable/disable, SSO, profile
+  masters.ts       — CRUD for master data (GET public, write admin-only)
+  admin.ts         — Admin settings + user management
+  dashboard.ts     — KPI aggregation
+  [all modules].ts — CRUD for each data module
+
+lib/db/src/
+  schema/index.ts        — All table definitions (Drizzle)
+  seed.ts                — Module data seeds
+  seed-masters.ts        — 145 master records + admin user + 13 settings
+```
+
+---
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| DATABASE_URL | PostgreSQL connection string |
+| SESSION_SECRET | Express session signing secret |
+| PORT | App port (set by Replit per artifact) |
+
+---
+
+## Running Seeds
+
+```bash
+# Seed module data (checklist, roadmap, applications, retirements, aibom, sbom)
+pnpm --filter @workspace/db exec tsx src/seed.ts
+
+# Seed master data + admin user + settings
+pnpm --filter @workspace/db exec tsx src/seed-masters.ts
+```
+
+---
+
+## Session Notes
+- `user_sessions` table must exist in DB — was manually created (connect-pg-simple does `createTableIfMissing: true` but requires the DB user to have CREATE TABLE rights)
+- `session.save()` is explicitly called after login to ensure session is persisted before response
+- Zod version is v3 — use `z.string().email()` not `z.email()` (v4 syntax)
+- MS SSO is backend-only redirect flow (no MSAL frontend library needed)

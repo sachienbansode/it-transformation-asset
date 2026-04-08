@@ -8,15 +8,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, IndianRupee } from "lucide-react";
+import { Plus, Trash2, Edit } from "lucide-react";
 import type { Retirement } from "@workspace/api-client-react";
+import { MasterSelect } from "@/components/master-select";
+import { useCurrency } from "@/contexts/currency-context";
 
 export default function Retirements() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: items } = useListRetirements();
+  const { format } = useCurrency();
   
   const createItem = useCreateRetirement();
   const updateItem = useUpdateRetirement();
@@ -28,7 +30,7 @@ export default function Retirements() {
 
   const handleOpenModal = (item: Retirement | null = null) => {
     setEditingItem(item);
-    setFormData(item || { appName: "", business: "", reason: "End of Life", migrationEffort: "Medium", status: "Planned", budgetLakhs: 0 });
+    setFormData(item || { appName: "", business: "", reason: "", migrationEffort: "", status: "", budgetLakhs: 0 });
     setIsModalOpen(true);
   };
 
@@ -67,10 +69,25 @@ export default function Retirements() {
   const inProgress = items?.filter(i => i.status === "In Progress").length || 0;
   const totalBudget = items?.reduce((sum, item) => sum + (item.budgetLakhs || 0), 0) || 0;
 
+  const getEffortBadge = (effort: string) => {
+    if (effort === "High") return "bg-red-500/20 text-red-400 border-red-500/30";
+    if (effort === "Medium") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+    return "bg-green-500/20 text-green-400 border-green-500/30";
+  };
+
+  const getStatusBadge = (status: string) => {
+    if (status === "Completed") return "bg-green-500/20 text-green-400 border-green-500/30";
+    if (status === "In Progress") return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+    return "bg-gray-500/20 text-gray-400 border-gray-500/30";
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold tracking-tight">App Retirement Plan</h2>
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">App Retirement Plan</h2>
+          <p className="text-muted-foreground">Planned decommissioning of legacy systems</p>
+        </div>
         <Button onClick={() => handleOpenModal(null)}>
           <Plus className="mr-2 h-4 w-4" /> Add Plan
         </Button>
@@ -86,8 +103,8 @@ export default function Retirements() {
           <CardContent><div className="text-2xl font-bold">{inProgress}</div></CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Budget Total</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-primary flex items-center"><IndianRupee className="h-5 w-5 mr-1" />{totalBudget}L</div></CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Budget</CardTitle></CardHeader>
+          <CardContent><div className="text-2xl font-bold text-primary">{format(totalBudget)}</div></CardContent>
         </Card>
       </div>
 
@@ -112,17 +129,11 @@ export default function Retirements() {
                 <TableCell className="font-medium">{item.appName}</TableCell>
                 <TableCell><Badge variant="outline">{item.business}</Badge></TableCell>
                 <TableCell><Badge variant="secondary">{item.reason}</Badge></TableCell>
-                <TableCell>{item.targetDate || "-"}</TableCell>
-                <TableCell>{item.successor || "-"}</TableCell>
-                <TableCell>
-                  <Badge className={
-                    item.migrationEffort === 'High' ? 'bg-red-500/20 text-red-400' :
-                    item.migrationEffort === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                    'bg-green-500/20 text-green-400'
-                  }>{item.migrationEffort}</Badge>
-                </TableCell>
-                <TableCell>₹{item.budgetLakhs}L</TableCell>
-                <TableCell><Badge className={item.status === 'Completed' ? 'bg-green-500/20 text-green-400' : 'bg-primary/20 text-primary'}>{item.status}</Badge></TableCell>
+                <TableCell className="text-xs">{item.targetDate || "-"}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">{item.successor || "-"}</TableCell>
+                <TableCell><Badge className={getEffortBadge(item.migrationEffort)}>{item.migrationEffort}</Badge></TableCell>
+                <TableCell className="font-medium">{format(item.budgetLakhs || 0)}</TableCell>
+                <TableCell><Badge className={getStatusBadge(item.status)}>{item.status}</Badge></TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
                     <Edit className="h-4 w-4" />
@@ -139,7 +150,7 @@ export default function Retirements() {
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editingItem ? "Edit Plan" : "Add Plan"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingItem ? "Edit Plan" : "Add Retirement Plan"}</DialogTitle></DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
@@ -147,14 +158,14 @@ export default function Retirements() {
                 <Input value={formData.appName || ""} onChange={e => setFormData({...formData, appName: e.target.value})} />
               </div>
               <div className="grid gap-2">
-                <Label>Business</Label>
-                <Input value={formData.business || ""} onChange={e => setFormData({...formData, business: e.target.value})} />
+                <Label>Business Unit</Label>
+                <MasterSelect category="business" value={formData.business || ""} onChange={v => setFormData({...formData, business: v})} placeholder="Select business" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Reason</Label>
-                <Input value={formData.reason || ""} onChange={e => setFormData({...formData, reason: e.target.value})} />
+                <Label>Retirement Reason</Label>
+                <MasterSelect category="retirement_reason" value={formData.reason || ""} onChange={v => setFormData({...formData, reason: v})} placeholder="Select reason" />
               </div>
               <div className="grid gap-2">
                 <Label>Target Date</Label>
@@ -164,18 +175,11 @@ export default function Retirements() {
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Successor App</Label>
-                <Input value={formData.successor || ""} onChange={e => setFormData({...formData, successor: e.target.value})} />
+                <Input value={formData.successor || ""} onChange={e => setFormData({...formData, successor: e.target.value})} placeholder="Replacement system" />
               </div>
               <div className="grid gap-2">
-                <Label>Effort</Label>
-                <Select value={formData.migrationEffort || ""} onValueChange={v => setFormData({...formData, migrationEffort: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="High">High</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="Low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Migration Effort</Label>
+                <MasterSelect category="migration_effort" value={formData.migrationEffort || ""} onChange={v => setFormData({...formData, migrationEffort: v})} placeholder="Select effort" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -185,14 +189,7 @@ export default function Retirements() {
               </div>
               <div className="grid gap-2">
                 <Label>Status</Label>
-                <Select value={formData.status || ""} onValueChange={v => setFormData({...formData, status: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Planned">Planned</SelectItem>
-                    <SelectItem value="In Progress">In Progress</SelectItem>
-                    <SelectItem value="Completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MasterSelect category="retirement_status" value={formData.status || ""} onChange={v => setFormData({...formData, status: v})} placeholder="Select status" />
               </div>
             </div>
           </div>

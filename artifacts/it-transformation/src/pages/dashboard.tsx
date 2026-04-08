@@ -4,9 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { Server, Archive, CheckSquare, IndianRupee, ShieldAlert } from "lucide-react";
+import { useCurrency } from "@/contexts/currency-context";
 
 export default function Dashboard() {
   const { data: summary, isLoading } = useGetDashboardSummary();
+  const { format } = useCurrency();
 
   if (isLoading) {
     return (
@@ -67,7 +69,7 @@ export default function Dashboard() {
             <IndianRupee className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">₹{summary.roadmapBudgetLakhs}L</div>
+            <div className="text-2xl font-bold text-primary">{format(summary.roadmapBudgetLakhs)}</div>
           </CardContent>
         </Card>
         <Card className="bg-destructive/10 border-destructive/20">

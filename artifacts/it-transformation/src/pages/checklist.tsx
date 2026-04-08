@@ -13,6 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Plus, Trash2, Edit } from "lucide-react";
 import type { ChecklistItem } from "@workspace/api-client-react";
+import { MasterSelect } from "@/components/master-select";
+import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 
 export default function Checklist() {
   const queryClient = useQueryClient();
@@ -23,18 +25,21 @@ export default function Checklist() {
   const updateItem = useUpdateChecklistItem();
   const deleteItem = useDeleteChecklistItem();
 
+  const { data: businesses } = useMasters("business");
+  const { data: statuses } = useMasters("checklist_status");
+  const { data: priorities } = useMasters("priority");
+
   const [search, setSearch] = useState("");
-  const [filterBusiness, setFilterBusiness] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterBusiness, setFilterBusiness] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ChecklistItem | null>(null);
-
   const [formData, setFormData] = useState<Partial<ChecklistItem>>({});
 
   const filteredItems = items?.filter(item => {
     if (search && !item.feature.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filterBusiness !== "All" && item.business !== filterBusiness) return false;
-    if (filterStatus !== "All" && item.status !== filterStatus) return false;
+    if (filterBusiness !== "all" && item.business !== filterBusiness) return false;
+    if (filterStatus !== "all" && item.status !== filterStatus) return false;
     return true;
   });
 
@@ -79,6 +84,8 @@ export default function Checklist() {
   };
 
   const getStatusBadge = (status: string) => {
+    const m = statuses?.find(s => s.label === status);
+    if (m?.color) return getBadgeClass(m.color);
     if (status === "Available") return "bg-green-500/20 text-green-400 border-green-500/30";
     if (status === "Partial") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
     if (status === "Not Available") return "bg-red-500/20 text-red-400 border-red-500/30";
@@ -87,6 +94,8 @@ export default function Checklist() {
   };
 
   const getPriorityBadge = (prio: string) => {
+    const m = priorities?.find(p => p.label === prio);
+    if (m?.color) return getBadgeClass(m.color);
     if (prio === "High") return "bg-red-500/20 text-red-400 border-red-500/30";
     if (prio === "Medium") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
     if (prio === "Low") return "bg-green-500/20 text-green-400 border-green-500/30";
@@ -98,14 +107,14 @@ export default function Checklist() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">IT Master Checklist</h2>
-          <p className="text-muted-foreground">Total items: {items?.length || 0}</p>
+          <p className="text-muted-foreground">Total items: {items?.length || 0} | Filtered: {filteredItems?.length || 0}</p>
         </div>
         <Button onClick={() => handleOpenModal(null)}>
           <Plus className="mr-2 h-4 w-4" /> Add Item
         </Button>
       </div>
 
-      <div className="flex gap-4 items-center">
+      <div className="flex gap-4 items-center flex-wrap">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input 
@@ -117,26 +126,20 @@ export default function Checklist() {
         </div>
         <Select value={filterBusiness} onValueChange={setFilterBusiness}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Business" />
+            <SelectValue placeholder="All Businesses" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="All">All Businesses</SelectItem>
-            <SelectItem value="Broking">Broking</SelectItem>
-            <SelectItem value="NBFC">NBFC</SelectItem>
-            <SelectItem value="AIF">AIF</SelectItem>
-            <SelectItem value="Both">Both</SelectItem>
+            <SelectItem value="all">All Businesses</SelectItem>
+            {businesses?.map(b => <SelectItem key={b.id} value={b.label}>{b.label}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={filterStatus} onValueChange={setFilterStatus}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder="All Statuses" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="All">All Statuses</SelectItem>
-            <SelectItem value="Available">Available</SelectItem>
-            <SelectItem value="Partial">Partial</SelectItem>
-            <SelectItem value="Not Available">Not Available</SelectItem>
-            <SelectItem value="Legacy">Legacy</SelectItem>
+            <SelectItem value="all">All Statuses</SelectItem>
+            {statuses?.map(s => <SelectItem key={s.id} value={s.label}>{s.label}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -157,10 +160,10 @@ export default function Checklist() {
           <TableBody>
             {filteredItems?.map((item) => (
               <TableRow key={item.id}>
-                <TableCell className="font-medium">{item.category}</TableCell>
+                <TableCell className="font-medium text-xs text-muted-foreground">{item.category}</TableCell>
                 <TableCell>{item.feature}</TableCell>
                 <TableCell><Badge variant="outline">{item.business}</Badge></TableCell>
-                <TableCell>{item.currentApp || "-"}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">{item.currentApp || "-"}</TableCell>
                 <TableCell><Badge className={getStatusBadge(item.status)}>{item.status}</Badge></TableCell>
                 <TableCell><Badge className={getPriorityBadge(item.priority)}>{item.priority}</Badge></TableCell>
                 <TableCell className="text-right">
@@ -183,62 +186,42 @@ export default function Checklist() {
       </Card>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>{editingItem ? "Edit Item" : "Add Item"}</DialogTitle>
+            <DialogTitle>{editingItem ? "Edit Item" : "Add Checklist Item"}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="category" className="text-right">Category</Label>
-              <Input id="category" className="col-span-3" value={formData.category || ""} onChange={e => setFormData({...formData, category: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Category</Label>
+                <MasterSelect category="checklist_category" value={formData.category || ""} onChange={v => setFormData({...formData, category: v})} placeholder="Select category" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Business Unit</Label>
+                <MasterSelect category="business" value={formData.business || ""} onChange={v => setFormData({...formData, business: v})} placeholder="Select business" />
+              </div>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="feature" className="text-right">Feature</Label>
-              <Input id="feature" className="col-span-3" value={formData.feature || ""} onChange={e => setFormData({...formData, feature: e.target.value})} />
+            <div className="grid gap-2">
+              <Label>Feature / Requirement</Label>
+              <Input value={formData.feature || ""} onChange={e => setFormData({...formData, feature: e.target.value})} placeholder="Describe the feature" />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="business" className="text-right">Business</Label>
-              <Select value={formData.business || ""} onValueChange={v => setFormData({...formData, business: v})}>
-                <SelectTrigger className="col-span-3"><SelectValue placeholder="Select business" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Broking">Broking</SelectItem>
-                  <SelectItem value="NBFC">NBFC</SelectItem>
-                  <SelectItem value="AIF">AIF</SelectItem>
-                  <SelectItem value="Both">Both</SelectItem>
-                  <SelectItem value="All">All</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid gap-2">
+              <Label>Current App / System</Label>
+              <Input value={formData.currentApp || ""} onChange={e => setFormData({...formData, currentApp: e.target.value})} placeholder="Existing system name" />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="currentApp" className="text-right">Current App</Label>
-              <Input id="currentApp" className="col-span-3" value={formData.currentApp || ""} onChange={e => setFormData({...formData, currentApp: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <MasterSelect category="checklist_status" value={formData.status || ""} onChange={v => setFormData({...formData, status: v})} placeholder="Select status" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Priority</Label>
+                <MasterSelect category="priority" value={formData.priority || ""} onChange={v => setFormData({...formData, priority: v})} placeholder="Select priority" />
+              </div>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="status" className="text-right">Status</Label>
-              <Select value={formData.status || ""} onValueChange={v => setFormData({...formData, status: v})}>
-                <SelectTrigger className="col-span-3"><SelectValue placeholder="Select status" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Available">Available</SelectItem>
-                  <SelectItem value="Partial">Partial</SelectItem>
-                  <SelectItem value="Not Available">Not Available</SelectItem>
-                  <SelectItem value="Legacy">Legacy</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="priority" className="text-right">Priority</Label>
-              <Select value={formData.priority || ""} onValueChange={v => setFormData({...formData, priority: v})}>
-                <SelectTrigger className="col-span-3"><SelectValue placeholder="Select priority" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="Low">Low</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="comments" className="text-right">Comments</Label>
-              <Textarea id="comments" className="col-span-3" value={formData.comments || ""} onChange={e => setFormData({...formData, comments: e.target.value})} />
+            <div className="grid gap-2">
+              <Label>Comments</Label>
+              <Textarea value={formData.comments || ""} onChange={e => setFormData({...formData, comments: e.target.value})} placeholder="Additional notes..." />
             </div>
           </div>
           <div className="flex justify-end gap-2">

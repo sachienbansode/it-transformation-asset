@@ -10,14 +10,17 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Edit, IndianRupee } from "lucide-react";
+import { Plus, Trash2, Edit } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
 import type { RoadmapItem } from "@workspace/api-client-react";
+import { MasterSelect } from "@/components/master-select";
+import { useCurrency } from "@/contexts/currency-context";
 
 export default function Roadmap() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: items } = useListRoadmapItems();
+  const { format } = useCurrency();
   
   const createItem = useCreateRoadmapItem();
   const updateItem = useUpdateRoadmapItem();
@@ -102,7 +105,7 @@ export default function Roadmap() {
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Budget</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-primary flex items-center"><IndianRupee className="h-5 w-5 mr-1" />{totalBudget}L</div></CardContent>
+          <CardContent><div className="text-2xl font-bold text-primary">{format(totalBudget)}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Quick Wins (P1)</CardTitle></CardHeader>
@@ -160,7 +163,7 @@ export default function Roadmap() {
                 <Badge className={item.status === 'Completed' ? 'bg-green-500/20 text-green-400' : 'bg-primary/20 text-primary'}>{item.status}</Badge>
               </div>
               <div className="flex justify-between items-center text-sm pt-2 border-t border-border">
-                <span className="font-medium text-primary">₹{item.budgetLakhs}L</span>
+                <span className="font-medium text-primary">{format(item.budgetLakhs || 0)}</span>
                 <span className="text-muted-foreground">M{item.startMonth} - M{item.endMonth}</span>
               </div>
             </CardContent>
@@ -179,18 +182,11 @@ export default function Roadmap() {
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Phase</Label>
-                <Select value={formData.phase || ""} onValueChange={v => setFormData({...formData, phase: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Phase 1: Quick Wins">Phase 1: Quick Wins</SelectItem>
-                    <SelectItem value="Phase 2: Core Transformation">Phase 2: Core Transformation</SelectItem>
-                    <SelectItem value="Phase 3: Innovation & Scale">Phase 3: Innovation & Scale</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MasterSelect category="phase" value={formData.phase || ""} onChange={v => setFormData({...formData, phase: v})} placeholder="Select phase" />
               </div>
               <div className="grid gap-2">
-                <Label>Business</Label>
-                <Input value={formData.business || ""} onChange={e => setFormData({...formData, business: e.target.value})} />
+                <Label>Business Unit</Label>
+                <MasterSelect category="business" value={formData.business || ""} onChange={v => setFormData({...formData, business: v})} placeholder="Select business" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -200,14 +196,7 @@ export default function Roadmap() {
               </div>
               <div className="grid gap-2">
                 <Label>Status</Label>
-                <Select value={formData.status || ""} onValueChange={v => setFormData({...formData, status: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Planned">Planned</SelectItem>
-                    <SelectItem value="In Progress">In Progress</SelectItem>
-                    <SelectItem value="Completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MasterSelect category="roadmap_status" value={formData.status || ""} onChange={v => setFormData({...formData, status: v})} placeholder="Select status" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

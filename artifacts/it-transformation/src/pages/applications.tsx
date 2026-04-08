@@ -12,33 +12,41 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, Edit, Search } from "lucide-react";
 import type { Application } from "@workspace/api-client-react";
+import { MasterSelect } from "@/components/master-select";
+import { useMasters, getBadgeClass } from "@/hooks/use-masters";
+import { useCurrency } from "@/contexts/currency-context";
 
 export default function Applications() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: items } = useListApplications();
+  const { format } = useCurrency();
   
   const createItem = useCreateApplication();
   const updateItem = useUpdateApplication();
   const deleteItem = useDeleteApplication();
 
+  const { data: businesses } = useMasters("business");
+  const { data: hostings } = useMasters("hosting");
+  const { data: criticalities } = useMasters("criticality");
+
   const [search, setSearch] = useState("");
-  const [filterBusiness, setFilterBusiness] = useState("All");
-  const [filterHosting, setFilterHosting] = useState("All");
+  const [filterBusiness, setFilterBusiness] = useState("");
+  const [filterHosting, setFilterHosting] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Application | null>(null);
   const [formData, setFormData] = useState<Partial<Application>>({});
 
   const filteredItems = items?.filter(item => {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase()) && !item.appId.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filterBusiness !== "All" && item.business !== filterBusiness) return false;
-    if (filterHosting !== "All" && item.hosting !== filterHosting) return false;
+    if (filterBusiness && item.business !== filterBusiness) return false;
+    if (filterHosting && item.hosting !== filterHosting) return false;
     return true;
   });
 
   const handleOpenModal = (item: Application | null = null) => {
     setEditingItem(item);
-    setFormData(item || { appId: "", name: "", business: "", category: "", hosting: "Cloud", criticality: "High", supportStatus: "Supported" });
+    setFormData(item || { appId: "", name: "", business: "", category: "", hosting: "", criticality: "", supportStatus: "" });
     setIsModalOpen(true);
   };
 
@@ -74,6 +82,8 @@ export default function Applications() {
   };
 
   const getCriticalityBadge = (crit: string) => {
+    const critMaster = criticalities?.find(c => c.label === crit);
+    if (critMaster?.color) return getBadgeClass(critMaster.color);
     if (crit === "High" || crit === "Critical") return "bg-red-500/20 text-red-400 border-red-500/30";
     if (crit === "Medium") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
     return "bg-green-500/20 text-green-400 border-green-500/30";
@@ -84,34 +94,30 @@ export default function Applications() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Application Inventory</h2>
-          <p className="text-muted-foreground">Total apps: {items?.length || 0}</p>
+          <p className="text-muted-foreground">Total apps: {items?.length || 0} | Filtered: {filteredItems?.length || 0}</p>
         </div>
         <Button onClick={() => handleOpenModal(null)}>
           <Plus className="mr-2 h-4 w-4" /> Add Application
         </Button>
       </div>
 
-      <div className="flex gap-4 items-center">
+      <div className="flex gap-4 items-center flex-wrap">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search apps..." className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Search by name or ID..." className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <Select value={filterBusiness} onValueChange={setFilterBusiness}>
-          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Business" /></SelectTrigger>
+        <Select value={filterBusiness || "all"} onValueChange={v => setFilterBusiness(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Businesses" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="All">All Businesses</SelectItem>
-            <SelectItem value="Broking">Broking</SelectItem>
-            <SelectItem value="NBFC">NBFC</SelectItem>
-            <SelectItem value="AIF">AIF</SelectItem>
+            <SelectItem value="all">All Businesses</SelectItem>
+            {businesses?.map(b => <SelectItem key={b.id} value={b.label}>{b.label}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={filterHosting} onValueChange={setFilterHosting}>
-          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Hosting" /></SelectTrigger>
+        <Select value={filterHosting || "all"} onValueChange={v => setFilterHosting(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Hosting" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="All">All Hosting</SelectItem>
-            <SelectItem value="Cloud">Cloud</SelectItem>
-            <SelectItem value="On-Premise">On-Premise</SelectItem>
-            <SelectItem value="Hybrid">Hybrid</SelectItem>
+            <SelectItem value="all">All Hosting</SelectItem>
+            {hostings?.map(h => <SelectItem key={h.id} value={h.label}>{h.label}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -123,9 +129,11 @@ export default function Applications() {
               <TableHead>App ID</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Business</TableHead>
+              <TableHead>Category</TableHead>
               <TableHead>Hosting</TableHead>
               <TableHead>Criticality</TableHead>
               <TableHead>Support Status</TableHead>
+              <TableHead>Annual Cost</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -135,9 +143,11 @@ export default function Applications() {
                 <TableCell className="font-mono text-xs">{item.appId}</TableCell>
                 <TableCell className="font-medium">{item.name}</TableCell>
                 <TableCell><Badge variant="outline">{item.business}</Badge></TableCell>
+                <TableCell className="text-xs text-muted-foreground">{item.category}</TableCell>
                 <TableCell><Badge variant="secondary">{item.hosting}</Badge></TableCell>
                 <TableCell><Badge className={getCriticalityBadge(item.criticality)}>{item.criticality}</Badge></TableCell>
-                <TableCell><Badge className={item.supportStatus === 'Unsupported' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}>{item.supportStatus}</Badge></TableCell>
+                <TableCell><Badge className={item.supportStatus === 'Unsupported' ? 'bg-red-500/20 text-red-400 border-red-500/30' : item.supportStatus === 'Limited Support' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 'bg-green-500/20 text-green-400 border-green-500/30'}>{item.supportStatus}</Badge></TableCell>
+                <TableCell className="text-sm">{item.annualCostLakhs ? format(item.annualCostLakhs) : "-"}</TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
                     <Edit className="h-4 w-4" />
@@ -156,45 +166,33 @@ export default function Applications() {
         <DialogContent className="max-w-xl">
           <DialogHeader><DialogTitle>{editingItem ? "Edit Application" : "Add Application"}</DialogTitle></DialogHeader>
           <div className="grid gap-4 py-4 grid-cols-2">
-            <div className="grid gap-2"><Label>App ID</Label><Input value={formData.appId || ""} onChange={e => setFormData({...formData, appId: e.target.value})} /></div>
+            <div className="grid gap-2"><Label>App ID</Label><Input value={formData.appId || ""} onChange={e => setFormData({...formData, appId: e.target.value})} placeholder="APP-001" /></div>
             <div className="grid gap-2"><Label>Name</Label><Input value={formData.name || ""} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
-            <div className="grid gap-2"><Label>Business</Label><Input value={formData.business || ""} onChange={e => setFormData({...formData, business: e.target.value})} /></div>
-            <div className="grid gap-2"><Label>Category</Label><Input value={formData.category || ""} onChange={e => setFormData({...formData, category: e.target.value})} /></div>
+            <div className="grid gap-2">
+              <Label>Business Unit</Label>
+              <MasterSelect category="business" value={formData.business || ""} onChange={v => setFormData({...formData, business: v})} placeholder="Select business" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Category</Label>
+              <MasterSelect category="app_category" value={formData.category || ""} onChange={v => setFormData({...formData, category: v})} placeholder="Select category" />
+            </div>
             <div className="grid gap-2">
               <Label>Hosting</Label>
-              <Select value={formData.hosting || ""} onValueChange={v => setFormData({...formData, hosting: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Cloud">Cloud</SelectItem>
-                  <SelectItem value="On-Premise">On-Premise</SelectItem>
-                  <SelectItem value="Hybrid">Hybrid</SelectItem>
-                </SelectContent>
-              </Select>
+              <MasterSelect category="hosting" value={formData.hosting || ""} onChange={v => setFormData({...formData, hosting: v})} placeholder="Select hosting" />
             </div>
             <div className="grid gap-2">
               <Label>Criticality</Label>
-              <Select value={formData.criticality || ""} onValueChange={v => setFormData({...formData, criticality: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Critical">Critical</SelectItem>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="Low">Low</SelectItem>
-                </SelectContent>
-              </Select>
+              <MasterSelect category="criticality" value={formData.criticality || ""} onChange={v => setFormData({...formData, criticality: v})} placeholder="Select criticality" />
             </div>
             <div className="grid gap-2">
               <Label>Support Status</Label>
-              <Select value={formData.supportStatus || ""} onValueChange={v => setFormData({...formData, supportStatus: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Supported">Supported</SelectItem>
-                  <SelectItem value="Limited Support">Limited Support</SelectItem>
-                  <SelectItem value="Unsupported">Unsupported</SelectItem>
-                </SelectContent>
-              </Select>
+              <MasterSelect category="support_status" value={formData.supportStatus || ""} onChange={v => setFormData({...formData, supportStatus: v})} placeholder="Select status" />
             </div>
             <div className="grid gap-2"><Label>Annual Cost (₹ Lakhs)</Label><Input type="number" value={formData.annualCostLakhs || 0} onChange={e => setFormData({...formData, annualCostLakhs: Number(e.target.value)})} /></div>
+            <div className="grid gap-2 col-span-2">
+              <Label>Vendor</Label>
+              <MasterSelect category="vendor" value={(formData as any).vendor || ""} onChange={v => setFormData({...formData, ...({vendor: v} as any)})} placeholder="Select vendor" />
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>

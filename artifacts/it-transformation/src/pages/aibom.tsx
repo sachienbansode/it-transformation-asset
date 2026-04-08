@@ -8,10 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, Edit, AlertTriangle } from "lucide-react";
 import type { AibomEntry } from "@workspace/api-client-react";
+import { MasterSelect } from "@/components/master-select";
+import { useMasters, getBadgeClass } from "@/hooks/use-masters";
 
 export default function Aibom() {
   const queryClient = useQueryClient();
@@ -22,13 +24,16 @@ export default function Aibom() {
   const updateItem = useUpdateAibomEntry();
   const deleteItem = useDeleteAibomEntry();
 
+  const { data: riskLevels } = useMasters("risk_level");
+  const { data: complianceStatuses } = useMasters("compliance_status");
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AibomEntry | null>(null);
   const [formData, setFormData] = useState<Partial<AibomEntry>>({});
 
   const handleOpenModal = (item: AibomEntry | null = null) => {
     setEditingItem(item);
-    setFormData(item || { componentId: "", name: "", type: "LLM", provider: "", riskLevel: "Medium", complianceStatus: "Pending" });
+    setFormData(item || { componentId: "", name: "", type: "", provider: "", riskLevel: "", complianceStatus: "" });
     setIsModalOpen(true);
   };
 
@@ -64,9 +69,19 @@ export default function Aibom() {
   };
 
   const getRiskBadgeClass = (risk: string) => {
+    const m = riskLevels?.find(r => r.label === risk);
+    if (m?.color) return getBadgeClass(m.color);
     if (risk === "Critical" || risk === "High") return "bg-red-500/20 text-red-400 border-red-500/30";
     if (risk === "Medium") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
     return "bg-green-500/20 text-green-400 border-green-500/30";
+  };
+
+  const getComplianceBadge = (status: string) => {
+    const m = complianceStatuses?.find(c => c.label === status);
+    if (m?.color) return getBadgeClass(m.color);
+    if (status === "Compliant") return "bg-green-500/20 text-green-400 border-green-500/30";
+    if (status === "Non-Compliant") return "bg-red-500/20 text-red-400 border-red-500/30";
+    return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
   };
 
   const totalComponents = items?.length || 0;
@@ -76,7 +91,10 @@ export default function Aibom() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold tracking-tight">AI Bill of Materials (AIBOM)</h2>
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">AI Bill of Materials (AIBOM)</h2>
+          <p className="text-muted-foreground">AI/ML components used across Ashika Group systems</p>
+        </div>
         <Button onClick={() => handleOpenModal(null)}>
           <Plus className="mr-2 h-4 w-4" /> Add AI Component
         </Button>
@@ -87,13 +105,13 @@ export default function Aibom() {
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total AI Components</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold">{totalComponents}</div></CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">High Risk</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-destructive flex items-center"><AlertTriangle className="h-5 w-5 mr-2" />{highRisk}</div></CardContent>
+        <Card className={highRisk > 0 ? "bg-destructive/10 border-destructive/20" : ""}>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">High / Critical Risk</CardTitle></CardHeader>
+          <CardContent><div className={`text-2xl font-bold flex items-center ${highRisk > 0 ? "text-destructive" : ""}`}><AlertTriangle className="h-5 w-5 mr-2" />{highRisk}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Non-Compliant</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-orange-500">{nonCompliant}</div></CardContent>
+          <CardContent><div className={`text-2xl font-bold ${nonCompliant > 0 ? "text-orange-500" : ""}`}>{nonCompliant}</div></CardContent>
         </Card>
       </div>
 
@@ -105,6 +123,7 @@ export default function Aibom() {
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Provider</TableHead>
+              <TableHead>Use Case</TableHead>
               <TableHead>Risk</TableHead>
               <TableHead>Compliance</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -116,9 +135,10 @@ export default function Aibom() {
                 <TableCell className="font-mono text-xs">{item.componentId}</TableCell>
                 <TableCell className="font-medium">{item.name}</TableCell>
                 <TableCell><Badge variant="outline">{item.type}</Badge></TableCell>
-                <TableCell>{item.provider}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">{item.provider}</TableCell>
+                <TableCell className="text-xs text-muted-foreground max-w-32 truncate">{(item as any).useCase || "-"}</TableCell>
                 <TableCell><Badge className={getRiskBadgeClass(item.riskLevel)}>{item.riskLevel}</Badge></TableCell>
-                <TableCell><Badge className={item.complianceStatus === 'Compliant' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>{item.complianceStatus}</Badge></TableCell>
+                <TableCell><Badge className={getComplianceBadge(item.complianceStatus)}>{item.complianceStatus}</Badge></TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
                     <Edit className="h-4 w-4" />
@@ -134,35 +154,36 @@ export default function Aibom() {
       </Card>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-xl">
           <DialogHeader><DialogTitle>{editingItem ? "Edit AI Component" : "Add AI Component"}</DialogTitle></DialogHeader>
           <div className="grid gap-4 py-4 grid-cols-2">
-            <div className="grid gap-2"><Label>Comp ID</Label><Input value={formData.componentId || ""} onChange={e => setFormData({...formData, componentId: e.target.value})} /></div>
-            <div className="grid gap-2"><Label>Name</Label><Input value={formData.name || ""} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
-            <div className="grid gap-2"><Label>Type</Label><Input value={formData.type || ""} onChange={e => setFormData({...formData, type: e.target.value})} /></div>
-            <div className="grid gap-2"><Label>Provider</Label><Input value={formData.provider || ""} onChange={e => setFormData({...formData, provider: e.target.value})} /></div>
             <div className="grid gap-2">
-              <Label>Risk Level</Label>
-              <Select value={formData.riskLevel || ""} onValueChange={v => setFormData({...formData, riskLevel: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Critical">Critical</SelectItem>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="Low">Low</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Component ID</Label>
+              <Input value={formData.componentId || ""} onChange={e => setFormData({...formData, componentId: e.target.value})} placeholder="AI-001" />
             </div>
             <div className="grid gap-2">
-              <Label>Compliance</Label>
-              <Select value={formData.complianceStatus || ""} onValueChange={v => setFormData({...formData, complianceStatus: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Compliant">Compliant</SelectItem>
-                  <SelectItem value="Pending">Pending</SelectItem>
-                  <SelectItem value="Non-Compliant">Non-Compliant</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Name</Label>
+              <Input value={formData.name || ""} onChange={e => setFormData({...formData, name: e.target.value})} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Type</Label>
+              <MasterSelect category="ai_type" value={formData.type || ""} onChange={v => setFormData({...formData, type: v})} placeholder="Select type" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Provider / Vendor</Label>
+              <MasterSelect category="vendor" value={formData.provider || ""} onChange={v => setFormData({...formData, provider: v})} placeholder="Select vendor" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Risk Level</Label>
+              <MasterSelect category="risk_level" value={formData.riskLevel || ""} onChange={v => setFormData({...formData, riskLevel: v})} placeholder="Select risk" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Compliance Status</Label>
+              <MasterSelect category="compliance_status" value={formData.complianceStatus || ""} onChange={v => setFormData({...formData, complianceStatus: v})} placeholder="Select status" />
+            </div>
+            <div className="grid gap-2 col-span-2">
+              <Label>Use Case</Label>
+              <Textarea value={(formData as any).useCase || ""} onChange={e => setFormData({...formData, ...({useCase: e.target.value} as any)})} placeholder="Describe the AI use case..." rows={2} />
             </div>
           </div>
           <div className="flex justify-end gap-2">
