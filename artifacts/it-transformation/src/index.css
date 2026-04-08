@@ -107,15 +107,15 @@
   --input: 214 31% 91%;
   --ring: 43 74% 42%;
 
-  /* Dark Navy Sidebar — stays dark for brand identity */
-  --sidebar: 224 47% 12%;
-  --sidebar-foreground: 210 40% 92%;
-  --sidebar-border: 224 35% 18%;
-  --sidebar-primary: 43 74% 49%;
-  --sidebar-primary-foreground: 222 47% 11%;
-  --sidebar-accent: 224 40% 17%;
-  --sidebar-accent-foreground: 210 40% 92%;
-  --sidebar-ring: 43 74% 49%;
+  /* Light Sidebar — responsive to theme */
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 222 47% 14%;
+  --sidebar-border: 214 31% 88%;
+  --sidebar-primary: 43 74% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 20% 95%;
+  --sidebar-accent-foreground: 222 47% 14%;
+  --sidebar-ring: 43 74% 42%;
 
   --chart-1: 43 74% 49%;
   --chart-2: 210 80% 48%;

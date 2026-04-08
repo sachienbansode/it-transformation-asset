@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar,
-  XAxis, YAxis, Tooltip, Legend, RadialBarChart, RadialBar,
+  XAxis, YAxis, Tooltip, Legend, RadialBarChart, RadialBar, LabelList,
 } from "recharts";
 import {
   Server, Archive, CheckSquare, IndianRupee, ShieldAlert, BrainCircuit,
@@ -40,12 +40,24 @@ const TABS: { id: DashTab; label: string; icon: React.ElementType }[] = [
   { id: "security", label: "Security", icon: Shield },
 ];
 
-// ─── Hooks ──────────────────────────────────────────────────────────────────
-function useBusinessUnits() {
-  return useQuery({
-    queryKey: ["business-units"],
-    queryFn: () => apiFetch<{ id: number; name: string; code: string }[]>("/business-units"),
-  });
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const GENERIC_BUSINESS = new Set(["All", "Both", "All Business Units", "all", "both"]);
+function matchesBU(business: string | null | undefined, filterBU: string) {
+  if (filterBU === "all") return true;
+  return business === filterBU || GENERIC_BUSINESS.has(business ?? "");
+}
+
+function renderPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }: any) {
+  if (percent < 0.05) return null;
+  const RADIAN = Math.PI / 180;
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.6;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={600}>
+      {`${(percent * 100).toFixed(0)}%`}
+    </text>
+  );
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
@@ -57,15 +69,15 @@ function KpiCard({
 }) {
   return (
     <Card className={cn("relative overflow-hidden", border ? `border-l-4 ${border}` : "")}>
-      <CardContent className="p-4">
+      <CardContent className="p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{title}</p>
-            <p className="text-2xl font-bold text-foreground leading-none">{value}</p>
+            <p className="text-xl font-bold text-foreground leading-none">{value}</p>
             {sub && <p className="text-[10px] text-muted-foreground mt-1.5 leading-tight">{sub}</p>}
           </div>
-          <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0", iconBg || "bg-muted")}>
-            <Icon className={cn("h-4 w-4", iconColor || "text-muted-foreground")} />
+          <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0", iconBg || "bg-muted")}>
+            <Icon className={cn("h-3.5 w-3.5", iconColor || "text-muted-foreground")} />
           </div>
         </div>
         {progress !== undefined && (
@@ -141,8 +153,9 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Tab: Overview ───────────────────────────────────────────────────────────
 function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; format: any; unit: string }) {
   const filtChecklist = useMemo(() => {
-    if (filterBU === "all" || filterBU === "") return s.checklistByBusiness ?? [];
-    return (s.checklistByBusiness ?? []).filter((b: any) => b.key === filterBU);
+    const all: any[] = s.checklistByBusiness ?? [];
+    if (filterBU === "all") return all;
+    return all.filter((b: any) => b.key === filterBU || GENERIC_BUSINESS.has(b.key));
   }, [s, filterBU]);
 
   const budgetTick = (v: number) =>
@@ -181,11 +194,11 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
           <CardContent className="p-3">
             <ResponsiveContainer width="100%" height={170}>
               <PieChart>
-                <Pie data={s.checklistByStatus ?? []} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={2} dataKey="count" nameKey="key">
+                <Pie data={s.checklistByStatus ?? []} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={2} dataKey="count" nameKey="key" labelLine={false} label={renderPieLabel}>
                   {(s.checklistByStatus ?? []).map((e: any, i: number) => <Cell key={i} fill={STATUS_COLORS[e.key] || CHART_COLORS[i]} />)}
                 </Pie>
                 <Tooltip content={<ChartTooltip format={format} />} />
-                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "10px" }} />
+                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: "10px" }} formatter={(value, entry: any) => `${value} (${entry.payload.count})`} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
@@ -198,11 +211,13 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
           </CardHeader>
           <CardContent className="p-3">
             <ResponsiveContainer width="100%" height={170}>
-              <BarChart data={s.roadmapByPhase ?? []} margin={{ left: 0, right: 4 }}>
+              <BarChart data={s.roadmapByPhase ?? []} margin={{ left: 0, right: 4, top: 14 }}>
                 <XAxis dataKey="key" fontSize={9} tickLine={false} axisLine={false} stroke="#9ca3af" tick={{ fontSize: 8 }} />
                 <YAxis fontSize={9} tickLine={false} axisLine={false} stroke="#9ca3af" tickFormatter={budgetTick} width={32} />
                 <Tooltip content={<ChartTooltip format={format} />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
-                <Bar dataKey="budgetLakhs" name="Budget" fill="#d97706" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="budgetLakhs" name="Budget" fill="#d97706" radius={[3, 3, 0, 0]}>
+                  <LabelList dataKey="budgetLakhs" position="top" fontSize={8} formatter={(v: number) => budgetTick(v)} style={{ fill: "#9ca3af" }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -215,12 +230,13 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
           </CardHeader>
           <CardContent className="p-3">
             <ResponsiveContainer width="100%" height={170}>
-              <BarChart data={s.sbomByRisk ?? []} margin={{ left: 0, right: 4 }}>
+              <BarChart data={s.sbomByRisk ?? []} margin={{ left: 0, right: 4, top: 14 }}>
                 <XAxis dataKey="key" fontSize={9} tickLine={false} axisLine={false} stroke="#9ca3af" />
                 <YAxis fontSize={9} tickLine={false} axisLine={false} stroke="#9ca3af" width={28} />
                 <Tooltip content={<ChartTooltip format={format} />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
                 <Bar dataKey="count" name="CVEs" radius={[3, 3, 0, 0]}>
                   {(s.sbomByRisk ?? []).map((e: any, i: number) => <Cell key={i} fill={STATUS_COLORS[e.key] || CHART_COLORS[i]} />)}
+                  <LabelList dataKey="count" position="top" fontSize={8} style={{ fill: "#9ca3af" }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -258,11 +274,11 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
                 <p className="text-[10px] text-muted-foreground mb-2">By Lifecycle</p>
                 <ResponsiveContainer width="100%" height={120}>
                   <PieChart>
-                    <Pie data={s.appsByLifecycle ?? []} cx="50%" cy="50%" innerRadius={30} outerRadius={50} dataKey="count" nameKey="key">
+                    <Pie data={s.appsByLifecycle ?? []} cx="50%" cy="50%" innerRadius={30} outerRadius={50} dataKey="count" nameKey="key" labelLine={false} label={renderPieLabel}>
                       {(s.appsByLifecycle ?? []).map((e: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                     </Pie>
                     <Tooltip content={<ChartTooltip format={format} />} />
-                    <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: "9px" }} />
+                    <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: "9px" }} formatter={(value, entry: any) => `${value} (${entry.payload.count})`} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -270,11 +286,11 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
                 <p className="text-[10px] text-muted-foreground mb-2">Retirement Status</p>
                 <ResponsiveContainer width="100%" height={120}>
                   <PieChart>
-                    <Pie data={s.retirementsByStatus ?? []} cx="50%" cy="50%" innerRadius={30} outerRadius={50} dataKey="count" nameKey="key">
+                    <Pie data={s.retirementsByStatus ?? []} cx="50%" cy="50%" innerRadius={30} outerRadius={50} dataKey="count" nameKey="key" labelLine={false} label={renderPieLabel}>
                       {(s.retirementsByStatus ?? []).map((e: any, i: number) => <Cell key={i} fill={STATUS_COLORS[e.key] || CHART_COLORS[i]} />)}
                     </Pie>
                     <Tooltip content={<ChartTooltip format={format} />} />
-                    <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: "9px" }} />
+                    <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: "9px" }} formatter={(value, entry: any) => `${value} (${entry.payload.count})`} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -298,7 +314,7 @@ function ApplicationsTab({ filterBU, format }: { filterBU: string; format: any }
   });
 
   const filtApps = useMemo(() => {
-    return filterBU === "all" ? allApps : allApps.filter((a: any) => a.business === filterBU);
+    return allApps.filter((a: any) => matchesBU(a.business, filterBU));
   }, [allApps, filterBU]);
 
   const pagedApps = filtApps.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -327,9 +343,9 @@ function ApplicationsTab({ filterBU, format }: { filterBU: string; format: any }
     <div className="space-y-4">
       {/* Mini KPIs */}
       <div className="grid grid-cols-3 gap-3">
-        <Card><CardContent className="p-3 text-center"><p className="text-2xl font-bold">{filtApps.length}</p><p className="text-[10px] text-muted-foreground">Total Apps</p></CardContent></Card>
-        <Card><CardContent className="p-3 text-center"><p className="text-2xl font-bold text-blue-600">{byHosting.find(([k]) => k === "Cloud")?.[1] ?? 0}</p><p className="text-[10px] text-muted-foreground">Cloud Apps</p></CardContent></Card>
-        <Card><CardContent className="p-3 text-center"><p className="text-2xl font-bold text-red-600">{byCrit.find(([k]) => k === "Critical")?.[1] ?? 0}</p><p className="text-[10px] text-muted-foreground">Critical Apps</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-xl font-bold">{filtApps.length}</p><p className="text-[10px] text-muted-foreground">Total Apps</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-xl font-bold text-blue-600">{byHosting.find(([k]) => k === "Cloud")?.[1] ?? 0}</p><p className="text-[10px] text-muted-foreground">Cloud Apps</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-xl font-bold text-red-600">{byCrit.find(([k]) => k === "Critical")?.[1] ?? 0}</p><p className="text-[10px] text-muted-foreground">Critical Apps</p></CardContent></Card>
       </div>
 
       {/* Charts row */}
@@ -430,7 +446,7 @@ function RoadmapTab({ s, filterBU, format, unit }: { s: any; filterBU: string; f
 
   const filtItems = useMemo(() => {
     return (s.roadmapItems ?? []).filter((r: any) =>
-      (filterBU === "all" || r.business === filterBU || !r.business) &&
+      matchesBU(r.business, filterBU) &&
       (filterPhase === "all" || r.phase === filterPhase) &&
       (filterStatus === "all" || r.status === filterStatus)
     );
@@ -448,10 +464,10 @@ function RoadmapTab({ s, filterBU, format, unit }: { s: any; filterBU: string; f
     <div className="space-y-4">
       {/* Stats row */}
       <div className="grid grid-cols-4 gap-3">
-        <Card><CardContent className="p-3 text-center"><p className="text-2xl font-bold">{filtItems.length}</p><p className="text-[10px] text-muted-foreground">Initiatives</p></CardContent></Card>
-        <Card><CardContent className="p-3 text-center"><p className="text-2xl font-bold text-primary">{format(totalBudget, 0)}</p><p className="text-[10px] text-muted-foreground">Total Budget</p></CardContent></Card>
-        <Card><CardContent className="p-3 text-center"><p className="text-2xl font-bold text-emerald-600">{completedCount}</p><p className="text-[10px] text-muted-foreground">Completed</p></CardContent></Card>
-        <Card><CardContent className="p-3 text-center"><p className="text-2xl font-bold text-blue-600">{inProgressCount}</p><p className="text-[10px] text-muted-foreground">In Progress</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-xl font-bold">{filtItems.length}</p><p className="text-[10px] text-muted-foreground">Initiatives</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-xl font-bold text-primary">{format(totalBudget, 0)}</p><p className="text-[10px] text-muted-foreground">Total Budget</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-xl font-bold text-emerald-600">{completedCount}</p><p className="text-[10px] text-muted-foreground">Completed</p></CardContent></Card>
+        <Card><CardContent className="p-3 text-center"><p className="text-xl font-bold text-blue-600">{inProgressCount}</p><p className="text-[10px] text-muted-foreground">In Progress</p></CardContent></Card>
       </div>
 
       {/* Filter row + chart */}
@@ -460,11 +476,13 @@ function RoadmapTab({ s, filterBU, format, unit }: { s: any; filterBU: string; f
           <CardHeader className="pb-0 pt-3 px-4"><CardTitle className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Budget by Phase</CardTitle></CardHeader>
           <CardContent className="p-3">
             <ResponsiveContainer width="100%" height={165}>
-              <BarChart data={s.roadmapByPhase ?? []} margin={{ left: 0, right: 4 }}>
+              <BarChart data={s.roadmapByPhase ?? []} margin={{ left: 0, right: 4, top: 14 }}>
                 <XAxis dataKey="key" fontSize={8} tickLine={false} axisLine={false} stroke="#9ca3af" tick={{ fontSize: 7 }} />
                 <YAxis fontSize={8} tickLine={false} axisLine={false} stroke="#9ca3af" tickFormatter={budgetTick} width={30} />
                 <Tooltip content={<ChartTooltip format={format} />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
-                <Bar dataKey="budgetLakhs" name="Budget" fill="#d97706" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="budgetLakhs" name="Budget" fill="#d97706" radius={[3, 3, 0, 0]}>
+                  <LabelList dataKey="budgetLakhs" position="top" fontSize={7} formatter={(v: number) => budgetTick(v)} style={{ fill: "#9ca3af" }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -650,9 +668,9 @@ function SecurityTab({ s, format }: { s: any; format: any }) {
           { label: "AI Risk Index", value: `${s.aibomTotal ?? 0}`, color: "#9333ea", sub: "AI components monitored" },
         ].map(item => (
           <Card key={item.label}>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="h-12 w-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${item.color}15` }}>
-                <span className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</span>
+            <CardContent className="p-3 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${item.color}15` }}>
+                <span className="text-lg font-bold" style={{ color: item.color }}>{item.value}</span>
               </div>
               <div>
                 <p className="text-sm font-semibold">{item.label}</p>
@@ -669,7 +687,6 @@ function SecurityTab({ s, format }: { s: any; format: any }) {
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { data: summary, isLoading } = useGetDashboardSummary();
-  const { data: businessUnits } = useBusinessUnits();
   const { format, unit } = useCurrency();
 
   const [filterBU, setFilterBU] = useState("all");
@@ -710,7 +727,7 @@ export default function Dashboard() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Business Units</SelectItem>
-                {(businessUnits ?? []).map(bu => <SelectItem key={bu.code} value={bu.name}>{bu.name}</SelectItem>)}
+                {(s?.businessUnits ?? []).map((bu: string) => <SelectItem key={bu} value={bu}>{bu}</SelectItem>)}
               </SelectContent>
             </Select>
             {filterBU !== "all" && (

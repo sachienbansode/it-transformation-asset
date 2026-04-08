@@ -45,8 +45,12 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
   const highCves = sbom.filter(s => s.cve && s.cve !== "None" && s.riskLevel === "High").length;
   const checklistCompleted = checklist.filter(c => c.status === "Available").length;
 
-  // Unique business units & phases for filters
-  const businessUnits = [...new Set(checklist.map(c => c.business).filter(Boolean))].sort();
+  const GENERIC_BUS = new Set(["All", "Both", "All Business Units", "all", "both"]);
+  const businessUnits = [...new Set([
+    ...checklist.map(c => c.business),
+    ...apps.map(a => a.business),
+    ...roadmap.map(r => r.business),
+  ].filter((b): b is string => !!b && !GENERIC_BUS.has(b)))].sort();
   const phases = [...new Set(roadmap.map(r => r.phase).filter(Boolean))].sort();
 
   res.json({

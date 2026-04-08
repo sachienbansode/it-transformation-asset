@@ -11,9 +11,6 @@
           var theme = localStorage.getItem("ashika-theme");
           if (theme === "dark") {
             document.documentElement.classList.add("dark");
-          } else if (!theme) {
-            var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-            if (prefersDark) document.documentElement.classList.add("dark");
           }
         } catch (e) {}
       })();
