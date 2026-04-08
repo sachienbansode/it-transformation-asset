@@ -11,6 +11,8 @@ export const checklistItemsTable = pgTable("checklist_items", {
   status: text("status").notNull().default("Not Available"), // Available, Partial, Not Available, Legacy
   priority: text("priority").notNull().default("Medium"), // High, Medium, Low
   comments: text("comments"),
+  createdBy: text("created_by"),
+  modifiedBy: text("modified_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

@@ -7,6 +7,7 @@ import {
   UpdateSbomEntryParams,
   DeleteSbomEntryParams,
 } from "@workspace/api-zod";
+import { getPerformedBy } from "./audit-logs";
 
 const router = Router();
 
@@ -21,7 +22,9 @@ router.post("/sbom", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [item] = await db.insert(sbomEntriesTable).values(parsed.data).returning();
+  const userId = (req.session as any).userId;
+  const createdBy = await getPerformedBy(userId);
+  const [item] = await db.insert(sbomEntriesTable).values({ ...parsed.data, createdBy, modifiedBy: createdBy } as any).returning();
   res.status(201).json(item);
 });
 
@@ -36,9 +39,11 @@ router.patch("/sbom/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const userId = (req.session as any).userId;
+  const modifiedBy = await getPerformedBy(userId);
   const [item] = await db
     .update(sbomEntriesTable)
-    .set(parsed.data)
+    .set({ ...parsed.data, modifiedBy } as any)
     .where(eq(sbomEntriesTable.id, params.data.id))
     .returning();
   if (!item) {

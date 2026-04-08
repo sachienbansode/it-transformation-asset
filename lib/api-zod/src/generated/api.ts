@@ -367,6 +367,7 @@ export const DeleteApplicationParams = zod.object({
  */
 export const ListRetirementsResponseItem = zod.object({
   id: zod.number(),
+  applicationId: zod.number().nullish(),
   appName: zod.string(),
   business: zod.string(),
   reason: zod.string(),
@@ -376,6 +377,8 @@ export const ListRetirementsResponseItem = zod.object({
   budgetLakhs: zod.number().nullish(),
   status: zod.string(),
   comments: zod.string().nullish(),
+  createdBy: zod.string().nullish(),
+  modifiedBy: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -385,6 +388,7 @@ export const ListRetirementsResponse = zod.array(ListRetirementsResponseItem);
  * @summary Create a retirement plan
  */
 export const CreateRetirementBody = zod.object({
+  applicationId: zod.number().nullish(),
   appName: zod.string(),
   business: zod.string(),
   reason: zod.string(),
@@ -404,6 +408,7 @@ export const UpdateRetirementParams = zod.object({
 });
 
 export const UpdateRetirementBody = zod.object({
+  applicationId: zod.number().nullish(),
   appName: zod.string().optional(),
   business: zod.string().optional(),
   reason: zod.string().optional(),
@@ -417,6 +422,7 @@ export const UpdateRetirementBody = zod.object({
 
 export const UpdateRetirementResponse = zod.object({
   id: zod.number(),
+  applicationId: zod.number().nullish(),
   appName: zod.string(),
   business: zod.string(),
   reason: zod.string(),
@@ -426,6 +432,8 @@ export const UpdateRetirementResponse = zod.object({
   budgetLakhs: zod.number().nullish(),
   status: zod.string(),
   comments: zod.string().nullish(),
+  createdBy: zod.string().nullish(),
+  modifiedBy: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db, roadmapItemsTable } from "@workspace/db";
+import { getPerformedBy } from "./audit-logs";
 import {
   CreateRoadmapItemBody,
   UpdateRoadmapItemBody,
@@ -34,7 +35,9 @@ router.post("/roadmap", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [item] = await db.insert(roadmapItemsTable).values(parsed.data).returning();
+  const userId = (req.session as any).userId;
+  const createdBy = await getPerformedBy(userId);
+  const [item] = await db.insert(roadmapItemsTable).values({ ...parsed.data, createdBy, modifiedBy: createdBy } as any).returning();
   res.status(201).json(item);
 });
 
@@ -49,9 +52,11 @@ router.patch("/roadmap/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const userId = (req.session as any).userId;
+  const modifiedBy = await getPerformedBy(userId);
   const [item] = await db
     .update(roadmapItemsTable)
-    .set(parsed.data)
+    .set({ ...parsed.data, modifiedBy } as any)
     .where(eq(roadmapItemsTable.id, params.data.id))
     .returning();
   if (!item) {

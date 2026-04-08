@@ -36,9 +36,9 @@ router.post("/applications", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [item] = await db.insert(applicationsTable).values(parsed.data as any).returning();
-
   const performedBy = await getPerformedBy((req.session as any).userId);
+  const [item] = await db.insert(applicationsTable).values({ ...parsed.data, createdBy: performedBy, modifiedBy: performedBy } as any).returning();
+
   await logAudit({
     entityType: "application",
     entityId: item.id,
@@ -77,13 +77,12 @@ router.patch("/applications/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  const performedBy = await getPerformedBy((req.session as any).userId);
   const [item] = await db
     .update(applicationsTable)
-    .set(parsed.data as any)
+    .set({ ...parsed.data, modifiedBy: performedBy } as any)
     .where(eq(applicationsTable.id, params.data.id))
     .returning();
-
-  const performedBy = await getPerformedBy((req.session as any).userId);
   const changedFields: Record<string, { from: unknown; to: unknown }> = {};
   for (const [key, val] of Object.entries(parsed.data)) {
     const oldVal = (existing as any)[key];

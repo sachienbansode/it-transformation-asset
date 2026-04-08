@@ -14,6 +14,8 @@ export const aibomEntriesTable = pgTable("aibom_entries", {
   complianceStatus: text("compliance_status").notNull(), // Compliant, Review Needed, Non-Compliant
   governanceReviewDate: text("governance_review_date"),
   comments: text("comments"),
+  createdBy: text("created_by"),
+  modifiedBy: text("modified_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

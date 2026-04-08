@@ -9,6 +9,7 @@ import {
   sbomEntriesTable,
 } from "@workspace/db";
 import { requireAuth, requireAdmin } from "./auth";
+import { getPerformedBy } from "./audit-logs";
 
 const router = Router();
 router.use(requireAuth);
@@ -98,6 +99,7 @@ router.post("/checklist/preview-import", async (req, res): Promise<void> => {
 router.post("/checklist/import", async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
+  const createdBy = await getPerformedBy((req.session as any).userId);
   let imported = 0, skipped = 0;
   for (const r of rows) {
     if (!r.feature?.trim()) { skipped++; continue; }
@@ -109,7 +111,9 @@ router.post("/checklist/import", async (req, res): Promise<void> => {
       status: r.status || "Not Available",
       priority: r.priority || "Medium",
       comments: r.comments || null,
-    });
+      createdBy,
+      modifiedBy: createdBy,
+    } as any);
     imported++;
   }
   res.json({ imported, skipped });
@@ -148,6 +152,7 @@ router.post("/roadmap/preview-import", async (req, res): Promise<void> => {
 router.post("/roadmap/import", async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
+  const createdBy = await getPerformedBy((req.session as any).userId);
   let imported = 0, skipped = 0;
   for (const r of rows) {
     if (!r.title?.trim() || !r.phase?.trim()) { skipped++; continue; }
@@ -162,7 +167,9 @@ router.post("/roadmap/import", async (req, res): Promise<void> => {
       endDate: r.endDate || null,
       isActive: r.isActive !== undefined ? bool(r.isActive) : true,
       owner: r.owner || null,
-    });
+      createdBy,
+      modifiedBy: createdBy,
+    } as any);
     imported++;
   }
   res.json({ imported, skipped });

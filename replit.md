@@ -200,8 +200,27 @@ pnpm --filter @workspace/db exec tsx src/seed-masters.ts
 
 ---
 
+## Audit Columns (All Data Tables)
+All 6 data tables (applications, retirements, roadmap_items, checklist_items, sbom_entries, aibom_entries) now have:
+- `created_by TEXT` — populated from session user via `getPerformedBy(userId)` on INSERT
+- `modified_by TEXT` — populated from session user via `getPerformedBy(userId)` on UPDATE
+- Format: `"Name <email>"` (e.g. `"Sachin B <sachin.b@ashikagroup.com>"`)
+
+CSV import routes (checklist, roadmap) also set `createdBy` to the importing admin.
+
+## Retirement Plan Enhancements
+- `application_id INTEGER` column added to `retirements` table to link to Application Inventory
+- Form has application dropdown at top — selecting an app auto-fills appName, business (read-only)
+- Panel shows vendor, category, hosting, criticality from linked app (read-only metadata)
+- When retirement status → "Completed": API auto-updates linked application's `applicationStatus="Retired"` and sets `dateOfRetirement` to the retirement's targetDate (or today)
+- Table now shows `created_by` column with user icon
+
+## Theme Fix
+- Added inline `<script>` to `artifacts/it-transformation/index.html` that reads `localStorage.getItem("ashika-theme")` and applies `.dark` class to `<html>` BEFORE React loads — prevents flash-of-wrong-theme (FOUC)
+
 ## Session Notes
 - `user_sessions` table must exist in DB — was manually created (connect-pg-simple does `createTableIfMissing: true` but requires the DB user to have CREATE TABLE rights)
 - `session.save()` is explicitly called after login to ensure session is persisted before response
 - Zod version is v3 — use `z.string().email()` not `z.email()` (v4 syntax)
 - MS SSO is backend-only redirect flow (no MSAL frontend library needed)
+- DB schema push uses `echo "No" | pnpm --filter @workspace/db run push` to auto-answer unique constraint prompt (or add columns directly via SQL ALTER TABLE)

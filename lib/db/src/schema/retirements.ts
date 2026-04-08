@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const retirementsTable = pgTable("retirements", {
   id: serial("id").primaryKey(),
+  applicationId: integer("application_id"),
   appName: text("app_name").notNull(),
   business: text("business").notNull(),
   reason: text("reason").notNull(), // Legacy, Duplicate, Cost, Risk
@@ -13,6 +14,8 @@ export const retirementsTable = pgTable("retirements", {
   budgetLakhs: integer("budget_lakhs"),
   status: text("status").notNull().default("Planned"), // Planned, In Progress, Completed
   comments: text("comments"),
+  createdBy: text("created_by"),
+  modifiedBy: text("modified_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

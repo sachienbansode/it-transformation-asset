@@ -17,6 +17,8 @@ export const roadmapItemsTable = pgTable("roadmap_items", {
   endDate: text("end_date"),
   isActive: boolean("is_active").notNull().default(true),
   owner: text("owner"),
+  createdBy: text("created_by"),
+  modifiedBy: text("modified_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

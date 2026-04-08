@@ -12,6 +12,8 @@ export const sbomEntriesTable = pgTable("sbom_entries", {
   usedIn: text("used_in"),
   riskLevel: text("risk_level").notNull(), // Critical, High, Medium, Low
   actionRequired: text("action_required"),
+  createdBy: text("created_by"),
+  modifiedBy: text("modified_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

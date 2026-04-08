@@ -23,6 +23,8 @@ export const applicationsTable = pgTable("applications", {
   dateOfOnboarding: text("date_of_onboarding"),
   dateOfRetirement: text("date_of_retirement"),
   isActive: boolean("is_active").notNull().default(true),
+  createdBy: text("created_by"),
+  modifiedBy: text("modified_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
