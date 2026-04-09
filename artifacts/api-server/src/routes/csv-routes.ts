@@ -158,7 +158,7 @@ function formatDateForExport(iso: unknown): string {
 }
 
 router.get("/roadmap/export", async (_req, res): Promise<void> => {
-  const rows = await db.select().from(roadmapItemsTable);
+  const rows = await db.select().from(roadmapItemsTable).where(eq(roadmapItemsTable.isActive, true));
   const csv = toCSV(rows.map(r => ({
     title: r.title, description: r.description ?? "", phase: r.phase,
     business: r.business, status: r.status, priority: r.priority,

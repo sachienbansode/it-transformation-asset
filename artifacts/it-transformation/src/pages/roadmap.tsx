@@ -232,11 +232,9 @@ export default function Roadmap() {
 
   const [activeTab, setActiveTab] = useState("All");
   const [showTimeline, setShowTimeline] = useState(true);
-  const [showInactive, setShowInactive] = useState(false);
   const [page, setPage] = useState(1);
 
   const setTabAndReset = (v: string) => { setActiveTab(v); setPage(1); };
-  const setShowInactiveAndReset = (v: boolean) => { setShowInactive(v); setPage(1); };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RoadmapItem | null>(null);
   const [formData, setFormData] = useState<FormData>({});
@@ -290,17 +288,13 @@ export default function Roadmap() {
 
   const filteredItems = useMemo(() => {
     if (!items) return [];
-    return items.filter(item => {
-      const inPhase = activeTab === "All" || item.phase === activeTab;
-      const inActive = showInactive || (item as any).isActive !== false;
-      return inPhase && inActive;
-    });
-  }, [items, activeTab, showInactive]);
+    return items.filter(item => activeTab === "All" || item.phase === activeTab);
+  }, [items, activeTab]);
 
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const pagedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const activeItems = useMemo(() => items?.filter(i => (i as any).isActive !== false) ?? [], [items]);
+  const activeItems = items ?? [];
 
   const totalBudget = items?.reduce((sum, i) => sum + (i.budgetLakhs || 0), 0) || 0;
   const completedCount = items?.filter(i => i.status === "Completed").length || 0;
@@ -426,19 +420,14 @@ export default function Roadmap() {
             <TabsTrigger value="Phase 3: Innovation & Scale" className="text-xs px-2.5 h-6">Phase 3</TabsTrigger>
           </TabsList>
         </Tabs>
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-          <Switch checked={showInactive} onCheckedChange={setShowInactiveAndReset} className="scale-75" />
-          Show inactive
-        </label>
       </div>
 
       {/* Initiative cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {pagedItems.map(item => {
           const color = getPhaseColor(item.phase);
-          const isInactive = (item as any).isActive === false;
           return (
-            <Card key={item.id} className={cn("relative group", isInactive && "opacity-60")}>
+            <Card key={item.id} className="relative group">
               <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-lg" style={{ backgroundColor: color.bg }} />
               <CardHeader className="pb-2 pt-4">
                 <div className="flex justify-between items-start gap-2">
@@ -446,7 +435,6 @@ export default function Roadmap() {
                     <Badge variant="outline" className="text-[10px] w-fit" style={{ borderColor: `${color.bg}40`, color: color.bg }}>
                       {item.phase.split(":")[0]}
                     </Badge>
-                    {isInactive && <Badge variant="outline" className="text-[10px] w-fit border-gray-400/30 text-gray-500">Inactive</Badge>}
                   </div>
                   {isAdmin && (
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

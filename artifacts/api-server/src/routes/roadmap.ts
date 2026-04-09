@@ -47,7 +47,10 @@ const router = Router();
 
 router.get("/roadmap", async (req, res): Promise<void> => {
   const query = ListRoadmapItemsQueryParams.safeParse(req.query);
-  let items = await db.select().from(roadmapItemsTable).orderBy(roadmapItemsTable.startMonth);
+  // Only return active (non-archived) items
+  let items = await db.select().from(roadmapItemsTable)
+    .where(eq(roadmapItemsTable.isActive, true))
+    .orderBy(roadmapItemsTable.startMonth);
 
   if (query.success) {
     const { phase, business, status } = query.data;
