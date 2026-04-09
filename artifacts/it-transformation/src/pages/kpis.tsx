@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Users, Plus, Upload, Download, History, Eye, Send, CheckCircle2, XCircle,
   ChevronDown, ChevronRight, Maximize2, Minimize2, FileSpreadsheet, ClipboardList,
-  Pencil, Trash2, RefreshCw, AlertTriangle, Target,
+  Pencil, Trash2, RefreshCw, AlertTriangle, Target, Archive,
   FolderOpen, RotateCcw, Info,
 } from "lucide-react";
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -202,6 +202,7 @@ const computeGroups=(items: KpiSetItem[]): CategoryGroup[]=>{
 const useKpiYears=()=>useQuery({queryKey:["kpi-years"],queryFn:()=>apiFetch<KpiYear[]>("/kpi-years")});
 const usePersons=()=>useQuery({queryKey:["kpi-persons"],queryFn:()=>apiFetch<KpiPerson[]>("/kpi-persons")});
 const useKpiSets=(yearId?: number)=>useQuery({queryKey:["kpi-sets",yearId],enabled:!!yearId,queryFn:()=>apiFetch<KpiSet[]>(`/kpi-sets?yearId=${yearId}`)});
+const useArchivedSets=(yearId?: number)=>useQuery({queryKey:["kpi-sets-archived",yearId],enabled:!!yearId,queryFn:()=>apiFetch<KpiSet[]>(`/kpi-sets?yearId=${yearId}&archived=true`)});
 const useVersions=(setId?: number)=>useQuery({queryKey:["kpi-set-versions",setId],enabled:!!setId,queryFn:()=>apiFetch<KpiSetVersion[]>(`/kpi-sets/${setId}/versions`)});
 const useSetItems=(setId?: number)=>useQuery({queryKey:["kpi-set-items",setId],enabled:!!setId,queryFn:()=>apiFetch<KpiSetItem[]>(`/kpi-set-items?setId=${setId}`),refetchOnWindowFocus:false});
 
@@ -790,17 +791,164 @@ function PersonsTab({persons,onEdit,onAdd,isAdmin,onRefresh}:{
   );
 }
 
+// ─── Performance Capture Dialog ───────────────────────────────────────────────
+
+function PerformanceCaptureDialog({open,set,person,year,onClose,onRefresh}:{
+  open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear; onClose:()=>void; onRefresh:()=>void;
+}){
+  const{toast}=useToast();
+  const{data:items}=useSetItems(open?set.id:undefined);
+  const[actuals,setActuals]=useState<Record<number,{q1:string;q2:string;q3:string;q4:string;remarks:string}>>({});
+  const[saving,setSaving]=useState(false);
+  const[isFullscreen,setIsFullscreen]=useState(false);
+
+  useEffect(()=>{
+    if(items){
+      const init:Record<number,{q1:string;q2:string;q3:string;q4:string;remarks:string}>={}
+      for(const item of items){
+        init[item.id]={q1:item.q1Actual||"",q2:item.q2Actual||"",q3:item.q3Actual||"",q4:item.q4Actual||"",remarks:item.remarks||""};
+      }
+      setActuals(init);
+    }
+  },[items]);
+
+  const setField=(itemId:number,field:keyof typeof actuals[number],val:string)=>{
+    setActuals(prev=>({...prev,[itemId]:{...prev[itemId],[field]:val}}));
+  };
+
+  const achievement=(item:KpiSetItem)=>{
+    const a=actuals[item.id];
+    const target=parseFloat(item.annualTarget||"0");
+    const q4=parseFloat(a?.q4||"0");
+    if(!target||!a) return null;
+    const latest=parseFloat(a.q4)||parseFloat(a.q3)||parseFloat(a.q2)||parseFloat(a.q1)||0;
+    return target>0?((latest/target)*100).toFixed(1):null;
+  };
+
+  const handleSave=async()=>{
+    setSaving(true);
+    try{
+      const payload={actuals:Object.entries(actuals).map(([id,v])=>({
+        itemId:parseInt(id),
+        q1Actual:v.q1||null,q2Actual:v.q2||null,q3Actual:v.q3||null,q4Actual:v.q4||null,remarks:v.remarks||null,
+      }))};
+      await apiFetch(`/kpi-sets/${set.id}/actuals`,{method:"PUT",body:JSON.stringify(payload)});
+      toast({title:"Performance actuals saved",description:`${Object.keys(actuals).length} KPIs updated`});
+      onRefresh();onClose();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    finally{setSaving(false);}
+  };
+
+  const displayItems=items||[];
+  const contentClass=isFullscreen
+    ?"fixed inset-0 z-50 max-w-full w-full h-full rounded-none flex flex-col overflow-hidden bg-background"
+    :"sm:max-w-[1300px] max-h-[92vh] flex flex-col overflow-hidden";
+
+  return(
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className={contentClass}>
+        <DialogHeader className="shrink-0 pr-8">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-base font-semibold">
+                Enter Performance Actuals — {person.name}
+              </DialogTitle>
+              <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-muted-foreground">
+                <span>{year.label}</span>
+                {person.designation&&<span>· {person.designation}</span>}
+                {person.department&&<span>· {person.department}</span>}
+                <Badge variant="outline" className={cn("text-[10px] px-1.5",STATUS_COLORS[set.status]||"")}>{set.status}</Badge>
+                <span>{displayItems.length} KPIs</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={saving||displayItems.length===0}>
+                {saving?"Saving…":"Save Actuals"}
+              </Button>
+              <button onClick={()=>setIsFullscreen(f=>!f)} className="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-muted transition-colors">
+                {isFullscreen?<Minimize2 className="h-3.5 w-3.5"/>:<Maximize2 className="h-3.5 w-3.5"/>}
+              </button>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {!items?(<div className="space-y-2 p-4">{[1,2,3].map(i=><Skeleton key={i} className="h-10 w-full"/>)}</div>)
+          :displayItems.length===0?(
+            <div className="flex items-center justify-center h-40 text-center">
+              <div><FolderOpen className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3"/><p className="text-sm text-muted-foreground">No KPI items found. Upload the KPI sheet first.</p></div>
+            </div>
+          ):(
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-background z-10">
+                  <tr className="border-b border-border bg-muted/40">
+                    {["#","KPI Name","Category","Metric","Unit","Annual T","Q1 T","Q2 T","Q3 T","Q4 T","Q1 Actual","Q2 Actual","Q3 Actual","Q4 Actual","Achv %","Remarks"].map(h=>(
+                      <th key={h} className={cn("px-2 py-2 font-semibold whitespace-nowrap",["Annual T","Q1 T","Q2 T","Q3 T","Q4 T","Q1 Actual","Q2 Actual","Q3 Actual","Q4 Actual","Achv %"].includes(h)?"text-right":"text-left")}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayItems.map((item,i)=>{
+                    const a=actuals[item.id]||{q1:"",q2:"",q3:"",q4:"",remarks:""};
+                    const achv=achievement(item);
+                    const achvColor=achv===null?"":parseFloat(achv)>=100?"text-emerald-600 dark:text-emerald-400 font-bold":parseFloat(achv)>=75?"text-yellow-600 dark:text-yellow-400":"text-red-600 dark:text-red-400";
+                    return(
+                      <tr key={item.id} className={cn("border-b border-border/50 hover:bg-muted/10",i%2===0?"":"bg-muted/5")}>
+                        <td className="px-2 py-1.5 text-muted-foreground">{item.sno??i+1}</td>
+                        <td className="px-2 py-1.5 font-medium max-w-[200px]"><span title={item.kpiName} className="line-clamp-2">{item.kpiName}</span></td>
+                        <td className="px-2 py-1.5 text-muted-foreground">{item.category||"—"}</td>
+                        <td className="px-2 py-1.5 text-muted-foreground">{item.metric||"—"}</td>
+                        <td className="px-2 py-1.5 text-muted-foreground">{item.unit||"—"}</td>
+                        <td className="px-2 py-1.5 text-right text-muted-foreground">{item.annualTarget||"—"}</td>
+                        <td className="px-2 py-1.5 text-right text-muted-foreground">{item.q1Target||"—"}</td>
+                        <td className="px-2 py-1.5 text-right text-muted-foreground">{item.q2Target||"—"}</td>
+                        <td className="px-2 py-1.5 text-right text-muted-foreground">{item.q3Target||"—"}</td>
+                        <td className="px-2 py-1.5 text-right text-muted-foreground">{item.q4Target||"—"}</td>
+                        {(["q1","q2","q3","q4"] as const).map(q=>(
+                          <td key={q} className="px-1 py-1">
+                            <input type="number" value={a[q]} onChange={e=>setField(item.id,q,e.target.value)}
+                              className="w-20 h-7 text-right text-xs border border-border rounded px-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary"/>
+                          </td>
+                        ))}
+                        <td className={cn("px-2 py-1.5 text-right font-semibold",achvColor)}>{achv!==null?`${achv}%`:"—"}</td>
+                        <td className="px-1 py-1">
+                          <input type="text" value={a.remarks} onChange={e=>setField(item.id,"remarks",e.target.value)}
+                            className="w-28 h-7 text-xs border border-border rounded px-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary"/>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="shrink-0 border-t border-border px-4 py-2 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Enter quarterly actuals for each KPI. Achievement % is calculated automatically against annual target.</span>
+          <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={saving||displayItems.length===0}>
+            {saving?"Saving…":"Save Actuals"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── KPI Sets Tab ─────────────────────────────────────────────────────────────
 
-function KpiSetsTab({sets,persons,years,statusFilter,onStatusFilter,isAdmin,userId,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onRefresh}:{
-  sets: KpiSet[]; persons: KpiPerson[]; years: KpiYear[];
+function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter,isAdmin,userId,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onPerformance,onRefresh}:{
+  sets: KpiSet[]; archivedSets: KpiSet[]; persons: KpiPerson[]; years: KpiYear[];
   statusFilter: string; onStatusFilter:(s:string)=>void;
   isAdmin: boolean; userId?: number;
   onView:(s:KpiSet)=>void; onUpload:(s:KpiSet)=>void; onHistory:(s:KpiSet)=>void;
   onEdit:(s:KpiSet)=>void; onSubmit:(s:KpiSet)=>void; onDelete:(s:KpiSet)=>void;
-  onRefresh:()=>void;
+  onPerformance:(s:KpiSet)=>void; onRefresh:()=>void;
 }){
   const{toast}=useToast();
+  const[showArchived,setShowArchived]=useState(false);
   const getPerson=(s:KpiSet)=>persons.find(p=>p.id===s.personId);
   const getYear=(id:number)=>years.find(y=>y.id===id);
   const handleRecall=async(set:KpiSet)=>{
@@ -808,77 +956,114 @@ function KpiSetsTab({sets,persons,years,statusFilter,onStatusFilter,isAdmin,user
     try{await apiFetch(`/kpi-sets/${set.id}/recall`,{method:"POST"});toast({title:"Submission recalled"});onRefresh();}
     catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
   };
+  const handleUnarchive=async(set:KpiSet)=>{
+    if(!confirm("Restore this KPI set to Draft status?")) return;
+    try{await apiFetch(`/kpi-sets/${set.id}`,{method:"PATCH",body:JSON.stringify({status:"Draft"})});toast({title:"KPI set restored"});onRefresh();}
+    catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+  };
   const statusOpts=["all","Draft","Pending","Approved","Rejected"];
+  const renderRows=(rows:KpiSet[],archived=false)=>(
+    <div className="border border-border rounded-lg overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-border bg-muted/30">
+            {["Person / Employee","Designation","Department","Year","Version","KPIs","Status","Submitted","Actions"].map(h=>(
+              <th key={h} className={cn("px-4 py-2.5 font-medium text-xs",["Version","KPIs","Status"].includes(h)?"text-center":h==="Actions"?"text-right":"text-left")}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {rows.map(set=>{
+              const person=getPerson(set); const year=getYear(set.yearId);
+              return(
+                <tr key={set.id} className={cn("border-b border-border/50 hover:bg-muted/20 transition-colors",archived&&"opacity-70")}>
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium text-sm">{person?.name||"Unknown"}</div>
+                    {person?.email&&<div className="text-[10px] text-muted-foreground">{person.email}</div>}
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.designation||"—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.department||"—"}</td>
+                  <td className="px-4 py-2.5 text-xs">{year?.label||"—"}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    {set.versionNumber?<span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-400/20 text-blue-700 dark:text-blue-400 font-semibold">v{set.versionNumber}</span>:<span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-center text-sm font-semibold">{set.itemCount??""}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    <Badge variant="outline" className={cn("text-[10px]",archived?"border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10":STATUS_COLORS[set.status]||"")}>
+                      {archived?"Archived":set.status}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5 text-[10px] text-muted-foreground">
+                    {set.submittedAt?new Date(set.submittedAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"2-digit"}):"—"}
+                  </td>
+                  <td className="px-4 py-2.5"><div className="flex items-center justify-end gap-0.5">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onView(set)} title="View KPIs"><Eye className="h-3.5 w-3.5"/></Button>
+                    {!archived&&set.status==="Approved"&&(
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600 hover:text-emerald-700" onClick={()=>onPerformance(set)} title="Enter performance actuals"><Target className="h-3.5 w-3.5"/></Button>
+                    )}
+                    {isAdmin&&!archived&&(
+                      <>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title="Upload KPIs" disabled={set.status==="Approved"}><Upload className="h-3.5 w-3.5"/></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>
+                        {set.status==="Draft"&&(
+                          <>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onEdit(set)} title="Edit"><Pencil className="h-3.5 w-3.5"/></Button>
+                            {set.currentVersionId&&<Button variant="ghost" size="icon" className="h-7 w-7 text-yellow-600" onClick={()=>onSubmit(set)} title="Submit for review"><Send className="h-3.5 w-3.5"/></Button>}
+                          </>
+                        )}
+                        {set.status==="Pending"&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={()=>handleRecall(set)} title="Recall submission"><RotateCcw className="h-3.5 w-3.5"/></Button>}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={()=>onDelete(set)} title="Archive"><Trash2 className="h-3.5 w-3.5"/></Button>
+                      </>
+                    )}
+                    {isAdmin&&archived&&(
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" onClick={()=>handleUnarchive(set)} title="Restore to Draft"><RotateCcw className="h-3.5 w-3.5"/></Button>
+                    )}
+                  </div></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
   return(
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
-        {statusOpts.map(s=>{
+        {!showArchived&&statusOpts.map(s=>{
           const cnt=s==="all"?sets.length:sets.filter(x=>x.status===s).length;
           return(<button key={s} onClick={()=>onStatusFilter(s)}
             className={cn("px-3 py-1 rounded-full text-xs font-medium border transition-colors",statusFilter===s?"bg-primary text-primary-foreground border-primary":"border-border text-muted-foreground hover:text-foreground")}>
             {s==="all"?"All":s} ({cnt})</button>);
         })}
-        <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={onRefresh} title="Refresh"><RefreshCw className="h-3.5 w-3.5"/></Button>
-      </div>
-      {sets.length===0?(
-        <div className="flex items-center justify-center h-48 text-center"><div>
-          <FolderOpen className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3"/>
-          <p className="text-sm text-muted-foreground">No KPI sets found.</p>
-          {isAdmin&&<p className="text-xs text-muted-foreground mt-1">Click "New KPI Set" to create one.</p>}
-        </div></div>
-      ):(
-        <div className="border border-border rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-border bg-muted/30">
-                {["Person / Employee","Designation","Department","Year","Version","KPIs","Status","Submitted","Actions"].map(h=>(
-                  <th key={h} className={cn("px-4 py-2.5 font-medium text-xs",["Version","KPIs","Status"].includes(h)?"text-center":h==="Actions"?"text-right":"text-left")}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {sets.map(set=>{
-                  const person=getPerson(set); const year=getYear(set.yearId);
-                  return(
-                    <tr key={set.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-2.5">
-                        <div className="font-medium text-sm">{person?.name||"Unknown"}</div>
-                        {person?.email&&<div className="text-[10px] text-muted-foreground">{person.email}</div>}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.designation||"—"}</td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.department||"—"}</td>
-                      <td className="px-4 py-2.5 text-xs">{year?.label||"—"}</td>
-                      <td className="px-4 py-2.5 text-center">
-                        {set.versionNumber?<span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-400/20 text-blue-700 dark:text-blue-400 font-semibold">v{set.versionNumber}</span>:<span className="text-xs text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-center text-sm font-semibold">{set.itemCount??""}</td>
-                      <td className="px-4 py-2.5 text-center"><Badge variant="outline" className={cn("text-[10px]",STATUS_COLORS[set.status]||"")}>{set.status}</Badge></td>
-                      <td className="px-4 py-2.5 text-[10px] text-muted-foreground">
-                        {set.submittedAt?new Date(set.submittedAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"2-digit"}):"—"}
-                      </td>
-                      <td className="px-4 py-2.5"><div className="flex items-center justify-end gap-0.5">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onView(set)} title="View KPIs"><Eye className="h-3.5 w-3.5"/></Button>
-                        {isAdmin&&(
-                          <>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title="Upload KPIs" disabled={set.status==="Approved"}><Upload className="h-3.5 w-3.5"/></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>
-                            {set.status==="Draft"&&(
-                              <>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onEdit(set)} title="Edit"><Pencil className="h-3.5 w-3.5"/></Button>
-                                {set.currentVersionId&&<Button variant="ghost" size="icon" className="h-7 w-7 text-yellow-600" onClick={()=>onSubmit(set)} title="Submit for review"><Send className="h-3.5 w-3.5"/></Button>}
-                              </>
-                            )}
-                            {set.status==="Pending"&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={()=>handleRecall(set)} title="Recall submission"><RotateCcw className="h-3.5 w-3.5"/></Button>}
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={()=>onDelete(set)} title="Archive"><Trash2 className="h-3.5 w-3.5"/></Button>
-                          </>
-                        )}
-                      </div></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={()=>setShowArchived(v=>!v)}
+            className={cn("flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors",showArchived?"bg-gray-500/10 border-gray-400/50 text-gray-600 dark:text-gray-400":"border-border text-muted-foreground hover:text-foreground")}>
+            <Archive className="h-3 w-3"/>{showArchived?`Archived (${archivedSets.length})`:`Show Archived (${archivedSets.length})`}
+          </button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onRefresh} title="Refresh"><RefreshCw className="h-3.5 w-3.5"/></Button>
         </div>
+      </div>
+      {!showArchived&&(
+        sets.length===0?(
+          <div className="flex items-center justify-center h-48 text-center"><div>
+            <FolderOpen className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3"/>
+            <p className="text-sm text-muted-foreground">No KPI sets found.</p>
+            {isAdmin&&<p className="text-xs text-muted-foreground mt-1">Click "New KPI Set" to create one.</p>}
+          </div></div>
+        ):renderRows(sets)
+      )}
+      {showArchived&&(
+        archivedSets.length===0?(
+          <div className="flex items-center justify-center h-48 text-center"><div>
+            <Archive className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3"/>
+            <p className="text-sm text-muted-foreground">No archived KPI sets.</p>
+          </div></div>
+        ):(
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 px-1"><Archive className="h-3.5 w-3.5 text-muted-foreground"/><span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Archived Sets ({archivedSets.length})</span></div>
+            {renderRows(archivedSets,true)}
+          </div>
+        )
       )}
     </div>
   );
@@ -891,7 +1076,7 @@ export default function KpisPage(){
   const{toast}=useToast();
   const qc=useQueryClient();
 
-  const[activeTab,setActiveTab]=useState<"sets"|"it-kpis"|"persons">("sets");
+  const[activeTab,setActiveTab]=useState<"sets"|"persons">("sets");
   const[yearFilter,setYearFilter]=useState<number|undefined>();
   const[statusFilter,setStatusFilter]=useState("all");
   const[detailSet,setDetailSet]=useState<KpiSet|null>(null);
@@ -899,10 +1084,12 @@ export default function KpisPage(){
   const[historySet,setHistorySet]=useState<KpiSet|null>(null);
   const[editSet,setEditSet]=useState<KpiSet|"new"|null>(null);
   const[editPerson,setEditPerson]=useState<KpiPerson|"new"|null>(null);
+  const[performanceSet,setPerformanceSet]=useState<KpiSet|null>(null);
 
   const{data:years}=useKpiYears();
   const{data:persons}=usePersons();
   const{data:sets}=useKpiSets(yearFilter);
+  const{data:archivedSets=[]}=useArchivedSets(yearFilter);
 
   useEffect(()=>{
     if(years&&!yearFilter){const cur=years.find(y=>y.isCurrent)||years[0];if(cur) setYearFilter(cur.id);}
@@ -920,6 +1107,7 @@ export default function KpisPage(){
 
   const refresh=useCallback(()=>{
     qc.invalidateQueries({queryKey:["kpi-sets"]});
+    qc.invalidateQueries({queryKey:["kpi-sets-archived"]});
     qc.invalidateQueries({queryKey:["kpi-set-items"]});
   },[qc]);
 
@@ -990,11 +1178,12 @@ export default function KpisPage(){
 
       {/* Tab Content */}
       {activeTab==="sets"&&(
-        <KpiSetsTab sets={filteredSets} persons={persons||[]} years={years||[]}
+        <KpiSetsTab sets={filteredSets} archivedSets={archivedSets} persons={persons||[]} years={years||[]}
           statusFilter={statusFilter} onStatusFilter={setStatusFilter}
           isAdmin={isAdmin} userId={user?.id}
           onView={setDetailSet} onUpload={setUploadSet} onHistory={setHistorySet}
-          onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete} onRefresh={refresh}/>
+          onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete}
+          onPerformance={setPerformanceSet} onRefresh={refresh}/>
       )}
 
       {activeTab==="persons"&&(
@@ -1020,6 +1209,9 @@ export default function KpisPage(){
         <PersonDialog open={editPerson!==null} initialPerson={editPerson==="new"?null:editPerson} persons={persons||[]}
           onClose={()=>setEditPerson(null)} onSuccess={()=>{setEditPerson(null);qc.invalidateQueries({queryKey:["kpi-persons"]});}}/>
       )}
+      {performanceSet&&(()=>{const person=getPerson(performanceSet);const year=getYear(performanceSet.yearId);if(!person||!year) return null;
+        return(<PerformanceCaptureDialog open={!!performanceSet} set={performanceSet} person={person} year={year} onClose={()=>setPerformanceSet(null)} onRefresh={refresh}/>);
+      })()}
     </div>
   );
 }

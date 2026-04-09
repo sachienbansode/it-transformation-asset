@@ -1,9 +1,15 @@
 import { Router } from "express";
-import { eq, desc, asc, and, inArray } from "drizzle-orm";
+import { eq, desc, asc, and, ne, inArray } from "drizzle-orm";
 import {
-  db, kpiPersonsTable, kpiSetsTable, kpiSetVersionsTable, kpiSetItemsTable, kpiYearsTable,
+  db, kpiPersonsTable, kpiSetsTable, kpiSetVersionsTable, kpiSetItemsTable, kpiYearsTable, auditLogsTable,
 } from "@workspace/db";
+
 import { z } from "zod";
+
+// ─── Audit helper ─────────────────────────────────────────────────────────────
+async function auditKpi(entityId: number, action: string, summary: string, performedBy: string | undefined, extra?: object) {
+  try { await db.insert(auditLogsTable).values({ entityType: "kpi_set", entityId, action, performedBy: performedBy || null, summary, newValues: extra || null }); } catch {}
+}
 
 const router = Router();
 
@@ -63,10 +69,17 @@ router.get("/kpi-sets", async (req, res): Promise<void> => {
   const yearId = req.query.yearId ? parseInt(req.query.yearId as string) : undefined;
   const personId = req.query.personId ? parseInt(req.query.personId as string) : undefined;
   const status = req.query.status as string | undefined;
+  const archived = req.query.archived === "true";
   const conditions: any[] = [];
+  // By default, exclude Archived; if ?archived=true only show Archived
+  if (archived) {
+    conditions.push(eq(kpiSetsTable.status, "Archived"));
+  } else {
+    conditions.push(ne(kpiSetsTable.status, "Archived"));
+  }
   if (yearId) conditions.push(eq(kpiSetsTable.yearId, yearId));
   if (personId) conditions.push(eq(kpiSetsTable.personId, personId));
-  if (status) conditions.push(eq(kpiSetsTable.status, status));
+  if (status && status !== "all") conditions.push(eq(kpiSetsTable.status, status));
 
   const rows = await db
     .select({
@@ -103,9 +116,14 @@ router.post("/kpi-sets", async (req, res): Promise<void> => {
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const existing = await db.select().from(kpiSetsTable)
-    .where(and(eq(kpiSetsTable.personId, body.data.personId), eq(kpiSetsTable.yearId, body.data.yearId)));
+    .where(and(
+      eq(kpiSetsTable.personId, body.data.personId),
+      eq(kpiSetsTable.yearId, body.data.yearId),
+      ne(kpiSetsTable.status, "Archived")
+    ));
   if (existing.length > 0) { res.status(409).json({ error: "KPI set already exists for this person and year." }); return; }
   const [row] = await db.insert(kpiSetsTable).values(body.data).returning();
+  auditKpi(row.id, "create", `KPI set created (person #${row.personId}, year #${row.yearId})`, (req.session as any)?.userId?.toString());
   res.status(201).json(row);
 });
 
@@ -129,6 +147,7 @@ router.delete("/kpi-sets/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.update(kpiSetsTable).set({ status: "Archived", updatedAt: new Date() }).where(eq(kpiSetsTable.id, id));
+  auditKpi(id, "archive", `KPI set #${id} archived`, (req.session as any)?.userId?.toString());
   res.sendStatus(204);
 });
 
@@ -388,7 +407,33 @@ router.post("/kpi-sets/:id/submit", async (req, res): Promise<void> => {
     .set({ status: "Pending", submittedAt: new Date(), updatedAt: new Date() })
     .where(eq(kpiSetsTable.id, id)).returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  auditKpi(id, "submit", `KPI set #${id} submitted for approval`, (req.session as any)?.userId?.toString());
   res.json(row);
+});
+
+// ─── Bulk save actuals for a set ─────────────────────────────────────────────
+
+router.put("/kpi-sets/:id/actuals", async (req, res): Promise<void> => {
+  const setId = parseInt(req.params.id);
+  if (isNaN(setId)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = z.object({
+    actuals: z.array(z.object({
+      itemId: z.number(),
+      q1Actual: z.string().optional().nullable(),
+      q2Actual: z.string().optional().nullable(),
+      q3Actual: z.string().optional().nullable(),
+      q4Actual: z.string().optional().nullable(),
+      remarks: z.string().optional().nullable(),
+    }))
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+  for (const a of body.data.actuals) {
+    await db.update(kpiSetItemsTable)
+      .set({ q1Actual: a.q1Actual, q2Actual: a.q2Actual, q3Actual: a.q3Actual, q4Actual: a.q4Actual, remarks: a.remarks, updatedAt: new Date() })
+      .where(and(eq(kpiSetItemsTable.id, a.itemId), eq(kpiSetItemsTable.setId, setId)));
+  }
+  auditKpi(setId, "actuals_update", `Performance actuals updated for KPI set #${setId} (${body.data.actuals.length} items)`, (req.session as any)?.userId?.toString());
+  res.sendStatus(204);
 });
 
 // ─── Recall / revert to Draft ─────────────────────────────────────────────────
