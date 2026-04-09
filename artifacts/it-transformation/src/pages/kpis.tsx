@@ -28,6 +28,7 @@ interface KpiSet {
   id: number; personId: number; yearId: number; status: string;
   currentVersionId?: number; notes?: string; submittedAt?: string;
   approvedAt?: string; approvedBy?: number; approvalComments?: string;
+  actualsStatus?: string; actualsSubmittedAt?: string; actualsReviewedAt?: string; actualsReviewedBy?: number; actualsReviewComments?: string;
   createdAt: string; updatedAt: string; itemCount?: number; versionNumber?: number;
 }
 interface KpiSetVersion { id: number; setId: number; versionNumber: number; fileName?: string; fileData?: string; fileSize?: number; itemCount?: number; uploadedBy?: number; comments?: string; isCurrent: boolean; createdAt: string; }
@@ -40,6 +41,7 @@ interface KpiSetItem {
   remarks?: string;
   kpiId?: string; kpiType?: string; owner?: string; businessAlignment?: string; dataSource?: string; riskDependency?: string;
   approvalStatus?: string; approvedBy?: number; approvalComments?: string; approvedAt?: string;
+  createdAt?: string; updatedAt?: string;
 }
 interface ParsedItem {
   sno: number; kpiName: string; description: string; category: string;
@@ -176,9 +178,10 @@ const downloadTemplate = (yearLabel?: string) => {
   XLSX.writeFile(wb,`KPI_Template${yearLabel?`_${yearLabel.replace(/\s+/g,"_")}`:""}.xlsx`);
 };
 
+const fmtTs=(ts?: string|null)=>ts?new Date(ts).toLocaleString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}):"";
 const downloadSetExcel=(items: KpiSetItem[],person: KpiPerson,year: KpiYear)=>{
   const wb=XLSX.utils.book_new();
-  const headers=[...TEMPLATE_HEADERS,"Approval Status","Approval Comments"];
+  const headers=[...TEMPLATE_HEADERS,"Approval Status","Approval Comments","KPI Created On","KPI Reviewed On"];
   const rows=items.map((item,i)=>[
     item.sno??i+1,
     item.kpiId||"",item.kpiType||"",
@@ -189,9 +192,10 @@ const downloadSetExcel=(items: KpiSetItem[],person: KpiPerson,year: KpiYear)=>{
     fmt2(item.q1Actual,""),fmt2(item.q2Actual,""),fmt2(item.q3Actual,""),fmt2(item.q4Actual,""),
     item.dataSource||"",item.riskDependency||"",item.remarks||"",
     item.approvalStatus||"Draft",item.approvalComments||"",
+    fmtTs(item.createdAt),fmtTs(item.approvedAt),
   ]);
   const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
-  ws["!cols"]=[6,10,12,32,30,18,22,18,10,26,14,12,10,10,10,10,10,10,10,10,22,22,22,14,36].map(w=>({wch:w}));
+  ws["!cols"]=[6,10,12,32,30,18,22,18,10,26,14,12,10,10,10,10,10,10,10,10,22,22,22,14,36,20,20].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb,ws,"KPIs");
   XLSX.writeFile(wb,`${person.name.replace(/\s+/g,"_")}_${year.label.replace(/\s+/g,"_")}_KPIs.xlsx`);
 };
@@ -220,7 +224,7 @@ const computeGroups=(items: KpiSetItem[]): CategoryGroup[]=>{
       pendingCount:grpItems.filter(i=>!["Approved","Rejected"].includes(i.approvalStatus||"")).length,
       totalCount:grpItems.length,
     };
-  });
+  }).sort((a,b)=>a.category.localeCompare(b.category));
 };
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
@@ -410,10 +414,16 @@ function UploadDialog({open,set,person,year,userId,onClose,onSuccess}:{
           <div className="flex-1 overflow-hidden flex flex-col gap-3 min-h-0">
             <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground bg-muted/30 rounded-lg px-3 py-2">
               <span><strong className="text-foreground">{parsed.length}</strong> KPIs found</span>
-              {categories.length>0&&<span><strong className="text-foreground">{categories.length}</strong> categories: {categories.join(", ")}</span>}
-              <span>Total weightage: <strong className={totalWt>101||(totalWt<99&&totalWt>0)?"text-yellow-600":"text-foreground"}>{totalWt.toFixed(2)}%</strong></span>
+              {categories.length>0&&<span><strong className="text-foreground">{categories.length}</strong> categories: {categories.slice().sort().join(", ")}</span>}
+              <span>Total weightage: <strong className={Math.abs(totalWt-100)>0.01?"text-red-600 dark:text-red-400":"text-emerald-600 dark:text-emerald-400"}>{totalWt.toFixed(2)}%</strong></span>
               <span className="ml-auto font-medium text-foreground">{file?.name}</span>
             </div>
+            {Math.abs(totalWt-100)>0.01&&totalWt>0&&(
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-red-500/40 bg-red-50 dark:bg-red-400/10 text-xs text-red-700 dark:text-red-400">
+                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0"/>
+                <span><strong>Weightage must total exactly 100%.</strong> Current total is <strong>{totalWt.toFixed(2)}%</strong>. Please correct your Excel file and re-upload. Upload is blocked until this is fixed.</span>
+              </div>
+            )}
             <div className="flex-1 overflow-auto border border-border rounded-lg">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm border-b border-border">
@@ -446,7 +456,9 @@ function UploadDialog({open,set,person,year,userId,onClose,onSuccess}:{
             </div>
             <div className="flex items-center gap-2 justify-between">
               <Button variant="outline" size="sm" onClick={()=>setStep("select")}>Back</Button>
-              <Button size="sm" onClick={()=>setStep("confirm")}>Review &amp; Confirm</Button>
+              <Button size="sm" onClick={()=>setStep("confirm")} disabled={Math.abs(totalWt-100)>0.01} title={Math.abs(totalWt-100)>0.01?"Fix weightage to total 100% before proceeding":""}>
+                Review &amp; Confirm
+              </Button>
             </div>
           </div>
         )}
@@ -819,14 +831,29 @@ function PersonsTab({persons,onEdit,onAdd,isAdmin,onRefresh}:{
 
 // ─── Performance Capture Dialog ───────────────────────────────────────────────
 
-function PerformanceCaptureDialog({open,set,person,year,onClose,onRefresh}:{
-  open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear; onClose:()=>void; onRefresh:()=>void;
+const ACTUALS_STATUS_COLORS: Record<string,string>={
+  NotStarted:"border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10",
+  PendingReview:"border-yellow-500/30 text-yellow-600 bg-yellow-50 dark:bg-yellow-400/10",
+  Reviewed:"border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10",
+  RevisionNeeded:"border-red-500/30 text-red-600 bg-red-50 dark:bg-red-400/10",
+};
+const ACTUALS_STATUS_LABELS: Record<string,string>={
+  NotStarted:"Actuals Not Started",PendingReview:"Actuals Pending Review",
+  Reviewed:"Actuals Reviewed",RevisionNeeded:"Revision Needed",
+};
+
+function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,onClose,onRefresh}:{
+  open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear;
+  isAdmin?: boolean; userId?: number; onClose:()=>void; onRefresh:()=>void;
 }){
   const{toast}=useToast();
   const{data:items}=useSetItems(open?set.id:undefined);
   const[actuals,setActuals]=useState<Record<number,{q1:string;q2:string;q3:string;q4:string;remarks:string}>>({});
   const[saving,setSaving]=useState(false);
+  const[submitting,setSubmitting]=useState(false);
   const[isFullscreen,setIsFullscreen]=useState(false);
+  const[reviewComment,setReviewComment]=useState(set.actualsReviewComments||"");
+  const[reviewDecision,setReviewDecision]=useState<"Reviewed"|"RevisionNeeded"|null>(null);
 
   useEffect(()=>{
     if(items){
@@ -865,6 +892,28 @@ function PerformanceCaptureDialog({open,set,person,year,onClose,onRefresh}:{
     finally{setSaving(false);}
   };
 
+  const handleSubmitForReview=async()=>{
+    if(!confirm("Submit actuals for HR/Admin review? You can still update actuals after submission.")) return;
+    setSubmitting(true);
+    try{
+      await apiFetch(`/kpi-sets/${set.id}/actuals/submit`,{method:"POST"});
+      toast({title:"Actuals submitted for review",description:"HR/Admin will be notified to review the performance data."});
+      onRefresh();onClose();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    finally{setSubmitting(false);}
+  };
+
+  const handleReview=async(decision:"Reviewed"|"RevisionNeeded")=>{
+    if(!confirm(decision==="Reviewed"?"Mark these actuals as Reviewed?":"Request revision from the employee?")) return;
+    setSubmitting(true);
+    try{
+      await apiFetch(`/kpi-sets/${set.id}/actuals/review`,{method:"POST",body:JSON.stringify({decision,comments:reviewComment||null,reviewedBy:userId})});
+      toast({title:decision==="Reviewed"?"Actuals approved":"Revision requested",description:decision==="Reviewed"?"Performance actuals marked as reviewed.":"Employee has been asked to revise their actuals."});
+      onRefresh();onClose();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    finally{setSubmitting(false);}
+  };
+
   const displayItems=items||[];
   const contentClass=isFullscreen
     ?"fixed inset-0 z-50 max-w-full w-full h-full rounded-none flex flex-col overflow-hidden bg-background"
@@ -877,25 +926,78 @@ function PerformanceCaptureDialog({open,set,person,year,onClose,onRefresh}:{
           <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-base font-semibold">
-                Enter Performance Actuals — {person.name}
+                {isAdmin&&set.actualsStatus==="PendingReview"?"Review Performance Actuals":"Enter Performance Actuals"} — {person.name}
               </DialogTitle>
               <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-muted-foreground">
                 <span>{year.label}</span>
                 {person.designation&&<span>· {person.designation}</span>}
                 {person.department&&<span>· {person.department}</span>}
                 <Badge variant="outline" className={cn("text-[10px] px-1.5",STATUS_COLORS[set.status]||"")}>{set.status}</Badge>
+                {set.actualsStatus&&set.actualsStatus!=="NotStarted"&&(
+                  <Badge variant="outline" className={cn("text-[10px] px-1.5",ACTUALS_STATUS_COLORS[set.actualsStatus]||"")}>
+                    {ACTUALS_STATUS_LABELS[set.actualsStatus]||set.actualsStatus}
+                  </Badge>
+                )}
                 <span>{displayItems.length} KPIs</span>
               </div>
+              {set.actualsStatus==="RevisionNeeded"&&set.actualsReviewComments&&(
+                <div className="mt-2 flex items-start gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-400/10 border border-red-200 dark:border-red-400/30 rounded-md px-2 py-1.5">
+                  <Info className="h-3 w-3 flex-shrink-0 mt-0.5"/>
+                  <span><strong>Revision needed:</strong> {set.actualsReviewComments}</span>
+                </div>
+              )}
+              {set.actualsStatus==="Reviewed"&&set.actualsReviewedAt&&(
+                <div className="mt-2 flex items-start gap-2 text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-400/10 border border-emerald-200 dark:border-emerald-400/30 rounded-md px-2 py-1.5">
+                  <CheckCircle2 className="h-3 w-3 flex-shrink-0 mt-0.5"/>
+                  <span><strong>Actuals reviewed</strong> on {fmtTs(set.actualsReviewedAt)}{set.actualsReviewComments&&` — ${set.actualsReviewComments}`}</span>
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={saving||displayItems.length===0}>
-                {saving?"Saving…":"Save Actuals"}
-              </Button>
+            <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+              {!isAdmin&&(
+                <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={saving||displayItems.length===0}>
+                  {saving?"Saving…":"Save Actuals"}
+                </Button>
+              )}
+              {!isAdmin&&set.actualsStatus!=="PendingReview"&&set.actualsStatus!=="Reviewed"&&displayItems.length>0&&(
+                <Button size="sm" variant="outline" className="h-7 text-xs border-yellow-500/50 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-400/10"
+                  onClick={handleSubmitForReview} disabled={submitting}>
+                  {submitting?"Submitting…":"Submit for Review"}
+                </Button>
+              )}
+              {isAdmin&&set.actualsStatus==="PendingReview"&&(
+                <>
+                  <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={saving||displayItems.length===0}>
+                    {saving?"Saving…":"Save Actuals"}
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-emerald-500/50 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-400/10"
+                    onClick={()=>handleReview("Reviewed")} disabled={submitting}>
+                    <CheckCircle2 className="mr-1 h-3 w-3"/>{submitting?"…":"Mark Reviewed"}
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/50 text-red-600 hover:bg-red-50 dark:hover:bg-red-400/10"
+                    onClick={()=>handleReview("RevisionNeeded")} disabled={submitting}>
+                    <XCircle className="mr-1 h-3 w-3"/>Request Revision
+                  </Button>
+                </>
+              )}
+              {isAdmin&&set.actualsStatus!=="PendingReview"&&(
+                <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={saving||displayItems.length===0}>
+                  {saving?"Saving…":"Save Actuals"}
+                </Button>
+              )}
               <button onClick={()=>setIsFullscreen(f=>!f)} className="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-muted transition-colors">
                 {isFullscreen?<Minimize2 className="h-3.5 w-3.5"/>:<Maximize2 className="h-3.5 w-3.5"/>}
               </button>
             </div>
           </div>
+          {isAdmin&&set.actualsStatus==="PendingReview"&&(
+            <div className="mt-2">
+              <Label className="text-xs text-muted-foreground">Review comments (optional)</Label>
+              <input type="text" value={reviewComment} onChange={e=>setReviewComment(e.target.value)}
+                className="mt-1 w-full h-7 text-xs border border-border rounded px-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="Add review notes for the employee…"/>
+            </div>
+          )}
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto min-h-0">
@@ -1014,9 +1116,16 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                   </td>
                   <td className="px-4 py-2.5 text-center text-sm font-semibold">{set.itemCount??""}</td>
                   <td className="px-4 py-2.5 text-center">
-                    <Badge variant="outline" className={cn("text-[10px]",archived?"border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10":STATUS_COLORS[set.status]||"")}>
-                      {archived?"Archived":set.status}
-                    </Badge>
+                    <div className="flex flex-col items-center gap-1">
+                      <Badge variant="outline" className={cn("text-[10px]",archived?"border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10":STATUS_COLORS[set.status]||"")}>
+                        {archived?"Archived":set.status}
+                      </Badge>
+                      {!archived&&set.actualsStatus&&set.actualsStatus!=="NotStarted"&&(
+                        <Badge variant="outline" className={cn("text-[9px] px-1",ACTUALS_STATUS_COLORS[set.actualsStatus]||"")}>
+                          {ACTUALS_STATUS_LABELS[set.actualsStatus]||set.actualsStatus}
+                        </Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-2.5 text-[10px] text-muted-foreground">
                     {set.submittedAt?new Date(set.submittedAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"2-digit"}):"—"}
@@ -1024,7 +1133,12 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                   <td className="px-4 py-2.5"><div className="flex items-center justify-end gap-0.5">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onView(set)} title="View KPIs"><Eye className="h-3.5 w-3.5"/></Button>
                     {!archived&&set.status==="Approved"&&(
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600 hover:text-emerald-700" onClick={()=>onPerformance(set)} title="Enter performance actuals"><Target className="h-3.5 w-3.5"/></Button>
+                      <Button variant="ghost" size="icon"
+                        className={cn("h-7 w-7",set.actualsStatus==="PendingReview"&&isAdmin?"text-yellow-600 hover:text-yellow-700 bg-yellow-50 dark:bg-yellow-400/10":"text-emerald-600 hover:text-emerald-700")}
+                        onClick={()=>onPerformance(set)}
+                        title={set.actualsStatus==="PendingReview"?"Review actuals submitted by employee":"Enter performance actuals"}>
+                        <Target className="h-3.5 w-3.5"/>
+                      </Button>
                     )}
                     {isAdmin&&!archived&&(
                       <>
@@ -1236,7 +1350,7 @@ export default function KpisPage(){
           onClose={()=>setEditPerson(null)} onSuccess={()=>{setEditPerson(null);qc.invalidateQueries({queryKey:["kpi-persons"]});}}/>
       )}
       {performanceSet&&(()=>{const person=getPerson(performanceSet);const year=getYear(performanceSet.yearId);if(!person||!year) return null;
-        return(<PerformanceCaptureDialog open={!!performanceSet} set={performanceSet} person={person} year={year} onClose={()=>setPerformanceSet(null)} onRefresh={refresh}/>);
+        return(<PerformanceCaptureDialog open={!!performanceSet} set={performanceSet} person={person} year={year} isAdmin={isAdmin} userId={user?.id} onClose={()=>setPerformanceSet(null)} onRefresh={refresh}/>);
       })()}
     </div>
   );

@@ -140,6 +140,11 @@ export const kpiSetsTable = pgTable("kpi_sets", {
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   approvedBy: integer("approved_by"),
   approvalComments: text("approval_comments"),
+  actualsStatus: text("actuals_status").notNull().default("NotStarted"),
+  actualsSubmittedAt: timestamp("actuals_submitted_at", { withTimezone: true }),
+  actualsReviewedAt: timestamp("actuals_reviewed_at", { withTimezone: true }),
+  actualsReviewedBy: integer("actuals_reviewed_by"),
+  actualsReviewComments: text("actuals_review_comments"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

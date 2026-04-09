@@ -167,6 +167,12 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
   const setId = parseInt(req.params.id);
   if (isNaN(setId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
+  const [existingSet] = await db.select().from(kpiSetsTable).where(eq(kpiSetsTable.id, setId));
+  if (existingSet?.status === "Approved") {
+    res.status(403).json({ error: "KPI set is Approved — uploads are locked. No modifications allowed after approval." });
+    return;
+  }
+
   const body = z.object({
     fileName: z.string().min(1),
     fileData: z.string().min(1),
@@ -446,6 +452,42 @@ router.put("/kpi-sets/:id/actuals", async (req, res): Promise<void> => {
   }
   auditKpi(setId, "actuals_update", `Performance actuals updated for KPI set #${setId} (${body.data.actuals.length} items)`, (req.session as any)?.userId?.toString());
   res.sendStatus(204);
+});
+
+// ─── Submit actuals for HR/Admin review ───────────────────────────────────────
+
+router.post("/kpi-sets/:id/actuals/submit", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [existing] = await db.select().from(kpiSetsTable).where(eq(kpiSetsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "KPI set not found" }); return; }
+  if (existing.status !== "Approved") { res.status(400).json({ error: "Only approved KPI sets can have actuals submitted for review" }); return; }
+  const [row] = await db.update(kpiSetsTable)
+    .set({ actualsStatus: "PendingReview", actualsSubmittedAt: new Date(), updatedAt: new Date() })
+    .where(eq(kpiSetsTable.id, id)).returning();
+  auditKpi(id, "actuals_submit", `Actuals submitted for HR/Admin review on KPI set #${id}`, (req.session as any)?.userId?.toString());
+  res.json(row);
+});
+
+// ─── HR/Admin review of actuals ───────────────────────────────────────────────
+
+router.post("/kpi-sets/:id/actuals/review", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = z.object({
+    decision: z.enum(["Reviewed", "RevisionNeeded"]),
+    comments: z.string().optional().nullable(),
+    reviewedBy: z.number().optional().nullable(),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+  const [existing] = await db.select().from(kpiSetsTable).where(eq(kpiSetsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "KPI set not found" }); return; }
+  const newStatus = body.data.decision === "Reviewed" ? "Reviewed" : "RevisionNeeded";
+  const [row] = await db.update(kpiSetsTable)
+    .set({ actualsStatus: newStatus, actualsReviewedAt: new Date(), actualsReviewedBy: body.data.reviewedBy, actualsReviewComments: body.data.comments, updatedAt: new Date() })
+    .where(eq(kpiSetsTable.id, id)).returning();
+  auditKpi(id, "actuals_review", `Actuals ${newStatus} by reviewer on KPI set #${id}. ${body.data.comments||""}`, (req.session as any)?.userId?.toString());
+  res.json(row);
 });
 
 // ─── Recall / revert to Draft ─────────────────────────────────────────────────
