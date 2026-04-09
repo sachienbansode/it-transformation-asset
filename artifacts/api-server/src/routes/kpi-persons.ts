@@ -191,6 +191,12 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
       q3Actual: z.string().optional().nullable(),
       q4Actual: z.string().optional().nullable(),
       remarks: z.string().optional().nullable(),
+      kpiId: z.string().optional().nullable(),
+      kpiType: z.string().optional().nullable(),
+      owner: z.string().optional().nullable(),
+      businessAlignment: z.string().optional().nullable(),
+      dataSource: z.string().optional().nullable(),
+      riskDependency: z.string().optional().nullable(),
     })),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
@@ -240,6 +246,12 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
         q3Actual: toNum(item.q3Actual),
         q4Actual: toNum(item.q4Actual),
         remarks: toStr(item.remarks),
+        kpiId: toStr(item.kpiId),
+        kpiType: toStr(item.kpiType),
+        owner: toStr(item.owner),
+        businessAlignment: toStr(item.businessAlignment),
+        dataSource: toStr(item.dataSource),
+        riskDependency: toStr(item.riskDependency),
         approvalStatus: "Draft",
       }))
     );

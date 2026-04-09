@@ -38,6 +38,7 @@ interface KpiSetItem {
   q1Target?: string; q2Target?: string; q3Target?: string; q4Target?: string;
   q1Actual?: string; q2Actual?: string; q3Actual?: string; q4Actual?: string;
   remarks?: string;
+  kpiId?: string; kpiType?: string; owner?: string; businessAlignment?: string; dataSource?: string; riskDependency?: string;
   approvalStatus?: string; approvedBy?: number; approvalComments?: string; approvedAt?: string;
 }
 interface ParsedItem {
@@ -45,6 +46,7 @@ interface ParsedItem {
   weightage: string; metric: string; unit: string; annualTarget: string;
   q1Target: string; q2Target: string; q3Target: string; q4Target: string;
   q1Actual: string; q2Actual: string; q3Actual: string; q4Actual: string; remarks: string;
+  kpiId: string; kpiType: string; owner: string; businessAlignment: string; dataSource: string; riskDependency: string;
 }
 interface CategoryGroup {
   category: string; items: KpiSetItem[];
@@ -72,7 +74,7 @@ const STATUS_COLORS: Record<string,string> = {
   Rejected: "border-red-500/30 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-400/10",
   Archived: "border-gray-400/30 text-gray-400 bg-gray-50 dark:bg-gray-400/10",
 };
-const TEMPLATE_HEADERS = ["S.No","KPI Name","Description","Category","Weightage (%)","Metric","Unit","Annual Target","Q1 Target","Q2 Target","Q3 Target","Q4 Target","Q1 Actual","Q2 Actual","Q3 Actual","Q4 Actual","Remarks"];
+const TEMPLATE_HEADERS = ["S.No","KPI ID","KPI Type","KPI Name","Description","Category (Run/Change/Transform)","Business Alignment","Owner","Weightage (%)","Scoring Logic","Measurement Unit","Annual Target","Q1 Target","Q2 Target","Q3 Target","Q4 Target","Q1 Actual","Q2 Actual","Q3 Actual","Q4 Actual","Data Source","Risk/Dependency","Remarks"];
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -88,36 +90,49 @@ const parseExcelRows = (data: ArrayBuffer): ParsedItem[] => {
   const wb = XLSX.read(data,{type:"array"});
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw = XLSX.utils.sheet_to_json<Record<string,unknown>>(ws,{defval:""});
+  // Exact norm-match lookup across multiple key aliases
   const getStr = (row: Record<string,unknown>,...keys: string[]): string => {
     for (const k of keys) {
       const nk = norm(k);
       for (const [rk,rv] of Object.entries(row)) {
-        if (norm(rk)===nk) { const val=rv!==null&&rv!==undefined?String(rv).trim():""; if(val!=="") return val; }
+        if (norm(rk)===nk) {
+          const val=rv!==null&&rv!==undefined?String(rv).trim():"";
+          if(val!=="") return val;
+        }
       }
     }
     return "";
   };
   return raw.map((r,i)=>{
-    const snoRaw=getStr(r,"S.No","SNo","No.","No","S No","Sl No","#");
+    const snoRaw=getStr(r,"S.No","SNo","No.","S No","Sl No","Sl.No","SR No","SR");
     const sno=snoRaw?parseInt(snoRaw):i+1;
     return {
       sno: isNaN(sno)?i+1:sno,
-      kpiName: getStr(r,"KPI Name","KPIName","Name","kpi_name","KPI"),
+      kpiName: getStr(r,"KPI Name","KPIName","kpi_name","KPI Title","KPI"),
       description: getStr(r,"Description","Desc","Details","KPI Description"),
-      category: getStr(r,"Category","Cat","KPI Category","Category Name","Group"),
-      weightage: getStr(r,"Weightage (%)","Weightage","Weight","Wt%","Wt","wt","Weightage%"),
-      metric: getStr(r,"Metric","Metrics","Measurement","KPI Metric"),
-      unit: getStr(r,"Unit","Units","Measure Unit","UOM"),
-      annualTarget: getStr(r,"Annual Target","AnnualTarget","Annual","Target","Full Year Target"),
-      q1Target: getStr(r,"Q1 Target","Q1Target","Q1T","Q1 T","Q1"),
-      q2Target: getStr(r,"Q2 Target","Q2Target","Q2T","Q2 T","Q2"),
-      q3Target: getStr(r,"Q3 Target","Q3Target","Q3T","Q3 T","Q3"),
-      q4Target: getStr(r,"Q4 Target","Q4Target","Q4T","Q4 T","Q4"),
+      // "Category (Run/Change/Transform)" → norm → "categoryrunchangetransform"
+      category: getStr(r,"Category","Cat","KPI Category","Category Name","Group","Category (Run/Change/Transform)","Category(Run/Change/Transform)"),
+      weightage: getStr(r,"Weightage (%)","Weightage","Weight","Wt%","Wt","Weightage%"),
+      // "Scoring Logic" maps to Metric in CTO template
+      metric: getStr(r,"Metric","Metrics","Measurement","KPI Metric","Scoring Logic","Score Logic"),
+      // "Measurement Unit" → norm → "measurementunit"
+      unit: getStr(r,"Unit","Units","Measure Unit","UOM","Measurement Unit","MeasurementUnit"),
+      annualTarget: getStr(r,"Annual Target","AnnualTarget","Annual","Full Year Target"),
+      q1Target: getStr(r,"Q1 Target","Q1Target","Q1 T"),
+      q2Target: getStr(r,"Q2 Target","Q2Target","Q2 T"),
+      q3Target: getStr(r,"Q3 Target","Q3Target","Q3 T"),
+      q4Target: getStr(r,"Q4 Target","Q4Target","Q4 T"),
       q1Actual: getStr(r,"Q1 Actual","Q1Actual","Q1A","Q1 A","Q1Actuals","Q1 Achievement"),
       q2Actual: getStr(r,"Q2 Actual","Q2Actual","Q2A","Q2 A","Q2 Achievement"),
       q3Actual: getStr(r,"Q3 Actual","Q3Actual","Q3A","Q3 A","Q3 Achievement"),
       q4Actual: getStr(r,"Q4 Actual","Q4Actual","Q4A","Q4 A","Q4 Achievement"),
       remarks: getStr(r,"Remarks","Notes","Comments","Remark"),
+      kpiId: getStr(r,"KPI ID","KPIID","KPI_ID","KPI Ref","Ref ID"),
+      kpiType: getStr(r,"KPI Type","KPIType","KPI_Type","Type"),
+      owner: getStr(r,"Owner","KPI Owner","Responsible","Accountable","Ownership"),
+      businessAlignment: getStr(r,"Business Alignment","BusinessAlignment","Alignment","Strategic Alignment","Business Goal","Business Objective"),
+      dataSource: getStr(r,"Data Source","DataSource","Source","Measurement Source","Data/Source"),
+      riskDependency: getStr(r,"Risk/Dependency","RiskDependency","Risk Dependency","Risks","Dependencies","Risk & Dependency"),
     };
   }).filter(r=>r.kpiName!=="");
 };
@@ -125,28 +140,35 @@ const parseExcelRows = (data: ArrayBuffer): ParsedItem[] => {
 const downloadTemplate = (yearLabel?: string) => {
   const wb=XLSX.utils.book_new();
   const sampleRows=[
-    [1,"IT Infrastructure Uptime","Measure % uptime across critical systems","Operations","10.00","% Uptime","%","99.50","99.00","99.50","99.50","99.00","","","","","Monthly dashboards"],
-    [2,"Revenue Growth","Annual revenue growth vs previous year","Financial","15.00","% Growth","%","15.00","12.00","13.50","14.00","15.00","","","","",""],
-    [3,"Customer Satisfaction","NPS or CSAT from surveys","Customer","10.00","NPS Score","Score","75.00","70.00","72.00","74.00","75.00","","","","","Quarterly survey"],
-    [4,"Employee Engagement","Annual engagement survey","People","8.00","Score","%","80.00","","","","80.00","","","","","Annual survey"],
-    [5,"Cost Reduction","Cost savings through optimization","Financial","12.00","₹ Lakhs","₹ Lakhs","50.00","10.00","20.00","35.00","50.00","","","","",""],
+    // S.No, KPI ID, KPI Type, KPI Name, Description, Category (Run/Change/Transform), Business Alignment, Owner, Weightage (%), Scoring Logic, Measurement Unit, Annual Target, Q1 Target, Q2 Target, Q3 Target, Q4 Target, Q1 Actual, Q2 Actual, Q3 Actual, Q4 Actual, Data Source, Risk/Dependency, Remarks
+    [1,"KPI-001","Outcome","IT Infrastructure Uptime","Measure % uptime across critical systems","Run","Operational Excellence","IT Operations","10.00","% Uptime — Higher is better","%","99.50","99.00","99.50","99.50","99.00","","","","","Monthly dashboards","Dependency on ITSM tool",""],
+    [2,"KPI-002","Outcome","Revenue Growth","Annual revenue growth vs previous year","Change","Financial Growth","Finance","15.00","% Growth — Higher is better","%","15.00","12.00","13.50","14.00","15.00","","","","","Finance ERP","None",""],
+    [3,"KPI-003","Output","Customer Satisfaction","NPS or CSAT from surveys","Run","Customer Centricity","CX Team","10.00","NPS Score — Higher is better","Score","75.00","70.00","72.00","74.00","75.00","","","","","Quarterly survey","Survey vendor dependency","Quarterly survey"],
+    [4,"KPI-004","Strategic","Digital Transformation Index","Progress on digital initiatives","Transform","Innovation","Digital Office","12.00","% Completion — Higher is better","%","80.00","","","","80.00","","","","","Program tracker","None","Annual review"],
+    [5,"KPI-005","Output","Cost Reduction","Cost savings through optimization","Change","Financial Efficiency","Procurement","12.00","₹ Lakhs saved","₹ Lakhs","50.00","10.00","20.00","35.00","50.00","","","","","Finance ERP","Market volatility",""],
   ];
   const ws=XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS,...sampleRows]);
-  ws["!cols"]=[6,36,32,16,12,16,10,14,10,10,10,10,10,10,10,10,24].map(w=>({wch:w}));
+  ws["!cols"]=[6,10,12,32,30,18,22,18,10,26,14,12,10,10,10,10,10,10,10,10,22,22,22].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb,ws,"KPI Template");
   const infoData=[
     ["Column","Required","Description","Example"],
     ["S.No","No","Auto-filled if blank","1, 2, 3..."],
+    ["KPI ID","No","Unique reference ID for this KPI","KPI-001"],
+    ["KPI Type","No","Type: Outcome / Output / Strategic / Leading / Lagging","Outcome"],
     ["KPI Name","YES","Unique name for this KPI","IT Infrastructure Uptime"],
     ["Description","No","What is measured","Measure % uptime across critical systems"],
-    ["Category","No","Group (Operations/Financial/Customer/People)","Operations"],
-    ["Weightage (%)","No","Importance weight — total should be 100","10.00"],
-    ["Metric","No","How the KPI is measured","% Uptime"],
-    ["Unit","No","Unit of measurement","%, Days, ₹ Lakhs, Score"],
+    ["Category (Run/Change/Transform)","No","Run = ongoing ops, Change = improvement, Transform = strategic shift","Run"],
+    ["Business Alignment","No","Strategic objective this KPI supports","Operational Excellence"],
+    ["Owner","No","Team or person responsible for this KPI","IT Operations"],
+    ["Weightage (%)","No","Importance weight — total should ideally be 100","10.00"],
+    ["Scoring Logic","No","How achievement is calculated / measured","% Uptime — Higher is better"],
+    ["Measurement Unit","No","Unit: %, Days, ₹ Lakhs, Score, Count, etc.","%, ₹ Lakhs, Score"],
     ["Annual Target","No","Target for full financial year","99.50"],
-    ["Q1-Q4 Target","No","Quarterly targets","99.00"],
+    ["Q1-Q4 Target","No","Quarterly targets (leave blank if not split by quarter)","99.00"],
     ["Q1-Q4 Actual","No","Actual achievement per quarter (fill post quarter)",""],
-    ["Remarks","No","Notes, context, or observations","Track via dashboards"],
+    ["Data Source","No","System or report used to measure this KPI","ITSM Dashboard"],
+    ["Risk/Dependency","No","Known risks or external dependencies","Vendor tool availability"],
+    ["Remarks","No","Notes, context, or observations","Track via monthly reviews"],
   ];
   const wsInfo=XLSX.utils.aoa_to_sheet(infoData);
   wsInfo["!cols"]=[{wch:18},{wch:10},{wch:52},{wch:30}];
@@ -158,14 +180,18 @@ const downloadSetExcel=(items: KpiSetItem[],person: KpiPerson,year: KpiYear)=>{
   const wb=XLSX.utils.book_new();
   const headers=[...TEMPLATE_HEADERS,"Approval Status","Approval Comments"];
   const rows=items.map((item,i)=>[
-    item.sno??i+1,item.kpiName,item.description||"",item.category||"",
+    item.sno??i+1,
+    item.kpiId||"",item.kpiType||"",
+    item.kpiName,item.description||"",item.category||"",
+    item.businessAlignment||"",item.owner||"",
     fmt2(item.weightage,""),item.metric||"",item.unit||"",
     fmt2(item.annualTarget,""),fmt2(item.q1Target,""),fmt2(item.q2Target,""),fmt2(item.q3Target,""),fmt2(item.q4Target,""),
     fmt2(item.q1Actual,""),fmt2(item.q2Actual,""),fmt2(item.q3Actual,""),fmt2(item.q4Actual,""),
-    item.remarks||"",item.approvalStatus||"Draft",item.approvalComments||"",
+    item.dataSource||"",item.riskDependency||"",item.remarks||"",
+    item.approvalStatus||"Draft",item.approvalComments||"",
   ]);
   const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
-  ws["!cols"]=[6,36,32,16,12,16,10,14,10,10,10,10,10,10,10,10,24,14,36].map(w=>({wch:w}));
+  ws["!cols"]=[6,10,12,32,30,18,22,18,10,26,14,12,10,10,10,10,10,10,10,10,22,22,22,14,36].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb,ws,"KPIs");
   XLSX.writeFile(wb,`${person.name.replace(/\s+/g,"_")}_${year.label.replace(/\s+/g,"_")}_KPIs.xlsx`);
 };
@@ -355,7 +381,7 @@ function UploadDialog({open,set,person,year,userId,onClose,onSuccess}:{
     try{
       await apiFetch(`/kpi-sets/${set.id}/upload`,{method:"POST",body:JSON.stringify({
         fileName:file!.name,fileData,fileSize:file!.size,comments,uploadedBy:userId,
-        items:parsed.map(p=>({sno:p.sno,kpiName:p.kpiName,description:p.description,category:p.category,weightage:p.weightage,metric:p.metric,unit:p.unit,annualTarget:p.annualTarget,q1Target:p.q1Target,q2Target:p.q2Target,q3Target:p.q3Target,q4Target:p.q4Target,q1Actual:p.q1Actual,q2Actual:p.q2Actual,q3Actual:p.q3Actual,q4Actual:p.q4Actual,remarks:p.remarks})),
+        items:parsed.map(p=>({sno:p.sno,kpiName:p.kpiName,description:p.description,category:p.category,weightage:p.weightage,metric:p.metric,unit:p.unit,annualTarget:p.annualTarget,q1Target:p.q1Target,q2Target:p.q2Target,q3Target:p.q3Target,q4Target:p.q4Target,q1Actual:p.q1Actual,q2Actual:p.q2Actual,q3Actual:p.q3Actual,q4Actual:p.q4Actual,remarks:p.remarks,kpiId:p.kpiId,kpiType:p.kpiType,owner:p.owner,businessAlignment:p.businessAlignment,dataSource:p.dataSource,riskDependency:p.riskDependency})),
       })});
       toast({title:"KPIs uploaded",description:`${parsed.length} KPIs saved as new version.`});
       onSuccess();
