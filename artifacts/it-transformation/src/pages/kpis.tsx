@@ -326,7 +326,7 @@ function KpiSetDialog({open,initialSet,users,years,deptMasters,onClose,onSuccess
                           {deptUsers.map(u=>(
                             <CommandItem
                               key={u.id}
-                              value={`${u.name} ${u.employeeCode||""} ${u.designation||""} ${dept}`}
+                              value={`${u.name} ${u.employeeCode||""} ${u.designation||""} ${getDeptLabel(dept)} ${dept}`}
                               onSelect={()=>{setUserId(u.id.toString());setUserPickerOpen(false);}}
                               className="flex flex-col items-start gap-0.5 py-2"
                             >

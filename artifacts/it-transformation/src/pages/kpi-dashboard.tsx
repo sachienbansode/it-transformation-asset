@@ -161,7 +161,7 @@ function MyKpiView({ sets, persons, years }: { sets: KpiSet[]; persons: KpiPerso
 
 // ─── Main Dashboard ────────────────────────────────────────────────────────────
 export default function KpiDashboard() {
-  const { user, isCxo, isEmployee, isHR } = useAuth();
+  const { user, isAdmin, isCxo, isEmployee, isHR } = useAuth();
   const [, navigate] = useLocation();
 
   const { data: sets = [], isLoading: setsLoading } = useQuery({
@@ -203,8 +203,8 @@ export default function KpiDashboard() {
 
   const completionRate = totalSets > 0 ? Math.round((approvedSets / totalSets) * 100) : 0;
 
-  const isKpiView = isCxo || isHR;
-  const roleLabel = isCxo ? "CXO View" : isHR ? "HR View" : "My KPIs";
+  const isKpiView = isAdmin || isCxo || isHR;
+  const roleLabel = isAdmin ? "Admin View" : isCxo ? "CXO View" : isHR ? "HR View" : "My KPIs";
 
   if (setsLoading) {
     return (
@@ -224,7 +224,8 @@ export default function KpiDashboard() {
         <div>
           <h1 className="text-xl font-bold">KPI Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isCxo && `Department performance overview — ${user?.department ? getDeptLabel(user.department) : "your department"}`}
+            {isAdmin && "Full organisation KPI overview — all departments"}
+            {!isAdmin && isCxo && `Department performance overview — ${user?.department ? getDeptLabel(user.department) : "your department"}`}
             {isHR && "Organisation-wide KPI tracking"}
             {isEmployee && "Your KPI sets and performance"}
           </p>

@@ -110,6 +110,9 @@ router.get("/kpi-users", async (req, res): Promise<void> => {
   const conditions: any[] = [eq(usersTable.isActive, true), ne(usersTable.role, "admin")];
   if (scope.role === "cxo" && scope.department) {
     conditions.push(eq(usersTable.department, scope.department));
+  } else if (scope.role === "kpi_employee" && scope.email) {
+    // Employees only see themselves in the picker (they cannot create sets for others)
+    conditions.push(eq(usersTable.email, scope.email));
   }
   const rows = await db.select({
     id: usersTable.id, name: usersTable.name, email: usersTable.email,
@@ -208,7 +211,7 @@ router.get("/kpi-sets", async (req, res): Promise<void> => {
 router.post("/kpi-sets", async (req, res): Promise<void> => {
   const scope = await getKpiScope(req);
   if (scope.role === "kpi_employee") {
-    res.status(403).json({ error: "Employees cannot create KPI sets. Please contact your department head or HR." });
+    res.status(403).json({ error: `You are currently signed in as an employee (${scope.email}). Only CXO, HR, or Admin accounts can create KPI sets. Please sign out and sign in with the correct account.` });
     return;
   }
   const body = z.object({
@@ -281,11 +284,32 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
   const setId = parseInt(req.params.id);
   if (isNaN(setId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
+  const scope = await getKpiScope(req);
+
   const [existingSet] = await db.select().from(kpiSetsTable).where(eq(kpiSetsTable.id, setId));
+  if (!existingSet) { res.status(404).json({ error: "KPI set not found" }); return; }
+
   const blockedForUpload = ["Pending", "Approved", "Approved - Partial"];
-  if (existingSet && blockedForUpload.includes(existingSet.status ?? "")) {
-    res.status(403).json({ error: `KPI set is ${existingSet.status} — uploads are locked. Upload is only allowed for Draft or Rejected sets.` });
+  if (blockedForUpload.includes(existingSet.status ?? "")) {
+    res.status(403).json({ error: `KPI set is ${existingSet.status} — uploads are locked. Recall the submission first or wait for it to be rejected before uploading again.` });
     return;
+  }
+
+  // Role-based ownership: employee can only upload to their own set
+  if (scope.role === "kpi_employee") {
+    const [person] = await db.select({ email: kpiPersonsTable.email }).from(kpiPersonsTable).where(eq(kpiPersonsTable.id, existingSet.personId));
+    if (!person || person.email !== scope.email) {
+      res.status(403).json({ error: "You can only upload to your own KPI set." });
+      return;
+    }
+  }
+  // CXO: can only upload to sets within their department
+  if (scope.role === "cxo" && scope.department) {
+    const [person] = await db.select({ department: kpiPersonsTable.department }).from(kpiPersonsTable).where(eq(kpiPersonsTable.id, existingSet.personId));
+    if (!person || person.department !== scope.department) {
+      res.status(403).json({ error: "You can only upload to KPI sets within your department." });
+      return;
+    }
   }
 
   const body = z.object({
