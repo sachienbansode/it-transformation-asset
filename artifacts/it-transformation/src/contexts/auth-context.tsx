@@ -6,7 +6,7 @@ export interface AuthUser {
   email: string;
   name: string;
   userType: "internal" | "external";
-  role: "admin" | "user";
+  role: "admin" | "user" | "cxo" | "kpi_employee" | "hr";
   department?: string;
   mobile?: string;
   mfaEnabled: boolean;
@@ -20,6 +20,9 @@ export type AccessLevel = "read" | "write" | "admin";
 interface AuthContextValue {
   user: AuthUser | null;
   isAdmin: boolean;
+  isCxo: boolean;
+  isEmployee: boolean;
+  isHR: boolean;
   loading: boolean;
   effectivePermissions: Record<string, string>;
   canAccess: (module: string, level?: AccessLevel) => boolean;
@@ -74,6 +77,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const isAdmin = user?.role === "admin";
+  const isCxo = user?.role === "cxo";
+  const isEmployee = user?.role === "kpi_employee";
+  const isHR = user?.role === "hr";
   const effectivePermissions = user?.effectivePermissions ?? {};
 
   const canAccess = useCallback((module: string, level: AccessLevel = "read"): boolean => {
@@ -85,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, isAdmin, loading, effectivePermissions, canAccess,
+      user, isAdmin, isCxo, isEmployee, isHR, loading, effectivePermissions, canAccess,
       login, loginMfa, logout, refresh,
     }}>
       {children}

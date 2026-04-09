@@ -93,7 +93,7 @@ function SectionLabel({ children, collapsed }: { children: React.ReactNode; coll
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
-  const { user, logout, isAdmin, canAccess } = useAuth();
+  const { user, logout, isAdmin, isHR, canAccess } = useAuth();
   const { unit, cycle } = useCurrency();
   const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
@@ -219,10 +219,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 ))}
               </>
             )}
-            {isAdmin && (
+            {(isAdmin || isHR) && (
               <>
                 <SectionLabel collapsed={isCollapsed}>Admin</SectionLabel>
-                {ADMIN_ITEMS.map(item => (
+                {(isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter(i => i.tab === "users")).map(item => (
                   <NavItem
                     key={item.href + item.label}
                     href={item.href}
@@ -234,7 +234,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 ))}
               </>
             )}
-            {!isAdmin && visibleDrishtiItems.length === 0 && visibleKpiItems.length === 0 && (
+            {!isAdmin && !isHR && visibleDrishtiItems.length === 0 && visibleKpiItems.length === 0 && (
               <div className="px-2.5 py-4 text-center">
                 <p className="text-[10px] text-sidebar-foreground/30 leading-relaxed">
                   No access configured.<br />Contact your administrator.

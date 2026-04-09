@@ -1,9 +1,18 @@
 import { Router } from "express";
 import { eq, desc, asc, and, ne, inArray } from "drizzle-orm";
 import {
-  db, kpiPersonsTable, kpiSetsTable, kpiSetVersionsTable, kpiSetItemsTable, kpiYearsTable, auditLogsTable,
+  db, kpiPersonsTable, kpiSetsTable, kpiSetVersionsTable, kpiSetItemsTable, kpiYearsTable, auditLogsTable, usersTable,
 } from "@workspace/db";
 import { getPerformedBy } from "./audit-logs";
+
+// ─── Role scope helper ────────────────────────────────────────────────────────
+async function getKpiScope(req: any): Promise<{ role: string; email: string; department: string | null }> {
+  const userId = (req.session as any)?.userId;
+  if (!userId) return { role: "user", email: "", department: null };
+  const [u] = await db.select({ role: usersTable.role, email: usersTable.email, department: usersTable.department })
+    .from(usersTable).where(eq(usersTable.id, userId));
+  return { role: u?.role || "user", email: u?.email || "", department: u?.department || null };
+}
 
 import { z } from "zod";
 
@@ -38,9 +47,16 @@ const router = Router();
 
 // ─── Persons ─────────────────────────────────────────────────────────────────
 
-router.get("/kpi-persons", async (_req, res): Promise<void> => {
+router.get("/kpi-persons", async (req, res): Promise<void> => {
+  const scope = await getKpiScope(req);
+  const conditions: any[] = [eq(kpiPersonsTable.isActive, true)];
+  if (scope.role === "cxo" && scope.department) {
+    conditions.push(eq(kpiPersonsTable.department, scope.department));
+  } else if (scope.role === "kpi_employee" && scope.email) {
+    conditions.push(eq(kpiPersonsTable.email, scope.email));
+  }
   const rows = await db.select().from(kpiPersonsTable)
-    .where(eq(kpiPersonsTable.isActive, true))
+    .where(and(...conditions))
     .orderBy(asc(kpiPersonsTable.name));
   res.json(rows);
 });
@@ -89,12 +105,12 @@ router.delete("/kpi-persons/:id", async (req, res): Promise<void> => {
 // ─── KPI Sets ─────────────────────────────────────────────────────────────────
 
 router.get("/kpi-sets", async (req, res): Promise<void> => {
+  const scope = await getKpiScope(req);
   const yearId = req.query.yearId ? parseInt(req.query.yearId as string) : undefined;
   const personId = req.query.personId ? parseInt(req.query.personId as string) : undefined;
   const status = req.query.status as string | undefined;
   const archived = req.query.archived === "true";
   const conditions: any[] = [];
-  // By default, exclude Archived; if ?archived=true only show Archived
   if (archived) {
     conditions.push(eq(kpiSetsTable.status, "Archived"));
   } else {
@@ -103,6 +119,14 @@ router.get("/kpi-sets", async (req, res): Promise<void> => {
   if (yearId) conditions.push(eq(kpiSetsTable.yearId, yearId));
   if (personId) conditions.push(eq(kpiSetsTable.personId, personId));
   if (status && status !== "all") conditions.push(eq(kpiSetsTable.status, status));
+
+  // Role-based scoping via join with kpi_persons
+  const personConditions: any[] = [];
+  if (scope.role === "cxo" && scope.department) {
+    personConditions.push(eq(kpiPersonsTable.department, scope.department));
+  } else if (scope.role === "kpi_employee" && scope.email) {
+    personConditions.push(eq(kpiPersonsTable.email, scope.email));
+  }
 
   const rows = await db
     .select({
@@ -126,12 +150,21 @@ router.get("/kpi-sets", async (req, res): Promise<void> => {
       eq(kpiSetVersionsTable.setId, kpiSetsTable.id),
       eq(kpiSetVersionsTable.isCurrent, true)
     ))
+    .innerJoin(kpiPersonsTable, and(
+      eq(kpiPersonsTable.id, kpiSetsTable.personId),
+      ...(personConditions.length > 0 ? personConditions : [eq(kpiPersonsTable.isActive, kpiPersonsTable.isActive)])
+    ))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(kpiSetsTable.updatedAt));
   res.json(rows);
 });
 
 router.post("/kpi-sets", async (req, res): Promise<void> => {
+  const scope = await getKpiScope(req);
+  if (scope.role === "kpi_employee") {
+    res.status(403).json({ error: "Employees cannot create KPI sets. Please contact your department head or HR." });
+    return;
+  }
   const body = z.object({
     personId: z.number(),
     yearId: z.number(),

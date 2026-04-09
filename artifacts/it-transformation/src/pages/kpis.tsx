@@ -1161,10 +1161,10 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,onClose,o
 
 // ─── KPI Sets Tab ─────────────────────────────────────────────────────────────
 
-function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter,isAdmin,userId,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onPerformance,onRefresh}:{
+function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter,isAdmin,isEmployee,userId,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onPerformance,onRefresh}:{
   sets: KpiSet[]; archivedSets: KpiSet[]; persons: KpiPerson[]; years: KpiYear[];
   statusFilter: string; onStatusFilter:(s:string)=>void;
-  isAdmin: boolean; userId?: number;
+  isAdmin: boolean; isEmployee?: boolean; userId?: number;
   onView:(s:KpiSet)=>void; onUpload:(s:KpiSet)=>void; onHistory:(s:KpiSet)=>void;
   onEdit:(s:KpiSet)=>void; onSubmit:(s:KpiSet)=>void; onDelete:(s:KpiSet)=>void;
   onPerformance:(s:KpiSet)=>void; onRefresh:()=>void;
@@ -1230,22 +1230,22 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                       <Button variant="ghost" size="icon"
                         className={cn("h-7 w-7",set.actualsStatus==="PendingReview"&&isAdmin?"text-yellow-600 hover:text-yellow-700 bg-yellow-50 dark:bg-yellow-400/10":"text-emerald-600 hover:text-emerald-700")}
                         onClick={()=>onPerformance(set)}
-                        title={set.actualsStatus==="PendingReview"?"Review actuals submitted by employee":"Enter performance actuals"}>
+                        title={set.actualsStatus==="PendingReview"&&isAdmin?"Review actuals submitted by employee":isEmployee?"Enter your performance actuals":"Enter performance actuals"}>
                         <Target className="h-3.5 w-3.5"/>
                       </Button>
                     )}
-                    {isAdmin&&!archived&&(
+                    {!archived&&(isAdmin||isEmployee)&&(
                       <>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title={["Pending","Approved","Approved - Partial"].includes(set.status)?"Upload locked — KPI set is under review or finalised":"Upload KPIs"} disabled={["Pending","Approved","Approved - Partial"].includes(set.status)}><Upload className="h-3.5 w-3.5"/></Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>
+                        {isAdmin&&<Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>}
                         {set.status==="Draft"&&(
                           <>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onEdit(set)} title="Edit"><Pencil className="h-3.5 w-3.5"/></Button>
+                            {isAdmin&&<Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onEdit(set)} title="Edit"><Pencil className="h-3.5 w-3.5"/></Button>}
                             {set.currentVersionId&&<Button variant="ghost" size="icon" className="h-7 w-7 text-yellow-600" onClick={()=>onSubmit(set)} title="Submit for review"><Send className="h-3.5 w-3.5"/></Button>}
                           </>
                         )}
-                        {set.status==="Pending"&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={()=>handleRecall(set)} title="Recall submission"><RotateCcw className="h-3.5 w-3.5"/></Button>}
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={()=>onDelete(set)} title="Archive"><Trash2 className="h-3.5 w-3.5"/></Button>
+                        {isAdmin&&set.status==="Pending"&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={()=>handleRecall(set)} title="Recall submission"><RotateCcw className="h-3.5 w-3.5"/></Button>}
+                        {isAdmin&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={()=>onDelete(set)} title="Archive"><Trash2 className="h-3.5 w-3.5"/></Button>}
                       </>
                     )}
                     {isAdmin&&archived&&(
@@ -1306,7 +1306,7 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function KpisPage(){
-  const{isAdmin,user}=useAuth();
+  const{isAdmin,isCxo,isEmployee,isHR,user}=useAuth();
   const{toast}=useToast();
   const qc=useQueryClient();
 
@@ -1379,7 +1379,7 @@ export default function KpisPage(){
               <SelectContent>{years.map(y=><SelectItem key={y.id} value={y.id.toString()}>{y.label}{y.isCurrent?" ★":""}</SelectItem>)}</SelectContent>
             </Select>
           )}
-          {isAdmin&&activeTab==="sets"&&(
+          {(isAdmin||isCxo||isHR)&&activeTab==="sets"&&(
             <>
               <Button size="sm" variant="outline" className="h-8 text-xs" onClick={()=>downloadTemplate(currentYear?.label)}><Download className="mr-1.5 h-3.5 w-3.5"/>Template</Button>
               <Button size="sm" className="h-8 text-xs" onClick={()=>setEditSet("new")}><Plus className="mr-1.5 h-3.5 w-3.5"/>New KPI Set</Button>
@@ -1402,7 +1402,7 @@ export default function KpisPage(){
 
       {/* Tabs */}
       <div className="flex gap-0 border-b border-border">
-        {([["sets",ClipboardList,"KPI Sets"],["persons",Users,"Persons / CXOs"]] as [string,React.ElementType,string][]).map(([t,Icon,label])=>(
+        {([["sets",ClipboardList,"KPI Sets"],...(!isEmployee?[["persons",Users,"Persons / CXOs"]] as [string,React.ElementType,string][]:[])] as [string,React.ElementType,string][]).map(([t,Icon,label])=>(
           <button key={t} onClick={()=>setActiveTab(t as any)}
             className={cn("flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",activeTab===t?"border-primary text-primary":"border-transparent text-muted-foreground hover:text-foreground")}>
             <Icon className="h-4 w-4"/>{label}
@@ -1414,13 +1414,13 @@ export default function KpisPage(){
       {activeTab==="sets"&&(
         <KpiSetsTab sets={filteredSets} archivedSets={archivedSets} persons={persons||[]} years={years||[]}
           statusFilter={statusFilter} onStatusFilter={setStatusFilter}
-          isAdmin={isAdmin} userId={user?.id}
+          isAdmin={isAdmin} isEmployee={isEmployee} userId={user?.id}
           onView={setDetailSet} onUpload={setUploadSet} onHistory={setHistorySet}
           onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete}
           onPerformance={setPerformanceSet} onRefresh={refresh}/>
       )}
 
-      {activeTab==="persons"&&(
+      {activeTab==="persons"&&!isEmployee&&(
         <PersonsTab persons={persons||[]} onEdit={p=>setEditPerson(p)} onAdd={()=>setEditPerson("new")}
           isAdmin={isAdmin} onRefresh={()=>qc.invalidateQueries({queryKey:["kpi-persons"]})}/>
       )}

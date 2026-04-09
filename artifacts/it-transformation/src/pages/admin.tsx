@@ -252,51 +252,93 @@ function SettingsTab() {
   );
 }
 
+function compressImage(file: File, maxSize: number, quality: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/png", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
+    img.src = url;
+  });
+}
+
 function LogoUpload({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const fileRef = React.useRef<HTMLInputElement>(null);
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [maxSize, setMaxSize] = React.useState(128);
+  const [processing, setProcessing] = React.useState(false);
+  const [sizeInfo, setSizeInfo] = React.useState<string>("");
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange(reader.result as string);
-    reader.readAsDataURL(file);
     e.target.value = "";
+    setProcessing(true);
+    try {
+      const originalKb = Math.round(file.size / 1024);
+      const compressed = await compressImage(file, maxSize, 0.9);
+      const compressedKb = Math.round((compressed.length * 3) / 4 / 1024);
+      setSizeInfo(`${originalKb} KB → ${compressedKb} KB (${maxSize}×${maxSize}px max)`);
+      onChange(compressed);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => { onChange(reader.result as string); setSizeInfo(""); };
+      reader.readAsDataURL(file);
+    } finally {
+      setProcessing(false);
+    }
   };
+
   return (
     <div className="space-y-2">
       <Label>Logo</Label>
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-4">
         {value ? (
-          <div className="relative group">
-            <img
-              src={value}
-              alt="Logo"
-              className="h-14 w-14 object-contain rounded-lg border border-border bg-muted"
+          <div className="relative group flex-shrink-0">
+            <img src={value} alt="Logo"
+              className="h-16 w-16 object-contain rounded-lg border border-border bg-muted/50 p-0.5"
               onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
             />
-            <button
-              type="button"
-              onClick={() => onChange("")}
+            <button type="button" onClick={() => { onChange(""); setSizeInfo(""); }}
               className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Remove logo"
-            >×</button>
+              title="Remove logo">×</button>
           </div>
         ) : (
-          <div className="h-14 w-14 rounded-lg border-2 border-dashed border-border flex items-center justify-center bg-muted/50">
-            <span className="text-[10px] text-muted-foreground font-medium">No logo</span>
+          <div className="h-16 w-16 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center bg-muted/50 flex-shrink-0 gap-0.5">
+            <span className="text-[9px] text-muted-foreground font-medium">No logo</span>
           </div>
         )}
-        <div className="space-y-1.5">
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-          <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-            Upload Logo
-          </Button>
-          {value && (
-            <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive ml-2" onClick={() => onChange("")}>
-              Remove
+        <div className="space-y-2 flex-1">
+          <div className="flex gap-2 items-center flex-wrap">
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+            <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={processing}>
+              {processing ? "Processing…" : "Upload Logo"}
             </Button>
-          )}
-          <p className="text-xs text-muted-foreground">PNG, SVG, JPG · Recommended: 64×64 px</p>
+            {value && (
+              <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => { onChange(""); setSizeInfo(""); }}>
+                Remove
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">Max size:</span>
+            <input type="range" min={64} max={256} step={32} value={maxSize} onChange={e => setMaxSize(+e.target.value)} className="w-28 h-1.5 accent-primary" />
+            <span className="text-xs font-mono text-muted-foreground">{maxSize}px</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">PNG, JPG, WebP accepted. Auto-resized &amp; compressed before saving.</p>
+          {sizeInfo && <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{sizeInfo}</p>}
         </div>
       </div>
     </div>
@@ -481,6 +523,9 @@ function UsersTab() {
                 <SelectContent>
                   <SelectItem value="user">User (Read-Only)</SelectItem>
                   <SelectItem value="admin">Admin (Full Access)</SelectItem>
+                  <SelectItem value="cxo">CXO (Dept KPIs)</SelectItem>
+                  <SelectItem value="kpi_employee">Employee (Own KPI set)</SelectItem>
+                  <SelectItem value="hr">HR (KPI module only)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
