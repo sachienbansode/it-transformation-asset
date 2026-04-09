@@ -102,6 +102,51 @@ router.delete("/kpi-persons/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+// ─── KPI Users (user-master selection for new KPI set) ───────────────────────
+
+router.get("/kpi-users", async (req, res): Promise<void> => {
+  const scope = await getKpiScope(req);
+  const conditions: any[] = [eq(usersTable.isActive, true)];
+  if (scope.role === "cxo" && scope.department) {
+    conditions.push(eq(usersTable.department, scope.department));
+  }
+  // Exclude pure admins from selection (they manage the system, not KPI targets)
+  // Include: user, cxo, kpi_employee, hr
+  const rows = await db.select({
+    id: usersTable.id, name: usersTable.name, email: usersTable.email,
+    role: usersTable.role, department: usersTable.department,
+  }).from(usersTable)
+    .where(and(...conditions))
+    .orderBy(asc(usersTable.department), asc(usersTable.name));
+  res.json(rows);
+});
+
+// ─── Auto-sync kpi_person from user ───────────────────────────────────────────
+async function syncKpiPersonFromUser(userId: number): Promise<number> {
+  const [u] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!u) throw new Error("User not found");
+  const roleToDesig: Record<string, string> = {
+    cxo: "Chief Executive Officer", kpi_employee: "Employee",
+    user: "Employee", hr: "HR Manager", admin: "Administrator",
+  };
+  const designation = roleToDesig[u.role] || "Employee";
+  // Find existing kpi_person by email
+  const [existing] = await db.select().from(kpiPersonsTable)
+    .where(eq(kpiPersonsTable.email, u.email));
+  if (existing) {
+    // Update to sync latest user data
+    await db.update(kpiPersonsTable).set({
+      name: u.name, department: u.department, updatedAt: new Date(),
+    }).where(eq(kpiPersonsTable.id, existing.id));
+    return existing.id;
+  }
+  // Create new kpi_person record
+  const [created] = await db.insert(kpiPersonsTable).values({
+    name: u.name, email: u.email, designation, department: u.department, isActive: true,
+  }).returning({ id: kpiPersonsTable.id });
+  return created.id;
+}
+
 // ─── KPI Sets ─────────────────────────────────────────────────────────────────
 
 router.get("/kpi-sets", async (req, res): Promise<void> => {
@@ -166,19 +211,31 @@ router.post("/kpi-sets", async (req, res): Promise<void> => {
     return;
   }
   const body = z.object({
-    personId: z.number(),
+    userId: z.number().optional(),      // select from user master → auto-sync kpi_person
+    personId: z.number().optional(),    // legacy direct personId
     yearId: z.number(),
     notes: z.string().optional().nullable(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+
+  let personId: number;
+  if (body.data.userId) {
+    try { personId = await syncKpiPersonFromUser(body.data.userId); }
+    catch (e: any) { res.status(400).json({ error: e.message }); return; }
+  } else if (body.data.personId) {
+    personId = body.data.personId;
+  } else {
+    res.status(400).json({ error: "userId or personId is required" }); return;
+  }
+
   const existing = await db.select().from(kpiSetsTable)
     .where(and(
-      eq(kpiSetsTable.personId, body.data.personId),
+      eq(kpiSetsTable.personId, personId),
       eq(kpiSetsTable.yearId, body.data.yearId),
       ne(kpiSetsTable.status, "Archived")
     ));
   if (existing.length > 0) { res.status(409).json({ error: "KPI set already exists for this person and year." }); return; }
-  const [row] = await db.insert(kpiSetsTable).values(body.data).returning();
+  const [row] = await db.insert(kpiSetsTable).values({ personId, yearId: body.data.yearId, notes: body.data.notes }).returning();
   auditKpi(row.id, "create", `KPI set created (person #${row.personId}, year #${row.yearId})`, (req.session as any)?.userId?.toString());
   res.status(201).json(row);
 });

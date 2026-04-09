@@ -24,6 +24,7 @@ import {
 
 interface KpiYear { id: number; label: string; startDate: string; endDate: string; isActive: boolean; isCurrent: boolean; }
 interface KpiPerson { id: number; name: string; designation: string; department?: string; email?: string; employeeCode?: string; approvingAuthorityId?: number; isActive: boolean; }
+interface KpiUser { id: number; name: string; email: string; role: string; department?: string; }
 interface KpiSet {
   id: number; personId: number; yearId: number; status: string;
   currentVersionId?: number; notes?: string; submittedAt?: string;
@@ -233,95 +234,43 @@ const computeGroups=(items: KpiSetItem[]): CategoryGroup[]=>{
 
 const useKpiYears=()=>useQuery({queryKey:["kpi-years"],queryFn:()=>apiFetch<KpiYear[]>("/kpi-years")});
 const usePersons=()=>useQuery({queryKey:["kpi-persons"],queryFn:()=>apiFetch<KpiPerson[]>("/kpi-persons")});
+const useKpiUsers=()=>useQuery({queryKey:["kpi-users"],queryFn:()=>apiFetch<KpiUser[]>("/kpi-users")});
 const useKpiSets=(yearId?: number)=>useQuery({queryKey:["kpi-sets",yearId],enabled:!!yearId,queryFn:()=>apiFetch<KpiSet[]>(`/kpi-sets?yearId=${yearId}`)});
 const useArchivedSets=(yearId?: number)=>useQuery({queryKey:["kpi-sets-archived",yearId],enabled:!!yearId,queryFn:()=>apiFetch<KpiSet[]>(`/kpi-sets?yearId=${yearId}&archived=true`)});
 const useVersions=(setId?: number)=>useQuery({queryKey:["kpi-set-versions",setId],enabled:!!setId,queryFn:()=>apiFetch<KpiSetVersion[]>(`/kpi-sets/${setId}/versions`)});
 const useSetItems=(setId?: number)=>useQuery({queryKey:["kpi-set-items",setId],enabled:!!setId,queryFn:()=>apiFetch<KpiSetItem[]>(`/kpi-set-items?setId=${setId}`),refetchOnWindowFocus:false});
 
-// ─── Person Dialog ────────────────────────────────────────────────────────────
-
-function PersonDialog({open,initialPerson,persons,onClose,onSuccess}:{
-  open: boolean; initialPerson: KpiPerson|null; persons: KpiPerson[]; onClose:()=>void; onSuccess:()=>void;
-}){
-  const{toast}=useToast();
-  const[saving,setSaving]=useState(false);
-  const[form,setForm]=useState({name:"",designation:"",department:"",email:"",employeeCode:"",approvingAuthorityId:""});
-  useEffect(()=>{
-    if(initialPerson){setForm({name:initialPerson.name,designation:initialPerson.designation,department:initialPerson.department||"",email:initialPerson.email||"",employeeCode:initialPerson.employeeCode||"",approvingAuthorityId:initialPerson.approvingAuthorityId?.toString()||""});}
-    else{setForm({name:"",designation:"",department:"",email:"",employeeCode:"",approvingAuthorityId:""});}
-  },[initialPerson,open]);
-  const handleSave=async()=>{
-    if(!form.name.trim()||!form.designation){toast({title:"Name and Designation are required",variant:"destructive"});return;}
-    setSaving(true);
-    try{
-      const body={name:form.name.trim(),designation:form.designation,department:form.department||null,email:form.email||null,employeeCode:form.employeeCode||null,approvingAuthorityId:form.approvingAuthorityId?parseInt(form.approvingAuthorityId):null};
-      if(initialPerson){await apiFetch(`/kpi-persons/${initialPerson.id}`,{method:"PATCH",body:JSON.stringify(body)});toast({title:"Person updated"});}
-      else{await apiFetch("/kpi-persons",{method:"POST",body:JSON.stringify(body)});toast({title:"Person created"});}
-      onSuccess();
-    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
-    finally{setSaving(false);}
-  };
-  return(
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>{initialPerson?"Edit Person / CXO":"Add Person / CXO"}</DialogTitle></DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 space-y-1"><Label className="text-xs">Full Name *</Label><Input className="h-8 text-sm" placeholder="e.g. Sachin Birla" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))}/></div>
-            <div className="space-y-1"><Label className="text-xs">Designation *</Label>
-              <Select value={form.designation} onValueChange={v=>setForm(p=>({...p,designation:v}))}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select"/></SelectTrigger>
-                <SelectContent>{DESIGNATIONS.map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1"><Label className="text-xs">Department</Label>
-              <Select value={form.department} onValueChange={v=>setForm(p=>({...p,department:v}))}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select"/></SelectTrigger>
-                <SelectContent>{DEPARTMENTS.map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1"><Label className="text-xs">Work Email</Label><Input className="h-8 text-sm" placeholder="name@ashikagroup.com" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/></div>
-            <div className="space-y-1"><Label className="text-xs">Employee Code</Label><Input className="h-8 text-sm" placeholder="EMP001" value={form.employeeCode} onChange={e=>setForm(p=>({...p,employeeCode:e.target.value}))}/></div>
-            <div className="col-span-2 space-y-1"><Label className="text-xs">Approving Authority</Label>
-              <Select value={form.approvingAuthorityId} onValueChange={v=>setForm(p=>({...p,approvingAuthorityId:v}))}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select approver"/></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">None</SelectItem>
-                  {persons.filter(p=>!initialPerson||p.id!==initialPerson.id).map(p=><SelectItem key={p.id} value={p.id.toString()}>{p.name} — {p.designation}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleSave} disabled={saving}>{saving?"Saving…":"Save"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ─── KPI Set Dialog ───────────────────────────────────────────────────────────
 
-function KpiSetDialog({open,initialSet,persons,years,onClose,onSuccess}:{
-  open: boolean; initialSet: KpiSet|null; persons: KpiPerson[]; years: KpiYear[]; onClose:()=>void; onSuccess:()=>void;
+function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
+  open: boolean; initialSet: KpiSet|null; users: KpiUser[]; years: KpiYear[]; onClose:()=>void; onSuccess:()=>void;
 }){
   const{toast}=useToast();
   const[saving,setSaving]=useState(false);
-  const[personId,setPersonId]=useState("");
+  const[userId,setUserId]=useState("");
   const[yearId,setYearId]=useState("");
   const[notes,setNotes]=useState("");
   useEffect(()=>{
-    if(initialSet){setPersonId(initialSet.personId.toString());setYearId(initialSet.yearId.toString());setNotes(initialSet.notes||"");}
-    else{setPersonId("");setYearId("");setNotes("");}
+    if(initialSet){setYearId(initialSet.yearId.toString());setNotes(initialSet.notes||"");}
+    else{setUserId("");setYearId("");setNotes("");}
   },[initialSet,open]);
+  // Group users by department for the dropdown
+  const usersByDept=useMemo(()=>{
+    const map=new Map<string,KpiUser[]>();
+    for(const u of users){
+      const dept=u.department||"Other";
+      if(!map.has(dept)) map.set(dept,[]);
+      map.get(dept)!.push(u);
+    }
+    return Array.from(map.entries()).sort(([a],[b])=>a.localeCompare(b));
+  },[users]);
+  const roleLabel=(r: string)=>r==="cxo"?"CXO":r==="kpi_employee"?"Employee":r==="hr"?"HR":"User";
   const handleSave=async()=>{
-    if(!personId||!yearId){toast({title:"Person and Year are required",variant:"destructive"});return;}
+    if((!userId&&!initialSet)||!yearId){toast({title:"User and Year are required",variant:"destructive"});return;}
     setSaving(true);
     try{
       if(initialSet){await apiFetch(`/kpi-sets/${initialSet.id}`,{method:"PATCH",body:JSON.stringify({notes})});toast({title:"KPI set updated"});}
-      else{await apiFetch("/kpi-sets",{method:"POST",body:JSON.stringify({personId:parseInt(personId),yearId:parseInt(yearId),notes})});toast({title:"KPI set created"});}
+      else{await apiFetch("/kpi-sets",{method:"POST",body:JSON.stringify({userId:parseInt(userId),yearId:parseInt(yearId),notes})});toast({title:"KPI set created"});}
       onSuccess();
     }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
     finally{setSaving(false);}
@@ -331,12 +280,25 @@ function KpiSetDialog({open,initialSet,persons,years,onClose,onSuccess}:{
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>{initialSet?"Edit KPI Set":"New KPI Set"}</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
-          <div className="space-y-1"><Label className="text-xs">Person / Employee *</Label>
-            <Select value={personId} onValueChange={setPersonId} disabled={!!initialSet}>
-              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select person"/></SelectTrigger>
-              <SelectContent>{persons.map(p=><SelectItem key={p.id} value={p.id.toString()}>{p.name} — {p.designation}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
+          {!initialSet&&(
+            <div className="space-y-1"><Label className="text-xs">Select Employee / User *</Label>
+              <Select value={userId} onValueChange={setUserId}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Choose from user master…"/></SelectTrigger>
+                <SelectContent>
+                  {usersByDept.map(([dept,deptUsers])=>(
+                    <React.Fragment key={dept}>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-b border-border/50 mt-1">{dept}</div>
+                      {deptUsers.map(u=>(
+                        <SelectItem key={u.id} value={u.id.toString()}>
+                          {u.name} <span className="text-muted-foreground">({roleLabel(u.role)})</span>
+                        </SelectItem>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1"><Label className="text-xs">Financial Year *</Label>
             <Select value={yearId} onValueChange={setYearId} disabled={!!initialSet}>
               <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select year"/></SelectTrigger>
@@ -871,52 +833,6 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
   );
 }
 
-// ─── Persons Tab ──────────────────────────────────────────────────────────────
-
-function PersonsTab({persons,onEdit,onAdd,isAdmin,onRefresh}:{
-  persons: KpiPerson[]; onEdit:(p:KpiPerson)=>void; onAdd:()=>void; isAdmin: boolean; onRefresh:()=>void;
-}){
-  const{toast}=useToast();
-  const approver=(id?: number)=>persons.find(p=>p.id===id);
-  const handleDelete=async(p:KpiPerson)=>{
-    if(!confirm(`Deactivate ${p.name}?`)) return;
-    try{await apiFetch(`/kpi-persons/${p.id}`,{method:"DELETE"});toast({title:"Person deactivated"});onRefresh();}
-    catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
-  };
-  return(
-    <div className="space-y-3">
-      {isAdmin&&<div className="flex justify-end"><Button size="sm" onClick={onAdd}><Plus className="mr-1.5 h-3.5 w-3.5"/>Add Person / CXO</Button></div>}
-      {persons.length===0?(
-        <div className="flex items-center justify-center h-40 text-center"><div><Users className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3"/><p className="text-sm text-muted-foreground">No persons configured yet.</p></div></div>
-      ):(
-        <div className="border border-border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-border bg-muted/30">
-              {["Name","Designation","Department","Employee Code","Email","Approving Authority",...(isAdmin?["Actions"]:[])].map(h=><th key={h} className="text-left px-4 py-2.5 font-medium text-xs">{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {persons.map(p=>(
-                <tr key={p.id} className="border-b border-border/50 hover:bg-muted/20">
-                  <td className="px-4 py-2.5 font-medium text-sm">{p.name}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{p.designation}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{p.department||"—"}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground font-mono">{p.employeeCode||"—"}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{p.email||"—"}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{approver(p.approvingAuthorityId)?.name||"—"}</td>
-                  {isAdmin&&<td className="px-4 py-2.5"><div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onEdit(p)}><Pencil className="h-3.5 w-3.5"/></Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={()=>handleDelete(p)}><Trash2 className="h-3.5 w-3.5"/></Button>
-                  </div></td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Performance Capture Dialog ───────────────────────────────────────────────
 
 const ACTUALS_STATUS_COLORS: Record<string,string>={
@@ -1310,18 +1226,17 @@ export default function KpisPage(){
   const{toast}=useToast();
   const qc=useQueryClient();
 
-  const[activeTab,setActiveTab]=useState<"sets"|"persons">("sets");
   const[yearFilter,setYearFilter]=useState<number|undefined>();
   const[statusFilter,setStatusFilter]=useState("all");
   const[detailSet,setDetailSet]=useState<KpiSet|null>(null);
   const[uploadSet,setUploadSet]=useState<KpiSet|null>(null);
   const[historySet,setHistorySet]=useState<KpiSet|null>(null);
   const[editSet,setEditSet]=useState<KpiSet|"new"|null>(null);
-  const[editPerson,setEditPerson]=useState<KpiPerson|"new"|null>(null);
   const[performanceSet,setPerformanceSet]=useState<KpiSet|null>(null);
 
   const{data:years}=useKpiYears();
   const{data:persons}=usePersons();
+  const{data:kpiUsers=[]}=useKpiUsers();
   const{data:sets}=useKpiSets(yearFilter);
   const{data:archivedSets=[]}=useArchivedSets(yearFilter);
 
@@ -1379,7 +1294,7 @@ export default function KpisPage(){
               <SelectContent>{years.map(y=><SelectItem key={y.id} value={y.id.toString()}>{y.label}{y.isCurrent?" ★":""}</SelectItem>)}</SelectContent>
             </Select>
           )}
-          {(isAdmin||isCxo||isHR)&&activeTab==="sets"&&(
+          {(isAdmin||isCxo||isHR)&&(
             <>
               <Button size="sm" variant="outline" className="h-8 text-xs" onClick={()=>downloadTemplate(currentYear?.label)}><Download className="mr-1.5 h-3.5 w-3.5"/>Template</Button>
               <Button size="sm" className="h-8 text-xs" onClick={()=>setEditSet("new")}><Plus className="mr-1.5 h-3.5 w-3.5"/>New KPI Set</Button>
@@ -1389,41 +1304,22 @@ export default function KpisPage(){
       </div>
 
       {/* Stats */}
-      {activeTab==="sets"&&(
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
-          {[{label:"Total Sets",value:stats.total,color:"text-foreground"},{label:"Draft",value:stats.draft,color:"text-gray-500"},{label:"Pending Review",value:stats.pending,color:"text-yellow-600"},{label:"Approved",value:stats.approved,color:"text-emerald-600"},{label:"Partial Approval",value:stats.partial,color:"text-teal-600"},{label:"Rejected All",value:stats.rejected,color:"text-red-600"}].map(s=>(
-            <Card key={s.label} className="border-border"><CardContent className="p-3">
-              <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">{s.label}</p>
-              <p className={cn("text-2xl font-bold mt-0.5",s.color)}>{s.value}</p>
-            </CardContent></Card>
-          ))}
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex gap-0 border-b border-border">
-        {([["sets",ClipboardList,"KPI Sets"],...(!isEmployee?[["persons",Users,"Persons / CXOs"]] as [string,React.ElementType,string][]:[])] as [string,React.ElementType,string][]).map(([t,Icon,label])=>(
-          <button key={t} onClick={()=>setActiveTab(t as any)}
-            className={cn("flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",activeTab===t?"border-primary text-primary":"border-transparent text-muted-foreground hover:text-foreground")}>
-            <Icon className="h-4 w-4"/>{label}
-          </button>
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        {[{label:"Total Sets",value:stats.total,color:"text-foreground"},{label:"Draft",value:stats.draft,color:"text-gray-500"},{label:"Pending Review",value:stats.pending,color:"text-yellow-600"},{label:"Approved",value:stats.approved,color:"text-emerald-600"},{label:"Partial Approval",value:stats.partial,color:"text-teal-600"},{label:"Rejected All",value:stats.rejected,color:"text-red-600"}].map(s=>(
+          <Card key={s.label} className="border-border"><CardContent className="p-3">
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">{s.label}</p>
+            <p className={cn("text-2xl font-bold mt-0.5",s.color)}>{s.value}</p>
+          </CardContent></Card>
         ))}
       </div>
 
-      {/* Tab Content */}
-      {activeTab==="sets"&&(
-        <KpiSetsTab sets={filteredSets} archivedSets={archivedSets} persons={persons||[]} years={years||[]}
-          statusFilter={statusFilter} onStatusFilter={setStatusFilter}
-          isAdmin={isAdmin} isEmployee={isEmployee} userId={user?.id}
-          onView={setDetailSet} onUpload={setUploadSet} onHistory={setHistorySet}
-          onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete}
-          onPerformance={setPerformanceSet} onRefresh={refresh}/>
-      )}
-
-      {activeTab==="persons"&&!isEmployee&&(
-        <PersonsTab persons={persons||[]} onEdit={p=>setEditPerson(p)} onAdd={()=>setEditPerson("new")}
-          isAdmin={isAdmin} onRefresh={()=>qc.invalidateQueries({queryKey:["kpi-persons"]})}/>
-      )}
+      {/* KPI Sets Tab */}
+      <KpiSetsTab sets={filteredSets} archivedSets={archivedSets} persons={persons||[]} years={years||[]}
+        statusFilter={statusFilter} onStatusFilter={setStatusFilter}
+        isAdmin={isAdmin} isEmployee={isEmployee} userId={user?.id}
+        onView={setDetailSet} onUpload={setUploadSet} onHistory={setHistorySet}
+        onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete}
+        onPerformance={setPerformanceSet} onRefresh={refresh}/>
 
       {/* Dialogs */}
       {detailSet&&(()=>{const person=getPerson(detailSet);const year=getYear(detailSet.yearId);if(!person||!year) return null;
@@ -1436,12 +1332,8 @@ export default function KpisPage(){
         return(<HistoryDialog open={!!historySet} set={historySet} person={person} year={year} onClose={()=>setHistorySet(null)}/>);
       })()}
       {editSet!==null&&(
-        <KpiSetDialog open={editSet!==null} initialSet={editSet==="new"?null:editSet} persons={persons||[]} years={years||[]}
-          onClose={()=>setEditSet(null)} onSuccess={()=>{setEditSet(null);refresh();}}/>
-      )}
-      {editPerson!==null&&(
-        <PersonDialog open={editPerson!==null} initialPerson={editPerson==="new"?null:editPerson} persons={persons||[]}
-          onClose={()=>setEditPerson(null)} onSuccess={()=>{setEditPerson(null);qc.invalidateQueries({queryKey:["kpi-persons"]});}}/>
+        <KpiSetDialog open={editSet!==null} initialSet={editSet==="new"?null:editSet} users={kpiUsers} years={years||[]}
+          onClose={()=>setEditSet(null)} onSuccess={()=>{setEditSet(null);qc.invalidateQueries({queryKey:["kpi-persons"]});refresh();}}/>
       )}
       {performanceSet&&(()=>{const person=getPerson(performanceSet);const year=getYear(performanceSet.yearId);if(!person||!year) return null;
         return(<PerformanceCaptureDialog open={!!performanceSet} set={performanceSet} person={person} year={year} isAdmin={isAdmin} userId={user?.id} onClose={()=>setPerformanceSet(null)} onRefresh={refresh}/>);

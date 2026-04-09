@@ -259,7 +259,7 @@ export default function Login() {
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>sachin.b@ashikagroup.com</span>
+                  <span>sachin.bansode@ashikagroup.com</span>
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
                 <div className="flex justify-between">
