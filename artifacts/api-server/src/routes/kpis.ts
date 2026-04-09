@@ -338,6 +338,33 @@ router.patch("/kpi-settings", async (req, res): Promise<void> => {
   }
 });
 
+// ─── Bulk Submit to CEO for Review ──────────────────────────────────────────
+router.post("/kpis/submit-ceo", async (req, res): Promise<void> => {
+  const body = z.object({
+    yearId: z.number(),
+    requestedBy: z.number().optional(),
+    comments: z.string().optional(),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+
+  const ctoKpis = await db.select().from(kpisTable)
+    .where(and(eq(kpisTable.yearId, body.data.yearId), eq(kpisTable.type, "CTO")));
+
+  const eligible = ctoKpis.filter(k => k.status === "Draft" || k.status === "Approved");
+  if (eligible.length === 0) {
+    res.status(400).json({ error: "No eligible CTO KPIs to submit. All may already be pending or submitted." });
+    return;
+  }
+
+  const comment = body.data.comments || "Submitted to CEO for annual review and approval — FY KPI cycle.";
+  for (const k of eligible) {
+    await db.insert(kpiApprovalsTable).values({ kpiId: k.id, requestedBy: body.data.requestedBy, comments: comment, status: "Pending" });
+    await db.update(kpisTable).set({ status: "Pending", updatedAt: new Date() }).where(eq(kpisTable.id, k.id));
+  }
+
+  res.json({ submitted: eligible.length, kpiIds: eligible.map(k => k.id) });
+});
+
 // ─── KPI Dashboard Summary ───────────────────────────────────────────────────
 router.get("/kpi-dashboard", async (req, res): Promise<void> => {
   const yearId = req.query.yearId ? parseInt(req.query.yearId as string) : undefined;

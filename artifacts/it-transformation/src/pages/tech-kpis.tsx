@@ -16,10 +16,11 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
 import { StatCard } from "@/components/stat-card";
 import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx";
 import {
   BarChart3, Target, Calendar, Play, Star, CheckCircle2, FileText,
   Settings2, Plus, Edit, Trash2, ChevronDown, ChevronUp, TrendingUp,
-  Users, User, AlertTriangle, Clock, Award, RefreshCw,
+  Users, User, AlertTriangle, Clock, Award, RefreshCw, Download, Send,
 } from "lucide-react";
 import {
   ResponsiveContainer, RadialBarChart, RadialBar, BarChart, Bar, XAxis, YAxis,
@@ -733,62 +734,270 @@ function ApprovalsTab({ kpis, settings, onRefresh }: { kpis: Kpi[]; settings: Kp
 }
 
 // ─── Reports Tab ──────────────────────────────────────────────────────────────
-function ReportsTab({ kpis, actuals, targets, categories }: { kpis: Kpi[]; actuals: KpiActual[]; targets: KpiTarget[]; categories: KpiCategory[]; }) {
-  const scorecard = kpis.map(kpi => {
+function ReportsTab({
+  yearId, yearLabel, kpis, actuals, targets, categories, onRefresh,
+}: {
+  yearId: number; yearLabel: string; kpis: Kpi[]; actuals: KpiActual[];
+  targets: KpiTarget[]; categories: KpiCategory[]; onRefresh: () => void;
+}) {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const [submitDialog, setSubmitDialog] = useState(false);
+  const [submitComment, setSubmitComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const scorecard = useMemo(() => kpis.map(kpi => {
     const kpiActuals = actuals.filter(a => a.kpiId === kpi.id);
     const kpiTarget = targets.find(t => t.kpiId === kpi.id);
     const cat = categories.find(c => c.id === kpi.categoryId);
     const scores = kpiActuals.filter(a => a.score !== null).map(a => parseFloat(a.score!));
     const avgScore = scores.length > 0 ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length) : null;
     return { kpi, cat, kpiTarget, kpiActuals, avgScore };
-  });
+  }), [kpis, actuals, targets, categories]);
 
   const overallAvg = scorecard.filter(s => s.avgScore !== null);
-  const totalScore = overallAvg.length > 0 ? Math.round(overallAvg.reduce((s, v) => s + v.avgScore!, 0) / overallAvg.length) : null;
+  const totalScore = overallAvg.length > 0
+    ? Math.round(overallAvg.reduce((s, v) => s + v.avgScore!, 0) / overallAvg.length) : null;
+
+  const ctoKpis = scorecard.filter(s => s.kpi.type === "CTO");
+  const pendingCount = kpis.filter(k => k.status === "Pending").length;
+  const eligibleCount = kpis.filter(k => k.type === "CTO" && (k.status === "Draft" || k.status === "Approved")).length;
+
+  // ─── Excel Export ────────────────────────────────────────────────────────
+  const downloadExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+
+    // ── Sheet 1: Cover ──────────────────────────────────────────────────
+    const coverData = [
+      ["ASHIKA GROUP — CTO KPI SCORECARD"],
+      [`Financial Year: ${yearLabel}`],
+      [`Report Generated: ${dateStr}`],
+      [`Prepared By: CTO — Sachin Bhatia`],
+      [`Submitted To: CEO, Ashika Group`],
+      [""],
+      ["EXECUTIVE SUMMARY"],
+      ["Total CTO KPIs Defined", ctoKpis.length],
+      ["KPIs with Actuals Recorded", overallAvg.length],
+      ["Overall Average Score", totalScore !== null ? `${totalScore}%` : "No actuals yet"],
+      ["High Performers (≥80%)", overallAvg.filter(s => s.avgScore! >= 80).length],
+      ["Needs Attention (<60%)", overallAvg.filter(s => s.avgScore! < 60).length],
+      [""],
+      ["CATEGORY BREAKDOWN"],
+      ["Category", "# KPIs", "% Weightage"],
+      ...["Run", "Change", "Transform"].map(cat => {
+        const catKpis = ctoKpis.filter(s => s.cat?.name === cat);
+        const wt = catKpis.reduce((sum, s) => sum + parseFloat(s.kpi.weightage || "0"), 0);
+        return [cat, catKpis.length, `${wt}%`];
+      }),
+      [""],
+      ["LEGEND"],
+      ["Run", "Keep the lights on — operations & maintenance KPIs"],
+      ["Change", "Incremental improvements, projects & upgrades"],
+      ["Transform", "Strategic innovation & business transformation"],
+      [""],
+      ["Score ≥80%", "On Track / High Performer"],
+      ["Score 60–79%", "Needs Monitoring"],
+      ["Score <60%", "At Risk / Needs Immediate Attention"],
+    ];
+    const ws1 = XLSX.utils.aoa_to_sheet(coverData);
+    ws1["!cols"] = [{ wch: 38 }, { wch: 22 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, ws1, "Cover");
+
+    // ── Sheet 2: CTO KPI Scorecard ────────────────────────────────────
+    const headers = [
+      "#", "KPI Name", "Description", "Category", "Weightage",
+      "Metric", "Unit", "Status",
+      "Annual Target", "Q1 Target", "Q2 Target", "Q3 Target", "Q4 Target",
+      "Q1 Actual", "Q2 Actual", "Q3 Actual", "Q4 Actual",
+      "Q1 Score%", "Q2 Score%", "Q3 Score%", "Q4 Score%",
+      "Avg Score%", "Performance",
+    ];
+    const rows = ctoKpis.map((s, i) => {
+      const t = s.kpiTarget;
+      const getActual = (q: number) => s.kpiActuals.find(a => a.quarter === q);
+      const getScore = (q: number) => {
+        const a = getActual(q);
+        return a?.score ? parseFloat(a.score).toFixed(1) : "—";
+      };
+      const perf = s.avgScore === null ? "No Data"
+        : s.avgScore >= 80 ? "On Track" : s.avgScore >= 60 ? "Monitor" : "At Risk";
+      return [
+        i + 1,
+        s.kpi.name,
+        s.kpi.description || "",
+        s.cat?.name || "",
+        s.kpi.weightage ? `${s.kpi.weightage}%` : "",
+        s.kpi.metric || "",
+        s.kpi.unit || "",
+        s.kpi.status,
+        t?.annualTarget || "", t?.q1Target || "", t?.q2Target || "", t?.q3Target || "", t?.q4Target || "",
+        getActual(1)?.actualValue || "—", getActual(2)?.actualValue || "—",
+        getActual(3)?.actualValue || "—", getActual(4)?.actualValue || "—",
+        getScore(1), getScore(2), getScore(3), getScore(4),
+        s.avgScore !== null ? `${s.avgScore}%` : "—",
+        perf,
+      ];
+    });
+    const ws2 = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws2["!cols"] = [
+      { wch: 4 }, { wch: 36 }, { wch: 55 }, { wch: 12 }, { wch: 10 },
+      { wch: 28 }, { wch: 8 }, { wch: 10 },
+      { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+      { wch: 11 }, { wch: 12 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws2, "CTO KPI Scorecard");
+
+    // ── Sheet 3: Category Summary ─────────────────────────────────────
+    const catHeaders = ["Category", "Description", "# KPIs", "Total Weightage", "KPIs On Track", "KPIs Monitoring", "KPIs At Risk", "Avg Score"];
+    const catRows = categories.map(cat => {
+      const catKpis = ctoKpis.filter(s => s.cat?.id === cat.id);
+      const wt = catKpis.reduce((sum, s) => sum + parseFloat(s.kpi.weightage || "0"), 0);
+      const scored = catKpis.filter(s => s.avgScore !== null);
+      const catAvg = scored.length > 0 ? Math.round(scored.reduce((s, v) => s + v.avgScore!, 0) / scored.length) : null;
+      return [
+        cat.name, cat.description || "",
+        catKpis.length, `${wt}%`,
+        scored.filter(s => s.avgScore! >= 80).length,
+        scored.filter(s => s.avgScore! >= 60 && s.avgScore! < 80).length,
+        scored.filter(s => s.avgScore! < 60).length,
+        catAvg !== null ? `${catAvg}%` : "No Actuals",
+      ];
+    });
+    const ws3 = XLSX.utils.aoa_to_sheet([catHeaders, ...catRows]);
+    ws3["!cols"] = [{ wch: 12 }, { wch: 50 }, { wch: 9 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 11 }];
+    XLSX.utils.book_append_sheet(wb, ws3, "Category Summary");
+
+    XLSX.writeFile(wb, `Ashika_Group_CTO_KPIs_${yearLabel.replace(/\s+/g, "_")}_${now.toISOString().slice(0, 10)}.xlsx`);
+    toast({ title: "Excel report downloaded", description: `CTO KPI Scorecard for ${yearLabel}` });
+  };
+
+  // ─── Submit to CEO ────────────────────────────────────────────────────────
+  const submitToCeo = async () => {
+    setSubmitting(true);
+    try {
+      const result = await apiFetch<{ submitted: number }>("/kpis/submit-ceo", {
+        method: "POST",
+        body: JSON.stringify({ yearId, requestedBy: (user as any)?.id, comments: submitComment || undefined }),
+      });
+      toast({ title: `${result.submitted} KPIs submitted to CEO for review`, description: "Status updated to Pending. The CEO can review in the Approvals tab." });
+      setSubmitDialog(false);
+      setSubmitComment("");
+      onRefresh();
+    } catch (e: any) {
+      toast({ title: "Submission failed", description: e.message, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        <StatCard label="Overall Score" value={totalScore !== null ? `${totalScore}%` : "—"} icon={Award} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" borderColor="border-l-blue-400" valueColor={totalScore ? scoreColor(totalScore) : undefined} />
-        <StatCard label="KPIs Scored" value={overallAvg.length} sub={`of ${kpis.length} total`} icon={BarChart3} iconBg="bg-purple-50 dark:bg-purple-400/10" iconColor="text-purple-600" borderColor="border-l-purple-400" />
-        <StatCard label="High Performers" value={overallAvg.filter(s => s.avgScore! >= 80).length} sub="≥80% score" icon={TrendingUp} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" borderColor="border-l-emerald-400" />
-        <StatCard label="Needs Attention" value={overallAvg.filter(s => s.avgScore! < 60).length} sub="<60% score" icon={AlertTriangle} iconBg="bg-red-50 dark:bg-red-400/10" iconColor="text-red-500" borderColor="border-l-red-400" />
+      {/* Action bar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold">CTO KPI Report — {yearLabel}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Download or submit to CEO for review and approval</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={downloadExcel} className="h-8 text-xs">
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Download Excel
+          </Button>
+          <Button size="sm" onClick={() => setSubmitDialog(true)} disabled={eligibleCount === 0} className="h-8 text-xs bg-primary hover:bg-primary/90">
+            <Send className="mr-1.5 h-3.5 w-3.5" /> Submit to CEO
+            {eligibleCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/20">{eligibleCount}</span>}
+          </Button>
+        </div>
       </div>
 
+      {pendingCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-yellow-50 dark:bg-yellow-400/10 border border-yellow-300/50 text-yellow-700 dark:text-yellow-400 text-xs">
+          <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+          <span><strong>{pendingCount} KPIs</strong> are currently awaiting CEO review. Use the Approvals tab to track or action them.</span>
+        </div>
+      )}
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <StatCard label="Overall Score" value={totalScore !== null ? `${totalScore}%` : "—"} icon={Award} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" borderColor="border-l-blue-400" valueColor={totalScore ? scoreColor(totalScore) : undefined} />
+        <StatCard label="KPIs Scored" value={overallAvg.length} sub={`of ${ctoKpis.length} CTO KPIs`} icon={BarChart3} iconBg="bg-purple-50 dark:bg-purple-400/10" iconColor="text-purple-600" borderColor="border-l-purple-400" />
+        <StatCard label="On Track" value={overallAvg.filter(s => s.avgScore! >= 80).length} sub="≥80% score" icon={TrendingUp} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" borderColor="border-l-emerald-400" />
+        <StatCard label="At Risk" value={overallAvg.filter(s => s.avgScore! < 60).length} sub="<60% score" icon={AlertTriangle} iconBg="bg-red-50 dark:bg-red-400/10" iconColor="text-red-500" borderColor="border-l-red-400" />
+      </div>
+
+      {/* Full Scorecard Table */}
       <Card>
-        <CardHeader className="pb-2 pt-4"><CardTitle className="text-sm">KPI Scorecard</CardTitle></CardHeader>
-        <CardContent className="p-0">
+        <CardHeader className="pb-2 pt-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">CTO KPI Detailed Scorecard</CardTitle>
+            <span className="text-[11px] text-muted-foreground">{ctoKpis.length} KPIs · {yearLabel}</span>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="text-xs">KPI</TableHead>
-                <TableHead className="text-xs">Type</TableHead>
-                <TableHead className="text-xs">Category</TableHead>
+                <TableHead className="text-xs w-8">#</TableHead>
+                <TableHead className="text-xs min-w-48">KPI Name</TableHead>
+                <TableHead className="text-xs">Cat.</TableHead>
+                <TableHead className="text-xs text-center">Wt.</TableHead>
+                <TableHead className="text-xs text-center">Annual Target</TableHead>
                 <TableHead className="text-xs text-center">Q1</TableHead>
                 <TableHead className="text-xs text-center">Q2</TableHead>
                 <TableHead className="text-xs text-center">Q3</TableHead>
                 <TableHead className="text-xs text-center">Q4</TableHead>
-                <TableHead className="text-xs text-right">Avg Score</TableHead>
+                <TableHead className="text-xs text-right">Score</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {scorecard.length === 0 && <TableRow><TableCell colSpan={9} className="text-center py-10 text-sm text-muted-foreground">No KPIs found for this year.</TableCell></TableRow>}
-              {scorecard.map(({ kpi, cat, kpiActuals, avgScore }) => (
-                <TableRow key={kpi.id}>
-                  <TableCell className="font-medium text-sm max-w-44"><span className="truncate block">{kpi.name}</span></TableCell>
-                  <TableCell><Badge variant="outline" className={cn("text-[10px]", kpi.type === "CTO" ? "border-purple-400/30 text-purple-600" : "border-blue-400/30 text-blue-600")}>{kpi.type}</Badge></TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{cat?.name || "—"}</TableCell>
-                  {[1, 2, 3, 4].map(q => {
-                    const a = kpiActuals.find(x => x.quarter === q);
-                    const sc = a?.score ? parseFloat(a.score) : null;
-                    return <TableCell key={q} className="text-center"><span className={cn("text-xs font-semibold", scoreColor(sc))}>{sc !== null ? `${sc}%` : "—"}</span></TableCell>;
-                  })}
-                  <TableCell className="text-right"><span className={cn("text-sm font-bold", scoreColor(avgScore))}>{avgScore !== null ? `${avgScore}%` : "—"}</span></TableCell>
+              {ctoKpis.length === 0 && (
+                <TableRow><TableCell colSpan={11} className="text-center py-10 text-sm text-muted-foreground">No CTO KPIs found for this year.</TableCell></TableRow>
+              )}
+              {ctoKpis.map(({ kpi, cat, kpiTarget, kpiActuals, avgScore }, idx) => (
+                <TableRow key={kpi.id} className="hover:bg-muted/20">
+                  <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
                   <TableCell>
-                    <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div className={cn("h-full rounded-full", avgScore === null ? "bg-muted" : avgScore >= 80 ? "bg-emerald-500" : avgScore >= 60 ? "bg-yellow-500" : "bg-red-500")} style={{ width: avgScore !== null ? `${avgScore}%` : "0%" }} />
+                    <div className="min-w-44">
+                      <p className="text-xs font-semibold leading-tight">{kpi.name}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 max-w-xs">{kpi.description}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 italic">{kpi.metric} {kpi.unit ? `(${kpi.unit})` : ""}</p>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: `${cat?.color || "#888"}22`, color: cat?.color || "#888" }}>
+                      {cat?.name || "—"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-center text-xs font-medium">{kpi.weightage ? `${kpi.weightage}%` : "—"}</TableCell>
+                  <TableCell className="text-center text-xs font-semibold">{kpiTarget?.annualTarget || "—"}</TableCell>
+                  {[1, 2, 3, 4].map(q => {
+                    const tgt = q === 1 ? kpiTarget?.q1Target : q === 2 ? kpiTarget?.q2Target : q === 3 ? kpiTarget?.q3Target : kpiTarget?.q4Target;
+                    const actual = kpiActuals.find(a => a.quarter === q);
+                    const sc = actual?.score ? parseFloat(actual.score) : null;
+                    return (
+                      <TableCell key={q} className="text-center">
+                        <div className="space-y-0.5">
+                          <div className="text-[10px] text-muted-foreground">T: {tgt || "—"}</div>
+                          <div className="text-[10px] font-medium">{actual?.actualValue || "—"}</div>
+                          {sc !== null && <div className={cn("text-[10px] font-bold", scoreColor(sc))}>{sc.toFixed(0)}%</div>}
+                        </div>
+                      </TableCell>
+                    );
+                  })}
+                  <TableCell className="text-right">
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={cn("text-sm font-bold", scoreColor(avgScore))}>{avgScore !== null ? `${avgScore}%` : "—"}</span>
+                      <div className="w-14 h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className={cn("h-full rounded-full", avgScore === null ? "bg-muted" : avgScore >= 80 ? "bg-emerald-500" : avgScore >= 60 ? "bg-yellow-500" : "bg-red-500")} style={{ width: avgScore !== null ? `${Math.min(avgScore, 100)}%` : "0%" }} />
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={cn("text-[10px]", STATUS_BADGE[kpi.status] || "")}>{kpi.status}</Badge>
                   </TableCell>
                 </TableRow>
               ))}
@@ -796,6 +1005,45 @@ function ReportsTab({ kpis, actuals, targets, categories }: { kpis: Kpi[]; actua
           </Table>
         </CardContent>
       </Card>
+
+      {/* Submit to CEO Dialog */}
+      <Dialog open={submitDialog} onOpenChange={setSubmitDialog}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Send className="h-4 w-4 text-primary" /> Submit CTO KPIs to CEO</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg bg-muted/50 border border-border px-4 py-3 space-y-2">
+              <p className="text-sm font-medium">Submission Summary</p>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <div className="flex justify-between"><span>Financial Year</span><span className="font-medium text-foreground">{yearLabel}</span></div>
+                <div className="flex justify-between"><span>CTO KPIs to Submit</span><span className="font-medium text-foreground">{eligibleCount}</span></div>
+                <div className="flex justify-between"><span>Prepared By</span><span className="font-medium text-foreground">CTO — Sachin Bhatia</span></div>
+                <div className="flex justify-between"><span>Submit To</span><span className="font-medium text-foreground">CEO, Ashika Group</span></div>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cover Note / Comments (optional)</Label>
+              <Textarea
+                value={submitComment}
+                onChange={e => setSubmitComment(e.target.value)}
+                rows={3}
+                placeholder={`Dear Sir,\n\nPlease find enclosed the CTO KPI scorecard for ${yearLabel} for your review and approval...`}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This will update the status of all eligible CTO KPIs to <strong>Pending</strong> and create approval records visible in the Approvals tab.
+              Once submitted, the CEO can approve or reject each KPI.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setSubmitDialog(false)} disabled={submitting}>Cancel</Button>
+            <Button onClick={submitToCeo} disabled={submitting || eligibleCount === 0}>
+              <Send className="mr-1.5 h-3.5 w-3.5" /> {submitting ? "Submitting..." : `Submit ${eligibleCount} KPIs`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1113,7 +1361,12 @@ export default function TechKpis() {
               <ApprovalsTab kpis={kpis ?? []} settings={settings ?? { approvalEnabled: false, scoringModel: "percentage", defaultWeightageType: "equal", allowCtoOverride: true }} onRefresh={refresh} />
             )}
             {activeTab === "reports" && selectedYearId && (
-              <ReportsTab kpis={kpis ?? []} actuals={actuals ?? []} targets={targets ?? []} categories={categories ?? []} />
+              <ReportsTab
+                yearId={selectedYearId}
+                yearLabel={years?.find(y => y.id === selectedYearId)?.label ?? ""}
+                kpis={kpis ?? []} actuals={actuals ?? []} targets={targets ?? []} categories={categories ?? []}
+                onRefresh={refresh}
+              />
             )}
             {activeTab === "settings" && (
               <SettingsTab settings={settings ?? { approvalEnabled: false, scoringModel: "percentage", defaultWeightageType: "equal", allowCtoOverride: true }} categories={categories ?? []} onRefresh={refresh} />
