@@ -3,12 +3,16 @@ import { eq, desc, asc, and, ne, inArray } from "drizzle-orm";
 import {
   db, kpiPersonsTable, kpiSetsTable, kpiSetVersionsTable, kpiSetItemsTable, kpiYearsTable, auditLogsTable,
 } from "@workspace/db";
+import { getPerformedBy } from "./audit-logs";
 
 import { z } from "zod";
 
 // ─── Audit helper ─────────────────────────────────────────────────────────────
-async function auditKpi(entityId: number, action: string, summary: string, performedBy: string | undefined, extra?: object) {
-  try { await db.insert(auditLogsTable).values({ entityType: "kpi_set", entityId, action, performedBy: performedBy || null, summary, newValues: extra || null }); } catch {}
+async function auditKpi(entityId: number, action: string, summary: string, userId: string | undefined, extra?: object) {
+  try {
+    const performedBy = userId ? await getPerformedBy(parseInt(userId, 10)) : null;
+    await db.insert(auditLogsTable).values({ entityType: "kpi_set", entityId, action, performedBy, summary, newValues: extra || null });
+  } catch {}
 }
 
 /**
@@ -187,8 +191,9 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
   if (isNaN(setId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const [existingSet] = await db.select().from(kpiSetsTable).where(eq(kpiSetsTable.id, setId));
-  if (existingSet?.status === "Approved") {
-    res.status(403).json({ error: "KPI set is Approved — uploads are locked. No modifications allowed after approval." });
+  const blockedForUpload = ["Pending", "Approved", "Approved - Partial"];
+  if (existingSet && blockedForUpload.includes(existingSet.status ?? "")) {
+    res.status(403).json({ error: `KPI set is ${existingSet.status} — uploads are locked. Upload is only allowed for Draft or Rejected sets.` });
     return;
   }
 

@@ -692,6 +692,7 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
   const groups=useMemo(()=>computeGroups(displayItems),[displayItems]);
   const allExpanded=groups.length>0&&groups.every(g=>expanded.has(g.category));
   const canApprove=isAdmin&&["Pending","Approved - Partial","Rejected - All"].includes(set.status);
+  const canSubmitFinal=isAdmin&&set.status==="Pending";
   const pendingCount=displayItems.filter(i=>!["Approved","Rejected"].includes(i.approvalStatus||"")).length;
   const approvedCount=displayItems.filter(i=>i.approvalStatus==="Approved").length;
   const rejectedCount=displayItems.filter(i=>i.approvalStatus==="Rejected").length;
@@ -767,7 +768,7 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
                   <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/50 text-red-600 hover:bg-red-50 dark:hover:bg-red-400/10" onClick={()=>setBatchDialog({decision:"Rejected",comment:""})} disabled={saving||!!batchDialog}><XCircle className="mr-1 h-3 w-3"/>Reject All</Button>
                 </>
               )}
-              {canApprove&&displayItems.length>0&&(
+              {canSubmitFinal&&displayItems.length>0&&(
                 <Button size="sm" className="h-7 text-xs bg-primary" onClick={()=>setShowFinalSubmit(v=>!v)}
                   disabled={submittingFinal||pendingCount>0}
                   title={pendingCount>0?`${pendingCount} KPI${pendingCount>1?"s":""} still pending — review all KPIs before submitting`:undefined}>
@@ -805,7 +806,7 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
         )}
 
         {/* ── Final submit bar ──────────────────────────────────────────── */}
-        {showFinalSubmit&&canApprove&&(
+        {showFinalSubmit&&canSubmitFinal&&(
           <div className={cn("shrink-0 mx-1 rounded-lg border px-3 py-3 text-xs flex flex-col gap-2",
             pendingCount>0?"border-yellow-400/50 bg-yellow-50 dark:bg-yellow-400/10":"border-primary/40 bg-primary/5")}>
             <div className="flex items-center gap-2 font-semibold text-[11px]">
@@ -1235,7 +1236,7 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                     )}
                     {isAdmin&&!archived&&(
                       <>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title="Upload KPIs" disabled={["Approved","Approved - Partial","Rejected - All"].includes(set.status)}><Upload className="h-3.5 w-3.5"/></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title={["Pending","Approved","Approved - Partial"].includes(set.status)?"Upload locked — KPI set is under review or finalised":"Upload KPIs"} disabled={["Pending","Approved","Approved - Partial"].includes(set.status)}><Upload className="h-3.5 w-3.5"/></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>
                         {set.status==="Draft"&&(
                           <>
