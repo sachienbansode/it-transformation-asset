@@ -60,14 +60,16 @@ router.patch("/roles/:id", async (req, res): Promise<void> => {
   const body = z.object({
     name: z.string().optional(),
     description: z.string().optional().nullable(),
+    defaultDashboard: z.string().optional().nullable(),
     permissions: z.record(z.string(), z.string()).optional(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
 
-  if (body.data.name !== undefined || body.data.description !== undefined) {
+  if (body.data.name !== undefined || body.data.description !== undefined || body.data.defaultDashboard !== undefined) {
     await db.update(rolesTable).set({
       name: body.data.name,
       description: body.data.description,
+      defaultDashboard: body.data.defaultDashboard,
     }).where(eq(rolesTable.id, id));
   }
 

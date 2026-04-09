@@ -13,6 +13,7 @@ export interface AuthUser {
   mfaMethod: "totp" | "sms_otp" | "email_otp";
   status: "active" | "inactive" | "dormant";
   effectivePermissions?: Record<string, string>;
+  defaultDashboard?: string;
 }
 
 export type AccessLevel = "read" | "write" | "admin";
@@ -25,6 +26,7 @@ interface AuthContextValue {
   isHR: boolean;
   loading: boolean;
   effectivePermissions: Record<string, string>;
+  defaultDashboard: string;
   canAccess: (module: string, level?: AccessLevel) => boolean;
   login: (email: string, password: string) => Promise<{ requiresMfa?: boolean }>;
   loginMfa: (token: string) => Promise<void>;
@@ -81,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isEmployee = user?.role === "kpi_employee";
   const isHR = user?.role === "hr";
   const effectivePermissions = user?.effectivePermissions ?? {};
+  const defaultDashboard = user?.defaultDashboard ?? "/";
 
   const canAccess = useCallback((module: string, level: AccessLevel = "read"): boolean => {
     if (!user) return false;
@@ -91,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, isAdmin, isCxo, isEmployee, isHR, loading, effectivePermissions, canAccess,
+      user, isAdmin, isCxo, isEmployee, isHR, loading, effectivePermissions, defaultDashboard, canAccess,
       login, loginMfa, logout, refresh,
     }}>
       {children}

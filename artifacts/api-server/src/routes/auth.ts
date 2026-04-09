@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, usersTable, settingsTable, userRolesTable, rolePermissionsTable } from "@workspace/db";
+import { db, usersTable, settingsTable, userRolesTable, rolePermissionsTable, rolesTable } from "@workspace/db";
 import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
 import QRCode from "qrcode";
@@ -75,9 +75,12 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     .from(userRolesTable).where(eq(userRolesTable.userId, req.session.userId!));
   const roleIds = userRoleLinks.map(r => r.roleId);
   const effectivePermissions: Record<string, string> = {};
+  let defaultDashboard = "/";
   if (roleIds.length > 0) {
-    const perms = await db.select().from(rolePermissionsTable)
-      .where(inArray(rolePermissionsTable.roleId, roleIds));
+    const [perms, roleRows] = await Promise.all([
+      db.select().from(rolePermissionsTable).where(inArray(rolePermissionsTable.roleId, roleIds)),
+      db.select({ defaultDashboard: rolesTable.defaultDashboard }).from(rolesTable).where(inArray(rolesTable.id, roleIds)),
+    ]);
     const levels = ["none", "read", "write", "admin"];
     for (const p of perms) {
       const current = effectivePermissions[p.module] || "none";
@@ -85,8 +88,17 @@ router.get("/auth/me", async (req, res): Promise<void> => {
         effectivePermissions[p.module] = p.accessLevel;
       }
     }
+    // Use the most specific default dashboard (non-root takes priority)
+    for (const r of roleRows) {
+      if (r.defaultDashboard && r.defaultDashboard !== "/") {
+        defaultDashboard = r.defaultDashboard;
+        break;
+      }
+    }
   }
-  res.json({ ...user, effectivePermissions });
+  // Admin always gets /
+  if (user.role === "admin") defaultDashboard = "/";
+  res.json({ ...user, effectivePermissions, defaultDashboard });
 });
 
 // POST /auth/login

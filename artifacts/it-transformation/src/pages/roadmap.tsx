@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus, Trash2, Edit, Eye, EyeOff, ChevronRight,
   IndianRupee, Calendar, ChevronDown, ChevronUp,
-  ListTodo, CheckCircle2, Clock, History, ActivitySquare, Download, RotateCcw,
+  ListTodo, CheckCircle2, Clock, History, ActivitySquare, Download, RotateCcw, Search,
 } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import type { RoadmapItem } from "@workspace/api-client-react";
@@ -233,8 +233,9 @@ export default function Roadmap() {
   const [activeTab, setActiveTab] = useState("All");
   const [showTimeline, setShowTimeline] = useState(true);
   const [page, setPage] = useState(1);
+  const [searchQ, setSearchQ] = useState("");
 
-  const setTabAndReset = (v: string) => { setActiveTab(v); setPage(1); };
+  const setTabAndReset = (v: string) => { setActiveTab(v); setPage(1); setSearchQ(""); };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RoadmapItem | null>(null);
   const [formData, setFormData] = useState<FormData>({});
@@ -288,8 +289,20 @@ export default function Roadmap() {
 
   const filteredItems = useMemo(() => {
     if (!items) return [];
-    return items.filter(item => activeTab === "All" || item.phase === activeTab);
-  }, [items, activeTab]);
+    const q = searchQ.toLowerCase();
+    return items.filter(item => {
+      const matchPhase = activeTab === "All" || item.phase === activeTab;
+      if (!matchPhase) return false;
+      if (!q) return true;
+      return (
+        item.title?.toLowerCase().includes(q) ||
+        item.description?.toLowerCase().includes(q) ||
+        item.owner?.toLowerCase().includes(q) ||
+        item.business?.toLowerCase().includes(q) ||
+        item.status?.toLowerCase().includes(q)
+      );
+    });
+  }, [items, activeTab, searchQ]);
 
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const pagedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -420,6 +433,18 @@ export default function Roadmap() {
             <TabsTrigger value="Phase 3: Innovation & Scale" className="text-xs px-2.5 h-6">Phase 3</TabsTrigger>
           </TabsList>
         </Tabs>
+        <div className="relative flex-1 min-w-[200px] max-w-xs ml-auto">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            placeholder="Search initiatives…"
+            value={searchQ}
+            onChange={e => { setSearchQ(e.target.value); setPage(1); }}
+            className="w-full pl-8 pr-3 py-1.5 h-8 text-sm border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        {(searchQ || activeTab !== "All") && (
+          <span className="text-xs text-muted-foreground">{filteredItems.length} result{filteredItems.length !== 1 ? "s" : ""}</span>
+        )}
       </div>
 
       {/* Initiative cards */}

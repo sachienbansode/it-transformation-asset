@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import {
   Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield, Building2, Clock,
-  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info,
+  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info, Search,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -369,6 +369,9 @@ function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
+  const [searchQ, setSearchQ] = useState("");
+  const [sortCol, setSortCol] = useState<"name" | "email" | "department" | "role" | "status">("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
 
   const load = async () => {
@@ -435,10 +438,50 @@ function UsersTab() {
     hr: "Human Resources", management: "Senior Management"
   };
 
+  const toggleSort = (col: typeof sortCol) => {
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+
+  const sortedFilteredUsers = React.useMemo(() => {
+    const q = searchQ.toLowerCase();
+    const filtered = q
+      ? users.filter(u =>
+          u.name.toLowerCase().includes(q) ||
+          u.email.toLowerCase().includes(q) ||
+          (u.department || "").toLowerCase().includes(q) ||
+          (u.designation || "").toLowerCase().includes(q) ||
+          (u.employeeCode || "").toLowerCase().includes(q)
+        )
+      : users;
+    return [...filtered].sort((a, b) => {
+      const aVal = (a[sortCol] || "").toString().toLowerCase();
+      const bVal = (b[sortCol] || "").toString().toLowerCase();
+      return sortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+  }, [users, searchQ, sortCol, sortDir]);
+
+  const SortIcon = ({ col }: { col: typeof sortCol }) => (
+    sortCol === col
+      ? <span className="ml-1 text-primary">{sortDir === "asc" ? "↑" : "↓"}</span>
+      : <span className="ml-1 text-muted-foreground/40">↕</span>
+  );
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Total: {users.length} users</p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-1">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              placeholder="Search users…"
+              value={searchQ}
+              onChange={e => setSearchQ(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-sm border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground whitespace-nowrap">{sortedFilteredUsers.length} / {users.length}</p>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</Button>
           <Button size="sm" onClick={openAdd}><Plus className="h-3.5 w-3.5 mr-1" />Add User</Button>
@@ -452,13 +495,23 @@ function UsersTab() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["Name", "Email", "Mobile", "Type", "Role", "Dept", "MFA", "Status", "Last Login", ""].map(h => (
-                  <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{h}</th>
-                ))}
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer" onClick={() => toggleSort("name")}>Name<SortIcon col="name" /></th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer" onClick={() => toggleSort("email")}>Email<SortIcon col="email" /></th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Mobile</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Type</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer" onClick={() => toggleSort("role")}>Role<SortIcon col="role" /></th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer" onClick={() => toggleSort("department")}>Dept<SortIcon col="department" /></th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">MFA</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer" onClick={() => toggleSort("status")}>Status<SortIcon col="status" /></th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Last Login</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
-              {users.map(u => (
+              {sortedFilteredUsers.length === 0 && (
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">No users match your search.</td></tr>
+              )}
+              {sortedFilteredUsers.map(u => (
                 <tr key={u.id} className="border-t border-border hover:bg-muted/30">
                   <td className="px-4 py-2.5 font-medium">{u.name}</td>
                   <td className="px-4 py-2.5 text-muted-foreground text-xs">{u.email}</td>
@@ -1085,12 +1138,20 @@ function AuditTrailTab() {
 const MODULES_LABELS: Record<string, string> = {
   dashboard: "Executive Dashboard", checklist: "IT Master Checklist", roadmap: "Transformation Roadmap",
   retirements: "App Retirement Plan", applications: "Application Inventory", aibom: "AI Bill of Materials",
-  sbom: "Software BOM", kpis: "KPI Management", reports: "PPT Reports", admin: "Admin Panel",
+  sbom: "Software BOM", kpis: "KPI Management", kpi_dashboard: "KPI Dashboard", reports: "PPT Reports", admin: "Admin Panel",
 };
+
+const DASHBOARD_ROUTES = [
+  { value: "/", label: "Executive Dashboard (Admin Home)" },
+  { value: "/kpi-dashboard", label: "KPI Dashboard" },
+  { value: "/kpis", label: "KPI Management" },
+  { value: "/checklist", label: "IT Master Checklist" },
+  { value: "/roadmap", label: "Transformation Roadmap" },
+];
 const MODULES = Object.keys(MODULES_LABELS);
 const ACCESS_LEVELS = ["none", "read", "write", "admin"] as const;
 
-interface Role { id: number; name: string; description?: string; isSystem: boolean; createdAt: string; }
+interface Role { id: number; name: string; description?: string; isSystem: boolean; defaultDashboard?: string; createdAt: string; }
 interface RolePermission { id: number; roleId: number; module: string; accessLevel: string; }
 interface UserRole { id: number; userId: number; roleId: number; userName?: string; userEmail?: string; }
 
@@ -1103,10 +1164,12 @@ function RolesTab() {
   const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingMeta, setSavingMeta] = useState(false);
   const [newRoleOpen, setNewRoleOpen] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDesc, setNewRoleDesc] = useState("");
   const [addUserRoleId, setAddUserRoleId] = useState("");
+  const [editDefaultDashboard, setEditDefaultDashboard] = useState("/");
 
   const loadRoles = async () => {
     setLoading(true);
@@ -1137,7 +1200,25 @@ function RolesTab() {
   useEffect(() => { loadRoles(); }, []);
   useEffect(() => { if (selectedRole) loadRoleDetails(selectedRole); }, [selectedRole]);
 
-  const selectRole = (role: Role) => { setSelectedRole(role); };
+  const selectRole = (role: Role) => {
+    setSelectedRole(role);
+    setEditDefaultDashboard(role.defaultDashboard ?? "/");
+  };
+
+  const saveRoleMeta = async () => {
+    if (!selectedRole) return;
+    setSavingMeta(true);
+    try {
+      await apiFetch(`/roles/${selectedRole.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ defaultDashboard: editDefaultDashboard }),
+      });
+      setSelectedRole(r => r ? { ...r, defaultDashboard: editDefaultDashboard } : r);
+      setRoles(rs => rs.map(r => r.id === selectedRole.id ? { ...r, defaultDashboard: editDefaultDashboard } : r));
+      toast({ title: "Role settings saved" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setSavingMeta(false); }
+  };
 
   const savePermissions = async () => {
     if (!selectedRole) return;
@@ -1238,6 +1319,33 @@ function RolesTab() {
           {/* Role detail */}
           {selectedRole ? (
             <div className="space-y-4">
+              {/* Role settings */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold">{selectedRole.name} — Role Settings</CardTitle>
+                    <Button size="sm" className="h-7 text-xs" onClick={saveRoleMeta} disabled={savingMeta}>{savingMeta ? "Saving…" : "Save Settings"}</Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Default Landing Page</label>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">Where users with this role land after login.</p>
+                    </div>
+                    <select
+                      value={editDefaultDashboard}
+                      onChange={e => setEditDefaultDashboard(e.target.value)}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground min-w-[220px] focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      {DASHBOARD_ROUTES.map(r => (
+                        <option key={r.value} value={r.value}>{r.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">

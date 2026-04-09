@@ -7,7 +7,7 @@ import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
-  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield,
+  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -28,17 +28,18 @@ type SidebarState = "expanded" | "collapsed" | "hidden";
 const SIDEBAR_KEY = "ashika-sidebar";
 
 const DRISHTI_ITEMS = [
-  { href: "/", label: "Executive Dashboard", icon: LayoutDashboard, module: "dashboard" },
-  { href: "/checklist", label: "IT Master Checklist", icon: CheckSquare, module: "checklist" },
-  { href: "/roadmap", label: "Transformation Roadmap", icon: Map, module: "roadmap" },
-  { href: "/retirements", label: "App Retirement Plan", icon: Archive, module: "retirements" },
-  { href: "/applications", label: "Application Inventory", icon: Server, module: "applications" },
-  { href: "/aibom", label: "AI Bill of Materials", icon: BrainCircuit, module: "aibom" },
-  { href: "/sbom", label: "Software BOM", icon: ShieldCheck, module: "sbom" },
-  { href: "/reports", label: "PPT Reports", icon: Presentation, module: "reports" },
+  { href: "/", label: "Executive Dashboard", icon: LayoutDashboard, module: "dashboard", adminOnly: true },
+  { href: "/checklist", label: "IT Master Checklist", icon: CheckSquare, module: "checklist", adminOnly: false },
+  { href: "/roadmap", label: "Transformation Roadmap", icon: Map, module: "roadmap", adminOnly: false },
+  { href: "/retirements", label: "App Retirement Plan", icon: Archive, module: "retirements", adminOnly: false },
+  { href: "/applications", label: "Application Inventory", icon: Server, module: "applications", adminOnly: false },
+  { href: "/aibom", label: "AI Bill of Materials", icon: BrainCircuit, module: "aibom", adminOnly: false },
+  { href: "/sbom", label: "Software BOM", icon: ShieldCheck, module: "sbom", adminOnly: false },
+  { href: "/reports", label: "PPT Reports", icon: Presentation, module: "reports", adminOnly: false },
 ];
 
 const KPI_ITEMS = [
+  { href: "/kpi-dashboard", label: "KPI Dashboard", icon: BarChart3, module: "kpis" },
   { href: "/kpis", label: "KPI Management", icon: ClipboardList, module: "kpis" },
 ];
 
@@ -124,7 +125,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     toast({ title: "Signed out" });
   };
 
-  const visibleDrishtiItems = DRISHTI_ITEMS.filter(item => canAccess(item.module));
+  const visibleDrishtiItems = DRISHTI_ITEMS.filter(item =>
+    canAccess(item.module) && (!item.adminOnly || isAdmin)
+  );
   const visibleKpiItems = KPI_ITEMS.filter(item => canAccess(item.module));
 
   const currentPage =

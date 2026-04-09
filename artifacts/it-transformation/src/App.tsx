@@ -8,6 +8,7 @@ import { CurrencyProvider } from "@/contexts/currency-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { Layout } from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
+import KpiDashboard from "@/pages/kpi-dashboard";
 import NotFound from "@/pages/not-found";
 import Checklist from "@/pages/checklist";
 import Roadmap from "@/pages/roadmap";
@@ -49,7 +50,7 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
 }
 
 function Router() {
-  const { user, loading } = useAuth();
+  const { user, loading, defaultDashboard } = useAuth();
 
   if (loading) {
     return (
@@ -71,7 +72,20 @@ function Router() {
         ) : (
           <Layout>
             <Switch>
-              <Route path="/" component={Dashboard} />
+              {/* Executive Dashboard — admin only; others redirect to their default */}
+              <Route path="/">
+                {user.role === "admin"
+                  ? <Dashboard />
+                  : <Redirect to={defaultDashboard || "/kpi-dashboard"} />
+                }
+              </Route>
+              {/* KPI Dashboard for CXO / HR / employee */}
+              <Route path="/kpi-dashboard">
+                {(user.role === "cxo" || user.role === "kpi_employee" || user.role === "hr" || user.role === "admin")
+                  ? <KpiDashboard />
+                  : <Redirect to="/" />
+                }
+              </Route>
               <Route path="/checklist" component={Checklist} />
               <Route path="/roadmap" component={Roadmap} />
               <Route path="/retirements" component={Retirements} />
@@ -82,7 +96,7 @@ function Router() {
               <Route path="/kpis" component={Kpis} />
               <Route path="/profile" component={Profile} />
               <Route path="/admin">
-                {user.role === "admin" ? <Admin /> : <Redirect to="/" />}
+                {user.role === "admin" ? <Admin /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>
               <Route component={NotFound} />
             </Switch>

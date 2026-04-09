@@ -5,6 +5,7 @@ export const rolesTable = pgTable("roles", {
   name: text("name").notNull().unique(),
   description: text("description"),
   isSystem: boolean("is_system").notNull().default(false),
+  defaultDashboard: text("default_dashboard").default("/"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type Role = typeof rolesTable.$inferSelect;
