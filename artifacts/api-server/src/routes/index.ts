@@ -38,13 +38,16 @@ router.use((req: Request, res: Response, next: NextFunction) => {
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
-    // KPI endpoints and profile are accessible to authenticated non-admin users
-    const kpiPaths = ["/kpi-sets", "/kpi-persons", "/kpi-users", "/kpi-years"];
-    const isKpiPath = kpiPaths.some(p => req.path === p || req.path.startsWith(p + "/"));
-    const isProfilePath = req.path === "/auth/profile" || req.path === "/auth/profile/photo";
-    const isStoragePath = req.path.startsWith("/storage/");
-    if (isKpiPath || isProfilePath || isStoragePath) return next();
-    return requireAdmin(req, res, next);
+    // Only these paths require admin privileges for write operations
+    const adminOnlyPrefixes = [
+      "/admin/", "/masters", "/roles", "/settings",
+      "/business-units", "/audit-logs",
+    ];
+    const isAdminOnly = adminOnlyPrefixes.some(p =>
+      req.path === p || req.path.startsWith(p + "/") || req.path.startsWith(p)
+    );
+    if (isAdminOnly) return requireAdmin(req, res, next);
+    // All other write operations: require auth only (already checked above)
   }
   next();
 });

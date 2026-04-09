@@ -237,6 +237,7 @@ const computeGroups=(items: KpiSetItem[]): CategoryGroup[]=>{
 const useKpiYears=()=>useQuery({queryKey:["kpi-years"],queryFn:()=>apiFetch<KpiYear[]>("/kpi-years")});
 const usePersons=()=>useQuery({queryKey:["kpi-persons"],queryFn:()=>apiFetch<KpiPerson[]>("/kpi-persons")});
 const useKpiUsers=()=>useQuery({queryKey:["kpi-users"],queryFn:()=>apiFetch<KpiUser[]>("/kpi-users")});
+const useDeptMasters=()=>useQuery({queryKey:["masters-department"],queryFn:()=>apiFetch<{key:string;label:string}[]>("/masters?category=department")});
 const useKpiSets=(yearId?: number)=>useQuery({queryKey:["kpi-sets",yearId],enabled:!!yearId,queryFn:()=>apiFetch<KpiSet[]>(`/kpi-sets?yearId=${yearId}`)});
 const useArchivedSets=(yearId?: number)=>useQuery({queryKey:["kpi-sets-archived",yearId],enabled:!!yearId,queryFn:()=>apiFetch<KpiSet[]>(`/kpi-sets?yearId=${yearId}&archived=true`)});
 const useVersions=(setId?: number)=>useQuery({queryKey:["kpi-set-versions",setId],enabled:!!setId,queryFn:()=>apiFetch<KpiSetVersion[]>(`/kpi-sets/${setId}/versions`)});
@@ -244,8 +245,8 @@ const useSetItems=(setId?: number)=>useQuery({queryKey:["kpi-set-items",setId],e
 
 // ─── KPI Set Dialog ───────────────────────────────────────────────────────────
 
-function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
-  open: boolean; initialSet: KpiSet|null; users: KpiUser[]; years: KpiYear[]; onClose:()=>void; onSuccess:()=>void;
+function KpiSetDialog({open,initialSet,users,years,deptMasters,onClose,onSuccess}:{
+  open: boolean; initialSet: KpiSet|null; users: KpiUser[]; years: KpiYear[]; deptMasters:{key:string;label:string}[]; onClose:()=>void; onSuccess:()=>void;
 }){
   const{toast}=useToast();
   const[saving,setSaving]=useState(false);
@@ -258,11 +259,7 @@ function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
     else{setUserId("");setYearId("");setNotes("");setUserPickerOpen(false);}
   },[initialSet,open]);
   const selectedUser=useMemo(()=>users.find(u=>u.id.toString()===userId),[users,userId]);
-  const DEPT_LABELS: Record<string,string>={
-    Technology:"Technology",risk:"Risk",compliance:"Compliance",operations:"Operations",
-    finance:"Finance",broking_ops:"Broking Ops",nbfc_ops:"NBFC Ops",aif_ops:"AIF Ops",
-    hr:"HR",management:"Management",Other:"Other",
-  };
+  const getDeptLabel=(key:string)=>deptMasters.find(d=>d.key===key)?.label||key;
   const groupedUsers=useMemo(()=>{
     const map=new Map<string,KpiUser[]>();
     for(const u of users){
@@ -325,7 +322,7 @@ function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
                     <CommandList className="max-h-60">
                       <CommandEmpty>No employees found.</CommandEmpty>
                       {groupedUsers.map(([dept,deptUsers])=>(
-                        <CommandGroup key={dept} heading={DEPT_LABELS[dept]||dept}>
+                        <CommandGroup key={dept} heading={getDeptLabel(dept)}>
                           {deptUsers.map(u=>(
                             <CommandItem
                               key={u.id}
@@ -1286,6 +1283,7 @@ export default function KpisPage(){
   const{data:years}=useKpiYears();
   const{data:persons}=usePersons();
   const{data:kpiUsers=[]}=useKpiUsers();
+  const{data:deptMasters=[]}=useDeptMasters();
   const{data:sets}=useKpiSets(yearFilter);
   const{data:archivedSets=[]}=useArchivedSets(yearFilter);
 
@@ -1381,7 +1379,7 @@ export default function KpisPage(){
         return(<HistoryDialog open={!!historySet} set={historySet} person={person} year={year} onClose={()=>setHistorySet(null)}/>);
       })()}
       {editSet!==null&&(
-        <KpiSetDialog open={editSet!==null} initialSet={editSet==="new"?null:editSet} users={kpiUsers} years={years||[]}
+        <KpiSetDialog open={editSet!==null} initialSet={editSet==="new"?null:editSet} users={kpiUsers} years={years||[]} deptMasters={deptMasters}
           onClose={()=>setEditSet(null)} onSuccess={()=>{setEditSet(null);qc.invalidateQueries({queryKey:["kpi-persons"]});refresh();}}/>
       )}
       {performanceSet&&(()=>{const person=getPerson(performanceSet);const year=getYear(performanceSet.yearId);if(!person||!year) return null;

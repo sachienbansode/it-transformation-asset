@@ -101,7 +101,7 @@ export default function Login() {
             ) : (
               <Shield className="h-8 w-8 text-primary" />
             )}
-            <span className="text-2xl font-bold text-foreground whitespace-nowrap overflow-hidden text-ellipsis max-w-xs" title={appConfig.appName}>{appConfig.appName}</span>
+            <span className="text-2xl font-bold text-foreground leading-tight">{appConfig.appName}</span>
           </div>
           <p className="text-sm text-muted-foreground">{appConfig.appTagline}</p>
         </div>

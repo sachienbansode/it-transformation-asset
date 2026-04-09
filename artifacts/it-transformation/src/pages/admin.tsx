@@ -369,6 +369,8 @@ function SettingToggle({ label, description, checked, onChange }: { label: strin
 
 // ─── USERS TAB ───────────────────────────────────────────────────────────────
 
+interface DeptMaster { id: number; key: string; label: string; sortOrder: number; }
+
 function UsersTab() {
   const { toast } = useToast();
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -379,12 +381,17 @@ function UsersTab() {
   const [sortCol, setSortCol] = useState<"name" | "email" | "department" | "role" | "status">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
+  const [deptMasters, setDeptMasters] = useState<DeptMaster[]>([]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const data = await apiFetch<AdminUser[]>("/admin/users");
+      const [data, depts] = await Promise.all([
+        apiFetch<AdminUser[]>("/admin/users"),
+        apiFetch<DeptMaster[]>("/masters?category=department&active=true"),
+      ]);
       setUsers(data);
+      setDeptMasters(depts.sort((a, b) => a.sortOrder - b.sortOrder));
     } finally { setLoading(false); }
   };
 
@@ -436,13 +443,8 @@ function UsersTab() {
     }
   };
 
-  const DEPARTMENTS = ["Technology","risk","compliance","operations","finance","broking_ops","nbfc_ops","aif_ops","hr","management"];
-  const DEPT_LABELS: Record<string, string> = {
-    Technology: "Technology", risk: "Risk Management", compliance: "Compliance & Legal",
-    operations: "Operations", finance: "Finance & Accounts", broking_ops: "Broking Operations",
-    nbfc_ops: "NBFC Operations", aif_ops: "AIF Operations",
-    hr: "Human Resources", management: "Senior Management"
-  };
+  const deptLabel = (key: string) =>
+    deptMasters.find(d => d.key === key)?.label || key;
 
   const toggleSort = (col: typeof sortCol) => {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -532,7 +534,7 @@ function UsersTab() {
                       {u.role}
                     </Badge>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{DEPT_LABELS[u.department || ""] || u.department || "-"}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{deptLabel(u.department || "") || "-"}</td>
                   <td className="px-4 py-2.5">
                     <Badge variant="outline" className={u.mfaEnabled ? "border-green-500/30 text-green-400" : "border-gray-500/30 text-gray-400"}>
                       {u.mfaEnabled ? "ON" : "OFF"}
@@ -574,7 +576,7 @@ function UsersTab() {
               <Select value={form.department} onValueChange={v => setForm(f => ({...f, department: v}))}>
                 <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                 <SelectContent>
-                  {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{DEPT_LABELS[d]}</SelectItem>)}
+                  {deptMasters.map(d => <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

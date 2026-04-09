@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { isNull, eq, and } from "drizzle-orm";
 import { db, checklistItemsTable, roadmapItemsTable, applicationsTable, retirementsTable, aibomEntriesTable, sbomEntriesTable } from "@workspace/db";
 
 const router = Router();
@@ -6,8 +7,12 @@ const router = Router();
 router.get("/dashboard/summary", async (_req, res): Promise<void> => {
   const [checklist, roadmap, apps, retirements, aibom, sbom] = await Promise.all([
     db.select().from(checklistItemsTable),
-    db.select().from(roadmapItemsTable),
-    db.select().from(applicationsTable),
+    // Exclude archived roadmap items (archivedAt is not null = archived)
+    db.select().from(roadmapItemsTable).where(isNull(roadmapItemsTable.archivedAt)),
+    // Exclude retired/inactive applications
+    db.select().from(applicationsTable).where(
+      and(eq(applicationsTable.isActive, true), eq(applicationsTable.applicationStatus, "Active"))
+    ),
     db.select().from(retirementsTable),
     db.select().from(aibomEntriesTable),
     db.select().from(sbomEntriesTable),
