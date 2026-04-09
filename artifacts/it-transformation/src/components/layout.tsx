@@ -175,7 +175,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-[11px] text-white/90 tracking-tight leading-tight break-words">
+                  <div className="font-bold text-[8px] text-white/90 tracking-tight leading-tight break-words">
                     {appConfig.appName}
                   </div>
                 </div>

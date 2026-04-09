@@ -1123,10 +1123,10 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,onClose,o
 
 // ─── KPI Sets Tab ─────────────────────────────────────────────────────────────
 
-function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter,isAdmin,isEmployee,userId,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onPerformance,onRefresh}:{
+function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter,isAdmin,isEmployee,isCxo,isHR,userId,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onPerformance,onRefresh}:{
   sets: KpiSet[]; archivedSets: KpiSet[]; persons: KpiPerson[]; years: KpiYear[];
   statusFilter: string; onStatusFilter:(s:string)=>void;
-  isAdmin: boolean; isEmployee?: boolean; userId?: number;
+  isAdmin: boolean; isEmployee?: boolean; isCxo?: boolean; isHR?: boolean; userId?: number;
   onView:(s:KpiSet)=>void; onUpload:(s:KpiSet)=>void; onHistory:(s:KpiSet)=>void;
   onEdit:(s:KpiSet)=>void; onSubmit:(s:KpiSet)=>void; onDelete:(s:KpiSet)=>void;
   onPerformance:(s:KpiSet)=>void; onRefresh:()=>void;
@@ -1196,10 +1196,10 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                         <Target className="h-3.5 w-3.5"/>
                       </Button>
                     )}
-                    {!archived&&(isAdmin||isEmployee)&&(
+                    {!archived&&(isAdmin||isEmployee||isCxo||isHR)&&(
                       <>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title={["Pending","Approved","Approved - Partial"].includes(set.status)?"Upload locked — KPI set is under review or finalised":"Upload KPIs"} disabled={["Pending","Approved","Approved - Partial"].includes(set.status)}><Upload className="h-3.5 w-3.5"/></Button>
-                        {isAdmin&&<Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>}
+                        {(isAdmin||isCxo||isHR)&&<Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>}
                         {set.status==="Draft"&&(
                           <>
                             {isAdmin&&<Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onEdit(set)} title="Edit"><Pencil className="h-3.5 w-3.5"/></Button>}
@@ -1363,7 +1363,7 @@ export default function KpisPage(){
       {/* KPI Sets Tab */}
       <KpiSetsTab sets={filteredSets} archivedSets={archivedSets} persons={persons||[]} years={years||[]}
         statusFilter={statusFilter} onStatusFilter={setStatusFilter}
-        isAdmin={isAdmin} isEmployee={isEmployee} userId={user?.id}
+        isAdmin={isAdmin} isEmployee={isEmployee} isCxo={isCxo} isHR={isHR} userId={user?.id}
         onView={setDetailSet} onUpload={setUploadSet} onHistory={setHistorySet}
         onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete}
         onPerformance={setPerformanceSet} onRefresh={refresh}/>

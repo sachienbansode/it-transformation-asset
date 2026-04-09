@@ -44,6 +44,23 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
   const sbomByRisk = groupBy(sbom, "riskLevel");
   const aibomByCategory = groupBy(aibom, "category");
 
+  // Checklist by BU with completion stats
+  const checklistByBusiness = (() => {
+    const map: Record<string, { total: number; completed: number }> = {};
+    for (const item of checklist) {
+      const k = item.business ?? "Unknown";
+      if (!map[k]) map[k] = { total: 0, completed: 0 };
+      map[k].total++;
+      if (item.status === "Available") map[k].completed++;
+    }
+    return Object.entries(map).map(([key, v]) => ({
+      key,
+      count: v.total,
+      completed: v.completed,
+      pct: v.total ? Math.round((v.completed / v.total) * 100) : 0,
+    }));
+  })();
+
   const totalBudget = roadmap.reduce((sum, i) => sum + (i.budgetLakhs ?? 0), 0);
   const spentBudget = roadmap.filter(r => r.status === "Completed").reduce((s, i) => s + (i.budgetLakhs ?? 0), 0);
   const criticalCves = sbom.filter(s => s.cve && s.cve !== "None" && s.riskLevel === "Critical").length;
@@ -76,7 +93,7 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     sbomCriticalCves: criticalCves,
     sbomHighCves: highCves,
     sbomTotalVulns: criticalCves + highCves,
-    checklistByBusiness: groupBy(checklist, "business"),
+    checklistByBusiness,
     checklistByStatus: groupBy(checklist, "status"),
     roadmapByPhase,
     roadmapByStatus,

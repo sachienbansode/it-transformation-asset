@@ -101,7 +101,7 @@ export default function Login() {
             ) : (
               <Shield className="h-8 w-8 text-primary" />
             )}
-            <span className="text-2xl font-bold text-foreground leading-tight">{appConfig.appName}</span>
+            <span className="text-[17px] font-bold text-foreground leading-tight">{appConfig.appName}</span>
           </div>
           <p className="text-sm text-muted-foreground">{appConfig.appTagline}</p>
         </div>
@@ -251,20 +251,16 @@ export default function Login() {
             <CardContent className="py-3 px-4">
               <p className="text-xs font-semibold text-primary mb-2">Dev Environment — Sample Credentials</p>
               <div className="space-y-1 text-xs font-mono text-muted-foreground">
-                <div className="flex justify-between">
-                  <span>admin@ashikagroup.com</span>
+                <div className="flex justify-between gap-4">
+                  <span>admin@ashikagroup.com <span className="text-[10px] text-primary/60">(Admin)</span></span>
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>sachin.bansode@ashikagroup.com</span>
+                <div className="flex justify-between gap-4">
+                  <span>meera.iyer@ashikagroup.com <span className="text-[10px] text-primary/60">(CXO)</span></span>
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>arunava.nandi@ashikagroup.com</span>
-                  <span className="text-foreground">Ashika@2025</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>vishal.c@ashikagroup.com</span>
+                <div className="flex justify-between gap-4">
+                  <span>anjali.sharma@ashikagroup.com <span className="text-[10px] text-primary/60">(HR)</span></span>
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
               </div>

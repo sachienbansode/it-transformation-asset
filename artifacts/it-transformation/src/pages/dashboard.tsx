@@ -240,12 +240,33 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
             <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Readiness by Business Unit</CardTitle>
           </CardHeader>
           <CardContent className="p-3">
-            <ResponsiveContainer width="100%" height={155}>
-              <BarChart data={filtChecklist} layout="vertical" margin={{ left: 0, right: 8 }}>
-                <XAxis type="number" fontSize={9} tickLine={false} axisLine={false} stroke="#9ca3af" />
+            <ResponsiveContainer width="100%" height={Math.max(155, (filtChecklist.length * 26) + 10)}>
+              <BarChart data={filtChecklist} layout="vertical" margin={{ left: 0, right: 72 }}>
+                <XAxis type="number" fontSize={9} tickLine={false} axisLine={false} stroke="#9ca3af" domain={[0, 'dataMax']} hide />
                 <YAxis dataKey="key" type="category" fontSize={9} tickLine={false} axisLine={false} width={90} stroke="#9ca3af" />
-                <Tooltip content={<ChartTooltip format={format} />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
-                <Bar dataKey="count" fill="#16a34a" radius={[0, 3, 3, 0]} />
+                <Tooltip content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0]?.payload;
+                  return (
+                    <div className="bg-card border border-border rounded-lg p-2.5 shadow-lg text-xs">
+                      <p className="font-semibold text-foreground mb-1">{label}</p>
+                      <p className="text-muted-foreground">Available: <span className="font-medium text-foreground">{d?.completed} / {d?.count}</span></p>
+                      <p className="text-muted-foreground">Readiness: <span className="font-medium text-green-600">{d?.pct}%</span></p>
+                    </div>
+                  );
+                }} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                <Bar dataKey="completed" fill="#16a34a" radius={[0, 3, 3, 0]}
+                  background={{ fill: "rgba(156,163,175,0.12)", radius: 3 }}
+                  label={({ x, y, width, height, value, index }: any) => {
+                    const d = filtChecklist[index] ?? {};
+                    if (!isFinite(x) || !isFinite(y) || !isFinite(width) || !isFinite(height)) return null;
+                    return (
+                      <text x={x + width + 5} y={y + height / 2 + 1} fill="#6b7280" fontSize={9} dominantBaseline="middle">
+                        {value}/{d.count} ({d.pct}%)
+                      </text>
+                    );
+                  }}
+                />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
