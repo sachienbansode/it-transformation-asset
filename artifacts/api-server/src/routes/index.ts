@@ -16,6 +16,7 @@ import auditRouter from "./audit-logs";
 import reportsRouter from "./reports";
 import kpisRouter, { seedKpiData } from "./kpis";
 import kpiPersonsRouter from "./kpi-persons";
+import rolesRouter from "./roles";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -56,5 +57,6 @@ router.use(auditRouter);
 router.use(reportsRouter);
 router.use(kpisRouter);
 router.use(kpiPersonsRouter);
+router.use(rolesRouter);
 
 export default router;

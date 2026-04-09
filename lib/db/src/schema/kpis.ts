@@ -183,6 +183,10 @@ export const kpiSetItemsTable = pgTable("kpi_set_items", {
   q3Actual: numeric("q3_actual", { precision: 14, scale: 2 }),
   q4Actual: numeric("q4_actual", { precision: 14, scale: 2 }),
   remarks: text("remarks"),
+  approvalStatus: text("approval_status").notNull().default("Draft"),
+  approvedBy: integer("approved_by"),
+  approvalComments: text("approval_comments"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

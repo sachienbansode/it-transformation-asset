@@ -1,11 +1,14 @@
 import { Router } from "express";
 import { eq, desc, asc, and, inArray } from "drizzle-orm";
-import { db, kpiPersonsTable, kpiSetsTable, kpiSetVersionsTable, kpiSetItemsTable, kpiYearsTable } from "@workspace/db";
+import {
+  db, kpiPersonsTable, kpiSetsTable, kpiSetVersionsTable, kpiSetItemsTable, kpiYearsTable,
+} from "@workspace/db";
 import { z } from "zod";
 
 const router = Router();
 
 // ─── Persons ─────────────────────────────────────────────────────────────────
+
 router.get("/kpi-persons", async (_req, res): Promise<void> => {
   const rows = await db.select().from(kpiPersonsTable)
     .where(eq(kpiPersonsTable.isActive, true))
@@ -17,9 +20,9 @@ router.post("/kpi-persons", async (req, res): Promise<void> => {
   const body = z.object({
     name: z.string().min(1),
     designation: z.string().min(1),
-    department: z.string().optional(),
-    email: z.string().optional(),
-    employeeCode: z.string().optional(),
+    department: z.string().optional().nullable(),
+    email: z.string().optional().nullable(),
+    employeeCode: z.string().optional().nullable(),
     approvingAuthorityId: z.number().optional().nullable(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
@@ -55,6 +58,7 @@ router.delete("/kpi-persons/:id", async (req, res): Promise<void> => {
 });
 
 // ─── KPI Sets ─────────────────────────────────────────────────────────────────
+
 router.get("/kpi-sets", async (req, res): Promise<void> => {
   const yearId = req.query.yearId ? parseInt(req.query.yearId as string) : undefined;
   const personId = req.query.personId ? parseInt(req.query.personId as string) : undefined;
@@ -63,7 +67,29 @@ router.get("/kpi-sets", async (req, res): Promise<void> => {
   if (yearId) conditions.push(eq(kpiSetsTable.yearId, yearId));
   if (personId) conditions.push(eq(kpiSetsTable.personId, personId));
   if (status) conditions.push(eq(kpiSetsTable.status, status));
-  const rows = await db.select().from(kpiSetsTable)
+
+  const rows = await db
+    .select({
+      id: kpiSetsTable.id,
+      personId: kpiSetsTable.personId,
+      yearId: kpiSetsTable.yearId,
+      status: kpiSetsTable.status,
+      currentVersionId: kpiSetsTable.currentVersionId,
+      notes: kpiSetsTable.notes,
+      submittedAt: kpiSetsTable.submittedAt,
+      approvedAt: kpiSetsTable.approvedAt,
+      approvedBy: kpiSetsTable.approvedBy,
+      approvalComments: kpiSetsTable.approvalComments,
+      createdAt: kpiSetsTable.createdAt,
+      updatedAt: kpiSetsTable.updatedAt,
+      itemCount: kpiSetVersionsTable.itemCount,
+      versionNumber: kpiSetVersionsTable.versionNumber,
+    })
+    .from(kpiSetsTable)
+    .leftJoin(kpiSetVersionsTable, and(
+      eq(kpiSetVersionsTable.setId, kpiSetsTable.id),
+      eq(kpiSetVersionsTable.isCurrent, true)
+    ))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(kpiSetsTable.updatedAt));
   res.json(rows);
@@ -107,6 +133,17 @@ router.delete("/kpi-sets/:id", async (req, res): Promise<void> => {
 });
 
 // ─── Upload new KPI Excel version ─────────────────────────────────────────────
+
+const toNum = (v: string | undefined | null): string | null => {
+  if (!v || String(v).trim() === "") return null;
+  const n = parseFloat(String(v));
+  return isNaN(n) ? null : n.toFixed(2);
+};
+const toStr = (v: string | undefined | null): string | null => {
+  if (!v || String(v).trim() === "") return null;
+  return String(v).trim();
+};
+
 router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
   const setId = parseInt(req.params.id);
   if (isNaN(setId)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -115,26 +152,26 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
     fileName: z.string().min(1),
     fileData: z.string().min(1),
     fileSize: z.number().optional(),
-    comments: z.string().optional(),
-    uploadedBy: z.number().optional(),
+    comments: z.string().optional().nullable(),
+    uploadedBy: z.number().optional().nullable(),
     items: z.array(z.object({
-      sno: z.number().optional(),
+      sno: z.number().optional().nullable(),
       kpiName: z.string().min(1),
-      description: z.string().optional(),
-      category: z.string().optional(),
-      weightage: z.string().optional(),
-      metric: z.string().optional(),
-      unit: z.string().optional(),
-      annualTarget: z.string().optional(),
-      q1Target: z.string().optional(),
-      q2Target: z.string().optional(),
-      q3Target: z.string().optional(),
-      q4Target: z.string().optional(),
-      q1Actual: z.string().optional(),
-      q2Actual: z.string().optional(),
-      q3Actual: z.string().optional(),
-      q4Actual: z.string().optional(),
-      remarks: z.string().optional(),
+      description: z.string().optional().nullable(),
+      category: z.string().optional().nullable(),
+      weightage: z.string().optional().nullable(),
+      metric: z.string().optional().nullable(),
+      unit: z.string().optional().nullable(),
+      annualTarget: z.string().optional().nullable(),
+      q1Target: z.string().optional().nullable(),
+      q2Target: z.string().optional().nullable(),
+      q3Target: z.string().optional().nullable(),
+      q4Target: z.string().optional().nullable(),
+      q1Actual: z.string().optional().nullable(),
+      q2Actual: z.string().optional().nullable(),
+      q3Actual: z.string().optional().nullable(),
+      q4Actual: z.string().optional().nullable(),
+      remarks: z.string().optional().nullable(),
     })),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
@@ -142,7 +179,8 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
   const set = await db.select().from(kpiSetsTable).where(eq(kpiSetsTable.id, setId));
   if (set.length === 0) { res.status(404).json({ error: "KPI set not found" }); return; }
 
-  const existingVersions = await db.select().from(kpiSetVersionsTable).where(eq(kpiSetVersionsTable.setId, setId));
+  const existingVersions = await db.select({ id: kpiSetVersionsTable.id })
+    .from(kpiSetVersionsTable).where(eq(kpiSetVersionsTable.setId, setId));
   const nextVersion = existingVersions.length + 1;
 
   await db.update(kpiSetVersionsTable).set({ isCurrent: false }).where(eq(kpiSetVersionsTable.setId, setId));
@@ -159,17 +197,7 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
     isCurrent: true,
   }).returning();
 
-  const toNum = (v: string | undefined) => {
-    if (!v || v.trim() === "") return null;
-    const n = parseFloat(v);
-    return isNaN(n) ? null : n.toFixed(2);
-  };
-
-  const oldItems = await db.select({ id: kpiSetItemsTable.id })
-    .from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, setId));
-  if (oldItems.length > 0) {
-    await db.delete(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, setId));
-  }
+  await db.delete(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, setId));
 
   if (body.data.items.length > 0) {
     await db.insert(kpiSetItemsTable).values(
@@ -178,11 +206,11 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
         versionId: newVersion.id,
         sno: item.sno ?? i + 1,
         kpiName: item.kpiName,
-        description: item.description || null,
-        category: item.category || null,
+        description: toStr(item.description),
+        category: toStr(item.category),
         weightage: toNum(item.weightage),
-        metric: item.metric || null,
-        unit: item.unit || null,
+        metric: toStr(item.metric),
+        unit: toStr(item.unit),
         annualTarget: toNum(item.annualTarget),
         q1Target: toNum(item.q1Target),
         q2Target: toNum(item.q2Target),
@@ -192,7 +220,8 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
         q2Actual: toNum(item.q2Actual),
         q3Actual: toNum(item.q3Actual),
         q4Actual: toNum(item.q4Actual),
-        remarks: item.remarks || null,
+        remarks: toStr(item.remarks),
+        approvalStatus: "Draft",
       }))
     );
   }
@@ -205,6 +234,7 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
 });
 
 // ─── Version history ──────────────────────────────────────────────────────────
+
 router.get("/kpi-sets/:id/versions", async (req, res): Promise<void> => {
   const setId = parseInt(req.params.id);
   if (isNaN(setId)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -214,7 +244,6 @@ router.get("/kpi-sets/:id/versions", async (req, res): Promise<void> => {
   res.json(rows);
 });
 
-// ─── Download specific version ─────────────────────────────────────────────────
 router.get("/kpi-set-versions/:id/download", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -224,6 +253,7 @@ router.get("/kpi-set-versions/:id/download", async (req, res): Promise<void> => 
 });
 
 // ─── KPI Set Items ─────────────────────────────────────────────────────────────
+
 router.get("/kpi-set-items", async (req, res): Promise<void> => {
   const setId = req.query.setId ? parseInt(req.query.setId as string) : undefined;
   const versionId = req.query.versionId ? parseInt(req.query.versionId as string) : undefined;
@@ -245,6 +275,17 @@ router.patch("/kpi-set-items/:id", async (req, res): Promise<void> => {
     q3Actual: z.string().optional().nullable(),
     q4Actual: z.string().optional().nullable(),
     remarks: z.string().optional().nullable(),
+    kpiName: z.string().optional(),
+    description: z.string().optional().nullable(),
+    category: z.string().optional().nullable(),
+    weightage: z.string().optional().nullable(),
+    metric: z.string().optional().nullable(),
+    unit: z.string().optional().nullable(),
+    annualTarget: z.string().optional().nullable(),
+    q1Target: z.string().optional().nullable(),
+    q2Target: z.string().optional().nullable(),
+    q3Target: z.string().optional().nullable(),
+    q4Target: z.string().optional().nullable(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const [row] = await db.update(kpiSetItemsTable)
@@ -254,28 +295,71 @@ router.patch("/kpi-set-items/:id", async (req, res): Promise<void> => {
   res.json(row);
 });
 
-// ─── Submit for approval ───────────────────────────────────────────────────────
-router.post("/kpi-sets/:id/submit", async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const [row] = await db.update(kpiSetsTable)
-    .set({ status: "Pending", submittedAt: new Date(), updatedAt: new Date() })
-    .where(eq(kpiSetsTable.id, id)).returning();
-  if (!row) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(row);
-});
+// ─── Individual KPI item approval ─────────────────────────────────────────────
 
-// ─── Approve or Reject ────────────────────────────────────────────────────────
-router.post("/kpi-sets/:id/review", async (req, res): Promise<void> => {
+router.patch("/kpi-set-items/:id/review", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = z.object({
     decision: z.enum(["Approved", "Rejected"]),
-    approvedBy: z.number().optional(),
-    approvalComments: z.string().optional(),
+    approvedBy: z.number().optional().nullable(),
+    approvalComments: z.string().optional().nullable(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
-  const [row] = await db.update(kpiSetsTable)
+
+  const [item] = await db.update(kpiSetItemsTable)
+    .set({
+      approvalStatus: body.data.decision,
+      approvedBy: body.data.approvedBy,
+      approvalComments: body.data.approvalComments,
+      approvedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(kpiSetItemsTable.id, id))
+    .returning();
+  if (!item) { res.status(404).json({ error: "Not found" }); return; }
+
+  // Auto-update set status based on all item statuses
+  const allItems = await db.select({ approvalStatus: kpiSetItemsTable.approvalStatus })
+    .from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, item.setId));
+  const allApproved = allItems.every(i => i.approvalStatus === "Approved");
+  const anyRejected = allItems.some(i => i.approvalStatus === "Rejected");
+  const anyPending = allItems.some(i => !["Approved", "Rejected"].includes(i.approvalStatus || ""));
+
+  let newStatus = "Pending";
+  if (allApproved) newStatus = "Approved";
+  else if (!anyPending && anyRejected) newStatus = "Rejected";
+
+  await db.update(kpiSetsTable)
+    .set({ status: newStatus, updatedAt: new Date() })
+    .where(eq(kpiSetsTable.id, item.setId));
+
+  res.json({ ...item, setStatus: newStatus });
+});
+
+// ─── Batch approve/reject all pending items in a set ──────────────────────────
+
+router.post("/kpi-sets/:id/batch-review", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = z.object({
+    decision: z.enum(["Approved", "Rejected"]),
+    approvedBy: z.number().optional().nullable(),
+    approvalComments: z.string().optional().nullable(),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+
+  await db.update(kpiSetItemsTable)
+    .set({
+      approvalStatus: body.data.decision,
+      approvedBy: body.data.approvedBy,
+      approvalComments: body.data.approvalComments,
+      approvedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(kpiSetItemsTable.setId, id));
+
+  const [set] = await db.update(kpiSetsTable)
     .set({
       status: body.data.decision,
       approvedBy: body.data.approvedBy,
@@ -283,6 +367,40 @@ router.post("/kpi-sets/:id/review", async (req, res): Promise<void> => {
       approvedAt: new Date(),
       updatedAt: new Date(),
     })
+    .where(eq(kpiSetsTable.id, id))
+    .returning();
+  if (!set) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(set);
+});
+
+// ─── Submit for approval ───────────────────────────────────────────────────────
+
+router.post("/kpi-sets/:id/submit", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  // Set all items approval_status → Pending
+  await db.update(kpiSetItemsTable)
+    .set({ approvalStatus: "Pending", updatedAt: new Date() })
+    .where(eq(kpiSetItemsTable.setId, id));
+
+  const [row] = await db.update(kpiSetsTable)
+    .set({ status: "Pending", submittedAt: new Date(), updatedAt: new Date() })
+    .where(eq(kpiSetsTable.id, id)).returning();
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(row);
+});
+
+// ─── Recall / revert to Draft ─────────────────────────────────────────────────
+
+router.post("/kpi-sets/:id/recall", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.update(kpiSetItemsTable)
+    .set({ approvalStatus: "Draft", approvedBy: null, approvalComments: null, approvedAt: null, updatedAt: new Date() })
+    .where(eq(kpiSetItemsTable.setId, id));
+  const [row] = await db.update(kpiSetsTable)
+    .set({ status: "Draft", submittedAt: null, updatedAt: new Date() })
     .where(eq(kpiSetsTable.id, id)).returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   res.json(row);

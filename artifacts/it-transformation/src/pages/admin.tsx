@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-type Tab = "settings" | "users" | "masters" | "business-units" | "audit";
+type Tab = "settings" | "users" | "roles" | "masters" | "business-units" | "audit";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
@@ -59,8 +59,8 @@ export default function Admin() {
 
   useEffect(() => {
     const t = new URLSearchParams(search).get("tab") as Tab | null;
-    if (t && ["settings", "users", "masters", "business-units", "audit"].includes(t)) {
-      setTab(t);
+    if (t && ["settings", "users", "roles", "masters", "business-units", "audit"].includes(t)) {
+      setTab(t as Tab);
     }
   }, [search]);
 
@@ -82,6 +82,7 @@ export default function Admin() {
         {([
           ["settings", Settings, "Settings"],
           ["users", Users, "User Management"],
+          ["roles", Shield, "Roles & Permissions"],
           ["masters", Database, "Master Data"],
           ["business-units", Building2, "Business Units"],
           ["audit", Clock, "Audit Trail"],
@@ -101,6 +102,7 @@ export default function Admin() {
 
       {tab === "settings" && <SettingsTab />}
       {tab === "users" && <UsersTab />}
+      {tab === "roles" && <RolesTab />}
       {tab === "masters" && <MastersTab />}
       {tab === "business-units" && <BusinessUnitsTab />}
       {tab === "audit" && <AuditTrailTab />}
@@ -1020,6 +1022,266 @@ function AuditTrailTab() {
           <Button size="sm" variant="outline" disabled={!hasMore} onClick={() => setPage(p => p + 1)}>Next</Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── ROLES TAB ────────────────────────────────────────────────────────────────
+
+const MODULES_LABELS: Record<string, string> = {
+  dashboard: "Executive Dashboard", checklist: "IT Master Checklist", roadmap: "Transformation Roadmap",
+  retirements: "App Retirement Plan", applications: "Application Inventory", aibom: "AI Bill of Materials",
+  sbom: "Software BOM", kpis: "KPI Management", reports: "PPT Reports", admin: "Admin Panel",
+};
+const MODULES = Object.keys(MODULES_LABELS);
+const ACCESS_LEVELS = ["none", "read", "write", "admin"] as const;
+
+interface Role { id: number; name: string; description?: string; isSystem: boolean; createdAt: string; }
+interface RolePermission { id: number; roleId: number; module: string; accessLevel: string; }
+interface UserRole { id: number; userId: number; roleId: number; userName?: string; userEmail?: string; }
+
+function RolesTab() {
+  const { toast } = useToast();
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [permissions, setPermissions] = useState<Record<string, string>>({});
+  const [userRoles, setUserRoles] = useState<UserRole[]>([]);
+  const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newRoleOpen, setNewRoleOpen] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleDesc, setNewRoleDesc] = useState("");
+  const [addUserRoleId, setAddUserRoleId] = useState("");
+
+  const loadRoles = async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch<Role[]>("/roles");
+      setRoles(data);
+      if (!selectedRole && data.length > 0) setSelectedRole(data[0]);
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setLoading(false); }
+  };
+
+  const loadRoleDetails = async (role: Role) => {
+    try {
+      const [perms, urs, users] = await Promise.all([
+        apiFetch<RolePermission[]>(`/roles/${role.id}/permissions`),
+        apiFetch<UserRole[]>(`/roles/${role.id}/users`),
+        apiFetch<AdminUser[]>("/admin/users"),
+      ]);
+      const pm: Record<string, string> = {};
+      for (const m of MODULES) pm[m] = "none";
+      for (const p of perms) pm[p.module] = p.accessLevel;
+      setPermissions(pm);
+      setUserRoles(urs);
+      setAllUsers(users);
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  useEffect(() => { loadRoles(); }, []);
+  useEffect(() => { if (selectedRole) loadRoleDetails(selectedRole); }, [selectedRole]);
+
+  const selectRole = (role: Role) => { setSelectedRole(role); };
+
+  const savePermissions = async () => {
+    if (!selectedRole) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/roles/${selectedRole.id}/permissions`, {
+        method: "PUT",
+        body: JSON.stringify({ permissions: Object.entries(permissions).map(([module, accessLevel]) => ({ module, accessLevel })) }),
+      });
+      toast({ title: "Permissions saved" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const createRole = async () => {
+    if (!newRoleName.trim()) return;
+    try {
+      await apiFetch("/roles", { method: "POST", body: JSON.stringify({ name: newRoleName.trim(), description: newRoleDesc.trim() }) });
+      toast({ title: "Role created" });
+      setNewRoleOpen(false); setNewRoleName(""); setNewRoleDesc("");
+      await loadRoles();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const deleteRole = async (role: Role) => {
+    if (role.isSystem) { toast({ title: "Cannot delete system role", variant: "destructive" }); return; }
+    if (!confirm(`Delete role "${role.name}"?`)) return;
+    try {
+      await apiFetch(`/roles/${role.id}`, { method: "DELETE" });
+      toast({ title: "Role deleted" });
+      setSelectedRole(null);
+      await loadRoles();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const addUserToRole = async () => {
+    if (!selectedRole || !addUserRoleId) return;
+    try {
+      await apiFetch(`/roles/${selectedRole.id}/users`, { method: "POST", body: JSON.stringify({ userId: parseInt(addUserRoleId) }) });
+      toast({ title: "User assigned to role" });
+      setAddUserRoleId("");
+      loadRoleDetails(selectedRole);
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const removeUserFromRole = async (ur: UserRole) => {
+    if (!selectedRole) return;
+    try {
+      await apiFetch(`/roles/${selectedRole.id}/users/${ur.userId}`, { method: "DELETE" });
+      toast({ title: "User removed from role" });
+      loadRoleDetails(selectedRole);
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const usersNotInRole = allUsers.filter(u => !userRoles.some(ur => ur.userId === u.id));
+  const levelColor: Record<string, string> = { none: "text-muted-foreground", read: "text-blue-600 dark:text-blue-400", write: "text-yellow-600 dark:text-yellow-400", admin: "text-red-600 dark:text-red-400" };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Roles &amp; Permissions</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Control what each role can access across all modules.</p>
+        </div>
+        <Button size="sm" onClick={() => setNewRoleOpen(true)}><Plus className="mr-1.5 h-3.5 w-3.5"/>New Role</Button>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full"/>)}</div>
+      ) : (
+        <div className="grid grid-cols-[220px_1fr] gap-4">
+          {/* Role list */}
+          <div className="border border-border rounded-lg overflow-hidden">
+            {roles.map(role => (
+              <button key={role.id} onClick={() => selectRole(role)}
+                className={`w-full text-left px-3 py-2.5 border-b border-border/50 last:border-b-0 transition-colors ${selectedRole?.id === role.id ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/30"}`}>
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{role.name}</p>
+                    {role.description && <p className="text-[10px] text-muted-foreground truncate">{role.description}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                    {role.isSystem && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-400/20 text-blue-600 dark:text-blue-400 font-medium">system</span>}
+                    {!role.isSystem && selectedRole?.id === role.id && (
+                      <button onClick={e => { e.stopPropagation(); deleteRole(role); }} className="text-muted-foreground hover:text-destructive transition-colors">
+                        <Trash2 className="h-3.5 w-3.5"/>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </button>
+            ))}
+            {roles.length === 0 && (
+              <div className="p-4 text-center text-xs text-muted-foreground">No roles yet. Create one above.</div>
+            )}
+          </div>
+
+          {/* Role detail */}
+          {selectedRole ? (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold">{selectedRole.name} — Permissions Matrix</CardTitle>
+                    <Button size="sm" className="h-7 text-xs" onClick={savePermissions} disabled={saving}>{saving ? "Saving…" : "Save Permissions"}</Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30">
+                        <th className="text-left px-4 py-2 text-xs font-semibold">Module</th>
+                        {ACCESS_LEVELS.map(l => (
+                          <th key={l} className="text-center px-3 py-2 text-xs font-semibold capitalize">{l}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {MODULES.map(mod => (
+                        <tr key={mod} className="border-b border-border/50 hover:bg-muted/10">
+                          <td className="px-4 py-2.5 text-sm">{MODULES_LABELS[mod]}</td>
+                          {ACCESS_LEVELS.map(level => (
+                            <td key={level} className="text-center px-3 py-2.5">
+                              <input
+                                type="radio"
+                                name={`perm-${mod}`}
+                                checked={permissions[mod] === level}
+                                onChange={() => setPermissions(p => ({ ...p, [mod]: level }))}
+                                className="w-4 h-4 cursor-pointer accent-primary"
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="flex items-center gap-4 px-4 py-2 border-t border-border/50 text-xs text-muted-foreground">
+                    {ACCESS_LEVELS.map(l => <span key={l} className={levelColor[l]}><strong className="capitalize">{l}</strong>{l === "none" ? " — no access" : l === "read" ? " — view only" : l === "write" ? " — create & edit" : " — full control"}</span>)}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold">Users with this Role</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Select value={addUserRoleId} onValueChange={setAddUserRoleId}>
+                      <SelectTrigger className="h-8 text-xs flex-1"><SelectValue placeholder="Select user to add…"/></SelectTrigger>
+                      <SelectContent>
+                        {usersNotInRole.map(u => <SelectItem key={u.id} value={u.id.toString()}>{u.name} ({u.email})</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" className="h-8" onClick={addUserToRole} disabled={!addUserRoleId}><Plus className="mr-1 h-3.5 w-3.5"/>Add</Button>
+                  </div>
+                  {userRoles.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-3">No users assigned to this role yet.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {userRoles.map(ur => (
+                        <div key={ur.id} className="flex items-center justify-between py-1.5 px-3 border border-border rounded-lg">
+                          <div>
+                            <p className="text-sm font-medium">{ur.userName || `User #${ur.userId}`}</p>
+                            {ur.userEmail && <p className="text-[10px] text-muted-foreground">{ur.userEmail}</p>}
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeUserFromRole(ur)}>
+                            <Minus className="h-3.5 w-3.5"/>
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-48 border border-border rounded-lg text-muted-foreground text-sm">
+              Select a role on the left to manage its permissions.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* New Role Dialog */}
+      <Dialog open={newRoleOpen} onOpenChange={setNewRoleOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Create New Role</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1"><Label className="text-xs">Role Name *</Label><Input className="h-8 text-sm" placeholder="e.g. Compliance Viewer" value={newRoleName} onChange={e => setNewRoleName(e.target.value)}/></div>
+            <div className="space-y-1"><Label className="text-xs">Description</Label><Input className="h-8 text-sm" placeholder="Brief description of this role" value={newRoleDesc} onChange={e => setNewRoleDesc(e.target.value)}/></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setNewRoleOpen(false)}>Cancel</Button>
+            <Button size="sm" onClick={createRole} disabled={!newRoleName.trim()}>Create Role</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

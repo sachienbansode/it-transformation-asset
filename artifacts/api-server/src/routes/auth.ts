@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { eq } from "drizzle-orm";
-import { db, usersTable, settingsTable } from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
+import { db, usersTable, settingsTable, userRolesTable, rolePermissionsTable } from "@workspace/db";
 import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
 import QRCode from "qrcode";
@@ -70,7 +70,23 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     res.status(401).json({ error: "User not found" });
     return;
   }
-  res.json(user);
+
+  const userRoleLinks = await db.select({ roleId: userRolesTable.roleId })
+    .from(userRolesTable).where(eq(userRolesTable.userId, req.session.userId!));
+  const roleIds = userRoleLinks.map(r => r.roleId);
+  const effectivePermissions: Record<string, string> = {};
+  if (roleIds.length > 0) {
+    const perms = await db.select().from(rolePermissionsTable)
+      .where(inArray(rolePermissionsTable.roleId, roleIds));
+    const levels = ["none", "read", "write", "admin"];
+    for (const p of perms) {
+      const current = effectivePermissions[p.module] || "none";
+      if (levels.indexOf(p.accessLevel) > levels.indexOf(current)) {
+        effectivePermissions[p.module] = p.accessLevel;
+      }
+    }
+  }
+  res.json({ ...user, effectivePermissions });
 });
 
 // POST /auth/login

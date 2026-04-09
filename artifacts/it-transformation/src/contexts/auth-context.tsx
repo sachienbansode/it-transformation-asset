@@ -12,12 +12,17 @@ export interface AuthUser {
   mfaEnabled: boolean;
   mfaMethod: "totp" | "sms_otp" | "email_otp";
   status: "active" | "inactive" | "dormant";
+  effectivePermissions?: Record<string, string>;
 }
+
+export type AccessLevel = "read" | "write" | "admin";
 
 interface AuthContextValue {
   user: AuthUser | null;
   isAdmin: boolean;
   loading: boolean;
+  effectivePermissions: Record<string, string>;
+  canAccess: (module: string, level?: AccessLevel) => boolean;
   login: (email: string, password: string) => Promise<{ requiresMfa?: boolean }>;
   loginMfa: (token: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -25,6 +30,8 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+const LEVEL_ORDER = ["none", "read", "write", "admin"];
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -67,9 +74,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const isAdmin = user?.role === "admin";
+  const effectivePermissions = user?.effectivePermissions ?? {};
+
+  const canAccess = useCallback((module: string, level: AccessLevel = "read"): boolean => {
+    if (!user) return false;
+    if (user.role === "admin") return true;
+    const perm = effectivePermissions[module] || "none";
+    return LEVEL_ORDER.indexOf(perm) >= LEVEL_ORDER.indexOf(level);
+  }, [user, effectivePermissions]);
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, login, loginMfa, logout, refresh }}>
+    <AuthContext.Provider value={{
+      user, isAdmin, loading, effectivePermissions, canAccess,
+      login, loginMfa, logout, refresh,
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,1016 +1,1036 @@
-import React, { useState, useMemo, useRef, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/contexts/auth-context";
+import { apiFetch } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useToast } from "@/hooks/use-toast";
-import { apiFetch } from "@/lib/api";
-import { useAuth } from "@/contexts/auth-context";
-import { StatCard } from "@/components/stat-card";
-import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Target, Plus, Upload, Download, History, Edit2, CheckCircle2,
-  XCircle, Send, RefreshCw, Users, ClipboardList, FileSpreadsheet,
-  AlertTriangle, Clock, User, Building2, Calendar, Trash2, Eye,
-  ChevronDown, ChevronUp, Info,
+  Users, Plus, Upload, Download, History, Eye, Send, CheckCircle2, XCircle,
+  ChevronDown, ChevronRight, Maximize2, Minimize2, FileSpreadsheet, ClipboardList,
+  BarChart3, Pencil, Trash2, RefreshCw, AlertTriangle, Target,
+  FolderOpen, RotateCcw, Info,
 } from "lucide-react";
+import TechKpisPage from "@/pages/tech-kpis";
 
-// ─── 2-decimal formatter ───────────────────────────────────────────────────────
-export const fmt2 = (v: string | number | null | undefined, fallback = "—"): string => {
-  if (v === null || v === undefined || v === "") return fallback;
-  const n = typeof v === "string" ? parseFloat(v) : v;
-  if (isNaN(n)) return fallback;
-  return n.toFixed(2);
-};
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
-interface KpiYear { id: number; label: string; startDate: string; endDate: string; isCurrent: boolean; }
+interface KpiYear { id: number; label: string; startDate: string; endDate: string; isActive: boolean; isCurrent: boolean; }
 interface KpiPerson { id: number; name: string; designation: string; department?: string; email?: string; employeeCode?: string; approvingAuthorityId?: number; isActive: boolean; }
-interface KpiSet { id: number; personId: number; yearId: number; status: string; currentVersionId?: number; notes?: string; submittedAt?: string; approvedAt?: string; approvedBy?: number; approvalComments?: string; createdAt: string; updatedAt: string; }
-interface KpiSetVersion { id: number; setId: number; versionNumber: number; fileName?: string; fileSize?: number; itemCount?: number; uploadedBy?: number; comments?: string; isCurrent: boolean; createdAt: string; }
-interface KpiSetItem { id: number; setId: number; versionId: number; sno?: number; kpiName: string; description?: string; category?: string; weightage?: string; metric?: string; unit?: string; annualTarget?: string; q1Target?: string; q2Target?: string; q3Target?: string; q4Target?: string; q1Actual?: string; q2Actual?: string; q3Actual?: string; q4Actual?: string; remarks?: string; }
-interface User { id: number; name: string; email: string; role: string; designation?: string; department?: string; }
-interface ParsedItem { sno: number; kpiName: string; description: string; category: string; weightage: string; metric: string; unit: string; annualTarget: string; q1Target: string; q2Target: string; q3Target: string; q4Target: string; q1Actual: string; q2Actual: string; q3Actual: string; q4Actual: string; remarks: string; }
+interface KpiSet {
+  id: number; personId: number; yearId: number; status: string;
+  currentVersionId?: number; notes?: string; submittedAt?: string;
+  approvedAt?: string; approvedBy?: number; approvalComments?: string;
+  createdAt: string; updatedAt: string; itemCount?: number; versionNumber?: number;
+}
+interface KpiSetVersion { id: number; setId: number; versionNumber: number; fileName?: string; fileData?: string; fileSize?: number; itemCount?: number; uploadedBy?: number; comments?: string; isCurrent: boolean; createdAt: string; }
+interface KpiSetItem {
+  id: number; setId: number; versionId: number; sno?: number;
+  kpiName: string; description?: string; category?: string; weightage?: string;
+  metric?: string; unit?: string; annualTarget?: string;
+  q1Target?: string; q2Target?: string; q3Target?: string; q4Target?: string;
+  q1Actual?: string; q2Actual?: string; q3Actual?: string; q4Actual?: string;
+  remarks?: string;
+  approvalStatus?: string; approvedBy?: number; approvalComments?: string; approvedAt?: string;
+}
+interface ParsedItem {
+  sno: number; kpiName: string; description: string; category: string;
+  weightage: string; metric: string; unit: string; annualTarget: string;
+  q1Target: string; q2Target: string; q3Target: string; q4Target: string;
+  q1Actual: string; q2Actual: string; q3Actual: string; q4Actual: string; remarks: string;
+}
+interface CategoryGroup {
+  category: string; items: KpiSetItem[];
+  totalWeightage: number; avgAchievement: number | null;
+  approvedCount: number; rejectedCount: number; pendingCount: number; totalCount: number;
+}
 
-// ─── Template columns ──────────────────────────────────────────────────────────
-const TEMPLATE_HEADERS = ["S.No", "KPI Name", "Description", "Category", "Weightage (%)", "Metric", "Unit", "Annual Target", "Q1 Target", "Q2 Target", "Q3 Target", "Q4 Target", "Q1 Actual", "Q2 Actual", "Q3 Actual", "Q4 Actual", "Remarks"];
-const DESIGNATIONS = ["CEO", "CFO", "CTO", "COO", "CHRO", "CMO", "CRO", "CCO", "CSO", "President", "Vice President", "Director", "Senior Manager", "Manager", "Associate Vice President", "General Manager"];
-const DEPARTMENTS = ["Technology", "Finance", "Operations", "Human Resources", "Marketing", "Risk & Compliance", "Legal", "Strategy", "Product", "Sales", "Research", "Corporate"];
-const CATEGORIES = ["Financial", "Customer", "Operations", "People & Learning", "Innovation", "Risk & Compliance", "Run", "Change", "Transform"];
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-const STATUS_COLORS: Record<string, string> = {
+const DESIGNATIONS = [
+  "Chief Executive Officer","Chief Financial Officer","Chief Technology Officer","Chief Operating Officer",
+  "Chief Information Officer","Chief Human Resources Officer","Chief Marketing Officer","Chief Strategy Officer",
+  "Vice President","Senior Vice President","Director","Senior Director","General Manager",
+  "Deputy General Manager","Assistant General Manager","Manager","Senior Manager","Head of Department","Team Lead",
+];
+const DEPARTMENTS = [
+  "Technology","Finance","Operations","Human Resources","Marketing","Strategy","Legal",
+  "Risk & Compliance","Sales","Customer Success","Product","Research & Development",
+  "Administration","Business Development","Internal Audit",
+];
+const STATUS_COLORS: Record<string,string> = {
   Draft: "border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10",
-  Pending: "border-yellow-500/30 text-yellow-600 bg-yellow-50 dark:bg-yellow-400/10",
-  Approved: "border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10",
-  Rejected: "border-red-500/30 text-red-600 bg-red-50 dark:bg-red-400/10",
+  Pending: "border-yellow-500/30 text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-400/10",
+  Approved: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-400/10",
+  Rejected: "border-red-500/30 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-400/10",
   Archived: "border-gray-400/30 text-gray-400 bg-gray-50 dark:bg-gray-400/10",
 };
+const TEMPLATE_HEADERS = ["S.No","KPI Name","Description","Category","Weightage (%)","Metric","Unit","Annual Target","Q1 Target","Q2 Target","Q3 Target","Q4 Target","Q1 Actual","Q2 Actual","Q3 Actual","Q4 Actual","Remarks"];
 
-// ─── Hooks ────────────────────────────────────────────────────────────────────
-const useKpiYears = () => useQuery({ queryKey: ["kpi-years"], queryFn: () => apiFetch<KpiYear[]>("/kpi-years") });
-const usePersons = () => useQuery({ queryKey: ["kpi-persons"], queryFn: () => apiFetch<KpiPerson[]>("/kpi-persons") });
-const useKpiSets = (yearId?: number) => useQuery({ queryKey: ["kpi-sets", yearId], queryFn: () => apiFetch<KpiSet[]>(`/kpi-sets${yearId ? `?yearId=${yearId}` : ""}`), enabled: true });
-const useVersions = (setId?: number) => useQuery({ queryKey: ["kpi-set-versions", setId], queryFn: () => apiFetch<KpiSetVersion[]>(`/kpi-sets/${setId}/versions`), enabled: !!setId });
-const useSetItems = (setId?: number) => useQuery({ queryKey: ["kpi-set-items", setId], queryFn: () => apiFetch<KpiSetItem[]>(`/kpi-set-items?setId=${setId}`), enabled: !!setId });
-const useUsers = () => useQuery({ queryKey: ["admin-users"], queryFn: () => apiFetch<User[]>("/admin/users") });
+// ─── Utilities ───────────────────────────────────────────────────────────────
 
-// ─── Excel parser ────────────────────────────────────────────────────────────
-const norm = (k: string) => k.toLowerCase().replace(/[\s_()\-%#.]/g, "");
+const fmt2 = (v: string|number|null|undefined, fallback="—"): string => {
+  if (v===null||v===undefined||v==="") return fallback;
+  const n = parseFloat(String(v));
+  return isNaN(n) ? fallback : n.toFixed(2);
+};
+
+const norm = (k: string) => k.toLowerCase().replace(/[\s_()\-%#./\\:]/g,"");
+
 const parseExcelRows = (data: ArrayBuffer): ParsedItem[] => {
-  const wb = XLSX.read(new Uint8Array(data), { type: "array" });
+  const wb = XLSX.read(data,{type:"array"});
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
-  const get = (row: Record<string, unknown>, ...keys: string[]) => {
+  const raw = XLSX.utils.sheet_to_json<Record<string,unknown>>(ws,{defval:""});
+  const getStr = (row: Record<string,unknown>,...keys: string[]): string => {
     for (const k of keys) {
-      const entry = Object.entries(row).find(([rk]) => norm(rk) === norm(k));
-      if (entry && String(entry[1]).trim() !== "") return String(entry[1]).trim();
+      const nk = norm(k);
+      for (const [rk,rv] of Object.entries(row)) {
+        if (norm(rk)===nk) { const val=rv!==null&&rv!==undefined?String(rv).trim():""; if(val!=="") return val; }
+      }
     }
     return "";
   };
-  return rows.map((r, i) => ({
-    sno: i + 1,
-    kpiName: get(r, "KPI Name", "KPIName", "KPI", "Name"),
-    description: get(r, "Description", "Desc"),
-    category: get(r, "Category"),
-    weightage: get(r, "Weightage (%)", "Weightage", "Weight"),
-    metric: get(r, "Metric"),
-    unit: get(r, "Unit"),
-    annualTarget: get(r, "Annual Target", "AnnualTarget", "Target"),
-    q1Target: get(r, "Q1 Target", "Q1Target", "Q1"),
-    q2Target: get(r, "Q2 Target", "Q2Target", "Q2"),
-    q3Target: get(r, "Q3 Target", "Q3Target", "Q3"),
-    q4Target: get(r, "Q4 Target", "Q4Target", "Q4"),
-    q1Actual: get(r, "Q1 Actual", "Q1Actual"),
-    q2Actual: get(r, "Q2 Actual", "Q2Actual"),
-    q3Actual: get(r, "Q3 Actual", "Q3Actual"),
-    q4Actual: get(r, "Q4 Actual", "Q4Actual"),
-    remarks: get(r, "Remarks", "Notes", "Comment"),
-  })).filter(r => r.kpiName.length > 0);
+  return raw.map((r,i)=>{
+    const snoRaw=getStr(r,"S.No","SNo","No.","No","S No","Sl No","#");
+    const sno=snoRaw?parseInt(snoRaw):i+1;
+    return {
+      sno: isNaN(sno)?i+1:sno,
+      kpiName: getStr(r,"KPI Name","KPIName","Name","kpi_name","KPI"),
+      description: getStr(r,"Description","Desc","Details","KPI Description"),
+      category: getStr(r,"Category","Cat","KPI Category","Category Name","Group"),
+      weightage: getStr(r,"Weightage (%)","Weightage","Weight","Wt%","Wt","wt","Weightage%"),
+      metric: getStr(r,"Metric","Metrics","Measurement","KPI Metric"),
+      unit: getStr(r,"Unit","Units","Measure Unit","UOM"),
+      annualTarget: getStr(r,"Annual Target","AnnualTarget","Annual","Target","Full Year Target"),
+      q1Target: getStr(r,"Q1 Target","Q1Target","Q1T","Q1 T","Q1"),
+      q2Target: getStr(r,"Q2 Target","Q2Target","Q2T","Q2 T","Q2"),
+      q3Target: getStr(r,"Q3 Target","Q3Target","Q3T","Q3 T","Q3"),
+      q4Target: getStr(r,"Q4 Target","Q4Target","Q4T","Q4 T","Q4"),
+      q1Actual: getStr(r,"Q1 Actual","Q1Actual","Q1A","Q1 A","Q1Actuals","Q1 Achievement"),
+      q2Actual: getStr(r,"Q2 Actual","Q2Actual","Q2A","Q2 A","Q2 Achievement"),
+      q3Actual: getStr(r,"Q3 Actual","Q3Actual","Q3A","Q3 A","Q3 Achievement"),
+      q4Actual: getStr(r,"Q4 Actual","Q4Actual","Q4A","Q4 A","Q4 Achievement"),
+      remarks: getStr(r,"Remarks","Notes","Comments","Remark"),
+    };
+  }).filter(r=>r.kpiName!=="");
 };
 
-// ─── Download template ───────────────────────────────────────────────────────
 const downloadTemplate = (yearLabel?: string) => {
-  const wb = XLSX.utils.book_new();
-  const sampleRows = [
-    [1, "IT Infrastructure Uptime", "Measure % uptime across all critical systems", "Operations", "10.00", "% System Availability", "%", "99.90", "99.80", "99.90", "99.90", "99.90", "", "", "", "", "Excludes planned maintenance"],
-    [2, "Revenue Growth", "Annual revenue growth percentage", "Financial", "15.00", "% Growth YoY", "%", "20.00", "15.00", "18.00", "20.00", "22.00", "", "", "", "", "Compared to FY 2025-26"],
-    [3, "Customer Satisfaction Score", "NPS or CSAT from post-service surveys", "Customer", "10.00", "NPS Score (0-100)", "Score", "75.00", "65.00", "70.00", "72.00", "75.00", "", "", "", "", "Survey data from CRM"],
+  const wb=XLSX.utils.book_new();
+  const sampleRows=[
+    [1,"IT Infrastructure Uptime","Measure % uptime across critical systems","Operations","10.00","% Uptime","%","99.50","99.00","99.50","99.50","99.00","","","","","Monthly dashboards"],
+    [2,"Revenue Growth","Annual revenue growth vs previous year","Financial","15.00","% Growth","%","15.00","12.00","13.50","14.00","15.00","","","","",""],
+    [3,"Customer Satisfaction","NPS or CSAT from surveys","Customer","10.00","NPS Score","Score","75.00","70.00","72.00","74.00","75.00","","","","","Quarterly survey"],
+    [4,"Employee Engagement","Annual engagement survey","People","8.00","Score","%","80.00","","","","80.00","","","","","Annual survey"],
+    [5,"Cost Reduction","Cost savings through optimization","Financial","12.00","₹ Lakhs","₹ Lakhs","50.00","10.00","20.00","35.00","50.00","","","","",""],
   ];
-  const wsData = [TEMPLATE_HEADERS, ...sampleRows];
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-  ws["!cols"] = [
-    { wch: 5 }, { wch: 32 }, { wch: 45 }, { wch: 14 }, { wch: 13 },
-    { wch: 22 }, { wch: 8 }, { wch: 14 }, { wch: 10 }, { wch: 10 },
-    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
-    { wch: 10 }, { wch: 28 },
+  const ws=XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS,...sampleRows]);
+  ws["!cols"]=[6,36,32,16,12,16,10,14,10,10,10,10,10,10,10,10,24].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb,ws,"KPI Template");
+  const infoData=[
+    ["Column","Required","Description","Example"],
+    ["S.No","No","Auto-filled if blank","1, 2, 3..."],
+    ["KPI Name","YES","Unique name for this KPI","IT Infrastructure Uptime"],
+    ["Description","No","What is measured","Measure % uptime across critical systems"],
+    ["Category","No","Group (Operations/Financial/Customer/People)","Operations"],
+    ["Weightage (%)","No","Importance weight — total should be 100","10.00"],
+    ["Metric","No","How the KPI is measured","% Uptime"],
+    ["Unit","No","Unit of measurement","%, Days, ₹ Lakhs, Score"],
+    ["Annual Target","No","Target for full financial year","99.50"],
+    ["Q1-Q4 Target","No","Quarterly targets","99.00"],
+    ["Q1-Q4 Actual","No","Actual achievement per quarter (fill post quarter)",""],
+    ["Remarks","No","Notes, context, or observations","Track via dashboards"],
   ];
-
-  const instrData = [
-    ["COLUMN", "DESCRIPTION", "FORMAT / NOTES"],
-    ["S.No", "Row number", "Auto-generated. Leave as-is or leave blank."],
-    ["KPI Name", "Name of the KPI (REQUIRED)", "Keep concise but descriptive"],
-    ["Description", "Detailed explanation", "Can be multi-line"],
-    ["Category", "KPI category", "E.g.: Financial, Customer, Operations, People, Innovation, Risk"],
-    ["Weightage (%)", "Weight of this KPI in scoring", "Total should ideally sum to 100%. 2 decimal places."],
-    ["Metric", "What is measured", "E.g.: % uptime, NPS score, ₹ Lakhs"],
-    ["Unit", "Unit of measurement", "%, Score, Count, ₹, Days, Hours"],
-    ["Annual Target", "Full year target value", "Numeric, 2 decimal places"],
-    ["Q1/Q2/Q3/Q4 Target", "Quarterly target breakdowns", "Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar"],
-    ["Q1/Q2/Q3/Q4 Actual", "Quarterly actual values (optional)", "Fill during execution phase"],
-    ["Remarks", "Notes or context", "Optional"],
-    [""],
-    ["IMPORTANT NOTES"],
-    ["• Do NOT add or remove columns — keep headers exactly as shown"],
-    ["• KPI Name is the only REQUIRED column"],
-    ["• All numeric values should be plain numbers (not formatted with commas or units)"],
-    ["• This template is for " + (yearLabel || "the selected financial year")],
-  ];
-  const wsInstr = XLSX.utils.aoa_to_sheet(instrData);
-  wsInstr["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 55 }];
-  XLSX.utils.book_append_sheet(wb, ws, "KPI Template");
-  XLSX.utils.book_append_sheet(wb, wsInstr, "Instructions");
-  XLSX.writeFile(wb, `KPI_Template_${(yearLabel || "FY").replace(/\s+/g, "_")}.xlsx`);
+  const wsInfo=XLSX.utils.aoa_to_sheet(infoData);
+  wsInfo["!cols"]=[{wch:18},{wch:10},{wch:52},{wch:30}];
+  XLSX.utils.book_append_sheet(wb,wsInfo,"Instructions");
+  XLSX.writeFile(wb,`KPI_Template${yearLabel?`_${yearLabel.replace(/\s+/g,"_")}`:""}.xlsx`);
 };
 
-// ─── Download existing set as Excel ─────────────────────────────────────────
-const downloadSetExcel = (items: KpiSetItem[], person: KpiPerson, year: KpiYear, versionNum?: number) => {
-  const wb = XLSX.utils.book_new();
-  const headers = TEMPLATE_HEADERS;
-  const rows = items.map((item, i) => [
-    item.sno ?? i + 1,
-    item.kpiName,
-    item.description || "",
-    item.category || "",
-    item.weightage ? parseFloat(item.weightage).toFixed(2) : "",
-    item.metric || "",
-    item.unit || "",
-    item.annualTarget ? parseFloat(item.annualTarget).toFixed(2) : "",
-    item.q1Target ? parseFloat(item.q1Target).toFixed(2) : "",
-    item.q2Target ? parseFloat(item.q2Target).toFixed(2) : "",
-    item.q3Target ? parseFloat(item.q3Target).toFixed(2) : "",
-    item.q4Target ? parseFloat(item.q4Target).toFixed(2) : "",
-    item.q1Actual ? parseFloat(item.q1Actual).toFixed(2) : "",
-    item.q2Actual ? parseFloat(item.q2Actual).toFixed(2) : "",
-    item.q3Actual ? parseFloat(item.q3Actual).toFixed(2) : "",
-    item.q4Actual ? parseFloat(item.q4Actual).toFixed(2) : "",
-    item.remarks || "",
+const downloadSetExcel=(items: KpiSetItem[],person: KpiPerson,year: KpiYear)=>{
+  const wb=XLSX.utils.book_new();
+  const headers=[...TEMPLATE_HEADERS,"Approval Status","Approval Comments"];
+  const rows=items.map((item,i)=>[
+    item.sno??i+1,item.kpiName,item.description||"",item.category||"",
+    fmt2(item.weightage,""),item.metric||"",item.unit||"",
+    fmt2(item.annualTarget,""),fmt2(item.q1Target,""),fmt2(item.q2Target,""),fmt2(item.q3Target,""),fmt2(item.q4Target,""),
+    fmt2(item.q1Actual,""),fmt2(item.q2Actual,""),fmt2(item.q3Actual,""),fmt2(item.q4Actual,""),
+    item.remarks||"",item.approvalStatus||"Draft",item.approvalComments||"",
   ]);
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  ws["!cols"] = [
-    { wch: 5 }, { wch: 32 }, { wch: 45 }, { wch: 14 }, { wch: 13 },
-    { wch: 22 }, { wch: 8 }, { wch: 14 }, { wch: 10 }, { wch: 10 },
-    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
-    { wch: 10 }, { wch: 28 },
-  ];
-  XLSX.utils.book_append_sheet(wb, ws, "KPI Data");
-  const vLabel = versionNum ? `_v${versionNum}` : "";
-  XLSX.writeFile(wb, `KPI_${person.name.replace(/\s+/g, "_")}_${year.label.replace(/\s+/g, "_")}${vLabel}.xlsx`);
+  const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+  ws["!cols"]=[6,36,32,16,12,16,10,14,10,10,10,10,10,10,10,10,24,14,36].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb,ws,"KPIs");
+  XLSX.writeFile(wb,`${person.name.replace(/\s+/g,"_")}_${year.label.replace(/\s+/g,"_")}_KPIs.xlsx`);
 };
+
+// ─── Category computation ─────────────────────────────────────────────────────
+
+const computeGroups=(items: KpiSetItem[]): CategoryGroup[]=>{
+  const map=new Map<string,KpiSetItem[]>();
+  for(const item of items){
+    const cat=item.category?.trim()||"Uncategorized";
+    if(!map.has(cat)) map.set(cat,[]);
+    map.get(cat)!.push(item);
+  }
+  return Array.from(map.entries()).map(([category,grpItems])=>{
+    const totalWeightage=grpItems.reduce((s,i)=>s+parseFloat(i.weightage||"0"),0);
+    const achievements: number[]=grpItems.flatMap(i=>{
+      const target=parseFloat(i.annualTarget||"0");
+      const actuals=[i.q4Actual,i.q3Actual,i.q2Actual,i.q1Actual].map(a=>parseFloat(a||"0")).filter(a=>a>0);
+      return target>0&&actuals.length>0?[(actuals[0]/target)*100]:[];
+    });
+    const avgAchievement=achievements.length>0?achievements.reduce((s,a)=>s+a,0)/achievements.length:null;
+    return {
+      category,items:grpItems,totalWeightage,avgAchievement,
+      approvedCount:grpItems.filter(i=>i.approvalStatus==="Approved").length,
+      rejectedCount:grpItems.filter(i=>i.approvalStatus==="Rejected").length,
+      pendingCount:grpItems.filter(i=>!["Approved","Rejected"].includes(i.approvalStatus||"")).length,
+      totalCount:grpItems.length,
+    };
+  });
+};
+
+// ─── Hooks ───────────────────────────────────────────────────────────────────
+
+const useKpiYears=()=>useQuery({queryKey:["kpi-years"],queryFn:()=>apiFetch<KpiYear[]>("/kpi-years")});
+const usePersons=()=>useQuery({queryKey:["kpi-persons"],queryFn:()=>apiFetch<KpiPerson[]>("/kpi-persons")});
+const useKpiSets=(yearId?: number)=>useQuery({queryKey:["kpi-sets",yearId],enabled:!!yearId,queryFn:()=>apiFetch<KpiSet[]>(`/kpi-sets?yearId=${yearId}`)});
+const useVersions=(setId?: number)=>useQuery({queryKey:["kpi-set-versions",setId],enabled:!!setId,queryFn:()=>apiFetch<KpiSetVersion[]>(`/kpi-sets/${setId}/versions`)});
+const useSetItems=(setId?: number)=>useQuery({queryKey:["kpi-set-items",setId],enabled:!!setId,queryFn:()=>apiFetch<KpiSetItem[]>(`/kpi-set-items?setId=${setId}`),refetchOnWindowFocus:false});
 
 // ─── Person Dialog ────────────────────────────────────────────────────────────
-function PersonDialog({ open, person, users, onClose, onSuccess }: {
-  open: boolean; person?: KpiPerson; users: User[]; onClose: () => void; onSuccess: () => void;
-}) {
-  const { toast } = useToast();
-  const nameRef = useRef<HTMLInputElement>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
-  const empCodeRef = useRef<HTMLInputElement>(null);
-  const [designation, setDesignation] = useState(person?.designation || "");
-  const [department, setDepartment] = useState(person?.department || "");
-  const [authorityId, setAuthorityId] = useState(person?.approvingAuthorityId?.toString() || "");
-  const [saving, setSaving] = useState(false);
 
-  const save = async () => {
-    const name = nameRef.current?.value?.trim() || "";
-    const email = emailRef.current?.value?.trim() || "";
-    const employeeCode = empCodeRef.current?.value?.trim() || "";
-    if (!name || !designation) { toast({ title: "Name and Designation are required", variant: "destructive" }); return; }
+function PersonDialog({open,initialPerson,persons,onClose,onSuccess}:{
+  open: boolean; initialPerson: KpiPerson|null; persons: KpiPerson[]; onClose:()=>void; onSuccess:()=>void;
+}){
+  const{toast}=useToast();
+  const[saving,setSaving]=useState(false);
+  const[form,setForm]=useState({name:"",designation:"",department:"",email:"",employeeCode:"",approvingAuthorityId:""});
+  useEffect(()=>{
+    if(initialPerson){setForm({name:initialPerson.name,designation:initialPerson.designation,department:initialPerson.department||"",email:initialPerson.email||"",employeeCode:initialPerson.employeeCode||"",approvingAuthorityId:initialPerson.approvingAuthorityId?.toString()||""});}
+    else{setForm({name:"",designation:"",department:"",email:"",employeeCode:"",approvingAuthorityId:""});}
+  },[initialPerson,open]);
+  const handleSave=async()=>{
+    if(!form.name.trim()||!form.designation){toast({title:"Name and Designation are required",variant:"destructive"});return;}
     setSaving(true);
-    try {
-      const payload = { name, designation, department: department || null, email: email || null, employeeCode: employeeCode || null, approvingAuthorityId: authorityId ? parseInt(authorityId) : null };
-      if (person) await apiFetch(`/kpi-persons/${person.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      else await apiFetch("/kpi-persons", { method: "POST", body: JSON.stringify(payload) });
-      toast({ title: person ? "Person updated" : "Person created" });
-      onSuccess(); onClose();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-    finally { setSaving(false); }
+    try{
+      const body={name:form.name.trim(),designation:form.designation,department:form.department||null,email:form.email||null,employeeCode:form.employeeCode||null,approvingAuthorityId:form.approvingAuthorityId?parseInt(form.approvingAuthorityId):null};
+      if(initialPerson){await apiFetch(`/kpi-persons/${initialPerson.id}`,{method:"PATCH",body:JSON.stringify(body)});toast({title:"Person updated"});}
+      else{await apiFetch("/kpi-persons",{method:"POST",body:JSON.stringify(body)});toast({title:"Person created"});}
+      onSuccess();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    finally{setSaving(false);}
   };
-
-  return (
+  return(
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[520px]">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><User className="h-4 w-4 text-primary" />{person ? "Edit Person" : "New Person"}</DialogTitle></DialogHeader>
-        <div className="grid grid-cols-2 gap-3 py-2">
-          <div className="col-span-2 space-y-1.5">
-            <Label>Employee Name <span className="text-destructive">*</span></Label>
-            <Input ref={nameRef} defaultValue={person?.name || ""} placeholder="Full name" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Designation <span className="text-destructive">*</span></Label>
-            <Select value={designation} onValueChange={setDesignation}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select designation" /></SelectTrigger>
-              <SelectContent>{DESIGNATIONS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Department</Label>
-            <Select value={department} onValueChange={setDepartment}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select department" /></SelectTrigger>
-              <SelectContent>{DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Email</Label>
-            <Input ref={emailRef} defaultValue={person?.email || ""} placeholder="email@ashikagroup.com" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Employee Code</Label>
-            <Input ref={empCodeRef} defaultValue={person?.employeeCode || ""} placeholder="EMP-001" />
-          </div>
-          <div className="col-span-2 space-y-1.5">
-            <Label>Approving Authority</Label>
-            <Select value={authorityId || "__none__"} onValueChange={v => setAuthorityId(v === "__none__" ? "" : v)}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select approver (optional)" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">— None —</SelectItem>
-                {users.map(u => <SelectItem key={u.id} value={u.id.toString()}>{u.name} ({u.role})</SelectItem>)}
-              </SelectContent>
-            </Select>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>{initialPerson?"Edit Person / CXO":"Add Person / CXO"}</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1"><Label className="text-xs">Full Name *</Label><Input className="h-8 text-sm" placeholder="e.g. Sachin Birla" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))}/></div>
+            <div className="space-y-1"><Label className="text-xs">Designation *</Label>
+              <Select value={form.designation} onValueChange={v=>setForm(p=>({...p,designation:v}))}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select"/></SelectTrigger>
+                <SelectContent>{DESIGNATIONS.map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1"><Label className="text-xs">Department</Label>
+              <Select value={form.department} onValueChange={v=>setForm(p=>({...p,department:v}))}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select"/></SelectTrigger>
+                <SelectContent>{DEPARTMENTS.map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1"><Label className="text-xs">Work Email</Label><Input className="h-8 text-sm" placeholder="name@ashikagroup.com" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/></div>
+            <div className="space-y-1"><Label className="text-xs">Employee Code</Label><Input className="h-8 text-sm" placeholder="EMP001" value={form.employeeCode} onChange={e=>setForm(p=>({...p,employeeCode:e.target.value}))}/></div>
+            <div className="col-span-2 space-y-1"><Label className="text-xs">Approving Authority</Label>
+              <Select value={form.approvingAuthorityId} onValueChange={v=>setForm(p=>({...p,approvingAuthorityId:v}))}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select approver"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {persons.filter(p=>!initialPerson||p.id!==initialPerson.id).map(p=><SelectItem key={p.id} value={p.id.toString()}>{p.name} — {p.designation}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
-        <div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button><Button onClick={save} disabled={saving}>{saving ? "Saving…" : person ? "Save Changes" : "Create Person"}</Button></div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={saving}>{saving?"Saving…":"Save"}</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-// ─── Create/Edit KPI Set Dialog ───────────────────────────────────────────────
-function KpiSetDialog({ open, set, persons, years, onClose, onSuccess }: {
-  open: boolean; set?: KpiSet; persons: KpiPerson[]; years: KpiYear[]; onClose: () => void; onSuccess: () => void;
-}) {
-  const { toast } = useToast();
-  const notesRef = useRef<HTMLTextAreaElement>(null);
-  const [personId, setPersonId] = useState(set?.personId?.toString() || "");
-  const [yearId, setYearId] = useState(set?.yearId?.toString() || years.find(y => y.isCurrent)?.id?.toString() || "");
-  const [saving, setSaving] = useState(false);
+// ─── KPI Set Dialog ───────────────────────────────────────────────────────────
 
-  const save = async () => {
-    if (!personId || !yearId) { toast({ title: "Person and Year are required", variant: "destructive" }); return; }
+function KpiSetDialog({open,initialSet,persons,years,onClose,onSuccess}:{
+  open: boolean; initialSet: KpiSet|null; persons: KpiPerson[]; years: KpiYear[]; onClose:()=>void; onSuccess:()=>void;
+}){
+  const{toast}=useToast();
+  const[saving,setSaving]=useState(false);
+  const[personId,setPersonId]=useState("");
+  const[yearId,setYearId]=useState("");
+  const[notes,setNotes]=useState("");
+  useEffect(()=>{
+    if(initialSet){setPersonId(initialSet.personId.toString());setYearId(initialSet.yearId.toString());setNotes(initialSet.notes||"");}
+    else{setPersonId("");setYearId("");setNotes("");}
+  },[initialSet,open]);
+  const handleSave=async()=>{
+    if(!personId||!yearId){toast({title:"Person and Year are required",variant:"destructive"});return;}
     setSaving(true);
-    try {
-      const notes = notesRef.current?.value?.trim() || null;
-      if (set) await apiFetch(`/kpi-sets/${set.id}`, { method: "PATCH", body: JSON.stringify({ notes }) });
-      else await apiFetch("/kpi-sets", { method: "POST", body: JSON.stringify({ personId: parseInt(personId), yearId: parseInt(yearId), notes }) });
-      toast({ title: set ? "KPI Set updated" : "KPI Set created" });
-      onSuccess(); onClose();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-    finally { setSaving(false); }
+    try{
+      if(initialSet){await apiFetch(`/kpi-sets/${initialSet.id}`,{method:"PATCH",body:JSON.stringify({notes})});toast({title:"KPI set updated"});}
+      else{await apiFetch("/kpi-sets",{method:"POST",body:JSON.stringify({personId:parseInt(personId),yearId:parseInt(yearId),notes})});toast({title:"KPI set created"});}
+      onSuccess();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    finally{setSaving(false);}
   };
-
-  return (
+  return(
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><ClipboardList className="h-4 w-4 text-primary" />{set ? "Edit KPI Set" : "Create KPI Set"}</DialogTitle></DialogHeader>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>{initialSet?"Edit KPI Set":"New KPI Set"}</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
-          <div className="space-y-1.5">
-            <Label>Employee Name <span className="text-destructive">*</span></Label>
-            <Select value={personId} onValueChange={setPersonId} disabled={!!set}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select employee" /></SelectTrigger>
-              <SelectContent>{persons.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name} — {p.designation}</SelectItem>)}</SelectContent>
+          <div className="space-y-1"><Label className="text-xs">Person / Employee *</Label>
+            <Select value={personId} onValueChange={setPersonId} disabled={!!initialSet}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select person"/></SelectTrigger>
+              <SelectContent>{persons.map(p=><SelectItem key={p.id} value={p.id.toString()}>{p.name} — {p.designation}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Financial Year <span className="text-destructive">*</span></Label>
-            <Select value={yearId} onValueChange={setYearId} disabled={!!set}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select year" /></SelectTrigger>
-              <SelectContent>{years.map(y => <SelectItem key={y.id} value={y.id.toString()}>{y.label}{y.isCurrent ? " ★" : ""}</SelectItem>)}</SelectContent>
+          <div className="space-y-1"><Label className="text-xs">Financial Year *</Label>
+            <Select value={yearId} onValueChange={setYearId} disabled={!!initialSet}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select year"/></SelectTrigger>
+              <SelectContent>{years.map(y=><SelectItem key={y.id} value={y.id.toString()}>{y.label}{y.isCurrent?" (Current)":""}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Notes (optional)</Label>
-            <Textarea ref={notesRef} defaultValue={set?.notes || ""} rows={2} placeholder="Any notes about this KPI set…" />
-          </div>
+          <div className="space-y-1"><Label className="text-xs">Notes</Label><Textarea className="text-sm min-h-[60px]" placeholder="Optional notes…" value={notes} onChange={e=>setNotes(e.target.value)}/></div>
         </div>
-        <div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button><Button onClick={save} disabled={saving}>{saving ? "Saving…" : set ? "Save Changes" : "Create KPI Set"}</Button></div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={saving}>{saving?"Saving…":"Save"}</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
 // ─── Upload Dialog ────────────────────────────────────────────────────────────
-type UploadStage = "select" | "preview" | "confirm";
 
-function UploadDialog({ open, set, person, year, existingCount, onClose, onSuccess }: {
-  open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear; existingCount: number;
-  onClose: () => void; onSuccess: () => void;
-}) {
-  const { toast } = useToast();
-  const { user } = useAuth();
-  const [stage, setStage] = useState<UploadStage>("select");
-  const [file, setFile] = useState<File | null>(null);
-  const [fileData, setFileData] = useState<string | null>(null);
-  const [items, setItems] = useState<ParsedItem[]>([]);
-  const [parseError, setParseError] = useState<string | null>(null);
-  const [comments, setComments] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+type UploadStep="select"|"preview"|"confirm";
 
-  const reset = () => { setStage("select"); setFile(null); setFileData(null); setItems([]); setParseError(null); setComments(""); setShowAll(false); };
-
-  const handleFileChange = (f: File) => {
-    setFile(f); setParseError(null);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = e.target!.result as ArrayBuffer;
-        const parsed = parseExcelRows(data);
-        if (parsed.length === 0) { setParseError("No valid KPI rows found. Ensure the 'KPI Name' column exists and has data."); return; }
-        const bytes = new Uint8Array(data);
-        let binary = "";
-        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-        setFileData(btoa(binary));
-        setItems(parsed);
-        setStage("preview");
-      } catch (err: any) { setParseError("Failed to parse file: " + err.message); }
-    };
-    reader.readAsArrayBuffer(f);
+function UploadDialog({open,set,person,year,userId,onClose,onSuccess}:{
+  open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear; userId?: number; onClose:()=>void; onSuccess:()=>void;
+}){
+  const{toast}=useToast();
+  const[step,setStep]=useState<UploadStep>("select");
+  const[file,setFile]=useState<File|null>(null);
+  const[parsed,setParsed]=useState<ParsedItem[]>([]);
+  const[comments,setComments]=useState("");
+  const[saving,setSaving]=useState(false);
+  const[fileData,setFileData]=useState<string>("");
+  useEffect(()=>{if(!open){setStep("select");setFile(null);setParsed([]);setComments("");}}, [open]);
+  const handleFile=async(e: React.ChangeEvent<HTMLInputElement>)=>{
+    const f=e.target.files?.[0];
+    if(!f) return;
+    setFile(f);
+    const buf=await f.arrayBuffer();
+    const b64=btoa(String.fromCharCode(...new Uint8Array(buf)));
+    setFileData(b64);
+    try{
+      const rows=parseExcelRows(buf);
+      if(rows.length===0){toast({title:"No KPI rows found",description:"Ensure the file uses the standard template format.",variant:"destructive"});return;}
+      setParsed(rows);setStep("preview");
+    }catch(e:any){toast({title:"Parse error",description:e.message,variant:"destructive"});}
   };
-
-  const upload = async () => {
-    if (!fileData || !file || items.length === 0) return;
-    setUploading(true);
-    try {
-      await apiFetch(`/kpi-sets/${set.id}/upload`, {
-        method: "POST",
-        body: JSON.stringify({ fileName: file.name, fileData, fileSize: file.size, comments: comments || undefined, uploadedBy: (user as any)?.id, items }),
-      });
-      toast({ title: "KPIs uploaded successfully", description: `${items.length} KPIs saved as new version for ${person.name}` });
-      onSuccess(); onClose(); reset();
-    } catch (e: any) { toast({ title: "Upload failed", description: e.message, variant: "destructive" }); }
-    finally { setUploading(false); }
-  };
-
-  const preview = items.slice(0, showAll ? undefined : 8);
-
-  return (
-    <Dialog open={open} onOpenChange={() => { if (!uploading) { reset(); onClose(); } }}>
-      <DialogContent className={cn("transition-all", stage === "preview" ? "sm:max-w-[860px]" : "sm:max-w-[520px]")}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Upload className="h-4 w-4 text-primary" />
-            Upload KPIs — {person.name} · {year.label}
-          </DialogTitle>
-        </DialogHeader>
-
-        {stage === "select" && (
-          <div className="space-y-4 py-2">
-            <div className="rounded-lg bg-muted/50 border border-border p-3 text-xs text-muted-foreground space-y-1">
-              <p className="font-semibold text-foreground">Instructions</p>
-              <p>1. Download the KPI template using "Download Template" and fill in your KPIs.</p>
-              <p>2. Upload the completed Excel file (.xlsx or .xls).</p>
-              <p>3. Review the preview and confirm upload.</p>
-              {existingCount > 0 && <p className="text-yellow-600 dark:text-yellow-400 font-medium mt-1">⚠️ This will replace {existingCount} existing KPIs with new ones.</p>}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => downloadTemplate(year.label)}>
-                <Download className="mr-1.5 h-3.5 w-3.5" /> Download Template
-              </Button>
-            </div>
-            <div
-              className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/40 hover:bg-muted/30 transition-colors"
-              onClick={() => fileRef.current?.click()}
-              onDragOver={e => { e.preventDefault(); }}
-              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileChange(f); }}
-            >
-              <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
-              <p className="text-sm font-medium">Click to browse or drag & drop</p>
-              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xls files</p>
-              <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileChange(f); }} />
-            </div>
-            {parseError && (
-              <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 dark:bg-red-400/10 border border-red-300/50 text-red-700 dark:text-red-400 text-xs">
-                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />{parseError}
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={onClose}>Cancel</Button>
-            </div>
-          </div>
-        )}
-
-        {stage === "preview" && (
-          <div className="space-y-3 py-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="text-xs px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-400/10 text-emerald-700 dark:text-emerald-400 border border-emerald-300/40 font-medium">
-                  {items.length} KPIs parsed from "{file?.name}"
-                </div>
-                {existingCount > 0 && (
-                  <div className="text-xs px-2 py-1 rounded bg-yellow-50 dark:bg-yellow-400/10 text-yellow-700 dark:text-yellow-400 border border-yellow-300/40">
-                    Replaces {existingCount} existing KPIs
-                  </div>
-                )}
-              </div>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { reset(); setStage("select"); }}>
-                ← Back
-              </Button>
-            </div>
-            <div className="border rounded-lg overflow-x-auto max-h-64">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40">
-                    <TableHead className="text-[10px] py-1.5 px-2">#</TableHead>
-                    <TableHead className="text-[10px] py-1.5 px-2 min-w-40">KPI Name</TableHead>
-                    <TableHead className="text-[10px] py-1.5 px-2">Category</TableHead>
-                    <TableHead className="text-[10px] py-1.5 px-2 text-right">Wt.%</TableHead>
-                    <TableHead className="text-[10px] py-1.5 px-2 text-right">Annual</TableHead>
-                    <TableHead className="text-[10px] py-1.5 px-2 text-right">Q1</TableHead>
-                    <TableHead className="text-[10px] py-1.5 px-2 text-right">Q2</TableHead>
-                    <TableHead className="text-[10px] py-1.5 px-2 text-right">Q3</TableHead>
-                    <TableHead className="text-[10px] py-1.5 px-2 text-right">Q4</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {preview.map((item, i) => (
-                    <TableRow key={i} className="text-[11px]">
-                      <TableCell className="py-1 px-2 text-muted-foreground">{item.sno}</TableCell>
-                      <TableCell className="py-1 px-2 font-medium max-w-48"><span className="block truncate">{item.kpiName}</span></TableCell>
-                      <TableCell className="py-1 px-2 text-muted-foreground">{item.category || "—"}</TableCell>
-                      <TableCell className="py-1 px-2 text-right">{fmt2(item.weightage)}</TableCell>
-                      <TableCell className="py-1 px-2 text-right">{fmt2(item.annualTarget)}</TableCell>
-                      <TableCell className="py-1 px-2 text-right">{fmt2(item.q1Target)}</TableCell>
-                      <TableCell className="py-1 px-2 text-right">{fmt2(item.q2Target)}</TableCell>
-                      <TableCell className="py-1 px-2 text-right">{fmt2(item.q3Target)}</TableCell>
-                      <TableCell className="py-1 px-2 text-right">{fmt2(item.q4Target)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            {items.length > 8 && (
-              <button className="text-xs text-primary hover:underline" onClick={() => setShowAll(!showAll)}>
-                {showAll ? "Show less" : `+ ${items.length - 8} more rows`}
-              </button>
-            )}
-            <div className="space-y-1.5">
-              <Label>Version Comments (optional)</Label>
-              <Textarea value={comments} onChange={e => setComments(e.target.value)} rows={2} placeholder="e.g. Initial upload for FY 2026-27, revised targets for Q2…" />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { reset(); }}>Cancel</Button>
-              <Button onClick={() => setStage("confirm")}>Review & Confirm →</Button>
-            </div>
-          </div>
-        )}
-
-        {stage === "confirm" && (
-          <div className="space-y-4 py-2">
-            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
-              <p className="text-sm font-semibold">Confirm Upload</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                <div className="text-muted-foreground">Employee</div><div className="font-medium">{person.name} ({person.designation})</div>
-                <div className="text-muted-foreground">Financial Year</div><div className="font-medium">{year.label}</div>
-                <div className="text-muted-foreground">File</div><div className="font-medium truncate">{file?.name}</div>
-                <div className="text-muted-foreground">KPIs to Upload</div><div className="font-medium text-emerald-600">{items.length} KPIs</div>
-                {existingCount > 0 && <><div className="text-muted-foreground">Existing KPIs</div><div className="font-medium text-red-500">{existingCount} will be replaced</div></>}
-                {comments && <><div className="text-muted-foreground">Comments</div><div className="font-medium">{comments}</div></>}
-              </div>
-            </div>
-            {existingCount > 0 && (
-              <div className="flex items-start gap-2 p-3 rounded-md bg-yellow-50 dark:bg-yellow-400/10 border border-yellow-300/50 text-yellow-700 dark:text-yellow-400 text-xs">
-                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-                <span>The existing <strong>{existingCount} KPIs</strong> for this person and year will be <strong>deleted and replaced</strong> with the new {items.length} KPIs. The old Excel file will still be accessible in Version History.</span>
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setStage("preview")} disabled={uploading}>← Back</Button>
-              <Button onClick={upload} disabled={uploading}>
-                <Upload className="mr-1.5 h-3.5 w-3.5" />{uploading ? "Uploading…" : `Confirm Upload (${items.length} KPIs)`}
-              </Button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Version History Dialog ───────────────────────────────────────────────────
-function HistoryDialog({ open, set, person, year, onClose }: { open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear; onClose: () => void; }) {
-  const { data: versions } = useVersions(set.id);
-  const { toast } = useToast();
-
-  const downloadVersion = async (v: KpiSetVersion) => {
-    try {
-      const result = await apiFetch<{ fileName: string; fileData: string; versionNumber: number }>(`/kpi-set-versions/${v.id}/download`);
-      if (!result.fileData) { toast({ title: "No file data for this version", variant: "destructive" }); return; }
-      const binary = atob(result.fileData);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url;
-      a.download = result.fileName || `KPI_v${result.versionNumber}.xlsx`;
-      a.click(); URL.revokeObjectURL(url);
-    } catch (e: any) { toast({ title: "Download failed", description: e.message, variant: "destructive" }); }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[620px]">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><History className="h-4 w-4 text-primary" />Version History — {person.name} · {year.label}</DialogTitle></DialogHeader>
-        <div className="py-2">
-          {(!versions || versions.length === 0) ? (
-            <p className="text-center text-sm text-muted-foreground py-8">No versions uploaded yet.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/30">
-                  <TableHead className="text-xs">Version</TableHead>
-                  <TableHead className="text-xs">File Name</TableHead>
-                  <TableHead className="text-xs text-center">KPIs</TableHead>
-                  <TableHead className="text-xs">Comments</TableHead>
-                  <TableHead className="text-xs">Uploaded On</TableHead>
-                  <TableHead className="text-xs text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {versions.map(v => (
-                  <TableRow key={v.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-xs font-semibold">v{v.versionNumber}</span>
-                        {v.isCurrent && <Badge className="text-[9px] px-1 py-0 bg-emerald-100 dark:bg-emerald-400/20 text-emerald-700 dark:text-emerald-400 border-emerald-300/40">Current</Badge>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs max-w-36"><span className="truncate block" title={v.fileName || ""}>{v.fileName || "—"}</span></TableCell>
-                    <TableCell className="text-center text-xs font-semibold">{v.itemCount ?? "—"}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-32"><span className="truncate block">{v.comments || "—"}</span></TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => downloadVersion(v)}>
-                        <Download className="h-3 w-3 mr-1" /> Download
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-        <div className="flex justify-end"><Button variant="outline" onClick={onClose}>Close</Button></div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Review Dialog ────────────────────────────────────────────────────────────
-function ReviewDialog({ open, set, person, year, onClose, onSuccess }: {
-  open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear; onClose: () => void; onSuccess: () => void;
-}) {
-  const { toast } = useToast();
-  const { user } = useAuth();
-  const [decision, setDecision] = useState<"Approved" | "Rejected" | "">("");
-  const commentsRef = useRef<HTMLTextAreaElement>(null);
-  const [saving, setSaving] = useState(false);
-
-  const save = async () => {
-    if (!decision) { toast({ title: "Select a decision", variant: "destructive" }); return; }
+  const handleUpload=async()=>{
     setSaving(true);
-    try {
-      await apiFetch(`/kpi-sets/${set.id}/review`, { method: "POST", body: JSON.stringify({ decision, approvedBy: (user as any)?.id, approvalComments: commentsRef.current?.value || undefined }) });
-      toast({ title: `KPIs ${decision} for ${person.name}` });
-      onSuccess(); onClose();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-    finally { setSaving(false); }
+    try{
+      await apiFetch(`/kpi-sets/${set.id}/upload`,{method:"POST",body:JSON.stringify({
+        fileName:file!.name,fileData,fileSize:file!.size,comments,uploadedBy:userId,
+        items:parsed.map(p=>({sno:p.sno,kpiName:p.kpiName,description:p.description,category:p.category,weightage:p.weightage,metric:p.metric,unit:p.unit,annualTarget:p.annualTarget,q1Target:p.q1Target,q2Target:p.q2Target,q3Target:p.q3Target,q4Target:p.q4Target,q1Actual:p.q1Actual,q2Actual:p.q2Actual,q3Actual:p.q3Actual,q4Actual:p.q4Actual,remarks:p.remarks})),
+      })});
+      toast({title:"KPIs uploaded",description:`${parsed.length} KPIs saved as new version.`});
+      onSuccess();
+    }catch(e:any){toast({title:"Upload failed",description:e.message,variant:"destructive"});}
+    finally{setSaving(false);}
   };
-
-  return (
+  const totalWt=parsed.reduce((s,r)=>s+parseFloat(r.weightage||"0"),0);
+  const categories=[...new Set(parsed.map(r=>r.category).filter(Boolean))];
+  return(
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[440px]">
-        <DialogHeader><DialogTitle>Review KPI Set — {person.name}</DialogTitle></DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2">{person.designation} · {year.label}</div>
-          <div className="flex gap-2">
-            <Button variant="outline" className={cn("flex-1 h-10 text-sm", decision === "Approved" && "border-emerald-500 bg-emerald-50 dark:bg-emerald-400/10 text-emerald-700")} onClick={() => setDecision("Approved")}>
-              <CheckCircle2 className="mr-1.5 h-4 w-4" /> Approve
-            </Button>
-            <Button variant="outline" className={cn("flex-1 h-10 text-sm", decision === "Rejected" && "border-red-500 bg-red-50 dark:bg-red-400/10 text-red-600")} onClick={() => setDecision("Rejected")}>
-              <XCircle className="mr-1.5 h-4 w-4" /> Reject
-            </Button>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+        <DialogHeader><DialogTitle className="text-sm font-semibold">Upload KPIs — {person.name} · {year.label}</DialogTitle></DialogHeader>
+        {step==="select"&&(
+          <div className="py-6 flex flex-col items-center gap-4">
+            <div className="border-2 border-dashed border-border rounded-xl p-10 w-full text-center">
+              <FileSpreadsheet className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3"/>
+              <p className="text-sm font-medium mb-1">Select Excel file to upload</p>
+              <p className="text-xs text-muted-foreground mb-4">Use the standard KPI template (.xlsx)</p>
+              <Button size="sm" onClick={()=>document.getElementById("kpi-file-input")?.click()}><Upload className="mr-2 h-4 w-4"/>Choose File</Button>
+              <input id="kpi-file-input" type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile}/>
+            </div>
+            <p className="text-xs text-muted-foreground">Download the template from the main page header.</p>
           </div>
-          <div className="space-y-1.5">
-            <Label>Comments</Label>
-            <Textarea ref={commentsRef} rows={3} placeholder="Approval / rejection comments…" />
+        )}
+        {step==="preview"&&(
+          <div className="flex-1 overflow-hidden flex flex-col gap-3 min-h-0">
+            <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground bg-muted/30 rounded-lg px-3 py-2">
+              <span><strong className="text-foreground">{parsed.length}</strong> KPIs found</span>
+              {categories.length>0&&<span><strong className="text-foreground">{categories.length}</strong> categories: {categories.join(", ")}</span>}
+              <span>Total weightage: <strong className={totalWt>101||(totalWt<99&&totalWt>0)?"text-yellow-600":"text-foreground"}>{totalWt.toFixed(2)}%</strong></span>
+              <span className="ml-auto font-medium text-foreground">{file?.name}</span>
+            </div>
+            <div className="flex-1 overflow-auto border border-border rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm border-b border-border">
+                  <tr>{["#","KPI Name","Category","Description","Metric","Unit","Wt%","Annual","Q1T","Q2T","Q3T","Q4T","Q1A","Q2A","Q3A","Q4A","Remarks"].map(h=><th key={h} className="text-left px-2 py-1.5 font-semibold whitespace-nowrap">{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {parsed.map((r,i)=>(
+                    <tr key={i} className="border-t border-border/40 hover:bg-muted/20">
+                      <td className="px-2 py-1.5 text-muted-foreground">{r.sno}</td>
+                      <td className="px-2 py-1.5 font-medium max-w-36"><div className="truncate" title={r.kpiName}>{r.kpiName}</div></td>
+                      <td className="px-2 py-1.5"><span className={cn("px-1.5 py-0.5 rounded text-[10px]",r.category?"bg-blue-100 text-blue-700 dark:bg-blue-400/20 dark:text-blue-400":"text-muted-foreground")}>{r.category||"—"}</span></td>
+                      <td className="px-2 py-1.5 text-muted-foreground max-w-32"><div className="truncate" title={r.description}>{r.description||"—"}</div></td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{r.metric||"—"}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{r.unit||"—"}</td>
+                      <td className="px-2 py-1.5 text-right font-medium">{fmt2(r.weightage)}</td>
+                      <td className="px-2 py-1.5 text-right">{fmt2(r.annualTarget)}</td>
+                      <td className="px-2 py-1.5 text-right">{fmt2(r.q1Target)}</td>
+                      <td className="px-2 py-1.5 text-right">{fmt2(r.q2Target)}</td>
+                      <td className="px-2 py-1.5 text-right">{fmt2(r.q3Target)}</td>
+                      <td className="px-2 py-1.5 text-right">{fmt2(r.q4Target)}</td>
+                      <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{fmt2(r.q1Actual)}</td>
+                      <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{fmt2(r.q2Actual)}</td>
+                      <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{fmt2(r.q3Actual)}</td>
+                      <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{fmt2(r.q4Actual)}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground max-w-24"><div className="truncate" title={r.remarks}>{r.remarks||"—"}</div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center gap-2 justify-between">
+              <Button variant="outline" size="sm" onClick={()=>setStep("select")}>Back</Button>
+              <Button size="sm" onClick={()=>setStep("confirm")}>Review &amp; Confirm</Button>
+            </div>
           </div>
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={save} disabled={saving || !decision}>{saving ? "Saving…" : "Submit Decision"}</Button>
+        )}
+        {step==="confirm"&&(
+          <div className="space-y-4 py-2">
+            <div className="border border-yellow-500/30 bg-yellow-50 dark:bg-yellow-400/10 rounded-lg p-4">
+              <div className="flex gap-2">
+                <AlertTriangle className="h-4 w-4 text-yellow-600 flex-shrink-0 mt-0.5"/>
+                <div>
+                  <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">Confirm Upload</p>
+                  <p className="text-xs text-yellow-600/80 dark:text-yellow-400/70 mt-1">
+                    This will replace all existing KPIs for <strong>{person.name}</strong> in <strong>{year.label}</strong> with {parsed.length} new KPIs from <strong>{file?.name}</strong>. The previous version will be saved in history.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-1"><Label className="text-xs">Upload comments (optional)</Label><Textarea className="text-sm min-h-[60px]" placeholder="e.g. Updated Q2 targets based on board review…" value={comments} onChange={e=>setComments(e.target.value)}/></div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={()=>setStep("preview")}>Back to Preview</Button>
+              <Button size="sm" onClick={handleUpload} disabled={saving}>{saving?"Uploading…":`Upload ${parsed.length} KPIs`}</Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── History Dialog ───────────────────────────────────────────────────────────
+
+function HistoryDialog({open,set,person,year,onClose}:{
+  open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear; onClose:()=>void;
+}){
+  const{data:versions}=useVersions(open?set.id:undefined);
+  const{toast}=useToast();
+  const handleDownload=async(v: KpiSetVersion)=>{
+    try{
+      const res=await apiFetch<{fileName:string;fileData:string}>(`/kpi-set-versions/${v.id}/download`);
+      const bytes=Uint8Array.from(atob(res.fileData),c=>c.charCodeAt(0));
+      const url=URL.createObjectURL(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+      const a=document.createElement("a");a.href=url;a.download=res.fileName||`version_${v.versionNumber}.xlsx`;a.click();URL.revokeObjectURL(url);
+    }catch(e:any){toast({title:"Download failed",description:e.message,variant:"destructive"});}
+  };
+  return(
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader><DialogTitle className="text-sm">Version History — {person.name} · {year.label}</DialogTitle></DialogHeader>
+        <div className="space-y-2 py-2 max-h-96 overflow-y-auto">
+          {!versions?(<div className="space-y-2">{[1,2,3].map(i=><Skeleton key={i} className="h-14 w-full"/>)}</div>)
+          :versions.length===0?(<p className="text-sm text-muted-foreground text-center py-8">No upload history yet.</p>)
+          :versions.map(v=>(
+            <div key={v.id} className={cn("flex items-center gap-3 p-3 border border-border rounded-lg",v.isCurrent&&"border-primary/40 bg-primary/5")}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold">v{v.versionNumber}</span>
+                  {v.isCurrent&&<Badge variant="outline" className="text-[9px] h-4 border-primary/40 text-primary">Current</Badge>}
+                  <span className="text-[10px] text-muted-foreground">{v.itemCount??0} KPIs</span>
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {new Date(v.createdAt).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"})}
+                  {v.fileName&&<span className="ml-2 italic">— {v.fileName}</span>}
+                </div>
+                {v.comments&&<p className="text-[10px] text-muted-foreground mt-0.5">{v.comments}</p>}
+              </div>
+              {v.fileData&&<Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" onClick={()=>handleDownload(v)} title="Download"><Download className="h-3.5 w-3.5"/></Button>}
+            </div>
+          ))}
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-// ─── KPI Detail Drawer ────────────────────────────────────────────────────────
-function KpiDetailDialog({ open, set, person, year, onClose }: { open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear; onClose: () => void; }) {
-  const { data: items } = useSetItems(set.id);
-  const displayItems = items || [];
+// ─── Approval panel state ─────────────────────────────────────────────────────
 
-  const downloadExcel = () => {
-    if (!items || items.length === 0) return;
-    downloadSetExcel(items, person, year);
-  };
+interface ApprovalPanelState{id:number;decision:"Approved"|"Rejected";}
 
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[1000px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-center justify-between pr-6">
-            <DialogTitle className="flex items-center gap-2">
-              <Eye className="h-4 w-4 text-primary" />
-              {person.name} — {person.designation} · {year.label}
-            </DialogTitle>
-            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={downloadExcel} disabled={displayItems.length === 0}>
-              <Download className="mr-1.5 h-3.5 w-3.5" /> Download Excel
-            </Button>
-          </div>
-        </DialogHeader>
+// ─── KPI Item Row (all columns + inline approval panel) ───────────────────────
+
+function KpiItemRow({item,idx,canApprove,approvalPanel,approvalComment,saving,onPanelChange,onCommentChange,onApprove,colSpanTotal}:{
+  item: KpiSetItem; idx: number; canApprove: boolean;
+  approvalPanel: ApprovalPanelState|null; approvalComment: string; saving: boolean;
+  onPanelChange:(v:ApprovalPanelState|null)=>void;
+  onCommentChange:(v:string)=>void;
+  onApprove:(id:number,decision:"Approved"|"Rejected",comment:string)=>void;
+  colSpanTotal: number;
+}){
+  const isActive=approvalPanel?.id===item.id;
+  const itemPending=!["Approved","Rejected"].includes(item.approvalStatus||"");
+  const rowBg=item.approvalStatus==="Approved"?"bg-emerald-50/40 dark:bg-emerald-400/5":item.approvalStatus==="Rejected"?"bg-red-50/40 dark:bg-red-400/5":"";
+  return(
+    <>
+      <tr className={cn("border-b border-border/40 hover:bg-muted/10 transition-colors",rowBg,isActive&&"bg-blue-50/30 dark:bg-blue-400/5")}>
+        <td className="px-2 py-1.5 text-muted-foreground text-center text-[10px] w-7">{item.sno??idx+1}</td>
+        <td className="px-2 py-1.5 font-medium max-w-44"><div className="truncate text-[11px]" title={item.kpiName}>{item.kpiName}</div></td>
+        <td className="px-2 py-1.5 text-muted-foreground max-w-36"><div className="truncate text-[10px]" title={item.description||""}>{item.description||"—"}</div></td>
+        <td className="px-2 py-1.5 text-[10px] text-muted-foreground">{item.metric||"—"}</td>
+        <td className="px-2 py-1.5 text-[10px] text-muted-foreground">{item.unit||"—"}</td>
+        <td className="px-2 py-1.5 text-right text-[11px] font-medium">{fmt2(item.weightage)}</td>
+        <td className="px-2 py-1.5 text-right text-[11px] font-semibold">{fmt2(item.annualTarget)}</td>
+        <td className="px-2 py-1.5 text-right text-[10px]">{fmt2(item.q1Target)}</td>
+        <td className="px-2 py-1.5 text-right text-[10px]">{fmt2(item.q2Target)}</td>
+        <td className="px-2 py-1.5 text-right text-[10px]">{fmt2(item.q3Target)}</td>
+        <td className="px-2 py-1.5 text-right text-[10px]">{fmt2(item.q4Target)}</td>
+        <td className="px-2 py-1.5 text-right text-[10px] text-blue-600 dark:text-blue-400">{fmt2(item.q1Actual)}</td>
+        <td className="px-2 py-1.5 text-right text-[10px] text-blue-600 dark:text-blue-400">{fmt2(item.q2Actual)}</td>
+        <td className="px-2 py-1.5 text-right text-[10px] text-blue-600 dark:text-blue-400">{fmt2(item.q3Actual)}</td>
+        <td className="px-2 py-1.5 text-right text-[10px] text-blue-600 dark:text-blue-400">{fmt2(item.q4Actual)}</td>
+        <td className="px-2 py-1.5 max-w-28"><div className="truncate text-[10px] text-muted-foreground" title={item.remarks||""}>{item.remarks||"—"}</div></td>
+        <td className="px-2 py-1.5 text-center">
+          <Badge variant="outline" className={cn("text-[9px] px-1 py-0 whitespace-nowrap",STATUS_COLORS[item.approvalStatus||"Draft"]||"")}>{item.approvalStatus||"Draft"}</Badge>
+          {item.approvalComments&&<div className="text-[9px] text-muted-foreground mt-0.5 max-w-20 truncate" title={item.approvalComments}>{item.approvalComments}</div>}
+        </td>
+        {canApprove&&(
+          <td className="px-2 py-1.5 text-center">
+            {itemPending?(
+              <div className="flex items-center justify-center gap-1">
+                <button onClick={()=>{onPanelChange({id:item.id,decision:"Approved"});onCommentChange("");}}
+                  className={cn("p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-400/20 text-emerald-600 transition-colors",isActive&&approvalPanel?.decision==="Approved"&&"bg-emerald-100 dark:bg-emerald-400/20")} title="Approve">
+                  <CheckCircle2 className="h-3.5 w-3.5"/>
+                </button>
+                <button onClick={()=>{onPanelChange({id:item.id,decision:"Rejected"});onCommentChange("");}}
+                  className={cn("p-1 rounded hover:bg-red-100 dark:hover:bg-red-400/20 text-red-600 transition-colors",isActive&&approvalPanel?.decision==="Rejected"&&"bg-red-100 dark:bg-red-400/20")} title="Reject">
+                  <XCircle className="h-3.5 w-3.5"/>
+                </button>
+              </div>
+            ):<span className="text-[10px] text-muted-foreground">—</span>}
+          </td>
+        )}
+      </tr>
+      {isActive&&(
+        <tr className={cn("border-b border-border/40",approvalPanel?.decision==="Approved"?"bg-emerald-50/60 dark:bg-emerald-400/10":"bg-red-50/60 dark:bg-red-400/10")}>
+          <td colSpan={colSpanTotal} className="px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className={cn("text-[11px] font-semibold shrink-0",approvalPanel?.decision==="Approved"?"text-emerald-700 dark:text-emerald-400":"text-red-700 dark:text-red-400")}>
+                {approvalPanel?.decision==="Approved"?"✓ Approving:":"✗ Rejecting:"}{" "}<span className="font-normal text-foreground">{item.kpiName}</span>
+              </span>
+              <input type="text" className="flex-1 h-7 rounded border border-border bg-background px-2 text-xs"
+                placeholder="Add comments (optional)…" value={approvalComment} onChange={e=>onCommentChange(e.target.value)} autoFocus/>
+              <button onClick={()=>onApprove(item.id,approvalPanel!.decision,approvalComment)} disabled={saving}
+                className={cn("h-7 px-3 rounded text-[11px] font-semibold text-white shrink-0 transition-colors",
+                  approvalPanel?.decision==="Approved"?"bg-emerald-600 hover:bg-emerald-700":"bg-red-600 hover:bg-red-700",saving&&"opacity-50 cursor-not-allowed")}>
+                {saving?"Saving…":"Confirm"}
+              </button>
+              <button onClick={()=>{onPanelChange(null);onCommentChange("");}} className="h-7 px-2 rounded text-[11px] border border-border hover:bg-muted shrink-0">Cancel</button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ─── Category Row ─────────────────────────────────────────────────────────────
+
+function CategoryRow({group,expanded,onToggle,canApprove,approvalPanel,approvalComment,saving,onPanelChange,onCommentChange,onApprove}:{
+  group: CategoryGroup; expanded: boolean; onToggle:()=>void; canApprove: boolean;
+  approvalPanel: ApprovalPanelState|null; approvalComment: string; saving: boolean;
+  onPanelChange:(v:ApprovalPanelState|null)=>void;
+  onCommentChange:(v:string)=>void;
+  onApprove:(id:number,decision:"Approved"|"Rejected",comment:string)=>void;
+}){
+  const colCount=canApprove?18:17;
+  return(
+    <div className="border border-border rounded-lg overflow-hidden">
+      <button onClick={onToggle} className="w-full flex items-center gap-2 px-3 py-2.5 bg-muted/50 hover:bg-muted/70 transition-colors text-left">
+        <span className="text-muted-foreground flex-shrink-0">{expanded?<ChevronDown className="h-3.5 w-3.5"/>:<ChevronRight className="h-3.5 w-3.5"/>}</span>
+        <span className="font-semibold text-sm flex-1 min-w-0 truncate">{group.category}</span>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0 flex-wrap justify-end">
+          <span><strong className="text-foreground">{group.totalCount}</strong> KPIs</span>
+          <span className="font-medium text-foreground">{group.totalWeightage.toFixed(2)}% Wt.</span>
+          {group.avgAchievement!==null&&(
+            <span className={cn("font-semibold px-1.5 py-0.5 rounded text-[10px]",
+              group.avgAchievement>=100?"bg-emerald-100 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-400"
+              :group.avgAchievement>=75?"bg-yellow-100 text-yellow-700 dark:bg-yellow-400/20 dark:text-yellow-400"
+              :"bg-red-100 text-red-700 dark:bg-red-400/20 dark:text-red-400")}>
+              {group.avgAchievement.toFixed(1)}% Achv.
+            </span>
+          )}
+          {group.approvedCount>0&&<span className="text-emerald-600 dark:text-emerald-400 text-[10px]">✓ {group.approvedCount}</span>}
+          {group.rejectedCount>0&&<span className="text-red-600 dark:text-red-400 text-[10px]">✗ {group.rejectedCount}</span>}
+          {group.pendingCount>0&&<span className="text-yellow-600 dark:text-yellow-400 text-[10px]">⏳ {group.pendingCount}</span>}
+        </div>
+      </button>
+      {expanded&&(
         <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40">
-                <TableHead className="text-[10px] py-2">#</TableHead>
-                <TableHead className="text-[10px] py-2 min-w-44">KPI Name</TableHead>
-                <TableHead className="text-[10px] py-2">Category</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Wt%</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Annual</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Q1 T</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Q2 T</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Q3 T</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Q4 T</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Q1 A</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Q2 A</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Q3 A</TableHead>
-                <TableHead className="text-[10px] py-2 text-right">Q4 A</TableHead>
-                <TableHead className="text-[10px] py-2">Remarks</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayItems.length === 0 ? (
-                <TableRow><TableCell colSpan={14} className="text-center py-8 text-sm text-muted-foreground">No KPIs uploaded yet. Use "Upload KPIs" to add data.</TableCell></TableRow>
-              ) : displayItems.map((item, i) => (
-                <TableRow key={item.id} className="text-[11px]">
-                  <TableCell className="py-1.5 text-muted-foreground">{item.sno ?? i + 1}</TableCell>
-                  <TableCell className="py-1.5 font-medium max-w-48">
-                    <div className="truncate">{item.kpiName}</div>
-                    {item.description && <div className="text-[10px] text-muted-foreground truncate mt-0.5">{item.description}</div>}
-                  </TableCell>
-                  <TableCell className="py-1.5"><span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{item.category || "—"}</span></TableCell>
-                  <TableCell className="py-1.5 text-right font-medium">{fmt2(item.weightage)}</TableCell>
-                  <TableCell className="py-1.5 text-right font-semibold">{fmt2(item.annualTarget)}</TableCell>
-                  <TableCell className="py-1.5 text-right">{fmt2(item.q1Target)}</TableCell>
-                  <TableCell className="py-1.5 text-right">{fmt2(item.q2Target)}</TableCell>
-                  <TableCell className="py-1.5 text-right">{fmt2(item.q3Target)}</TableCell>
-                  <TableCell className="py-1.5 text-right">{fmt2(item.q4Target)}</TableCell>
-                  <TableCell className="py-1.5 text-right font-medium text-blue-600 dark:text-blue-400">{fmt2(item.q1Actual)}</TableCell>
-                  <TableCell className="py-1.5 text-right font-medium text-blue-600 dark:text-blue-400">{fmt2(item.q2Actual)}</TableCell>
-                  <TableCell className="py-1.5 text-right font-medium text-blue-600 dark:text-blue-400">{fmt2(item.q3Actual)}</TableCell>
-                  <TableCell className="py-1.5 text-right font-medium text-blue-600 dark:text-blue-400">{fmt2(item.q4Actual)}</TableCell>
-                  <TableCell className="py-1.5 text-muted-foreground max-w-28"><span className="truncate block text-[10px]">{item.remarks || "—"}</span></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Main KPIs Page ───────────────────────────────────────────────────────────
-export default function KpisPage() {
-  const { isAdmin, user } = useAuth();
-  const { toast } = useToast();
-  const qc = useQueryClient();
-
-  const { data: years } = useKpiYears();
-  const { data: persons } = usePersons();
-  const { data: users } = useUsers();
-  const [selectedYearId, setSelectedYearId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sets" | "persons">("sets");
-  const [statusFilter, setStatusFilter] = useState("all");
-
-  const currentYear = useMemo(() => {
-    if (!years) return null;
-    if (selectedYearId) return years.find(y => y.id === selectedYearId) || null;
-    return years.find(y => y.isCurrent) || years[0] || null;
-  }, [years, selectedYearId]);
-
-  const effectiveYearId = currentYear?.id;
-  const { data: allSets } = useKpiSets(effectiveYearId);
-
-  const sets = useMemo(() => {
-    if (!allSets) return [];
-    if (statusFilter === "all") return allSets;
-    return allSets.filter(s => s.status === statusFilter);
-  }, [allSets, statusFilter]);
-
-  const refresh = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ["kpi-persons"] });
-    qc.invalidateQueries({ queryKey: ["kpi-sets"] });
-    qc.invalidateQueries({ queryKey: ["kpi-set-items"] });
-    qc.invalidateQueries({ queryKey: ["kpi-set-versions"] });
-  }, [qc]);
-
-  // Dialog state
-  const [personDialog, setPersonDialog] = useState<{ open: boolean; person?: KpiPerson }>({ open: false });
-  const [setDialog, setSetDialog] = useState<{ open: boolean; set?: KpiSet }>({ open: false });
-  const [uploadDialog, setUploadDialog] = useState<{ open: boolean; set?: KpiSet }>({ open: false });
-  const [historyDialog, setHistoryDialog] = useState<{ open: boolean; set?: KpiSet }>({ open: false });
-  const [reviewDialog, setReviewDialog] = useState<{ open: boolean; set?: KpiSet }>({ open: false });
-  const [detailDialog, setDetailDialog] = useState<{ open: boolean; set?: KpiSet }>({ open: false });
-
-  const stats = useMemo(() => {
-    const s = allSets || [];
-    return { total: s.length, draft: s.filter(x => x.status === "Draft").length, pending: s.filter(x => x.status === "Pending").length, approved: s.filter(x => x.status === "Approved").length };
-  }, [allSets]);
-
-  const getPerson = (id: number) => persons?.find(p => p.id === id);
-  const getYear = (id: number) => years?.find(y => y.id === id);
-  const getApprover = (id?: number | null) => id ? users?.find(u => u.id === id) : null;
-
-  const submitSet = async (set: KpiSet) => {
-    try {
-      await apiFetch(`/kpi-sets/${set.id}/submit`, { method: "POST", body: "{}" });
-      toast({ title: "KPI Set submitted for approval" });
-      refresh();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-  };
-
-  const downloadCurrentExcel = async (set: KpiSet) => {
-    const person = getPerson(set.personId);
-    const year = getYear(set.yearId);
-    if (!person || !year) return;
-    try {
-      const items = await apiFetch<KpiSetItem[]>(`/kpi-set-items?setId=${set.id}`);
-      if (items.length === 0) { toast({ title: "No KPIs to download — upload first", variant: "destructive" }); return; }
-      downloadSetExcel(items, person, year);
-    } catch (e: any) { toast({ title: "Download failed", description: e.message, variant: "destructive" }); }
-  };
-
-  const TABS = [{ id: "sets", label: "KPI Sets", icon: ClipboardList }, { id: "persons", label: "Persons / CXOs", icon: Users }] as const;
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-foreground">KPI Management</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Enterprise performance KPIs · All employees · Version controlled</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {years && years.length > 0 && (
-            <Select value={effectiveYearId?.toString() || ""} onValueChange={v => setSelectedYearId(parseInt(v))}>
-              <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Select Year" /></SelectTrigger>
-              <SelectContent>{years.map(y => <SelectItem key={y.id} value={y.id.toString()}>{y.label}{y.isCurrent ? " ★" : ""}</SelectItem>)}</SelectContent>
-            </Select>
-          )}
-          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => downloadTemplate(currentYear?.label)}>
-            <Download className="mr-1.5 h-3.5 w-3.5" /> Download Template
-          </Button>
-          {isAdmin && (
-            <Button size="sm" className="h-8 text-xs" onClick={() => setSetDialog({ open: true })}>
-              <Plus className="mr-1.5 h-3.5 w-3.5" /> New KPI Set
-            </Button>
-          )}
-          <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={refresh}><RefreshCw className="h-3.5 w-3.5" /></Button>
-        </div>
-      </div>
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        <StatCard label="Total Sets" value={stats.total} sub={currentYear?.label || "this year"} icon={ClipboardList} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" borderColor="border-l-blue-400" />
-        <StatCard label="Draft" value={stats.draft} sub="pending upload" icon={FileSpreadsheet} iconBg="bg-gray-50 dark:bg-gray-400/10" iconColor="text-gray-500" borderColor="border-l-gray-400" />
-        <StatCard label="Pending Review" value={stats.pending} sub="awaiting approval" icon={Clock} iconBg="bg-yellow-50 dark:bg-yellow-400/10" iconColor="text-yellow-600" borderColor="border-l-yellow-400" />
-        <StatCard label="Approved" value={stats.approved} sub="finalised" icon={CheckCircle2} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" borderColor="border-l-emerald-400" />
-      </div>
-
-      {/* Tabs */}
-      <div className="flex items-center gap-0.5 border-b border-border">
-        {TABS.map(tab => {
-          const Icon = tab.icon;
-          return (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={cn("flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap",
-                activeTab === tab.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border")}>
-              <Icon className="h-3.5 w-3.5" />{tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ── KPI Sets Tab ──────────────────────────────────────────────────── */}
-      {activeTab === "sets" && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="Draft">Draft</SelectItem>
-                <SelectItem value="Pending">Pending</SelectItem>
-                <SelectItem value="Approved">Approved</SelectItem>
-                <SelectItem value="Rejected">Rejected</SelectItem>
-              </SelectContent>
-            </Select>
-            <span className="text-xs text-muted-foreground">{sets.length} record{sets.length !== 1 ? "s" : ""}</span>
-          </div>
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/30">
-                  <TableHead className="text-xs">Employee</TableHead>
-                  <TableHead className="text-xs">Designation</TableHead>
-                  <TableHead className="text-xs">Year</TableHead>
-                  <TableHead className="text-xs">Approver</TableHead>
-                  <TableHead className="text-xs text-center">Version</TableHead>
-                  <TableHead className="text-xs text-center">KPIs</TableHead>
-                  <TableHead className="text-xs">Status</TableHead>
-                  <TableHead className="text-xs">Last Updated</TableHead>
-                  <TableHead className="text-xs text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sets.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center py-12">
-                      <ClipboardList className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
-                      <p className="text-sm text-muted-foreground">No KPI sets found.</p>
-                      {isAdmin && <p className="text-xs text-muted-foreground mt-1">Click "New KPI Set" to create the first one.</p>}
-                    </TableCell>
-                  </TableRow>
-                )}
-                {sets.map(s => {
-                  const person = getPerson(s.personId);
-                  const year = getYear(s.yearId);
-                  if (!person || !year) return null;
-                  const approver = getApprover(person.approvingAuthorityId);
-                  return (
-                    <TableRow key={s.id} className="hover:bg-muted/20">
-                      <TableCell>
-                        <div>
-                          <p className="text-sm font-semibold">{person.name}</p>
-                          {person.employeeCode && <p className="text-[10px] text-muted-foreground">{person.employeeCode}</p>}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs">{person.designation}</TableCell>
-                      <TableCell className="text-xs font-medium">{year.label}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{approver?.name || "—"}</TableCell>
-                      <TableCell className="text-center">
-                        <SetVersionBadge setId={s.id} />
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <SetItemCount setId={s.id} />
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={cn("text-[10px]", STATUS_COLORS[s.status] || "")}>{s.status}</Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {new Date(s.updatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1 flex-wrap">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" title="View KPIs" onClick={() => setDetailDialog({ open: true, set: s })}><Eye className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Download Excel" onClick={() => downloadCurrentExcel(s)}><Download className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Version History" onClick={() => setHistoryDialog({ open: true, set: s })}><History className="h-3.5 w-3.5" /></Button>
-                          {isAdmin && <>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Upload KPIs" onClick={() => setUploadDialog({ open: true, set: s })}><Upload className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit" onClick={() => setSetDialog({ open: true, set: s })}><Edit2 className="h-3.5 w-3.5" /></Button>
-                            {s.status === "Draft" && <Button variant="ghost" size="icon" className="h-7 w-7 text-yellow-600" title="Submit for Approval" onClick={() => submitSet(s)}><Send className="h-3.5 w-3.5" /></Button>}
-                            {s.status === "Pending" && <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Review/Approve" onClick={() => setReviewDialog({ open: true, set: s })}><CheckCircle2 className="h-3.5 w-3.5" /></Button>}
-                          </>}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </Card>
-        </div>
-      )}
-
-      {/* ── Persons Tab ───────────────────────────────────────────────────── */}
-      {activeTab === "persons" && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">{(persons || []).length} person{(persons?.length || 0) !== 1 ? "s" : ""}</span>
-            {isAdmin && (
-              <Button size="sm" className="h-8 text-xs" onClick={() => setPersonDialog({ open: true })}>
-                <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Person
-              </Button>
-            )}
-          </div>
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/30">
-                  <TableHead className="text-xs">Name</TableHead>
-                  <TableHead className="text-xs">Designation</TableHead>
-                  <TableHead className="text-xs">Department</TableHead>
-                  <TableHead className="text-xs">Email</TableHead>
-                  <TableHead className="text-xs">Approving Authority</TableHead>
-                  <TableHead className="text-xs">Emp. Code</TableHead>
-                  {isAdmin && <TableHead className="text-xs text-right">Actions</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(persons || []).length === 0 && (
-                  <TableRow><TableCell colSpan={7} className="text-center py-10 text-sm text-muted-foreground">No persons added yet. Click "Add Person" to start.</TableCell></TableRow>
-                )}
-                {(persons || []).map(p => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-medium text-sm">{p.name}</TableCell>
-                    <TableCell className="text-xs">{p.designation}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{p.department || "—"}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{p.email || "—"}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{getApprover(p.approvingAuthorityId)?.name || "—"}</TableCell>
-                    <TableCell className="text-xs font-mono text-muted-foreground">{p.employeeCode || "—"}</TableCell>
-                    {isAdmin && (
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPersonDialog({ open: true, person: p })}><Edit2 className="h-3.5 w-3.5" /></Button>
-                      </TableCell>
-                    )}
-                  </TableRow>
+          <table className="w-full">
+            <thead>
+              <tr className="border-t border-border bg-muted/20">
+                {["#","KPI Name","Description","Metric","Unit","Wt%","Annual","Q1 T","Q2 T","Q3 T","Q4 T","Q1 A","Q2 A","Q3 A","Q4 A","Remarks","Status",...(canApprove?["Review"]:[])].map(h=>(
+                  <th key={h} className={cn("px-2 py-1.5 text-[10px] font-semibold text-muted-foreground whitespace-nowrap",
+                    ["Wt%","Annual","Q1 T","Q2 T","Q3 T","Q4 T","Q1 A","Q2 A","Q3 A","Q4 A"].includes(h)?"text-right":"text-left")}>{h}</th>
                 ))}
-              </TableBody>
-            </Table>
-          </Card>
+              </tr>
+            </thead>
+            <tbody>
+              {group.items.map((item,i)=>(
+                <KpiItemRow key={item.id} item={item} idx={i} canApprove={canApprove}
+                  approvalPanel={approvalPanel} approvalComment={approvalComment} saving={saving}
+                  onPanelChange={onPanelChange} onCommentChange={onCommentChange} onApprove={onApprove}
+                  colSpanTotal={colCount}/>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
-
-      {/* ── Dialogs ────────────────────────────────────────────────────────── */}
-      {personDialog.open && (
-        <PersonDialog open users={users || []} person={personDialog.person} onClose={() => setPersonDialog({ open: false })} onSuccess={refresh} />
-      )}
-      {setDialog.open && currentYear && (
-        <KpiSetDialog open set={setDialog.set} persons={persons || []} years={years || []} onClose={() => setSetDialog({ open: false })} onSuccess={refresh} />
-      )}
-      {uploadDialog.open && uploadDialog.set && currentYear && (() => {
-        const person = getPerson(uploadDialog.set!.personId);
-        const year = getYear(uploadDialog.set!.yearId);
-        return person && year ? (
-          <UploadExcelDialogWrapper set={uploadDialog.set!} person={person} year={year} onClose={() => setUploadDialog({ open: false })} onSuccess={refresh} />
-        ) : null;
-      })()}
-      {historyDialog.open && historyDialog.set && (() => {
-        const person = getPerson(historyDialog.set!.personId);
-        const year = getYear(historyDialog.set!.yearId);
-        return person && year ? (
-          <HistoryDialog open set={historyDialog.set!} person={person} year={year} onClose={() => setHistoryDialog({ open: false })} />
-        ) : null;
-      })()}
-      {reviewDialog.open && reviewDialog.set && (() => {
-        const person = getPerson(reviewDialog.set!.personId);
-        const year = getYear(reviewDialog.set!.yearId);
-        return person && year ? (
-          <ReviewDialog open set={reviewDialog.set!} person={person} year={year} onClose={() => setReviewDialog({ open: false })} onSuccess={refresh} />
-        ) : null;
-      })()}
-      {detailDialog.open && detailDialog.set && (() => {
-        const person = getPerson(detailDialog.set!.personId);
-        const year = getYear(detailDialog.set!.yearId);
-        return person && year ? (
-          <KpiDetailDialog open set={detailDialog.set!} person={person} year={year} onClose={() => setDetailDialog({ open: false })} />
-        ) : null;
-      })()}
     </div>
   );
 }
 
-// ─── Helper components with their own data fetching ──────────────────────────
-function SetVersionBadge({ setId }: { setId: number }) {
-  const { data } = useVersions(setId);
-  const current = data?.find(v => v.isCurrent);
-  return <span className="font-mono text-xs text-muted-foreground">{current ? `v${current.versionNumber}` : "—"}</span>;
+// ─── Category Grouped KPI Dialog (full-screen capable) ────────────────────────
+
+function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,onRefresh}:{
+  open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear;
+  isAdmin: boolean; userId?: number; onClose:()=>void; onRefresh:()=>void;
+}){
+  const{data:items,refetch}=useSetItems(open?set.id:undefined);
+  const{toast}=useToast();
+  const[isFullscreen,setIsFullscreen]=useState(false);
+  const[expanded,setExpanded]=useState<Set<string>>(new Set());
+  const[approvalPanel,setApprovalPanel]=useState<ApprovalPanelState|null>(null);
+  const[approvalComment,setApprovalComment]=useState("");
+  const[saving,setSaving]=useState(false);
+  const displayItems=items||[];
+  const groups=useMemo(()=>computeGroups(displayItems),[displayItems]);
+  const allExpanded=groups.length>0&&groups.every(g=>expanded.has(g.category));
+  const canApprove=isAdmin&&set.status==="Pending";
+  const pendingCount=displayItems.filter(i=>!["Approved","Rejected"].includes(i.approvalStatus||"")).length;
+  const approvedCount=displayItems.filter(i=>i.approvalStatus==="Approved").length;
+  const rejectedCount=displayItems.filter(i=>i.approvalStatus==="Rejected").length;
+  const toggleCategory=(cat:string)=>setExpanded(prev=>{const next=new Set(prev);next.has(cat)?next.delete(cat):next.add(cat);return next;});
+  const approveItem=async(itemId:number,decision:"Approved"|"Rejected",comment:string)=>{
+    setSaving(true);
+    try{
+      await apiFetch(`/kpi-set-items/${itemId}/review`,{method:"PATCH",body:JSON.stringify({decision,approvedBy:userId,approvalComments:comment})});
+      toast({title:`KPI ${decision==="Approved"?"approved":"rejected"}`});
+      refetch();onRefresh();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    finally{setSaving(false);setApprovalPanel(null);setApprovalComment("");}
+  };
+  const batchReview=async(decision:"Approved"|"Rejected")=>{
+    if(!confirm(`${decision==="Approved"?"Approve":"Reject"} all pending KPIs in this set?`)) return;
+    setSaving(true);
+    try{
+      await apiFetch(`/kpi-sets/${set.id}/batch-review`,{method:"POST",body:JSON.stringify({decision,approvedBy:userId})});
+      toast({title:`All KPIs ${decision==="Approved"?"approved":"rejected"}`});
+      refetch();onRefresh();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    finally{setSaving(false);}
+  };
+  const contentClass=isFullscreen
+    ?"fixed inset-0 z-50 max-w-full w-full h-full rounded-none flex flex-col overflow-hidden bg-background"
+    :"sm:max-w-[1200px] max-h-[92vh] flex flex-col overflow-hidden";
+  return(
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className={contentClass}>
+        <DialogHeader className="shrink-0 pr-8">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-base font-semibold leading-tight">
+                {person.name}<span className="text-sm font-normal text-muted-foreground ml-2">— {person.designation}</span>
+              </DialogTitle>
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                <span className="text-xs text-muted-foreground">{year.label}</span>
+                {person.department&&<span className="text-xs text-muted-foreground">· {person.department}</span>}
+                <Badge variant="outline" className={cn("text-[10px] px-1.5",STATUS_COLORS[set.status]||"")}>{set.status}</Badge>
+                {displayItems.length>0&&(
+                  <span className="text-xs text-muted-foreground">
+                    {displayItems.length} KPIs · {groups.length} categories
+                    {pendingCount>0&&<span className="text-yellow-600 dark:text-yellow-400 ml-2">· {pendingCount} pending</span>}
+                    {approvedCount>0&&<span className="text-emerald-600 dark:text-emerald-400 ml-1">· {approvedCount} approved</span>}
+                    {rejectedCount>0&&<span className="text-red-600 dark:text-red-400 ml-1">· {rejectedCount} rejected</span>}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+              {displayItems.length>0&&(
+                <>
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={()=>allExpanded?setExpanded(new Set()):setExpanded(new Set(groups.map(g=>g.category)))}>
+                    {allExpanded?"Collapse All":"Expand All"}
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={()=>downloadSetExcel(displayItems,person,year)}><Download className="mr-1 h-3 w-3"/>Download</Button>
+                </>
+              )}
+              {canApprove&&pendingCount>0&&(
+                <>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-emerald-500/50 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-400/10" onClick={()=>batchReview("Approved")} disabled={saving}><CheckCircle2 className="mr-1 h-3 w-3"/>Approve All</Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/50 text-red-600 hover:bg-red-50 dark:hover:bg-red-400/10" onClick={()=>batchReview("Rejected")} disabled={saving}><XCircle className="mr-1 h-3 w-3"/>Reject All</Button>
+                </>
+              )}
+              <button onClick={()=>setIsFullscreen(!isFullscreen)} className="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-muted transition-colors" title={isFullscreen?"Exit fullscreen":"Fullscreen"}>
+                {isFullscreen?<Minimize2 className="h-3.5 w-3.5"/>:<Maximize2 className="h-3.5 w-3.5"/>}
+              </button>
+            </div>
+          </div>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {!items?(<div className="space-y-2 p-1">{[1,2,3].map(i=><Skeleton key={i} className="h-12 w-full"/>)}</div>)
+          :displayItems.length===0?(
+            <div className="flex items-center justify-center h-40 text-center">
+              <div><FolderOpen className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3"/><p className="text-sm text-muted-foreground">No KPIs uploaded yet.</p><p className="text-xs text-muted-foreground mt-1">Use the Upload button on the KPI Sets list to add KPIs via Excel.</p></div>
+            </div>
+          ):(
+            <div className="space-y-2 p-1">
+              {set.approvalComments&&(
+                <div className="flex items-start gap-2 p-3 border border-border rounded-lg bg-muted/20 text-xs text-muted-foreground">
+                  <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5"/><span><strong>Reviewer comment:</strong> {set.approvalComments}</span>
+                </div>
+              )}
+              {groups.map(group=>(
+                <CategoryRow key={group.category} group={group} expanded={expanded.has(group.category)}
+                  onToggle={()=>toggleCategory(group.category)} canApprove={canApprove}
+                  approvalPanel={approvalPanel} approvalComment={approvalComment} saving={saving}
+                  onPanelChange={setApprovalPanel} onCommentChange={setApprovalComment} onApprove={approveItem}/>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
-function SetItemCount({ setId }: { setId: number }) {
-  const { data } = useVersions(setId);
-  const current = data?.find(v => v.isCurrent);
-  return <span className="text-xs font-semibold">{current?.itemCount ?? "—"}</span>;
+
+// ─── Persons Tab ──────────────────────────────────────────────────────────────
+
+function PersonsTab({persons,onEdit,onAdd,isAdmin,onRefresh}:{
+  persons: KpiPerson[]; onEdit:(p:KpiPerson)=>void; onAdd:()=>void; isAdmin: boolean; onRefresh:()=>void;
+}){
+  const{toast}=useToast();
+  const approver=(id?: number)=>persons.find(p=>p.id===id);
+  const handleDelete=async(p:KpiPerson)=>{
+    if(!confirm(`Deactivate ${p.name}?`)) return;
+    try{await apiFetch(`/kpi-persons/${p.id}`,{method:"DELETE"});toast({title:"Person deactivated"});onRefresh();}
+    catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+  };
+  return(
+    <div className="space-y-3">
+      {isAdmin&&<div className="flex justify-end"><Button size="sm" onClick={onAdd}><Plus className="mr-1.5 h-3.5 w-3.5"/>Add Person / CXO</Button></div>}
+      {persons.length===0?(
+        <div className="flex items-center justify-center h-40 text-center"><div><Users className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3"/><p className="text-sm text-muted-foreground">No persons configured yet.</p></div></div>
+      ):(
+        <div className="border border-border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-border bg-muted/30">
+              {["Name","Designation","Department","Employee Code","Email","Approving Authority",...(isAdmin?["Actions"]:[])].map(h=><th key={h} className="text-left px-4 py-2.5 font-medium text-xs">{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {persons.map(p=>(
+                <tr key={p.id} className="border-b border-border/50 hover:bg-muted/20">
+                  <td className="px-4 py-2.5 font-medium text-sm">{p.name}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{p.designation}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{p.department||"—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground font-mono">{p.employeeCode||"—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{p.email||"—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{approver(p.approvingAuthorityId)?.name||"—"}</td>
+                  {isAdmin&&<td className="px-4 py-2.5"><div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onEdit(p)}><Pencil className="h-3.5 w-3.5"/></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={()=>handleDelete(p)}><Trash2 className="h-3.5 w-3.5"/></Button>
+                  </div></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
-function UploadExcelDialogWrapper({ set, person, year, onClose, onSuccess }: { set: KpiSet; person: KpiPerson; year: KpiYear; onClose: () => void; onSuccess: () => void; }) {
-  const { data: versions } = useVersions(set.id);
-  const current = versions?.find(v => v.isCurrent);
-  return <UploadDialog open set={set} person={person} year={year} existingCount={current?.itemCount || 0} onClose={onClose} onSuccess={onSuccess} />;
+
+// ─── KPI Sets Tab ─────────────────────────────────────────────────────────────
+
+function KpiSetsTab({sets,persons,years,statusFilter,onStatusFilter,isAdmin,userId,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onRefresh}:{
+  sets: KpiSet[]; persons: KpiPerson[]; years: KpiYear[];
+  statusFilter: string; onStatusFilter:(s:string)=>void;
+  isAdmin: boolean; userId?: number;
+  onView:(s:KpiSet)=>void; onUpload:(s:KpiSet)=>void; onHistory:(s:KpiSet)=>void;
+  onEdit:(s:KpiSet)=>void; onSubmit:(s:KpiSet)=>void; onDelete:(s:KpiSet)=>void;
+  onRefresh:()=>void;
+}){
+  const{toast}=useToast();
+  const getPerson=(s:KpiSet)=>persons.find(p=>p.id===s.personId);
+  const getYear=(id:number)=>years.find(y=>y.id===id);
+  const handleRecall=async(set:KpiSet)=>{
+    if(!confirm("Recall this submission and revert to Draft?")) return;
+    try{await apiFetch(`/kpi-sets/${set.id}/recall`,{method:"POST"});toast({title:"Submission recalled"});onRefresh();}
+    catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+  };
+  const statusOpts=["all","Draft","Pending","Approved","Rejected"];
+  return(
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        {statusOpts.map(s=>{
+          const cnt=s==="all"?sets.length:sets.filter(x=>x.status===s).length;
+          return(<button key={s} onClick={()=>onStatusFilter(s)}
+            className={cn("px-3 py-1 rounded-full text-xs font-medium border transition-colors",statusFilter===s?"bg-primary text-primary-foreground border-primary":"border-border text-muted-foreground hover:text-foreground")}>
+            {s==="all"?"All":s} ({cnt})</button>);
+        })}
+        <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={onRefresh} title="Refresh"><RefreshCw className="h-3.5 w-3.5"/></Button>
+      </div>
+      {sets.length===0?(
+        <div className="flex items-center justify-center h-48 text-center"><div>
+          <FolderOpen className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3"/>
+          <p className="text-sm text-muted-foreground">No KPI sets found.</p>
+          {isAdmin&&<p className="text-xs text-muted-foreground mt-1">Click "New KPI Set" to create one.</p>}
+        </div></div>
+      ):(
+        <div className="border border-border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border bg-muted/30">
+                {["Person / Employee","Designation","Department","Year","Version","KPIs","Status","Submitted","Actions"].map(h=>(
+                  <th key={h} className={cn("px-4 py-2.5 font-medium text-xs",["Version","KPIs","Status"].includes(h)?"text-center":h==="Actions"?"text-right":"text-left")}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {sets.map(set=>{
+                  const person=getPerson(set); const year=getYear(set.yearId);
+                  return(
+                    <tr key={set.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-2.5">
+                        <div className="font-medium text-sm">{person?.name||"Unknown"}</div>
+                        {person?.email&&<div className="text-[10px] text-muted-foreground">{person.email}</div>}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.designation||"—"}</td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.department||"—"}</td>
+                      <td className="px-4 py-2.5 text-xs">{year?.label||"—"}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        {set.versionNumber?<span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-400/20 text-blue-700 dark:text-blue-400 font-semibold">v{set.versionNumber}</span>:<span className="text-xs text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-center text-sm font-semibold">{set.itemCount??""}</td>
+                      <td className="px-4 py-2.5 text-center"><Badge variant="outline" className={cn("text-[10px]",STATUS_COLORS[set.status]||"")}>{set.status}</Badge></td>
+                      <td className="px-4 py-2.5 text-[10px] text-muted-foreground">
+                        {set.submittedAt?new Date(set.submittedAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"2-digit"}):"—"}
+                      </td>
+                      <td className="px-4 py-2.5"><div className="flex items-center justify-end gap-0.5">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onView(set)} title="View KPIs"><Eye className="h-3.5 w-3.5"/></Button>
+                        {isAdmin&&(
+                          <>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title="Upload KPIs" disabled={set.status==="Approved"}><Upload className="h-3.5 w-3.5"/></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>
+                            {set.status==="Draft"&&(
+                              <>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onEdit(set)} title="Edit"><Pencil className="h-3.5 w-3.5"/></Button>
+                                {set.currentVersionId&&<Button variant="ghost" size="icon" className="h-7 w-7 text-yellow-600" onClick={()=>onSubmit(set)} title="Submit for review"><Send className="h-3.5 w-3.5"/></Button>}
+                              </>
+                            )}
+                            {set.status==="Pending"&&<Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={()=>handleRecall(set)} title="Recall submission"><RotateCcw className="h-3.5 w-3.5"/></Button>}
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={()=>onDelete(set)} title="Archive"><Trash2 className="h-3.5 w-3.5"/></Button>
+                          </>
+                        )}
+                      </div></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function KpisPage(){
+  const{isAdmin,user}=useAuth();
+  const{toast}=useToast();
+  const qc=useQueryClient();
+
+  const[activeTab,setActiveTab]=useState<"sets"|"it-kpis"|"persons">("sets");
+  const[yearFilter,setYearFilter]=useState<number|undefined>();
+  const[statusFilter,setStatusFilter]=useState("all");
+  const[detailSet,setDetailSet]=useState<KpiSet|null>(null);
+  const[uploadSet,setUploadSet]=useState<KpiSet|null>(null);
+  const[historySet,setHistorySet]=useState<KpiSet|null>(null);
+  const[editSet,setEditSet]=useState<KpiSet|"new"|null>(null);
+  const[editPerson,setEditPerson]=useState<KpiPerson|"new"|null>(null);
+
+  const{data:years}=useKpiYears();
+  const{data:persons}=usePersons();
+  const{data:sets}=useKpiSets(yearFilter);
+
+  useEffect(()=>{
+    if(years&&!yearFilter){const cur=years.find(y=>y.isCurrent)||years[0];if(cur) setYearFilter(cur.id);}
+  },[years]);
+
+  const stats=useMemo(()=>{
+    const all=sets||[];
+    return{total:all.length,draft:all.filter(s=>s.status==="Draft").length,pending:all.filter(s=>s.status==="Pending").length,approved:all.filter(s=>s.status==="Approved").length,rejected:all.filter(s=>s.status==="Rejected").length};
+  },[sets]);
+
+  const filteredSets=useMemo(()=>{const all=sets||[];return statusFilter==="all"?all:all.filter(s=>s.status===statusFilter);},[sets,statusFilter]);
+  const getPerson=(set:KpiSet)=>persons?.find(p=>p.id===set.personId);
+  const getYear=(id:number)=>years?.find(y=>y.id===id);
+  const currentYear=years?.find(y=>y.id===yearFilter);
+
+  const refresh=useCallback(()=>{
+    qc.invalidateQueries({queryKey:["kpi-sets"]});
+    qc.invalidateQueries({queryKey:["kpi-set-items"]});
+  },[qc]);
+
+  const handleSubmit=async(set:KpiSet)=>{
+    const person=getPerson(set);
+    if(!confirm(`Submit KPI set for ${person?.name} (${currentYear?.label}) for review? All KPIs will be set to pending individual approval.`)) return;
+    try{
+      await apiFetch(`/kpi-sets/${set.id}/submit`,{method:"POST"});
+      toast({title:"Submitted for review",description:"All KPIs are now pending individual approval."});
+      refresh();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+  };
+
+  const handleDelete=async(set:KpiSet)=>{
+    if(!confirm("Archive this KPI set?")) return;
+    try{await apiFetch(`/kpi-sets/${set.id}`,{method:"DELETE"});toast({title:"KPI set archived"});refresh();}
+    catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+  };
+
+  return(
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Target className="h-6 w-6 text-primary"/>
+          <div>
+            <h1 className="text-xl font-bold">Performance &amp; KPI Management</h1>
+            <p className="text-xs text-muted-foreground">Enterprise-wide performance tracking — CXOs, HR &amp; all employees</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {years&&(
+            <Select value={yearFilter?.toString()} onValueChange={v=>setYearFilter(parseInt(v))}>
+              <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Select year"/></SelectTrigger>
+              <SelectContent>{years.map(y=><SelectItem key={y.id} value={y.id.toString()}>{y.label}{y.isCurrent?" ★":""}</SelectItem>)}</SelectContent>
+            </Select>
+          )}
+          {isAdmin&&activeTab==="sets"&&(
+            <>
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={()=>downloadTemplate(currentYear?.label)}><Download className="mr-1.5 h-3.5 w-3.5"/>Template</Button>
+              <Button size="sm" className="h-8 text-xs" onClick={()=>setEditSet("new")}><Plus className="mr-1.5 h-3.5 w-3.5"/>New KPI Set</Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Stats */}
+      {activeTab==="sets"&&(
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {[{label:"Total Sets",value:stats.total,color:"text-foreground"},{label:"Draft",value:stats.draft,color:"text-gray-500"},{label:"Pending Review",value:stats.pending,color:"text-yellow-600"},{label:"Approved",value:stats.approved,color:"text-emerald-600"},{label:"Rejected",value:stats.rejected,color:"text-red-600"}].map(s=>(
+            <Card key={s.label} className="border-border"><CardContent className="p-3">
+              <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">{s.label}</p>
+              <p className={cn("text-2xl font-bold mt-0.5",s.color)}>{s.value}</p>
+            </CardContent></Card>
+          ))}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-0 border-b border-border">
+        {([["sets",ClipboardList,"KPI Sets"],["it-kpis",BarChart3,"CTO Technology KPIs"],["persons",Users,"Persons / CXOs"]] as [string,React.ElementType,string][]).map(([t,Icon,label])=>(
+          <button key={t} onClick={()=>setActiveTab(t as any)}
+            className={cn("flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",activeTab===t?"border-primary text-primary":"border-transparent text-muted-foreground hover:text-foreground")}>
+            <Icon className="h-4 w-4"/>{label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      {activeTab==="sets"&&(
+        <KpiSetsTab sets={filteredSets} persons={persons||[]} years={years||[]}
+          statusFilter={statusFilter} onStatusFilter={setStatusFilter}
+          isAdmin={isAdmin} userId={user?.id}
+          onView={setDetailSet} onUpload={setUploadSet} onHistory={setHistorySet}
+          onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete} onRefresh={refresh}/>
+      )}
+
+      {activeTab==="it-kpis"&&(
+        <div className="border border-border rounded-xl overflow-hidden">
+          <div className="bg-muted/30 px-4 py-2 border-b border-border">
+            <p className="text-xs text-muted-foreground">CTO Technology KPIs — managed separately with quarterly actuals and scoring model.</p>
+          </div>
+          <div><TechKpisPage/></div>
+        </div>
+      )}
+
+      {activeTab==="persons"&&(
+        <PersonsTab persons={persons||[]} onEdit={p=>setEditPerson(p)} onAdd={()=>setEditPerson("new")}
+          isAdmin={isAdmin} onRefresh={()=>qc.invalidateQueries({queryKey:["kpi-persons"]})}/>
+      )}
+
+      {/* Dialogs */}
+      {detailSet&&(()=>{const person=getPerson(detailSet);const year=getYear(detailSet.yearId);if(!person||!year) return null;
+        return(<CategoryGroupedKpiDialog open={!!detailSet} set={detailSet} person={person} year={year} isAdmin={isAdmin} userId={user?.id} onClose={()=>setDetailSet(null)} onRefresh={refresh}/>);
+      })()}
+      {uploadSet&&(()=>{const person=getPerson(uploadSet);const year=getYear(uploadSet.yearId);if(!person||!year) return null;
+        return(<UploadDialog open={!!uploadSet} set={uploadSet} person={person} year={year} userId={user?.id} onClose={()=>setUploadSet(null)} onSuccess={()=>{setUploadSet(null);refresh();}}/>);
+      })()}
+      {historySet&&(()=>{const person=getPerson(historySet);const year=getYear(historySet.yearId);if(!person||!year) return null;
+        return(<HistoryDialog open={!!historySet} set={historySet} person={person} year={year} onClose={()=>setHistorySet(null)}/>);
+      })()}
+      {editSet!==null&&(
+        <KpiSetDialog open={editSet!==null} initialSet={editSet==="new"?null:editSet} persons={persons||[]} years={years||[]}
+          onClose={()=>setEditSet(null)} onSuccess={()=>{setEditSet(null);refresh();}}/>
+      )}
+      {editPerson!==null&&(
+        <PersonDialog open={editPerson!==null} initialPerson={editPerson==="new"?null:editPerson} persons={persons||[]}
+          onClose={()=>setEditPerson(null)} onSuccess={()=>{setEditPerson(null);qc.invalidateQueries({queryKey:["kpi-persons"]});}}/>
+      )}
+    </div>
+  );
 }

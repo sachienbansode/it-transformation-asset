@@ -7,7 +7,7 @@ import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
-  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, BarChart3, Target, ClipboardList,
+  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -28,24 +28,24 @@ type SidebarState = "expanded" | "collapsed" | "hidden";
 const SIDEBAR_KEY = "ashika-sidebar";
 
 const DRISHTI_ITEMS = [
-  { href: "/", label: "Executive Dashboard", icon: LayoutDashboard },
-  { href: "/checklist", label: "IT Master Checklist", icon: CheckSquare },
-  { href: "/roadmap", label: "Transformation Roadmap", icon: Map },
-  { href: "/retirements", label: "App Retirement Plan", icon: Archive },
-  { href: "/applications", label: "Application Inventory", icon: Server },
-  { href: "/aibom", label: "AI Bill of Materials", icon: BrainCircuit },
-  { href: "/sbom", label: "Software BOM", icon: ShieldCheck },
-  { href: "/tech-kpis", label: "IT KPIs (CTO)", icon: BarChart3 },
-  { href: "/reports", label: "PPT Reports", icon: Presentation },
+  { href: "/", label: "Executive Dashboard", icon: LayoutDashboard, module: "dashboard" },
+  { href: "/checklist", label: "IT Master Checklist", icon: CheckSquare, module: "checklist" },
+  { href: "/roadmap", label: "Transformation Roadmap", icon: Map, module: "roadmap" },
+  { href: "/retirements", label: "App Retirement Plan", icon: Archive, module: "retirements" },
+  { href: "/applications", label: "Application Inventory", icon: Server, module: "applications" },
+  { href: "/aibom", label: "AI Bill of Materials", icon: BrainCircuit, module: "aibom" },
+  { href: "/sbom", label: "Software BOM", icon: ShieldCheck, module: "sbom" },
+  { href: "/reports", label: "PPT Reports", icon: Presentation, module: "reports" },
 ];
 
 const KPI_ITEMS = [
-  { href: "/kpis", label: "KPI Management", icon: ClipboardList },
+  { href: "/kpis", label: "KPI Management", icon: ClipboardList, module: "kpis" },
 ];
 
 const ADMIN_ITEMS = [
   { href: "/admin", label: "Settings", icon: Sliders, tab: "settings" },
   { href: "/admin?tab=users", label: "User Management", icon: Users, tab: "users" },
+  { href: "/admin?tab=roles", label: "Roles & Permissions", icon: Shield, tab: "roles" },
   { href: "/admin?tab=masters", label: "Master Data", icon: Database, tab: "masters" },
   { href: "/admin?tab=business-units", label: "Business Units", icon: Building2, tab: "business-units" },
   { href: "/admin?tab=audit", label: "Audit Trail", icon: Clock, tab: "audit" },
@@ -93,7 +93,7 @@ function SectionLabel({ children, collapsed }: { children: React.ReactNode; coll
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, canAccess } = useAuth();
   const { unit, cycle } = useCurrency();
   const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
@@ -124,8 +124,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
     toast({ title: "Signed out" });
   };
 
+  const visibleDrishtiItems = DRISHTI_ITEMS.filter(item => canAccess(item.module));
+  const visibleKpiItems = KPI_ITEMS.filter(item => canAccess(item.module));
+
   const currentPage =
     DRISHTI_ITEMS.find(i => i.href === "/" ? location === "/" : location.startsWith(i.href))?.label
+    ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? (location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : "");
 
   const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
@@ -147,7 +151,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
             "h-12 flex items-center border-b border-sidebar-border/50 shrink-0 gap-2",
             isCollapsed ? "px-1.5 justify-center" : "px-2.5"
           )}>
-            {/* Collapse toggle — always visible in header */}
             <button
               onClick={() => setSidebarState(isCollapsed ? "expanded" : "collapsed")}
               className="h-7 w-7 flex items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground/80 hover:bg-sidebar-accent transition-colors flex-shrink-0"
@@ -186,28 +189,36 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
           {/* Nav */}
           <nav className="flex-1 px-1.5 py-1.5 space-y-0.5 overflow-y-auto min-h-0">
-            <SectionLabel collapsed={isCollapsed}>IT – Drishti</SectionLabel>
-            {DRISHTI_ITEMS.map(item => (
-              <NavItem
-                key={item.href}
-                href={item.href}
-                label={item.label}
-                icon={item.icon}
-                active={item.href === "/" ? location === "/" : location.startsWith(item.href)}
-                collapsed={isCollapsed}
-              />
-            ))}
-            <SectionLabel collapsed={isCollapsed}>Performance</SectionLabel>
-            {KPI_ITEMS.map(item => (
-              <NavItem
-                key={item.href}
-                href={item.href}
-                label={item.label}
-                icon={item.icon}
-                active={location.startsWith(item.href)}
-                collapsed={isCollapsed}
-              />
-            ))}
+            {visibleDrishtiItems.length > 0 && (
+              <>
+                <SectionLabel collapsed={isCollapsed}>IT – Drishti</SectionLabel>
+                {visibleDrishtiItems.map(item => (
+                  <NavItem
+                    key={item.href}
+                    href={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    active={item.href === "/" ? location === "/" : location.startsWith(item.href)}
+                    collapsed={isCollapsed}
+                  />
+                ))}
+              </>
+            )}
+            {visibleKpiItems.length > 0 && (
+              <>
+                <SectionLabel collapsed={isCollapsed}>Performance</SectionLabel>
+                {visibleKpiItems.map(item => (
+                  <NavItem
+                    key={item.href}
+                    href={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    active={location.startsWith(item.href)}
+                    collapsed={isCollapsed}
+                  />
+                ))}
+              </>
+            )}
             {isAdmin && (
               <>
                 <SectionLabel collapsed={isCollapsed}>Admin</SectionLabel>
@@ -223,11 +234,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 ))}
               </>
             )}
+            {!isAdmin && visibleDrishtiItems.length === 0 && visibleKpiItems.length === 0 && (
+              <div className="px-2.5 py-4 text-center">
+                <p className="text-[10px] text-sidebar-foreground/30 leading-relaxed">
+                  No access configured.<br />Contact your administrator.
+                </p>
+              </div>
+            )}
           </nav>
 
           {/* User footer */}
           <div className="border-t border-sidebar-border/50 shrink-0">
-            {/* User info */}
             {!isCollapsed ? (
               <div className="px-2 pb-2">
                 <div className="flex items-center gap-2">
@@ -283,7 +300,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Header */}
         <header className="h-12 border-b border-border bg-card flex items-center justify-between px-4 shrink-0 gap-3 shadow-sm">
           <div className="flex items-center gap-2 min-w-0">
-            {/* Show/hide sidebar toggle */}
             {isHidden ? (
               <button
                 onClick={() => setSidebarState("expanded")}
