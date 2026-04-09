@@ -1,8 +1,11 @@
 import { Router } from "express";
+import { eq } from "drizzle-orm";
 import {
   db,
   checklistItemsTable,
   roadmapItemsTable,
+  roadmapUploadBatchesTable,
+  auditLogsTable,
   applicationsTable,
   retirementsTable,
   aibomEntriesTable,
@@ -181,9 +184,34 @@ router.post("/roadmap/preview-import", async (req, res): Promise<void> => {
 });
 
 router.post("/roadmap/import", async (req, res): Promise<void> => {
-  const { csv } = req.body as { csv: string };
+  const { csv, fileName } = req.body as { csv: string; fileName?: string };
   const rows = parseCSV(csv);
   const createdBy = await getPerformedBy((req.session as any).userId);
+
+  // Archive all currently active records
+  const now = new Date();
+  const activeRows = await db.select({ id: roadmapItemsTable.id })
+    .from(roadmapItemsTable)
+    .where(eq(roadmapItemsTable.isActive, true));
+  const archivedCount = activeRows.length;
+  if (archivedCount > 0) {
+    await db.update(roadmapItemsTable)
+      .set({ isActive: false, archivedAt: now, archivedBy: createdBy, updatedAt: now } as any)
+      .where(eq(roadmapItemsTable.isActive, true));
+  }
+
+  // Create upload batch record (stores the file content for history)
+  const [batch] = await db.insert(roadmapUploadBatchesTable).values({
+    fileName: fileName || "roadmap.csv",
+    fileContent: csv,
+    uploadedBy: createdBy,
+    rowCount: rows.length,
+    importedCount: 0,
+    skippedCount: 0,
+    archivedCount,
+    rowErrors: "[]",
+  } as any).returning();
+
   let imported = 0, skipped = 0;
   const rowErrors: string[] = [];
   for (let i = 0; i < rows.length; i++) {
@@ -201,6 +229,7 @@ router.post("/roadmap/import", async (req, res): Promise<void> => {
         endDate: parseDate(r.endDate),
         isActive: r.isActive !== undefined ? bool(r.isActive) : true,
         owner: r.owner?.trim() || null,
+        uploadBatchId: batch.id,
         createdBy,
         modifiedBy: createdBy,
       } as any);
@@ -210,7 +239,21 @@ router.post("/roadmap/import", async (req, res): Promise<void> => {
       skipped++;
     }
   }
-  res.json({ imported, skipped, rowErrors });
+
+  // Update batch record with final counts
+  await db.update(roadmapUploadBatchesTable)
+    .set({ importedCount: imported, skippedCount: skipped, rowErrors: JSON.stringify(rowErrors) } as any)
+    .where(eq(roadmapUploadBatchesTable.id, batch.id));
+
+  // Audit log
+  await db.insert(auditLogsTable).values({
+    entityType: "roadmap", entityId: batch.id, action: "import",
+    performedBy: createdBy,
+    summary: `Roadmap CSV imported: ${imported} rows added, ${archivedCount} previous records archived`,
+    newValues: { fileName: fileName || "roadmap.csv", imported, skipped, archivedCount, rowErrors } as any,
+  });
+
+  res.json({ imported, skipped, archivedCount, batchId: batch.id, rowErrors });
 });
 
 // ─── RETIREMENTS ──────────────────────────────────────────────────────────────

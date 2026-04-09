@@ -11,6 +11,25 @@ async function auditKpi(entityId: number, action: string, summary: string, perfo
   try { await db.insert(auditLogsTable).values({ entityType: "kpi_set", entityId, action, performedBy: performedBy || null, summary, newValues: extra || null }); } catch {}
 }
 
+/**
+ * Compute KPI set status from all item approval statuses:
+ *  - All approved → "Approved"
+ *  - All rejected (none approved, none pending) → "Rejected - All"
+ *  - Mix of approved+rejected, no pending → "Approved - Partial"
+ *  - Any still pending → "Pending"
+ */
+function computeSetStatus(statuses: string[]): string {
+  if (!statuses.length) return "Pending";
+  const allApproved = statuses.every(s => s === "Approved");
+  const anyApproved = statuses.some(s => s === "Approved");
+  const anyRejected = statuses.some(s => s === "Rejected");
+  const anyPending  = statuses.some(s => !["Approved", "Rejected"].includes(s));
+  if (allApproved) return "Approved";
+  if (!anyPending && anyRejected && !anyApproved) return "Rejected - All";
+  if (!anyPending && anyRejected && anyApproved) return "Approved - Partial";
+  return "Pending";
+}
+
 const router = Router();
 
 // ─── Persons ─────────────────────────────────────────────────────────────────
@@ -359,13 +378,7 @@ router.patch("/kpi-set-items/:id/review", async (req, res): Promise<void> => {
   // Auto-update set status based on all item statuses
   const allItems = await db.select({ approvalStatus: kpiSetItemsTable.approvalStatus })
     .from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, item.setId));
-  const allApproved = allItems.every(i => i.approvalStatus === "Approved");
-  const anyRejected = allItems.some(i => i.approvalStatus === "Rejected");
-  const anyPending = allItems.some(i => !["Approved", "Rejected"].includes(i.approvalStatus || ""));
-
-  let newStatus = "Pending";
-  if (allApproved) newStatus = "Approved";
-  else if (!anyPending && anyRejected) newStatus = "Rejected";
+  const newStatus = computeSetStatus(allItems.map(i => i.approvalStatus || ""));
 
   await db.update(kpiSetsTable)
     .set({ status: newStatus, updatedAt: new Date() })
@@ -397,9 +410,14 @@ router.post("/kpi-sets/:id/batch-review", async (req, res): Promise<void> => {
     })
     .where(and(eq(kpiSetItemsTable.setId, id), ne(kpiSetItemsTable.approvalStatus, "Approved"), ne(kpiSetItemsTable.approvalStatus, "Rejected")));
 
+  // Recompute set status based on final item statuses
+  const allAfter = await db.select({ approvalStatus: kpiSetItemsTable.approvalStatus })
+    .from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, id));
+  const newStatus = computeSetStatus(allAfter.map(i => i.approvalStatus || ""));
+
   const [set] = await db.update(kpiSetsTable)
     .set({
-      status: body.data.decision,
+      status: newStatus,
       approvedBy: body.data.approvedBy,
       approvalComments: body.data.approvalComments,
       approvedAt: new Date(),
@@ -465,11 +483,16 @@ router.post("/kpi-sets/:id/submit-review", async (req, res): Promise<void> => {
     approvalComments: z.string().optional().nullable(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+  // Compute final set status from all item decisions
+  const allItems = await db.select({ approvalStatus: kpiSetItemsTable.approvalStatus })
+    .from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, id));
+  const finalStatus = computeSetStatus(allItems.map(i => i.approvalStatus || ""));
+
   const [row] = await db.update(kpiSetsTable)
-    .set({ status: "Approved", approvedBy: body.data.approvedBy, approvalComments: body.data.approvalComments, approvedAt: new Date(), updatedAt: new Date() })
+    .set({ status: finalStatus, approvedBy: body.data.approvedBy, approvalComments: body.data.approvalComments, approvedAt: new Date(), updatedAt: new Date() })
     .where(eq(kpiSetsTable.id, id)).returning();
   if (!row) { res.status(404).json({ error: "KPI set not found" }); return; }
-  auditKpi(id, "final_review_submitted", `Final review submitted for KPI set #${id}. Comments: ${body.data.approvalComments||"—"}`, (req.session as any)?.userId?.toString());
+  auditKpi(id, "final_review_submitted", `Final review submitted for KPI set #${id}. Status: ${finalStatus}. Comments: ${body.data.approvalComments||"—"}`, (req.session as any)?.userId?.toString());
   res.json(row);
 });
 

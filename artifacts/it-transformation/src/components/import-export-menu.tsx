@@ -6,7 +6,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { Download, Upload, FileText, AlertTriangle, CheckCircle2, ChevronDown } from "lucide-react";
+import { Download, Upload, FileText, AlertTriangle, CheckCircle2, ChevronDown, Archive } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -22,13 +22,15 @@ interface ImportExportMenuProps {
   module: string;
   label: string;
   onImportSuccess?: () => void;
+  archiveWarning?: string;
 }
 
-export function ImportExportMenu({ module, label, onImportSuccess }: ImportExportMenuProps) {
+export function ImportExportMenu({ module, label, onImportSuccess, archiveWarning }: ImportExportMenuProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [pendingCsv, setPendingCsv] = useState<string | null>(null);
+  const [pendingFileName, setPendingFileName] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
   const handleDownload = async () => {
@@ -60,6 +62,7 @@ export function ImportExportMenu({ module, label, onImportSuccess }: ImportExpor
     }
     const text = await file.text();
     setPendingCsv(text);
+    setPendingFileName(file.name);
     try {
       const result = await apiFetch<ImportPreview>(`/${module}/preview-import`, {
         method: "POST",
@@ -76,13 +79,15 @@ export function ImportExportMenu({ module, label, onImportSuccess }: ImportExpor
     if (!pendingCsv) return;
     setImporting(true);
     try {
-      const result = await apiFetch<{ imported: number; skipped: number }>(`/${module}/import`, {
+      const result = await apiFetch<{ imported: number; skipped: number; archivedCount?: number }>(`/${module}/import`, {
         method: "POST",
-        body: JSON.stringify({ csv: pendingCsv }),
+        body: JSON.stringify({ csv: pendingCsv, fileName: pendingFileName || `${module}.csv` }),
       });
-      toast({ title: `Imported ${result.imported} rows${result.skipped ? `, skipped ${result.skipped}` : ""}` });
+      const archivedMsg = result.archivedCount ? ` (${result.archivedCount} previous records archived)` : "";
+      toast({ title: `Imported ${result.imported} rows${result.skipped ? `, skipped ${result.skipped}` : ""}${archivedMsg}` });
       setPreview(null);
       setPendingCsv(null);
+      setPendingFileName(null);
       onImportSuccess?.();
     } catch (e: any) {
       toast({ title: "Import failed", description: e.message, variant: "destructive" });
@@ -121,13 +126,25 @@ export function ImportExportMenu({ module, label, onImportSuccess }: ImportExpor
       </DropdownMenu>
 
       {/* Import Confirmation Dialog */}
-      <Dialog open={!!preview} onOpenChange={o => { if (!o) { setPreview(null); setPendingCsv(null); } }}>
+      <Dialog open={!!preview} onOpenChange={o => { if (!o) { setPreview(null); setPendingCsv(null); setPendingFileName(null); } }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Import {label} — Review Summary</DialogTitle>
           </DialogHeader>
           {preview && (
             <div className="space-y-4 py-2">
+              {/* Archive warning */}
+              {archiveWarning && (
+                <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-400/10">
+                  <Archive className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 dark:text-amber-300">{archiveWarning}</p>
+                </div>
+              )}
+
+              {pendingFileName && (
+                <p className="text-xs text-muted-foreground">File: <span className="font-medium text-foreground">{pendingFileName}</span></p>
+              )}
+
               {/* Stats */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-lg border border-border p-3 text-center">
@@ -204,7 +221,7 @@ export function ImportExportMenu({ module, label, onImportSuccess }: ImportExpor
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setPreview(null); setPendingCsv(null); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setPreview(null); setPendingCsv(null); setPendingFileName(null); }}>Cancel</Button>
             <Button
               onClick={handleConfirmImport}
               disabled={!preview || preview.valid === 0 || importing}

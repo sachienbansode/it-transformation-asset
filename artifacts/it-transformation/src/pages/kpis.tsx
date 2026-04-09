@@ -73,7 +73,9 @@ const STATUS_COLORS: Record<string,string> = {
   Draft: "border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10",
   Pending: "border-yellow-500/30 text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-400/10",
   Approved: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-400/10",
+  "Approved - Partial": "border-teal-500/30 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-400/10",
   Rejected: "border-red-500/30 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-400/10",
+  "Rejected - All": "border-red-600/50 text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-400/15 font-semibold",
   Archived: "border-gray-400/30 text-gray-400 bg-gray-50 dark:bg-gray-400/10",
 };
 const TEMPLATE_HEADERS = ["S.No","KPI ID","KPI Type","KPI Name","Description","Category (Run/Change/Transform)","Business Alignment","Owner","Weightage (%)","Scoring Logic","Measurement Unit","Annual Target","Q1 Target","Q2 Target","Q3 Target","Q4 Target","Q1 Actual","Q2 Actual","Q3 Actual","Q4 Actual","Data Source","Risk/Dependency","Remarks"];
@@ -689,7 +691,7 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
   const displayItems=items||[];
   const groups=useMemo(()=>computeGroups(displayItems),[displayItems]);
   const allExpanded=groups.length>0&&groups.every(g=>expanded.has(g.category));
-  const canApprove=isAdmin&&set.status==="Pending";
+  const canApprove=isAdmin&&["Pending","Approved - Partial","Rejected - All"].includes(set.status);
   const pendingCount=displayItems.filter(i=>!["Approved","Rejected"].includes(i.approvalStatus||"")).length;
   const approvedCount=displayItems.filter(i=>i.approvalStatus==="Approved").length;
   const rejectedCount=displayItems.filter(i=>i.approvalStatus==="Rejected").length;
@@ -1168,7 +1170,7 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
     try{await apiFetch(`/kpi-sets/${set.id}`,{method:"PATCH",body:JSON.stringify({status:"Draft"})});toast({title:"KPI set restored"});onRefresh();}
     catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
   };
-  const statusOpts=["all","Draft","Pending","Approved","Rejected"];
+  const statusOpts=["all","Draft","Pending","Approved","Approved - Partial","Rejected - All"];
   const renderRows=(rows:KpiSet[],archived=false)=>(
     <div className="border border-border rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
@@ -1211,7 +1213,7 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                   </td>
                   <td className="px-4 py-2.5"><div className="flex items-center justify-end gap-0.5">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onView(set)} title="View KPIs"><Eye className="h-3.5 w-3.5"/></Button>
-                    {!archived&&set.status==="Approved"&&(
+                    {!archived&&["Approved","Approved - Partial"].includes(set.status)&&(
                       <Button variant="ghost" size="icon"
                         className={cn("h-7 w-7",set.actualsStatus==="PendingReview"&&isAdmin?"text-yellow-600 hover:text-yellow-700 bg-yellow-50 dark:bg-yellow-400/10":"text-emerald-600 hover:text-emerald-700")}
                         onClick={()=>onPerformance(set)}
@@ -1221,7 +1223,7 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                     )}
                     {isAdmin&&!archived&&(
                       <>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title="Upload KPIs" disabled={set.status==="Approved"}><Upload className="h-3.5 w-3.5"/></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onUpload(set)} title="Upload KPIs" disabled={["Approved","Approved - Partial","Rejected - All"].includes(set.status)}><Upload className="h-3.5 w-3.5"/></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onHistory(set)} title="Version history"><History className="h-3.5 w-3.5"/></Button>
                         {set.status==="Draft"&&(
                           <>
@@ -1316,7 +1318,7 @@ export default function KpisPage(){
 
   const stats=useMemo(()=>{
     const all=sets||[];
-    return{total:all.length,draft:all.filter(s=>s.status==="Draft").length,pending:all.filter(s=>s.status==="Pending").length,approved:all.filter(s=>s.status==="Approved").length,rejected:all.filter(s=>s.status==="Rejected").length};
+    return{total:all.length,draft:all.filter(s=>s.status==="Draft").length,pending:all.filter(s=>s.status==="Pending").length,approved:all.filter(s=>s.status==="Approved").length,partial:all.filter(s=>s.status==="Approved - Partial").length,rejected:all.filter(s=>s.status==="Rejected - All").length};
   },[sets]);
 
   const filteredSets=useMemo(()=>{const all=sets||[];return statusFilter==="all"?all:all.filter(s=>s.status===statusFilter);},[sets,statusFilter]);
@@ -1375,8 +1377,8 @@ export default function KpisPage(){
 
       {/* Stats */}
       {activeTab==="sets"&&(
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {[{label:"Total Sets",value:stats.total,color:"text-foreground"},{label:"Draft",value:stats.draft,color:"text-gray-500"},{label:"Pending Review",value:stats.pending,color:"text-yellow-600"},{label:"Approved",value:stats.approved,color:"text-emerald-600"},{label:"Rejected",value:stats.rejected,color:"text-red-600"}].map(s=>(
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+          {[{label:"Total Sets",value:stats.total,color:"text-foreground"},{label:"Draft",value:stats.draft,color:"text-gray-500"},{label:"Pending Review",value:stats.pending,color:"text-yellow-600"},{label:"Approved",value:stats.approved,color:"text-emerald-600"},{label:"Partial Approval",value:stats.partial,color:"text-teal-600"},{label:"Rejected All",value:stats.rejected,color:"text-red-600"}].map(s=>(
             <Card key={s.label} className="border-border"><CardContent className="p-3">
               <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">{s.label}</p>
               <p className={cn("text-2xl font-bold mt-0.5",s.color)}>{s.value}</p>

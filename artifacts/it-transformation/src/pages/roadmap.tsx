@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { useListRoadmapItems, useCreateRoadmapItem, useUpdateRoadmapItem, useDeleteRoadmapItem, getListRoadmapItemsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus, Trash2, Edit, Eye, EyeOff, ChevronRight,
   IndianRupee, Calendar, ChevronDown, ChevronUp,
-  ListTodo, CheckCircle2, Clock,
+  ListTodo, CheckCircle2, Clock, History, ActivitySquare, Download, RotateCcw,
 } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import type { RoadmapItem } from "@workspace/api-client-react";
@@ -24,6 +24,18 @@ import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
 import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
+
+interface UploadBatch {
+  id: number; fileName: string | null; uploadedBy: string | null;
+  rowCount: number; importedCount: number; skippedCount: number; archivedCount: number;
+  rowErrors: string; createdAt: string;
+}
+
+interface AuditLog {
+  id: number; entityType: string; entityId: number | null; action: string;
+  performedBy: string | null; summary: string; performedAt: string;
+}
 
 const PAGE_SIZE = 10;
 
@@ -230,6 +242,52 @@ export default function Roadmap() {
   const [formData, setFormData] = useState<FormData>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Upload History & Audit Trail
+  const [showHistoryDialog, setShowHistoryDialog] = useState(false);
+  const [showAuditDialog, setShowAuditDialog] = useState(false);
+  const [uploadHistory, setUploadHistory] = useState<UploadBatch[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [restoringBatch, setRestoringBatch] = useState<number | null>(null);
+
+  const loadUploadHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try { const data = await apiFetch<UploadBatch[]>("/roadmap/upload-history"); setUploadHistory(data); }
+    catch (e: any) { toast({ title: "Failed to load history", description: e.message, variant: "destructive" }); }
+    finally { setLoadingHistory(false); }
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    setLoadingAudit(true);
+    try { const data = await apiFetch<AuditLog[]>("/roadmap/audit-trail"); setAuditLogs(data); }
+    catch (e: any) { toast({ title: "Failed to load audit trail", description: e.message, variant: "destructive" }); }
+    finally { setLoadingAudit(false); }
+  }, []);
+
+  useEffect(() => { if (showHistoryDialog) loadUploadHistory(); }, [showHistoryDialog]);
+  useEffect(() => { if (showAuditDialog) loadAuditLogs(); }, [showAuditDialog]);
+
+  const handleRestoreBatch = async (batchId: number) => {
+    if (!confirm("Restore this upload? All current active initiatives will be archived and replaced by this batch.")) return;
+    setRestoringBatch(batchId);
+    try {
+      await apiFetch(`/roadmap/upload-history/${batchId}/restore`, { method: "POST" });
+      toast({ title: "Batch restored successfully" });
+      queryClient.invalidateQueries({ queryKey: getListRoadmapItemsQueryKey() });
+      setShowHistoryDialog(false);
+    } catch (e: any) { toast({ title: "Restore failed", description: e.message, variant: "destructive" }); }
+    finally { setRestoringBatch(null); }
+  };
+
+  const handleDownloadBatch = (batchId: number, fileName: string | null) => {
+    const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+    const link = document.createElement("a");
+    link.href = `${BASE}/api/roadmap/upload-history/${batchId}/download`;
+    link.download = fileName || `batch-${batchId}.csv`;
+    link.click();
+  };
+
   const filteredItems = useMemo(() => {
     if (!items) return [];
     return items.filter(item => {
@@ -326,9 +384,20 @@ export default function Roadmap() {
           <p className="text-xs text-muted-foreground mt-0.5">{items?.length ?? 0} initiatives · {completedCount} completed · {inProgressCount} in progress</p>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowHistoryDialog(true)}>
+                <History className="h-4 w-4" /> Upload History
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAuditDialog(true)}>
+                <ActivitySquare className="h-4 w-4" /> Audit Trail
+              </Button>
+            </>
+          )}
           <ImportExportMenu
             module="roadmap"
             label="Roadmap"
+            archiveWarning="Uploading a new CSV will archive all currently active initiatives and replace them with the new file. Previous data is preserved in upload history and can be restored."
             onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListRoadmapItemsQueryKey() })}
           />
           {isAdmin && (
@@ -588,6 +657,123 @@ export default function Roadmap() {
               {editingItem ? "Update" : "Create"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Upload History Dialog ─────────────────────────────── */}
+      <Dialog open={showHistoryDialog} onOpenChange={setShowHistoryDialog}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><History className="h-4 w-4" /> Roadmap Upload History</DialogTitle>
+          </DialogHeader>
+          {loadingHistory ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
+          ) : uploadHistory.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">No upload history found. Import a CSV to start tracking history.</div>
+          ) : (
+            <div className="space-y-3">
+              {uploadHistory.map((batch, idx) => {
+                const errs: string[] = (() => { try { return JSON.parse(batch.rowErrors); } catch { return []; } })();
+                return (
+                  <div key={batch.id} className={cn("border border-border rounded-lg p-4 space-y-2", idx === 0 && "border-primary/40 bg-primary/5")}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          {idx === 0 && <Badge className="text-[10px] bg-primary text-primary-foreground">Latest</Badge>}
+                          <p className="text-sm font-semibold text-foreground">{batch.fileName || `Batch #${batch.id}`}</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Uploaded by <span className="font-medium">{batch.uploadedBy || "Unknown"}</span> · {new Date(batch.createdAt).toLocaleString("en-IN")}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => handleDownloadBatch(batch.id, batch.fileName)}>
+                          <Download className="h-3 w-3" /> Download
+                        </Button>
+                        {isAdmin && (
+                          <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-400/10"
+                            onClick={() => handleRestoreBatch(batch.id)} disabled={restoringBatch === batch.id || idx === 0}>
+                            <RotateCcw className="h-3 w-3" /> {restoringBatch === batch.id ? "Restoring…" : idx === 0 ? "Current" : "Restore"}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      {[
+                        { label: "Total Rows", value: batch.rowCount, color: "" },
+                        { label: "Imported", value: batch.importedCount, color: "text-emerald-600" },
+                        { label: "Skipped", value: batch.skippedCount, color: batch.skippedCount > 0 ? "text-amber-600" : "" },
+                        { label: "Archived", value: batch.archivedCount, color: "text-muted-foreground" },
+                      ].map(s => (
+                        <div key={s.label} className="rounded-md bg-muted/40 p-2">
+                          <p className={cn("text-base font-bold", s.color)}>{s.value}</p>
+                          <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {errs.length > 0 && (
+                      <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-400/10 rounded p-2 space-y-0.5">
+                        {errs.slice(0, 5).map((e, i) => <div key={i}>{e}</div>)}
+                        {errs.length > 5 && <div className="text-muted-foreground">…and {errs.length - 5} more errors</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Audit Trail Dialog ──────────────────────────────────── */}
+      <Dialog open={showAuditDialog} onOpenChange={setShowAuditDialog}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><ActivitySquare className="h-4 w-4" /> Roadmap Audit Trail</DialogTitle>
+          </DialogHeader>
+          {loadingAudit ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
+          ) : auditLogs.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">No audit events recorded yet.</div>
+          ) : (
+            <div className="border border-border rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40 border-b border-border">
+                  <tr>
+                    {["Time","Action","Details","Performed By"].map(h => (
+                      <th key={h} className="px-3 py-2.5 font-semibold text-left text-muted-foreground">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map(log => {
+                    const actionColors: Record<string, string> = {
+                      create: "text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10",
+                      update: "text-blue-600 bg-blue-50 dark:bg-blue-400/10",
+                      delete: "text-red-600 bg-red-50 dark:bg-red-400/10",
+                      import: "text-purple-600 bg-purple-50 dark:bg-purple-400/10",
+                      restore_batch: "text-amber-600 bg-amber-50 dark:bg-amber-400/10",
+                    };
+                    const cls = actionColors[log.action] || "text-gray-600 bg-gray-50 dark:bg-gray-400/10";
+                    return (
+                      <tr key={log.id} className="border-b border-border/50 hover:bg-muted/20">
+                        <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
+                          {new Date(log.performedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide", cls)}>
+                            {log.action.replace(/_/g, " ")}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-foreground max-w-xs">{log.summary}</td>
+                        <td className="px-3 py-2.5 text-muted-foreground">{log.performedBy || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
