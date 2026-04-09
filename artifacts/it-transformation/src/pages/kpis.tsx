@@ -768,7 +768,9 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
                 </>
               )}
               {canApprove&&displayItems.length>0&&(
-                <Button size="sm" className="h-7 text-xs bg-primary" onClick={()=>setShowFinalSubmit(v=>!v)} disabled={submittingFinal}>
+                <Button size="sm" className="h-7 text-xs bg-primary" onClick={()=>setShowFinalSubmit(v=>!v)}
+                  disabled={submittingFinal||pendingCount>0}
+                  title={pendingCount>0?`${pendingCount} KPI${pendingCount>1?"s":""} still pending — review all KPIs before submitting`:undefined}>
                   <CheckCircle2 className="mr-1 h-3 w-3"/>Submit Review
                 </Button>
               )}
@@ -804,14 +806,23 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
 
         {/* ── Final submit bar ──────────────────────────────────────────── */}
         {showFinalSubmit&&canApprove&&(
-          <div className="shrink-0 mx-1 rounded-lg border border-primary/40 bg-primary/5 px-3 py-3 text-xs flex flex-col gap-2">
-            <div className="flex items-center gap-2 font-semibold text-primary text-[11px]">
-              <CheckCircle2 className="h-3.5 w-3.5"/>
-              Submit Final Review
+          <div className={cn("shrink-0 mx-1 rounded-lg border px-3 py-3 text-xs flex flex-col gap-2",
+            pendingCount>0?"border-yellow-400/50 bg-yellow-50 dark:bg-yellow-400/10":"border-primary/40 bg-primary/5")}>
+            <div className="flex items-center gap-2 font-semibold text-[11px]">
+              <CheckCircle2 className={cn("h-3.5 w-3.5",pendingCount>0?"text-yellow-600 dark:text-yellow-400":"text-primary")}/>
+              <span className={pendingCount>0?"text-yellow-700 dark:text-yellow-400":"text-primary"}>Submit Final Review</span>
               <span className="font-normal text-muted-foreground ml-1">
-                — {approvedCount} approved, {rejectedCount} rejected{pendingCount>0&&<span className="text-yellow-600 dark:text-yellow-400">, {pendingCount} still pending (will remain un-reviewed)</span>}
+                — {approvedCount} approved, {rejectedCount} rejected
+                {pendingCount>0&&<span className="text-yellow-700 dark:text-yellow-400 font-semibold ml-1">, {pendingCount} pending · must review all KPIs first</span>}
               </span>
             </div>
+            {pendingCount>0&&(
+              <div className="flex items-center gap-1.5 text-yellow-700 dark:text-yellow-400 text-[11px] font-medium">
+                <XCircle className="h-3.5 w-3.5 shrink-0"/>
+                {pendingCount} KPI{pendingCount>1?"s":""} still pending. Approve or Reject every KPI before submitting the final review.
+              </div>
+            )}
+            {pendingCount===0&&(<>
             <div className="flex items-center gap-2">
               <textarea rows={2} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs resize-none"
                 placeholder="Final remarks on this KPI set review (optional)…"
@@ -828,6 +839,7 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
               </div>
             </div>
             <p className="text-[10px] text-muted-foreground">Only KPIs individually marked <strong>Approved</strong> will be available for performance actuals capture.</p>
+            </>)}
           </div>
         )}
 

@@ -486,6 +486,11 @@ router.post("/kpi-sets/:id/submit-review", async (req, res): Promise<void> => {
   // Compute final set status from all item decisions
   const allItems = await db.select({ approvalStatus: kpiSetItemsTable.approvalStatus })
     .from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, id));
+  const pendingItems = allItems.filter(i => !["Approved", "Rejected"].includes(i.approvalStatus || ""));
+  if (pendingItems.length > 0) {
+    res.status(400).json({ error: `${pendingItems.length} KPI${pendingItems.length > 1 ? "s" : ""} still pending review. All KPIs must be Approved or Rejected before final submission.` });
+    return;
+  }
   const finalStatus = computeSetStatus(allItems.map(i => i.approvalStatus || ""));
 
   const [row] = await db.update(kpiSetsTable)
