@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Plus, Trash2, Edit, X, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { Search, Plus, Trash2, Edit, X, ChevronLeft, ChevronRight, Check, CheckSquare, AlertTriangle, XCircle, TrendingUp } from "lucide-react";
 import type { ChecklistItem } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ImportExportMenu } from "@/components/import-export-menu";
+import { StatCard } from "@/components/stat-card";
 
 const PAGE_SIZE = 10;
 
@@ -238,14 +239,19 @@ export default function Checklist() {
     );
   };
 
+  const totalItems = items?.length ?? 0;
+  const availableCount = items?.filter(i => i.status === "Available").length ?? 0;
+  const notAvailableCount = items?.filter(i => i.status === "Not Available" || i.status === "Legacy").length ?? 0;
+  const highPriorityCount = items?.filter(i => i.priority === "High").length ?? 0;
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-foreground">IT Master Checklist</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {items?.length ?? 0} total items · {filteredItems.length} filtered
+            {totalItems} total items · {filteredItems.length} filtered
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -256,6 +262,14 @@ export default function Checklist() {
             </Button>
           )}
         </div>
+      </div>
+
+      {/* Summary KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <StatCard label="Total Items" value={totalItems} sub="checklist entries" icon={CheckSquare} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" borderColor="border-l-blue-400" />
+        <StatCard label="Available" value={availableCount} sub="features ready" icon={TrendingUp} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" borderColor="border-l-emerald-400" valueColor={availableCount > 0 ? "text-emerald-600" : undefined} />
+        <StatCard label="Gaps / Legacy" value={notAvailableCount} sub="needs attention" icon={AlertTriangle} iconBg="bg-red-50 dark:bg-red-400/10" iconColor="text-red-500" borderColor="border-l-red-400" valueColor={notAvailableCount > 0 ? "text-red-500" : undefined} />
+        <StatCard label="High Priority" value={highPriorityCount} sub="critical items" icon={XCircle} iconBg="bg-orange-50 dark:bg-orange-400/10" iconColor="text-orange-500" borderColor="border-l-orange-400" valueColor={highPriorityCount > 0 ? "text-orange-500" : undefined} />
       </div>
 
       {/* Filter bar */}

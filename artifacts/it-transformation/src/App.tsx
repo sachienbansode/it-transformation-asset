@@ -19,6 +19,7 @@ import Login from "@/pages/login";
 import Admin from "@/pages/admin";
 import Profile from "@/pages/profile";
 import Reports from "@/pages/reports";
+import TechKpis from "@/pages/tech-kpis";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const queryClient = new QueryClient({
@@ -78,6 +79,7 @@ function Router() {
               <Route path="/aibom" component={Aibom} />
               <Route path="/sbom" component={Sbom} />
               <Route path="/reports" component={Reports} />
+              <Route path="/tech-kpis" component={TechKpis} />
               <Route path="/profile" component={Profile} />
               <Route path="/admin">
                 {user.role === "admin" ? <Admin /> : <Redirect to="/" />}

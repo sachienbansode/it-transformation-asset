@@ -12,6 +12,7 @@ const BU_SEEDS = [
   { code: "MF", name: "MF", description: "Mutual Fund", sortOrder: 4 },
   { code: "IB", name: "IB", description: "Investment Banking", sortOrder: 5 },
   { code: "NBFC", name: "NBFC", description: "Non-Banking Financial Company", sortOrder: 6 },
+  { code: "TECH", name: "Technology", description: "Technology & IT Infrastructure", sortOrder: 7 },
 ];
 
 export async function seedBusinessUnits() {

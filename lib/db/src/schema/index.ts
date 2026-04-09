@@ -9,3 +9,4 @@ export * from "./users";
 export * from "./settings";
 export * from "./business-units";
 export * from "./audit-logs";
+export * from "./kpis";

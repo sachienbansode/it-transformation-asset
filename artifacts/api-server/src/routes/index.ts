@@ -14,6 +14,7 @@ import businessUnitsRouter, { seedBusinessUnits } from "./business-units";
 import csvRouter from "./csv-routes";
 import auditRouter from "./audit-logs";
 import reportsRouter from "./reports";
+import kpisRouter, { seedKpiData } from "./kpis";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -21,8 +22,9 @@ const router: IRouter = Router();
 router.use(authRouter);
 router.use(healthRouter);
 
-// Seed business units on startup (idempotent)
+// Seed on startup (idempotent)
 seedBusinessUnits().catch(console.error);
+seedKpiData().catch(console.error);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/masters" && req.method === "GET") return next();
@@ -51,5 +53,6 @@ router.use(businessUnitsRouter);
 router.use(csvRouter);
 router.use(auditRouter);
 router.use(reportsRouter);
+router.use(kpisRouter);
 
 export default router;

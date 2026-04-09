@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Server, CheckCircle2, Archive, XCircle } from "lucide-react";
+import { StatCard } from "@/components/stat-card";
 import type { Application } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
@@ -167,13 +168,18 @@ export default function Applications() {
   const FieldError = ({ k }: { k: string }) =>
     errors[k] ? <p className="text-xs text-destructive mt-0.5">{errors[k]}</p> : null;
 
+  const totalApps = items?.length ?? 0;
+  const activeApps = items?.filter(i => (i as any).applicationStatus === "Active" || !(i as any).applicationStatus).length ?? 0;
+  const retiredApps = items?.filter(i => (i as any).applicationStatus === "Retired").length ?? 0;
+  const stoppedApps = items?.filter(i => (i as any).applicationStatus === "Stopped").length ?? 0;
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-foreground">Application Inventory</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">{items?.length || 0} total · {filteredItems.length} filtered</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{totalApps} total · {filteredItems.length} filtered</p>
         </div>
         <div className="flex items-center gap-2">
           <ImportExportMenu module="applications" label="Applications" onImportSuccess={() => queryClient.invalidateQueries({ queryKey: getListApplicationsQueryKey() })} />
@@ -183,6 +189,14 @@ export default function Applications() {
             </Button>
           )}
         </div>
+      </div>
+
+      {/* Summary KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <StatCard label="Total Apps" value={totalApps} sub="in inventory" icon={Server} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" borderColor="border-l-blue-400" />
+        <StatCard label="Active" value={activeApps} sub="in production" icon={CheckCircle2} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" borderColor="border-l-emerald-400" valueColor={activeApps > 0 ? "text-emerald-600" : undefined} />
+        <StatCard label="Retired" value={retiredApps} sub="decommissioned" icon={Archive} iconBg="bg-gray-50 dark:bg-gray-400/10" iconColor="text-gray-500" borderColor="border-l-gray-400" />
+        <StatCard label="Stopped" value={stoppedApps} sub="halted" icon={XCircle} iconBg="bg-red-50 dark:bg-red-400/10" iconColor="text-red-500" borderColor="border-l-red-400" valueColor={stoppedApps > 0 ? "text-red-500" : undefined} />
       </div>
 
       {/* Filters */}
