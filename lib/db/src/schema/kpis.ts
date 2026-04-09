@@ -113,6 +113,81 @@ export const insertKpiApprovalSchema = createInsertSchema(kpiApprovalsTable).omi
 export type InsertKpiApproval = z.infer<typeof insertKpiApprovalSchema>;
 export type KpiApproval = typeof kpiApprovalsTable.$inferSelect;
 
+// ─── Enterprise KPI Persons ──────────────────────────────────────────────────
+export const kpiPersonsTable = pgTable("kpi_persons", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  designation: text("designation").notNull(),
+  department: text("department"),
+  email: text("email"),
+  employeeCode: text("employee_code"),
+  approvingAuthorityId: integer("approving_authority_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type KpiPerson = typeof kpiPersonsTable.$inferSelect;
+
+// ─── Enterprise KPI Sets ─────────────────────────────────────────────────────
+export const kpiSetsTable = pgTable("kpi_sets", {
+  id: serial("id").primaryKey(),
+  personId: integer("person_id").notNull(),
+  yearId: integer("year_id").notNull(),
+  status: text("status").notNull().default("Draft"),
+  currentVersionId: integer("current_version_id"),
+  notes: text("notes"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  approvedBy: integer("approved_by"),
+  approvalComments: text("approval_comments"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type KpiSet = typeof kpiSetsTable.$inferSelect;
+
+// ─── Enterprise KPI Set Versions (Excel history) ─────────────────────────────
+export const kpiSetVersionsTable = pgTable("kpi_set_versions", {
+  id: serial("id").primaryKey(),
+  setId: integer("set_id").notNull(),
+  versionNumber: integer("version_number").notNull().default(1),
+  fileName: text("file_name"),
+  fileData: text("file_data"),
+  fileSize: integer("file_size"),
+  itemCount: integer("item_count").default(0),
+  uploadedBy: integer("uploaded_by"),
+  comments: text("comments"),
+  isCurrent: boolean("is_current").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type KpiSetVersion = typeof kpiSetVersionsTable.$inferSelect;
+
+// ─── Enterprise KPI Set Items ────────────────────────────────────────────────
+export const kpiSetItemsTable = pgTable("kpi_set_items", {
+  id: serial("id").primaryKey(),
+  setId: integer("set_id").notNull(),
+  versionId: integer("version_id").notNull(),
+  sno: integer("sno"),
+  kpiName: text("kpi_name").notNull(),
+  description: text("description"),
+  category: text("category"),
+  weightage: numeric("weightage", { precision: 8, scale: 2 }),
+  metric: text("metric"),
+  unit: text("unit"),
+  annualTarget: numeric("annual_target", { precision: 14, scale: 2 }),
+  q1Target: numeric("q1_target", { precision: 14, scale: 2 }),
+  q2Target: numeric("q2_target", { precision: 14, scale: 2 }),
+  q3Target: numeric("q3_target", { precision: 14, scale: 2 }),
+  q4Target: numeric("q4_target", { precision: 14, scale: 2 }),
+  q1Actual: numeric("q1_actual", { precision: 14, scale: 2 }),
+  q2Actual: numeric("q2_actual", { precision: 14, scale: 2 }),
+  q3Actual: numeric("q3_actual", { precision: 14, scale: 2 }),
+  q4Actual: numeric("q4_actual", { precision: 14, scale: 2 }),
+  remarks: text("remarks"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type KpiSetItem = typeof kpiSetItemsTable.$inferSelect;
+
 // ─── KPI Module Settings ─────────────────────────────────────────────────────
 export const kpiSettingsTable = pgTable("kpi_settings", {
   id: serial("id").primaryKey(),

@@ -15,6 +15,7 @@ import csvRouter from "./csv-routes";
 import auditRouter from "./audit-logs";
 import reportsRouter from "./reports";
 import kpisRouter, { seedKpiData } from "./kpis";
+import kpiPersonsRouter from "./kpi-persons";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -54,5 +55,6 @@ router.use(csvRouter);
 router.use(auditRouter);
 router.use(reportsRouter);
 router.use(kpisRouter);
+router.use(kpiPersonsRouter);
 
 export default router;

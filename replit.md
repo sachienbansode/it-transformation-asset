@@ -128,6 +128,28 @@ Categories: vendor, business, app_category, hosting, criticality, support_status
 
 ---
 
+## Technology KPIs (`/tech-kpis`)
+- CTO-specific KPI scorecard for IT Run/Change/Transform pillars
+- 15 seeded KPIs for FY 2026-27 with quarterly targets
+- Reports tab: Excel export (3 sheets: Cover, Scorecard, Category Summary)
+- Submit to CEO workflow, year management, score tracking
+- Renamed in sidebar to "IT KPIs (CTO)" to distinguish from enterprise KPIs
+
+## Enterprise KPI Management (`/kpis`) — NEW MODULE
+- Full enterprise-wide KPI management for all CXOs and employees
+- **Sidebar section:** "Performance" → "KPI Management"
+- **Persons management:** Create CXO/employee profiles with designation, department, email, employee code, approving authority
+- **KPI Sets:** One KPI set per person per financial year (unique constraint)
+- **Excel upload:** Upload KPI data via Excel → parsed client-side → preview table → confirmation step → saved as versioned record
+- **Version history:** Every Excel upload is stored with base64 file data; all versions downloadable
+- **Download template:** Excel template with correct headers + sample data + instructions sheet
+- **Status workflow:** Draft → Pending (submit) → Approved/Rejected (admin review)
+- **2-decimal formatting:** All numeric values displayed to 2 decimal places throughout
+- **View KPIs dialog:** Full KPI detail view with all quarterly targets/actuals
+- Route: `artifacts/api-server/src/routes/kpi-persons.ts`
+- Page: `artifacts/it-transformation/src/pages/kpis.tsx`
+- DB tables: `kpi_persons`, `kpi_sets`, `kpi_set_versions`, `kpi_set_items`
+
 ## Database Tables
 
 | Table | Purpose |
@@ -143,6 +165,10 @@ Categories: vendor, business, app_category, hosting, criticality, support_status
 | settings | Admin configuration (13 keys) |
 | user_sessions | Session store (connect-pg-simple) |
 | business_units | Business unit structure (6 units) |
+| kpi_persons | Enterprise KPI person profiles |
+| kpi_sets | One KPI set per person per year (unique) |
+| kpi_set_versions | Excel upload version history (base64 file data) |
+| kpi_set_items | Individual KPI rows per version |
 
 ---
 

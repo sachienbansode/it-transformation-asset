@@ -20,6 +20,7 @@ import Admin from "@/pages/admin";
 import Profile from "@/pages/profile";
 import Reports from "@/pages/reports";
 import TechKpis from "@/pages/tech-kpis";
+import Kpis from "@/pages/kpis";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const queryClient = new QueryClient({
@@ -80,6 +81,7 @@ function Router() {
               <Route path="/sbom" component={Sbom} />
               <Route path="/reports" component={Reports} />
               <Route path="/tech-kpis" component={TechKpis} />
+              <Route path="/kpis" component={Kpis} />
               <Route path="/profile" component={Profile} />
               <Route path="/admin">
                 {user.role === "admin" ? <Admin /> : <Redirect to="/" />}

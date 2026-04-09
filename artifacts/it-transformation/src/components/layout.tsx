@@ -7,7 +7,7 @@ import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
-  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, BarChart3,
+  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, BarChart3, Target, ClipboardList,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -35,8 +35,12 @@ const DRISHTI_ITEMS = [
   { href: "/applications", label: "Application Inventory", icon: Server },
   { href: "/aibom", label: "AI Bill of Materials", icon: BrainCircuit },
   { href: "/sbom", label: "Software BOM", icon: ShieldCheck },
-  { href: "/tech-kpis", label: "Technology KPIs", icon: BarChart3 },
+  { href: "/tech-kpis", label: "IT KPIs (CTO)", icon: BarChart3 },
   { href: "/reports", label: "PPT Reports", icon: Presentation },
+];
+
+const KPI_ITEMS = [
+  { href: "/kpis", label: "KPI Management", icon: ClipboardList },
 ];
 
 const ADMIN_ITEMS = [
@@ -190,6 +194,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 label={item.label}
                 icon={item.icon}
                 active={item.href === "/" ? location === "/" : location.startsWith(item.href)}
+                collapsed={isCollapsed}
+              />
+            ))}
+            <SectionLabel collapsed={isCollapsed}>Performance</SectionLabel>
+            {KPI_ITEMS.map(item => (
+              <NavItem
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                active={location.startsWith(item.href)}
                 collapsed={isCollapsed}
               />
             ))}
