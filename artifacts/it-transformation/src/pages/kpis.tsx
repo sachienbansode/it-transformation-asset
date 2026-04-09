@@ -1337,6 +1337,7 @@ export default function KpisPage(){
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {user&&<span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5 hidden sm:inline">{user.name} · <span className="font-medium capitalize">{user.role === "kpi_employee" ? "Employee" : user.role.toUpperCase()}</span></span>}
           {years&&(
             <Select value={yearFilter?.toString()} onValueChange={v=>setYearFilter(parseInt(v))}>
               <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Select year"/></SelectTrigger>

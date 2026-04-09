@@ -52,7 +52,7 @@ export default function Profile() {
   useEffect(() => {
     apiFetch<ProfileData>("/auth/profile").then(p => {
       setProfile(p);
-      if (p.photoUrl) setPreviewUrl(`/api${p.photoUrl}`);
+      if (p.photoUrl) setPreviewUrl(`/api/storage${p.photoUrl}`);
     }).catch(() => {});
   }, []);
 
@@ -94,11 +94,11 @@ export default function Profile() {
 
       await refresh();
       setProfile(p => p ? { ...p, photoUrl: objectPath } : p);
-      setPreviewUrl(`/api${objectPath}`);
+      setPreviewUrl(`/api/storage${objectPath}`);
       toast({ title: "Photo updated successfully" });
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
-      setPreviewUrl(profile?.photoUrl ? `/api${profile.photoUrl}` : null);
+      setPreviewUrl(profile?.photoUrl ? `/api/storage${profile.photoUrl}` : null);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
