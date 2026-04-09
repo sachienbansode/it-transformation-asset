@@ -115,6 +115,7 @@ router.get("/kpi-users", async (req, res): Promise<void> => {
   const rows = await db.select({
     id: usersTable.id, name: usersTable.name, email: usersTable.email,
     role: usersTable.role, department: usersTable.department,
+    designation: usersTable.designation, employeeCode: usersTable.employeeCode,
   }).from(usersTable)
     .where(and(...conditions))
     .orderBy(asc(usersTable.department), asc(usersTable.name));
@@ -126,17 +127,18 @@ async function syncKpiPersonFromUser(userId: number): Promise<number> {
   const [u] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
   if (!u) throw new Error("User not found");
   const roleToDesig: Record<string, string> = {
-    cxo: "Chief Executive Officer", kpi_employee: "Employee",
+    cxo: "Chief Executive Officer", kpi_employee: "Senior Manager",
     user: "Employee", hr: "HR Manager", admin: "Administrator",
   };
-  const designation = roleToDesig[u.role] || "Employee";
+  const designation = (u as any).designation || roleToDesig[u.role] || "Employee";
+  const employeeCode = (u as any).employeeCode || null;
   // Find existing kpi_person by email
   const [existing] = await db.select().from(kpiPersonsTable)
     .where(eq(kpiPersonsTable.email, u.email));
   if (existing) {
     // Update to sync latest user data
     await db.update(kpiPersonsTable).set({
-      name: u.name, department: u.department, updatedAt: new Date(),
+      name: u.name, department: u.department, designation, updatedAt: new Date(),
     }).where(eq(kpiPersonsTable.id, existing.id));
     return existing.id;
   }

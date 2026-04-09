@@ -100,7 +100,7 @@ export default function Login() {
         <div className="text-center space-y-2">
           <div className="flex items-center justify-center gap-3">
             {appConfig.logoUrl ? (
-              <img src={appConfig.logoUrl} alt="Logo" className="h-10 w-10 object-contain rounded" />
+              <img src={appConfig.logoUrl} alt="Logo" className="h-14 w-14 object-contain rounded-xl shadow-md ring-2 ring-primary/20" />
             ) : (
               <Shield className="h-8 w-8 text-primary" />
             )}

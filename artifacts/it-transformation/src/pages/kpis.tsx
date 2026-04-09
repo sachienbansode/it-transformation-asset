@@ -18,13 +18,13 @@ import {
   Users, Plus, Upload, Download, History, Eye, Send, CheckCircle2, XCircle,
   ChevronDown, ChevronRight, Maximize2, Minimize2, FileSpreadsheet, ClipboardList,
   Pencil, Trash2, RefreshCw, AlertTriangle, Target, Archive,
-  FolderOpen, RotateCcw, Info,
+  FolderOpen, RotateCcw, Info, Search, UserCheck,
 } from "lucide-react";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface KpiYear { id: number; label: string; startDate: string; endDate: string; isActive: boolean; isCurrent: boolean; }
 interface KpiPerson { id: number; name: string; designation: string; department?: string; email?: string; employeeCode?: string; approvingAuthorityId?: number; isActive: boolean; }
-interface KpiUser { id: number; name: string; email: string; role: string; department?: string; }
+interface KpiUser { id: number; name: string; email: string; role: string; department?: string; designation?: string; employeeCode?: string; }
 interface KpiSet {
   id: number; personId: number; yearId: number; status: string;
   currentVersionId?: number; notes?: string; submittedAt?: string;
@@ -250,21 +250,40 @@ function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
   const[userId,setUserId]=useState("");
   const[yearId,setYearId]=useState("");
   const[notes,setNotes]=useState("");
+  const[userSearch,setUserSearch]=useState("");
   useEffect(()=>{
     if(initialSet){setYearId(initialSet.yearId.toString());setNotes(initialSet.notes||"");}
-    else{setUserId("");setYearId("");setNotes("");}
+    else{setUserId("");setYearId("");setNotes("");setUserSearch("");}
   },[initialSet,open]);
-  // Group users by department for the dropdown
-  const usersByDept=useMemo(()=>{
+  const selectedUser=useMemo(()=>users.find(u=>u.id.toString()===userId),[users,userId]);
+  const roleLabel=(r: string)=>r==="cxo"?"CXO":r==="kpi_employee"?"Employee":r==="hr"?"HR":"User";
+  const DEPT_LABELS: Record<string,string>={
+    Technology:"Technology",risk:"Risk",compliance:"Compliance",operations:"Operations",
+    finance:"Finance",broking_ops:"Broking Ops",nbfc_ops:"NBFC Ops",aif_ops:"AIF Ops",
+    hr:"HR",management:"Management",Other:"Other",
+  };
+  // Filter + group users by department
+  const filteredGrouped=useMemo(()=>{
+    const q=userSearch.toLowerCase();
+    const filtered=users.filter(u=>{
+      if(!q) return true;
+      return (
+        u.name.toLowerCase().includes(q)||
+        (u.designation||"").toLowerCase().includes(q)||
+        (u.employeeCode||"").toLowerCase().includes(q)||
+        (u.department||"").toLowerCase().includes(q)||
+        u.email.toLowerCase().includes(q)
+      );
+    });
     const map=new Map<string,KpiUser[]>();
-    for(const u of users){
+    for(const u of filtered){
       const dept=u.department||"Other";
       if(!map.has(dept)) map.set(dept,[]);
       map.get(dept)!.push(u);
     }
     return Array.from(map.entries()).sort(([a],[b])=>a.localeCompare(b));
-  },[users]);
-  const roleLabel=(r: string)=>r==="cxo"?"CXO":r==="kpi_employee"?"Employee":r==="hr"?"HR":"User";
+  },[users,userSearch]);
+
   const handleSave=async()=>{
     if((!userId&&!initialSet)||!yearId){toast({title:"User and Year are required",variant:"destructive"});return;}
     setSaving(true);
@@ -277,26 +296,68 @@ function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
   };
   return(
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>{initialSet?"Edit KPI Set":"New KPI Set"}</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           {!initialSet&&(
-            <div className="space-y-1"><Label className="text-xs">Select Employee / User *</Label>
-              <Select value={userId} onValueChange={setUserId}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Choose from user master…"/></SelectTrigger>
-                <SelectContent>
-                  {usersByDept.map(([dept,deptUsers])=>(
-                    <React.Fragment key={dept}>
-                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-b border-border/50 mt-1">{dept}</div>
-                      {deptUsers.map(u=>(
-                        <SelectItem key={u.id} value={u.id.toString()}>
-                          {u.name} <span className="text-muted-foreground">({roleLabel(u.role)})</span>
-                        </SelectItem>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Select Employee / User *</Label>
+              {/* Search input */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"/>
+                <Input
+                  className="pl-8 h-8 text-sm"
+                  placeholder="Search by name, designation, code, dept…"
+                  value={userSearch}
+                  onChange={e=>setUserSearch(e.target.value)}
+                />
+              </div>
+              {/* Selected user badge */}
+              {selectedUser&&(
+                <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-primary/10 border border-primary/30 text-xs">
+                  <UserCheck className="h-3.5 w-3.5 text-primary flex-shrink-0"/>
+                  <span className="font-medium text-primary">{selectedUser.name}</span>
+                  {selectedUser.employeeCode&&<span className="text-muted-foreground">· {selectedUser.employeeCode}</span>}
+                  {selectedUser.designation&&<span className="text-muted-foreground">· {selectedUser.designation}</span>}
+                </div>
+              )}
+              {/* Scrollable grouped user list */}
+              <div className="border border-border rounded-md overflow-y-auto max-h-52 bg-background">
+                {filteredGrouped.length===0?(
+                  <div className="px-3 py-4 text-xs text-muted-foreground text-center">No users match your search</div>
+                ):(
+                  filteredGrouped.map(([dept,deptUsers])=>(
+                    <div key={dept}>
+                      <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground bg-muted/40 sticky top-0 border-b border-border/50">
+                        {DEPT_LABELS[dept]||dept}
+                      </div>
+                      {deptUsers.map(u=>{
+                        const isSelected=u.id.toString()===userId;
+                        return(
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={()=>{setUserId(u.id.toString());setUserSearch("");}}
+                            className={cn(
+                              "w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-accent/60 transition-colors border-b border-border/30 last:border-0",
+                              isSelected&&"bg-primary/10 hover:bg-primary/15"
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={cn("text-sm font-medium",isSelected&&"text-primary")}>{u.name}</span>
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 shrink-0">{roleLabel(u.role)}</Badge>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                              {u.employeeCode&&<span className="font-mono">{u.employeeCode}</span>}
+                              {u.designation&&<><span>·</span><span>{u.designation}</span></>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
           <div className="space-y-1"><Label className="text-xs">Financial Year *</Label>

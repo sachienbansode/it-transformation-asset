@@ -165,10 +165,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {!isCollapsed && (
               <>
                 {appConfig.logoUrl ? (
-                  <img src={appConfig.logoUrl} alt="Logo" className="h-6 w-6 object-contain rounded flex-shrink-0" />
+                  <img src={appConfig.logoUrl} alt="Logo" className="h-8 w-8 object-contain rounded-lg flex-shrink-0 shadow-md ring-1 ring-white/20" />
                 ) : (
-                  <div className="h-5 w-5 rounded bg-sidebar-primary/20 border border-sidebar-primary/30 flex items-center justify-center flex-shrink-0">
-                    <span className="text-sidebar-primary font-black text-[8px]">AD</span>
+                  <div className="h-8 w-8 rounded-lg bg-sidebar-primary/30 border border-sidebar-primary/40 flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <span className="text-sidebar-primary font-black text-[10px]">AD</span>
                   </div>
                 )}
                 <div className="min-w-0 flex-1">

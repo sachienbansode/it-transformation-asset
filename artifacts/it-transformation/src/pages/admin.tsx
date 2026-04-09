@@ -28,7 +28,8 @@ type Tab = "settings" | "users" | "roles" | "masters" | "business-units" | "audi
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
-  role: string; department?: string; mobile?: string; mfaEnabled: boolean;
+  role: string; department?: string; designation?: string; employeeCode?: string;
+  mobile?: string; mfaEnabled: boolean;
   mfaMethod?: string; isActive: boolean; status: string;
   lastLoginAt?: string; createdAt: string;
 }
@@ -307,17 +308,20 @@ function LogoUpload({ value, onChange }: { value: string; onChange: (v: string) 
       <div className="flex items-start gap-4">
         {value ? (
           <div className="relative group flex-shrink-0">
-            <img src={value} alt="Logo"
-              className="h-16 w-16 object-contain rounded-lg border border-border bg-muted/50 p-0.5"
-              onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-            />
+            <div className="h-24 w-24 rounded-2xl border border-border bg-gradient-to-br from-muted/80 to-muted/30 p-1.5 flex items-center justify-center shadow-lg ring-2 ring-primary/20 transition-all group-hover:ring-primary/40">
+              <img src={value} alt="Logo"
+                className="max-h-full max-w-full object-contain drop-shadow-sm"
+                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+            </div>
             <button type="button" onClick={() => { onChange(""); setSizeInfo(""); }}
-              className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
               title="Remove logo">×</button>
           </div>
         ) : (
-          <div className="h-16 w-16 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center bg-muted/50 flex-shrink-0 gap-0.5">
-            <span className="text-[9px] text-muted-foreground font-medium">No logo</span>
+          <div className="h-24 w-24 rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center bg-muted/30 flex-shrink-0 gap-1 hover:border-primary/40 hover:bg-primary/5 transition-colors cursor-pointer" onClick={() => fileRef.current?.click()}>
+            <span className="text-[10px] text-muted-foreground font-medium">No logo</span>
+            <span className="text-[9px] text-muted-foreground/60">Click to upload</span>
           </div>
         )}
         <div className="space-y-2 flex-1">
@@ -365,7 +369,7 @@ function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", mobile: "", status: "active", isActive: true });
+  const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
 
   const load = async () => {
     setLoading(true);
@@ -379,25 +383,28 @@ function UsersTab() {
 
   const openAdd = () => {
     setEditUser(null);
-    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", mobile: "", status: "active", isActive: true });
+    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
     setModalOpen(true);
   };
 
   const openEdit = (u: AdminUser) => {
     setEditUser(u);
-    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive });
+    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", designation: u.designation || "", employeeCode: u.employeeCode || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive });
     setModalOpen(true);
   };
 
   const handleSave = async () => {
     try {
       if (editUser) {
-        const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, mobile: form.mobile, status: form.status };
+        const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
         await apiFetch(`/admin/users/${editUser.id}`, { method: "PATCH", body: JSON.stringify(body) });
         toast({ title: "User updated" });
       } else {
-        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, mobile: form.mobile, status: form.status };
+        if (!form.designation.trim() || !form.employeeCode.trim() || !form.department.trim()) {
+          toast({ title: "Designation, Department, and Employee Code are required", variant: "destructive" }); return;
+        }
+        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
         await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
         toast({ title: "User created" });
@@ -420,11 +427,11 @@ function UsersTab() {
     }
   };
 
-  const DEPARTMENTS = ["it","risk","compliance","operations","finance","broking_ops","nbfc_ops","aif_ops","institutional","hr","management"];
+  const DEPARTMENTS = ["Technology","risk","compliance","operations","finance","broking_ops","nbfc_ops","aif_ops","hr","management"];
   const DEPT_LABELS: Record<string, string> = {
-    it: "Information Technology", risk: "Risk Management", compliance: "Compliance & Legal",
+    Technology: "Technology", risk: "Risk Management", compliance: "Compliance & Legal",
     operations: "Operations", finance: "Finance & Accounts", broking_ops: "Broking Operations",
-    nbfc_ops: "NBFC Operations", aif_ops: "AIF Operations", institutional: "Institutional Equities",
+    nbfc_ops: "NBFC Operations", aif_ops: "AIF Operations",
     hr: "Human Resources", management: "Senior Management"
   };
 
@@ -499,20 +506,16 @@ function UsersTab() {
             <DialogTitle>{editUser ? "Edit User" : "Add User"}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-2">
-            <div className="space-y-1.5"><Label>Full Name</Label><Input value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} /></div>
-            {!editUser && <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></div>}
-            <div className="space-y-1.5"><Label>Password {editUser && "(leave blank to keep)"}</Label><Input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} /></div>
+            <div className="space-y-1.5"><Label>Full Name *</Label><Input value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} /></div>
+            {!editUser && <div className="space-y-1.5"><Label>Email *</Label><Input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></div>}
+            <div className="space-y-1.5"><Label>Designation *</Label><Input value={form.designation} onChange={e => setForm(f => ({...f, designation: e.target.value}))} placeholder="e.g. Senior Manager" /></div>
+            <div className="space-y-1.5"><Label>Employee Code *</Label><Input value={form.employeeCode} onChange={e => setForm(f => ({...f, employeeCode: e.target.value}))} placeholder="e.g. EMP001" /></div>
             <div className="space-y-1.5">
-              <Label>Mobile Number</Label>
-              <Input value={form.mobile} onChange={e => setForm(f => ({...f, mobile: e.target.value}))} placeholder="+91 99999 99999" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>User Type</Label>
-              <Select value={form.userType} onValueChange={v => setForm(f => ({...f, userType: v}))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>Department *</Label>
+              <Select value={form.department} onValueChange={v => setForm(f => ({...f, department: v}))}>
+                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="internal">Internal</SelectItem>
-                  <SelectItem value="external">External</SelectItem>
+                  {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{DEPT_LABELS[d]}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -530,13 +533,18 @@ function UsersTab() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Department</Label>
-              <Select value={form.department} onValueChange={v => setForm(f => ({...f, department: v}))}>
-                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+              <Label>User Type</Label>
+              <Select value={form.userType} onValueChange={v => setForm(f => ({...f, userType: v}))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{DEPT_LABELS[d]}</SelectItem>)}
+                  <SelectItem value="internal">Internal</SelectItem>
+                  <SelectItem value="external">External</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Mobile Number</Label>
+              <Input value={form.mobile} onChange={e => setForm(f => ({...f, mobile: e.target.value}))} placeholder="+91 99999 99999" />
             </div>
             <div className="space-y-1.5">
               <Label>Account Status</Label>
@@ -549,6 +557,7 @@ function UsersTab() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5 col-span-2"><Label>Password {editUser && "(leave blank to keep)"}</Label><Input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>

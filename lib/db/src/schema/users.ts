@@ -10,6 +10,8 @@ export const usersTable = pgTable("users", {
   userType: text("user_type").notNull().default("internal"),
   role: text("role").notNull().default("user"),
   department: text("department"),
+  designation: text("designation"),
+  employeeCode: text("employee_code"),
   mobile: text("mobile"),
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   mfaSecret: text("mfa_secret"),
