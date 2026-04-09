@@ -17,11 +17,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Users, Plus, Upload, Download, History, Eye, Send, CheckCircle2, XCircle,
   ChevronDown, ChevronRight, Maximize2, Minimize2, FileSpreadsheet, ClipboardList,
-  BarChart3, Pencil, Trash2, RefreshCw, AlertTriangle, Target,
+  Pencil, Trash2, RefreshCw, AlertTriangle, Target,
   FolderOpen, RotateCcw, Info,
 } from "lucide-react";
-import TechKpisPage from "@/pages/tech-kpis";
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface KpiYear { id: number; label: string; startDate: string; endDate: string; isActive: boolean; isCurrent: boolean; }
@@ -982,7 +980,7 @@ export default function KpisPage(){
 
       {/* Tabs */}
       <div className="flex gap-0 border-b border-border">
-        {([["sets",ClipboardList,"KPI Sets"],["it-kpis",BarChart3,"CTO Technology KPIs"],["persons",Users,"Persons / CXOs"]] as [string,React.ElementType,string][]).map(([t,Icon,label])=>(
+        {([["sets",ClipboardList,"KPI Sets"],["persons",Users,"Persons / CXOs"]] as [string,React.ElementType,string][]).map(([t,Icon,label])=>(
           <button key={t} onClick={()=>setActiveTab(t as any)}
             className={cn("flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",activeTab===t?"border-primary text-primary":"border-transparent text-muted-foreground hover:text-foreground")}>
             <Icon className="h-4 w-4"/>{label}
@@ -997,15 +995,6 @@ export default function KpisPage(){
           isAdmin={isAdmin} userId={user?.id}
           onView={setDetailSet} onUpload={setUploadSet} onHistory={setHistorySet}
           onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete} onRefresh={refresh}/>
-      )}
-
-      {activeTab==="it-kpis"&&(
-        <div className="border border-border rounded-xl overflow-hidden">
-          <div className="bg-muted/30 px-4 py-2 border-b border-border">
-            <p className="text-xs text-muted-foreground">CTO Technology KPIs — managed separately with quarterly actuals and scoring model.</p>
-          </div>
-          <div><TechKpisPage/></div>
-        </div>
       )}
 
       {activeTab==="persons"&&(
