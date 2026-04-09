@@ -224,11 +224,17 @@ function SettingsTab() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Application Name</Label>
+            <div className="flex items-center justify-between">
+              <Label>Application Name</Label>
+              <span className={`text-xs ${((settings["app_name"] as string) || "").length > 50 ? "text-destructive" : "text-muted-foreground"}`}>
+                {((settings["app_name"] as string) || "").length}/50
+              </span>
+            </div>
             <Input
               value={(settings["app_name"] as string) || ""}
-              onChange={e => set("app_name", e.target.value)}
+              onChange={e => { if (e.target.value.length <= 50) set("app_name", e.target.value); }}
               placeholder="Ashika Drishti Transform"
+              maxLength={50}
             />
           </div>
           <div className="space-y-1.5">

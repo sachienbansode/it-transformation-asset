@@ -64,6 +64,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     mfaEnabled: usersTable.mfaEnabled,
     mfaMethod: usersTable.mfaMethod,
     status: usersTable.status,
+    photoUrl: usersTable.photoUrl,
   }).from(usersTable).where(eq(usersTable.id, req.session.userId));
   if (!user) {
     req.session.destroy(() => {});
@@ -403,43 +404,34 @@ router.get("/auth/sso/callback", async (req, res): Promise<void> => {
   }
 });
 
-// GET /auth/profile — get current user profile
+// GET /auth/profile — get current user profile (all user master fields)
 router.get("/auth/profile", requireAuth, async (req, res): Promise<void> => {
   const [user] = await db.select({
     id: usersTable.id, email: usersTable.email, name: usersTable.name,
     userType: usersTable.userType, role: usersTable.role, department: usersTable.department,
-    mfaEnabled: usersTable.mfaEnabled, lastLoginAt: usersTable.lastLoginAt, createdAt: usersTable.createdAt,
+    designation: usersTable.designation, employeeCode: usersTable.employeeCode,
+    mobile: usersTable.mobile, status: usersTable.status,
+    mfaEnabled: usersTable.mfaEnabled, lastLoginAt: usersTable.lastLoginAt,
+    createdAt: usersTable.createdAt, photoUrl: usersTable.photoUrl,
   }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   res.json(user);
 });
 
-// PATCH /auth/profile — update own profile
+// PATCH /auth/profile — update display name (read-only: designation, employeeCode, department, etc.)
 router.patch("/auth/profile", requireAuth, async (req, res): Promise<void> => {
   const body = z.object({
-    name: z.string().optional(),
-    department: z.string().optional(),
-    currentPassword: z.string().optional(),
-    newPassword: z.string().min(8).optional(),
+    photoUrl: z.string().optional().nullable(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
 
   const update: Record<string, unknown> = {};
-  if (body.data.name) update.name = body.data.name;
-  if (body.data.department !== undefined) update.department = body.data.department;
-
-  if (body.data.newPassword) {
-    const [user] = await db.select({ passwordHash: usersTable.passwordHash }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
-    if (!user?.passwordHash) { res.status(400).json({ error: "Cannot change password for SSO accounts" }); return; }
-    if (!body.data.currentPassword) { res.status(400).json({ error: "Current password required" }); return; }
-    const valid = await bcrypt.compare(body.data.currentPassword, user.passwordHash);
-    if (!valid) { res.status(401).json({ error: "Current password incorrect" }); return; }
-    update.passwordHash = await bcrypt.hash(body.data.newPassword, 12);
-  }
+  if (body.data.photoUrl !== undefined) update.photoUrl = body.data.photoUrl;
 
   const [user] = await db.update(usersTable).set(update).where(eq(usersTable.id, req.session.userId!)).returning({
     id: usersTable.id, email: usersTable.email, name: usersTable.name,
-    userType: usersTable.userType, department: usersTable.department, mfaEnabled: usersTable.mfaEnabled,
+    userType: usersTable.userType, department: usersTable.department,
+    photoUrl: usersTable.photoUrl,
   });
   res.json(user);
 });

@@ -17,6 +17,7 @@ import reportsRouter from "./reports";
 import kpisRouter, { seedKpiData } from "./kpis";
 import kpiPersonsRouter from "./kpi-persons";
 import rolesRouter from "./roles";
+import storageRouter from "./storage";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -37,6 +38,12 @@ router.use((req: Request, res: Response, next: NextFunction) => {
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
+    // KPI endpoints and profile are accessible to authenticated non-admin users
+    const kpiPaths = ["/kpi-sets", "/kpi-persons", "/kpi-users", "/kpi-years"];
+    const isKpiPath = kpiPaths.some(p => req.path === p || req.path.startsWith(p + "/"));
+    const isProfilePath = req.path === "/auth/profile" || req.path === "/auth/profile/photo";
+    const isStoragePath = req.path.startsWith("/storage/");
+    if (isKpiPath || isProfilePath || isStoragePath) return next();
     return requireAdmin(req, res, next);
   }
   next();
@@ -58,5 +65,6 @@ router.use(reportsRouter);
 router.use(kpisRouter);
 router.use(kpiPersonsRouter);
 router.use(rolesRouter);
+router.use(storageRouter);
 
 export default router;

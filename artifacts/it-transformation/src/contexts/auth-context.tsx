@@ -14,6 +14,7 @@ export interface AuthUser {
   status: "active" | "inactive" | "dormant";
   effectivePermissions?: Record<string, string>;
   defaultDashboard?: string;
+  photoUrl?: string | null;
 }
 
 export type AccessLevel = "read" | "write" | "admin";
@@ -61,16 +62,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ email, password }),
     });
     if (res.requiresMfa) return { requiresMfa: true };
-    setUser(res);
+    // Call refresh() to get full user data including effectivePermissions and defaultDashboard
+    await refresh();
     return {};
   };
 
   const loginMfa = async (token: string) => {
-    const res = await apiFetch<AuthUser>("/auth/login/mfa", {
+    await apiFetch<AuthUser>("/auth/login/mfa", {
       method: "POST",
       body: JSON.stringify({ token }),
     });
-    setUser(res);
+    await refresh();
   };
 
   const logout = async () => {

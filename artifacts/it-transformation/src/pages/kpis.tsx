@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { useAuth } from "@/contexts/auth-context";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Users, Plus, Upload, Download, History, Eye, Send, CheckCircle2, XCircle,
@@ -250,39 +252,26 @@ function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
   const[userId,setUserId]=useState("");
   const[yearId,setYearId]=useState("");
   const[notes,setNotes]=useState("");
-  const[userSearch,setUserSearch]=useState("");
+  const[userPickerOpen,setUserPickerOpen]=useState(false);
   useEffect(()=>{
     if(initialSet){setYearId(initialSet.yearId.toString());setNotes(initialSet.notes||"");}
-    else{setUserId("");setYearId("");setNotes("");setUserSearch("");}
+    else{setUserId("");setYearId("");setNotes("");setUserPickerOpen(false);}
   },[initialSet,open]);
   const selectedUser=useMemo(()=>users.find(u=>u.id.toString()===userId),[users,userId]);
-  const roleLabel=(r: string)=>r==="cxo"?"CXO":r==="kpi_employee"?"Employee":r==="hr"?"HR":"User";
   const DEPT_LABELS: Record<string,string>={
     Technology:"Technology",risk:"Risk",compliance:"Compliance",operations:"Operations",
     finance:"Finance",broking_ops:"Broking Ops",nbfc_ops:"NBFC Ops",aif_ops:"AIF Ops",
     hr:"HR",management:"Management",Other:"Other",
   };
-  // Filter + group users by department
-  const filteredGrouped=useMemo(()=>{
-    const q=userSearch.toLowerCase();
-    const filtered=users.filter(u=>{
-      if(!q) return true;
-      return (
-        u.name.toLowerCase().includes(q)||
-        (u.designation||"").toLowerCase().includes(q)||
-        (u.employeeCode||"").toLowerCase().includes(q)||
-        (u.department||"").toLowerCase().includes(q)||
-        u.email.toLowerCase().includes(q)
-      );
-    });
+  const groupedUsers=useMemo(()=>{
     const map=new Map<string,KpiUser[]>();
-    for(const u of filtered){
+    for(const u of users){
       const dept=u.department||"Other";
       if(!map.has(dept)) map.set(dept,[]);
       map.get(dept)!.push(u);
     }
     return Array.from(map.entries()).sort(([a],[b])=>a.localeCompare(b));
-  },[users,userSearch]);
+  },[users]);
 
   const handleSave=async()=>{
     if((!userId&&!initialSet)||!yearId){toast({title:"User and Year are required",variant:"destructive"});return;}
@@ -291,7 +280,13 @@ function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
       if(initialSet){await apiFetch(`/kpi-sets/${initialSet.id}`,{method:"PATCH",body:JSON.stringify({notes})});toast({title:"KPI set updated"});}
       else{await apiFetch("/kpi-sets",{method:"POST",body:JSON.stringify({userId:parseInt(userId),yearId:parseInt(yearId),notes})});toast({title:"KPI set created"});}
       onSuccess();
-    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    }catch(e:any){
+      if((e instanceof ApiError&&e.status===409)||e.message?.toLowerCase().includes("already exists")){
+        toast({title:"Duplicate KPI Set",description:"A KPI set for this employee and financial year already exists. Archive the existing set to create a new one.",variant:"destructive"});
+      }else{
+        toast({title:"Error",description:e.message,variant:"destructive"});
+      }
+    }
     finally{setSaving(false);}
   };
   return(
@@ -302,62 +297,55 @@ function KpiSetDialog({open,initialSet,users,years,onClose,onSuccess}:{
           {!initialSet&&(
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Select Employee / User *</Label>
-              {/* Search input */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"/>
-                <Input
-                  className="pl-8 h-8 text-sm"
-                  placeholder="Search by name, designation, code, dept…"
-                  value={userSearch}
-                  onChange={e=>setUserSearch(e.target.value)}
-                />
-              </div>
-              {/* Selected user badge */}
-              {selectedUser&&(
-                <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-primary/10 border border-primary/30 text-xs">
-                  <UserCheck className="h-3.5 w-3.5 text-primary flex-shrink-0"/>
-                  <span className="font-medium text-primary">{selectedUser.name}</span>
-                  {selectedUser.employeeCode&&<span className="text-muted-foreground">· {selectedUser.employeeCode}</span>}
-                  {selectedUser.designation&&<span className="text-muted-foreground">· {selectedUser.designation}</span>}
-                </div>
-              )}
-              {/* Scrollable grouped user list */}
-              <div className="border border-border rounded-md overflow-y-auto max-h-52 bg-background">
-                {filteredGrouped.length===0?(
-                  <div className="px-3 py-4 text-xs text-muted-foreground text-center">No users match your search</div>
-                ):(
-                  filteredGrouped.map(([dept,deptUsers])=>(
-                    <div key={dept}>
-                      <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground bg-muted/40 sticky top-0 border-b border-border/50">
-                        {DEPT_LABELS[dept]||dept}
-                      </div>
-                      {deptUsers.map(u=>{
-                        const isSelected=u.id.toString()===userId;
-                        return(
-                          <button
-                            key={u.id}
-                            type="button"
-                            onClick={()=>{setUserId(u.id.toString());setUserSearch("");}}
-                            className={cn(
-                              "w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-accent/60 transition-colors border-b border-border/30 last:border-0",
-                              isSelected&&"bg-primary/10 hover:bg-primary/15"
-                            )}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className={cn("text-sm font-medium",isSelected&&"text-primary")}>{u.name}</span>
-                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 shrink-0">{roleLabel(u.role)}</Badge>
-                            </div>
-                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                              {u.employeeCode&&<span className="font-mono">{u.employeeCode}</span>}
-                              {u.designation&&<><span>·</span><span>{u.designation}</span></>}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))
-                )}
-              </div>
+              <Popover open={userPickerOpen} onOpenChange={setUserPickerOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-full flex items-center justify-between gap-2 px-3 h-9 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring",
+                      !selectedUser&&"text-muted-foreground"
+                    )}
+                  >
+                    {selectedUser?(
+                      <span className="flex items-center gap-2 min-w-0">
+                        <UserCheck className="h-3.5 w-3.5 text-primary shrink-0"/>
+                        <span className="font-medium truncate">{selectedUser.name}</span>
+                        {selectedUser.employeeCode&&<span className="text-muted-foreground text-xs shrink-0">· {selectedUser.employeeCode}</span>}
+                        {selectedUser.designation&&<span className="text-muted-foreground text-xs truncate">· {selectedUser.designation}</span>}
+                      </span>
+                    ):(
+                      <span>Search and select employee…</span>
+                    )}
+                    <ChevronDown className="h-4 w-4 shrink-0 opacity-50"/>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search by name, code, dept…" className="h-9"/>
+                    <CommandList className="max-h-60">
+                      <CommandEmpty>No employees found.</CommandEmpty>
+                      {groupedUsers.map(([dept,deptUsers])=>(
+                        <CommandGroup key={dept} heading={DEPT_LABELS[dept]||dept}>
+                          {deptUsers.map(u=>(
+                            <CommandItem
+                              key={u.id}
+                              value={`${u.name} ${u.employeeCode||""} ${u.designation||""} ${dept}`}
+                              onSelect={()=>{setUserId(u.id.toString());setUserPickerOpen(false);}}
+                              className="flex flex-col items-start gap-0.5 py-2"
+                            >
+                              <div className="flex items-center gap-2 w-full">
+                                <span className="font-medium text-sm">{u.name}</span>
+                                {u.employeeCode&&<span className="text-xs font-mono text-muted-foreground">{u.employeeCode}</span>}
+                              </div>
+                              {u.designation&&<span className="text-xs text-muted-foreground">{u.designation}</span>}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      ))}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           )}
           <div className="space-y-1"><Label className="text-xs">Financial Year *</Label>

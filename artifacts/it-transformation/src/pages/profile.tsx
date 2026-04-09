@@ -1,89 +1,107 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/auth-context";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-import { User, Shield, Key, Smartphone, CheckCircle } from "lucide-react";
+import { User, Camera, Loader2, Upload } from "lucide-react";
+
+interface ProfileData {
+  id: number;
+  name: string;
+  email: string;
+  department: string | null;
+  designation: string | null;
+  employeeCode: string | null;
+  mobile: string | null;
+  role: string;
+  userType: string;
+  status: string;
+  mfaEnabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  photoUrl: string | null;
+}
+
+function FieldRow({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">{label}</span>
+      <span className="text-sm font-medium text-foreground">{value || <span className="text-muted-foreground italic">—</span>}</span>
+    </div>
+  );
+}
 
 export default function Profile() {
   const { user, refresh } = useAuth();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [profileForm, setProfileForm] = useState({ name: user?.name || "", department: "" });
-  const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
-  const [mfaStep, setMfaStep] = useState<"idle" | "setup" | "verify">("idle");
-  const [mfaData, setMfaData] = useState<{ secret: string; qrCode: string } | null>(null);
-  const [mfaToken, setMfaToken] = useState("");
-  const [disableMfaToken, setDisableMfaToken] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    apiFetch<any>("/auth/profile").then(p => {
-      setProfileForm({ name: p.name, department: p.department || "" });
-    });
+    apiFetch<ProfileData>("/auth/profile").then(p => {
+      setProfile(p);
+      if (p.photoUrl) setPreviewUrl(`/api${p.photoUrl}`);
+    }).catch(() => {});
   }, []);
 
-  const saveProfile = async () => {
-    setSaving(true);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please select an image file.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Maximum 5 MB allowed.", variant: "destructive" });
+      return;
+    }
+
+    const localPreview = URL.createObjectURL(file);
+    setPreviewUrl(localPreview);
+    setUploading(true);
+
     try {
-      await apiFetch("/auth/profile", { method: "PATCH", body: JSON.stringify(profileForm) });
+      const { uploadURL, objectPath } = await apiFetch<{ uploadURL: string; objectPath: string }>(
+        "/storage/uploads/request-url",
+        {
+          method: "POST",
+          body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+        }
+      );
+
+      await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+
+      await apiFetch("/auth/profile", {
+        method: "PATCH",
+        body: JSON.stringify({ photoUrl: objectPath }),
+      });
+
       await refresh();
-      toast({ title: "Profile updated" });
+      setProfile(p => p ? { ...p, photoUrl: objectPath } : p);
+      setPreviewUrl(`/api${objectPath}`);
+      toast({ title: "Photo updated successfully" });
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally { setSaving(false); }
-  };
-
-  const savePassword = async () => {
-    if (pwForm.newPassword !== pwForm.confirmPassword) {
-      toast({ title: "Passwords do not match", variant: "destructive" }); return;
-    }
-    setSaving(true);
-    try {
-      await apiFetch("/auth/profile", { method: "PATCH", body: JSON.stringify({ currentPassword: pwForm.currentPassword, newPassword: pwForm.newPassword }) });
-      setPwForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      toast({ title: "Password changed successfully" });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally { setSaving(false); }
-  };
-
-  const startMfaSetup = async () => {
-    try {
-      const data = await apiFetch<{ secret: string; qrCode: string }>("/auth/mfa/setup");
-      setMfaData(data);
-      setMfaStep("setup");
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      setPreviewUrl(profile?.photoUrl ? `/api${profile.photoUrl}` : null);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  const enableMfa = async () => {
-    try {
-      await apiFetch("/auth/mfa/enable", { method: "POST", body: JSON.stringify({ token: mfaToken }) });
-      await refresh();
-      setMfaStep("idle");
-      setMfaToken("");
-      setMfaData(null);
-      toast({ title: "MFA enabled", description: "Two-factor authentication is now active on your account." });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
-  };
-
-  const disableMfa = async () => {
-    try {
-      await apiFetch("/auth/mfa/disable", { method: "POST", body: JSON.stringify({ token: disableMfaToken }) });
-      await refresh();
-      setDisableMfaToken("");
-      toast({ title: "MFA disabled" });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
+  const statusColor: Record<string, string> = {
+    active: "bg-green-500/15 text-green-600 border-green-500/30",
+    inactive: "bg-red-500/15 text-red-600 border-red-500/30",
+    dormant: "bg-yellow-500/15 text-yellow-600 border-yellow-500/30",
   };
 
   return (
@@ -92,113 +110,97 @@ export default function Profile() {
         <User className="h-6 w-6 text-primary" />
         <div>
           <h1 className="text-xl font-bold">My Profile</h1>
-          <p className="text-sm text-muted-foreground">{user?.email} &middot; <span className="capitalize">{user?.role}</span> &middot; <span className="capitalize">{user?.userType}</span></p>
+          <p className="text-sm text-muted-foreground">Your account information (managed by administrator)</p>
         </div>
       </div>
 
-      {/* Profile Details */}
+      {/* Photo + Identity */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Profile Details</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Full Name</Label>
-              <Input value={profileForm.name} onChange={e => setProfileForm(f => ({...f, name: e.target.value}))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Email (read-only)</Label>
-              <Input value={user?.email} disabled className="opacity-60" />
-            </div>
-          </div>
-          <Button onClick={saveProfile} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
-        </CardContent>
-      </Card>
-
-      {/* Change Password */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><Key className="h-4 w-4" />Change Password</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5"><Label>Current Password</Label><Input type="password" value={pwForm.currentPassword} onChange={e => setPwForm(f => ({...f, currentPassword: e.target.value}))} /></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5"><Label>New Password</Label><Input type="password" value={pwForm.newPassword} onChange={e => setPwForm(f => ({...f, newPassword: e.target.value}))} /></div>
-            <div className="space-y-1.5"><Label>Confirm New Password</Label><Input type="password" value={pwForm.confirmPassword} onChange={e => setPwForm(f => ({...f, confirmPassword: e.target.value}))} /></div>
-          </div>
-          <Button onClick={savePassword} disabled={saving || !pwForm.currentPassword || !pwForm.newPassword}>Change Password</Button>
-        </CardContent>
-      </Card>
-
-      {/* MFA */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Smartphone className="h-4 w-4" />
-            Two-Factor Authentication
-            {user?.mfaEnabled && <Badge className="bg-green-500/20 text-green-400 border-green-500/30 ml-2">Enabled</Badge>}
-          </CardTitle>
-          <CardDescription>Protect your account with a time-based one-time password (TOTP) authenticator.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {!user?.mfaEnabled ? (
-            mfaStep === "idle" ? (
-              <Button variant="outline" onClick={startMfaSetup}>
-                <Shield className="h-4 w-4 mr-2" />Enable MFA
-              </Button>
-            ) : (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  1. Scan the QR code below with Google Authenticator, Authy, or any TOTP app.<br />
-                  2. Enter the 6-digit code shown in the app to verify and enable MFA.
-                </p>
-                {mfaData && (
-                  <div className="flex gap-6 items-start">
-                    <img src={mfaData.qrCode} alt="QR Code" className="w-40 h-40 rounded border border-border" />
-                    <div className="space-y-2 flex-1">
-                      <p className="text-xs text-muted-foreground">Or enter this secret manually:</p>
-                      <code className="text-xs bg-muted px-2 py-1 rounded block break-all">{mfaData.secret}</code>
-                    </div>
-                  </div>
+        <CardHeader><CardTitle className="text-base">Identity</CardTitle></CardHeader>
+        <CardContent>
+          <div className="flex items-start gap-6">
+            {/* Avatar */}
+            <div className="relative shrink-0">
+              <div className="h-24 w-24 rounded-full border-2 border-border overflow-hidden bg-muted flex items-center justify-center">
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Profile" className="h-full w-full object-cover" onError={() => setPreviewUrl(null)} />
+                ) : (
+                  <User className="h-10 w-10 text-muted-foreground" />
                 )}
-                <div className="space-y-1.5">
-                  <Label>Verification Code</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="000000"
-                      value={mfaToken}
-                      onChange={e => setMfaToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      className="w-32 font-mono text-center text-lg tracking-widest"
-                    />
-                    <Button onClick={enableMfa} disabled={mfaToken.length < 6}>
-                      <CheckCircle className="h-4 w-4 mr-1" />Verify & Enable
-                    </Button>
-                    <Button variant="ghost" onClick={() => { setMfaStep("idle"); setMfaData(null); setMfaToken(""); }}>Cancel</Button>
-                  </div>
-                </div>
               </div>
-            )
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">MFA is active on your account. To disable it, enter a verification code from your authenticator app.</p>
-              <div className="flex gap-2">
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="000000"
-                  value={disableMfaToken}
-                  onChange={e => setDisableMfaToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="w-32 font-mono text-center text-lg tracking-widest"
-                />
-                <Button variant="destructive" onClick={disableMfa} disabled={disableMfaToken.length < 6}>
-                  Disable MFA
-                </Button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-md hover:bg-primary/90 transition-colors disabled:opacity-50"
+                title="Change photo"
+              >
+                {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+            </div>
+
+            {/* Name + Role badges */}
+            <div className="flex-1 space-y-1.5">
+              <p className="text-lg font-semibold">{profile?.name || user?.name}</p>
+              <p className="text-sm text-muted-foreground">{profile?.email || user?.email}</p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                <Badge variant="outline" className="capitalize text-xs">{profile?.role || user?.role}</Badge>
+                <Badge variant="outline" className="capitalize text-xs">{profile?.userType || user?.userType}</Badge>
+                {profile?.status && (
+                  <Badge variant="outline" className={`text-xs capitalize ${statusColor[profile.status] || ""}`}>
+                    {profile.status}
+                  </Badge>
+                )}
               </div>
             </div>
-          )}
+          </div>
+
+          <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1.5">
+            <Upload className="h-3.5 w-3.5" />
+            Click the camera icon to upload a photo (JPG, PNG, WebP — max 5 MB)
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* User Master Details */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Employment Details</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+            <FieldRow label="Employee Code" value={profile?.employeeCode} />
+            <FieldRow label="Department" value={profile?.department} />
+            <FieldRow label="Designation" value={profile?.designation} />
+            <FieldRow label="Mobile" value={profile?.mobile} />
+            <FieldRow label="User Type" value={profile?.userType ? profile.userType.charAt(0).toUpperCase() + profile.userType.slice(1) : null} />
+            <FieldRow label="Account Role" value={profile?.role} />
+          </div>
+          <p className="text-xs text-muted-foreground mt-5 border-t border-border pt-3">
+            These details are managed by your administrator. Contact your admin to update any information.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Account Activity */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Account Activity</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+            <FieldRow
+              label="Last Login"
+              value={profile?.lastLoginAt ? new Date(profile.lastLoginAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Never"}
+            />
+            <FieldRow
+              label="Account Created"
+              value={profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) : null}
+            />
+            <FieldRow label="MFA Status" value={profile?.mfaEnabled ? "Enabled" : "Disabled"} />
+          </div>
         </CardContent>
       </Card>
     </div>

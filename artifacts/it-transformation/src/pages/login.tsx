@@ -37,7 +37,7 @@ export default function Login() {
   });
 
   useEffect(() => {
-    if (user) navigate("/");
+    if (user) navigate(user.defaultDashboard || "/");
   }, [user]);
 
   useEffect(() => {
@@ -57,8 +57,6 @@ export default function Login() {
       if (res.requiresMfa) {
         setStep("mfa");
         toast({ title: "MFA required", description: "Enter the 6-digit code from your authenticator app." });
-      } else {
-        navigate("/");
       }
     } catch (err: any) {
       toast({ title: "Login failed", description: err.message, variant: "destructive" });
@@ -72,7 +70,6 @@ export default function Login() {
     setLoading(true);
     try {
       await loginMfa(mfaToken);
-      navigate("/");
     } catch (err: any) {
       toast({ title: "Invalid code", description: err.message, variant: "destructive" });
     } finally {
@@ -104,7 +101,7 @@ export default function Login() {
             ) : (
               <Shield className="h-8 w-8 text-primary" />
             )}
-            <span className="text-2xl font-bold text-foreground">{appConfig.appName}</span>
+            <span className="text-2xl font-bold text-foreground whitespace-nowrap overflow-hidden text-ellipsis max-w-xs" title={appConfig.appName}>{appConfig.appName}</span>
           </div>
           <p className="text-sm text-muted-foreground">{appConfig.appTagline}</p>
         </div>
