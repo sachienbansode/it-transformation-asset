@@ -386,6 +386,7 @@ router.post("/kpi-sets/:id/batch-review", async (req, res): Promise<void> => {
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
 
+  // Only update items that are still pending (not yet individually decided)
   await db.update(kpiSetItemsTable)
     .set({
       approvalStatus: body.data.decision,
@@ -394,7 +395,7 @@ router.post("/kpi-sets/:id/batch-review", async (req, res): Promise<void> => {
       approvedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(kpiSetItemsTable.setId, id));
+    .where(and(eq(kpiSetItemsTable.setId, id), ne(kpiSetItemsTable.approvalStatus, "Approved"), ne(kpiSetItemsTable.approvalStatus, "Rejected")));
 
   const [set] = await db.update(kpiSetsTable)
     .set({
@@ -452,6 +453,24 @@ router.put("/kpi-sets/:id/actuals", async (req, res): Promise<void> => {
   }
   auditKpi(setId, "actuals_update", `Performance actuals updated for KPI set #${setId} (${body.data.actuals.length} items)`, (req.session as any)?.userId?.toString());
   res.sendStatus(204);
+});
+
+// ─── Final review submit (set-level, after individual KPI decisions) ─────────
+
+router.post("/kpi-sets/:id/submit-review", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = z.object({
+    approvedBy: z.number().optional().nullable(),
+    approvalComments: z.string().optional().nullable(),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+  const [row] = await db.update(kpiSetsTable)
+    .set({ status: "Approved", approvedBy: body.data.approvedBy, approvalComments: body.data.approvalComments, approvedAt: new Date(), updatedAt: new Date() })
+    .where(eq(kpiSetsTable.id, id)).returning();
+  if (!row) { res.status(404).json({ error: "KPI set not found" }); return; }
+  auditKpi(id, "final_review_submitted", `Final review submitted for KPI set #${id}. Comments: ${body.data.approvalComments||"—"}`, (req.session as any)?.userId?.toString());
+  res.json(row);
 });
 
 // ─── Submit actuals for HR/Admin review ───────────────────────────────────────

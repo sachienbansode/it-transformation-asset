@@ -682,6 +682,10 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
   const[approvalPanel,setApprovalPanel]=useState<ApprovalPanelState|null>(null);
   const[approvalComment,setApprovalComment]=useState("");
   const[saving,setSaving]=useState(false);
+  const[batchDialog,setBatchDialog]=useState<{decision:"Approved"|"Rejected",comment:string}|null>(null);
+  const[finalRemarks,setFinalRemarks]=useState("");
+  const[showFinalSubmit,setShowFinalSubmit]=useState(false);
+  const[submittingFinal,setSubmittingFinal]=useState(false);
   const displayItems=items||[];
   const groups=useMemo(()=>computeGroups(displayItems),[displayItems]);
   const allExpanded=groups.length>0&&groups.every(g=>expanded.has(g.category));
@@ -699,18 +703,29 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
     }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
     finally{setSaving(false);setApprovalPanel(null);setApprovalComment("");}
   };
-  const batchReview=async(decision:"Approved"|"Rejected")=>{
-    if(!confirm(`${decision==="Approved"?"Approve":"Reject"} all pending KPIs in this set?`)) return;
+  const batchReview=async()=>{
+    if(!batchDialog) return;
     setSaving(true);
     try{
-      await apiFetch(`/kpi-sets/${set.id}/batch-review`,{method:"POST",body:JSON.stringify({decision,approvedBy:userId})});
-      toast({title:`All KPIs ${decision==="Approved"?"approved":"rejected"}`});
+      await apiFetch(`/kpi-sets/${set.id}/batch-review`,{method:"POST",body:JSON.stringify({decision:batchDialog.decision,approvedBy:userId,approvalComments:batchDialog.comment||null})});
+      toast({title:`All pending KPIs ${batchDialog.decision==="Approved"?"approved":"rejected"}`});
+      setBatchDialog(null);
       refetch();onRefresh();
     }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
     finally{setSaving(false);}
   };
+  const submitFinalReview=async()=>{
+    setSubmittingFinal(true);
+    try{
+      await apiFetch(`/kpi-sets/${set.id}/submit-review`,{method:"POST",body:JSON.stringify({approvedBy:userId,approvalComments:finalRemarks||null})});
+      toast({title:"Review submitted",description:"KPI set has been finalised. Only approved KPIs will proceed to performance capture."});
+      setShowFinalSubmit(false);setFinalRemarks("");
+      refetch();onRefresh();onClose();
+    }catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
+    finally{setSubmittingFinal(false);}
+  };
   const contentClass=isFullscreen
-    ?"fixed inset-0 z-50 max-w-full w-full h-full rounded-none flex flex-col overflow-hidden bg-background"
+    ?"fixed inset-0 z-50 max-w-none w-screen h-screen rounded-none flex flex-col overflow-hidden bg-background translate-x-0 translate-y-0 border-0"
     :"sm:max-w-[1200px] max-h-[92vh] flex flex-col overflow-hidden";
   return(
     <Dialog open={open} onOpenChange={onClose}>
@@ -746,9 +761,14 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
               )}
               {canApprove&&pendingCount>0&&(
                 <>
-                  <Button size="sm" variant="outline" className="h-7 text-xs border-emerald-500/50 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-400/10" onClick={()=>batchReview("Approved")} disabled={saving}><CheckCircle2 className="mr-1 h-3 w-3"/>Approve All</Button>
-                  <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/50 text-red-600 hover:bg-red-50 dark:hover:bg-red-400/10" onClick={()=>batchReview("Rejected")} disabled={saving}><XCircle className="mr-1 h-3 w-3"/>Reject All</Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-emerald-500/50 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-400/10" onClick={()=>setBatchDialog({decision:"Approved",comment:""})} disabled={saving||!!batchDialog}><CheckCircle2 className="mr-1 h-3 w-3"/>Approve All</Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/50 text-red-600 hover:bg-red-50 dark:hover:bg-red-400/10" onClick={()=>setBatchDialog({decision:"Rejected",comment:""})} disabled={saving||!!batchDialog}><XCircle className="mr-1 h-3 w-3"/>Reject All</Button>
                 </>
+              )}
+              {canApprove&&displayItems.length>0&&(
+                <Button size="sm" className="h-7 text-xs bg-primary" onClick={()=>setShowFinalSubmit(v=>!v)} disabled={submittingFinal}>
+                  <CheckCircle2 className="mr-1 h-3 w-3"/>Submit Review
+                </Button>
               )}
               <button onClick={()=>setIsFullscreen(!isFullscreen)} className="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-muted transition-colors" title={isFullscreen?"Exit fullscreen":"Fullscreen"}>
                 {isFullscreen?<Minimize2 className="h-3.5 w-3.5"/>:<Maximize2 className="h-3.5 w-3.5"/>}
@@ -756,6 +776,59 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
             </div>
           </div>
         </DialogHeader>
+
+        {/* ── Batch comment bar ─────────────────────────────────────────── */}
+        {batchDialog&&(
+          <div className={cn("shrink-0 mx-1 rounded-lg border px-3 py-2.5 text-xs flex items-center gap-2",
+            batchDialog.decision==="Approved"
+              ?"border-emerald-400/40 bg-emerald-50 dark:bg-emerald-400/10"
+              :"border-red-400/40 bg-red-50 dark:bg-red-400/10")}>
+            <span className={cn("font-semibold shrink-0",batchDialog.decision==="Approved"?"text-emerald-700 dark:text-emerald-400":"text-red-700 dark:text-red-400")}>
+              {batchDialog.decision==="Approved"?"✓ Approve All Pending:":"✗ Reject All Pending:"}
+            </span>
+            <input type="text" className="flex-1 h-7 rounded border border-border bg-background px-2 text-xs"
+              placeholder="Add a comment (optional)…" autoFocus
+              value={batchDialog.comment} onChange={e=>setBatchDialog(d=>d?{...d,comment:e.target.value}:null)}
+              onKeyDown={e=>{if(e.key==="Enter")batchReview();if(e.key==="Escape")setBatchDialog(null);}}/>
+            <button onClick={batchReview} disabled={saving}
+              className={cn("h-7 px-3 rounded text-[11px] font-semibold text-white shrink-0",
+                batchDialog.decision==="Approved"?"bg-emerald-600 hover:bg-emerald-700":"bg-red-600 hover:bg-red-700",
+                saving&&"opacity-50 cursor-not-allowed")}>
+              {saving?"Saving…":"Confirm"}
+            </button>
+            <button onClick={()=>setBatchDialog(null)} className="h-7 px-2 rounded border border-border hover:bg-muted shrink-0">Cancel</button>
+          </div>
+        )}
+
+        {/* ── Final submit bar ──────────────────────────────────────────── */}
+        {showFinalSubmit&&canApprove&&(
+          <div className="shrink-0 mx-1 rounded-lg border border-primary/40 bg-primary/5 px-3 py-3 text-xs flex flex-col gap-2">
+            <div className="flex items-center gap-2 font-semibold text-primary text-[11px]">
+              <CheckCircle2 className="h-3.5 w-3.5"/>
+              Submit Final Review
+              <span className="font-normal text-muted-foreground ml-1">
+                — {approvedCount} approved, {rejectedCount} rejected{pendingCount>0&&<span className="text-yellow-600 dark:text-yellow-400">, {pendingCount} still pending (will remain un-reviewed)</span>}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <textarea rows={2} className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs resize-none"
+                placeholder="Final remarks on this KPI set review (optional)…"
+                value={finalRemarks} onChange={e=>setFinalRemarks(e.target.value)}/>
+              <div className="flex flex-col gap-1.5 shrink-0">
+                <button onClick={submitFinalReview} disabled={submittingFinal}
+                  className="h-8 px-4 rounded bg-primary text-white text-[11px] font-semibold hover:bg-primary/90 disabled:opacity-50 whitespace-nowrap">
+                  {submittingFinal?"Submitting…":"Submit & Finalise"}
+                </button>
+                <button onClick={()=>{setShowFinalSubmit(false);setFinalRemarks("");}}
+                  className="h-7 px-3 rounded border border-border hover:bg-muted text-[11px] text-muted-foreground">
+                  Cancel
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Only KPIs individually marked <strong>Approved</strong> will be available for performance actuals capture.</p>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto min-h-0">
           {!items?(<div className="space-y-2 p-1">{[1,2,3].map(i=><Skeleton key={i} className="h-12 w-full"/>)}</div>)
           :displayItems.length===0?(
@@ -914,9 +987,10 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,onClose,o
     finally{setSubmitting(false);}
   };
 
-  const displayItems=items||[];
+  const allItems=items||[];
+  const displayItems=allItems.filter(i=>i.approvalStatus==="Approved");
   const contentClass=isFullscreen
-    ?"fixed inset-0 z-50 max-w-full w-full h-full rounded-none flex flex-col overflow-hidden bg-background"
+    ?"fixed inset-0 z-50 max-w-none w-screen h-screen rounded-none flex flex-col overflow-hidden bg-background translate-x-0 translate-y-0 border-0"
     :"sm:max-w-[1300px] max-h-[92vh] flex flex-col overflow-hidden";
 
   return(
@@ -983,6 +1057,11 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,onClose,o
               {isAdmin&&set.actualsStatus!=="PendingReview"&&(
                 <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={saving||displayItems.length===0}>
                   {saving?"Saving…":"Save Actuals"}
+                </Button>
+              )}
+              {displayItems.length>0&&(
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={()=>downloadSetExcel(displayItems,person,year)}>
+                  <Download className="mr-1 h-3 w-3"/>Download
                 </Button>
               )}
               <button onClick={()=>setIsFullscreen(f=>!f)} className="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-muted transition-colors">
