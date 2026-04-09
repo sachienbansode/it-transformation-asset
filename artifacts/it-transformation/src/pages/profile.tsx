@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,12 @@ export default function Profile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  const { data: deptMasters = [] } = useQuery({
+    queryKey: ["masters-department"],
+    queryFn: () => apiFetch<{key:string;label:string}[]>("/masters?category=department"),
+  });
+  const getDeptLabel = (key: string | null | undefined) => key ? (deptMasters.find(d => d.key === key)?.label || key) : null;
 
   useEffect(() => {
     apiFetch<ProfileData>("/auth/profile").then(p => {
@@ -174,7 +181,7 @@ export default function Profile() {
         <CardContent>
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
             <FieldRow label="Employee Code" value={profile?.employeeCode} />
-            <FieldRow label="Department" value={profile?.department} />
+            <FieldRow label="Department" value={getDeptLabel(profile?.department)} />
             <FieldRow label="Designation" value={profile?.designation} />
             <FieldRow label="Mobile" value={profile?.mobile} />
             <FieldRow label="User Type" value={profile?.userType ? profile.userType.charAt(0).toUpperCase() + profile.userType.slice(1) : null} />

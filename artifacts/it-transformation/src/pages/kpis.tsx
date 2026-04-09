@@ -681,9 +681,9 @@ function CategoryRow({group,expanded,onToggle,canApprove,approvalPanel,approvalC
 
 // ─── Category Grouped KPI Dialog (full-screen capable) ────────────────────────
 
-function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,onRefresh}:{
+function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,getDeptLabel,onClose,onRefresh}:{
   open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear;
-  isAdmin: boolean; userId?: number; onClose:()=>void; onRefresh:()=>void;
+  isAdmin: boolean; userId?: number; getDeptLabel:(k:string)=>string; onClose:()=>void; onRefresh:()=>void;
 }){
   const{data:items,refetch}=useSetItems(open?set.id:undefined);
   const{toast}=useToast();
@@ -749,7 +749,7 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,onClose,o
               </DialogTitle>
               <div className="flex items-center gap-3 mt-1 flex-wrap">
                 <span className="text-xs text-muted-foreground">{year.label}</span>
-                {person.department&&<span className="text-xs text-muted-foreground">· {person.department}</span>}
+                {person.department&&<span className="text-xs text-muted-foreground">· {getDeptLabel(person.department)}</span>}
                 <Badge variant="outline" className={cn("text-[10px] px-1.5",STATUS_COLORS[set.status]||"")}>{set.status}</Badge>
                 {displayItems.length>0&&(
                   <span className="text-xs text-muted-foreground">
@@ -892,9 +892,9 @@ const ACTUALS_STATUS_LABELS: Record<string,string>={
   Reviewed:"Actuals Reviewed",RevisionNeeded:"Revision Needed",
 };
 
-function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,onClose,onRefresh}:{
+function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,getDeptLabel,onClose,onRefresh}:{
   open: boolean; set: KpiSet; person: KpiPerson; year: KpiYear;
-  isAdmin?: boolean; userId?: number; onClose:()=>void; onRefresh:()=>void;
+  isAdmin?: boolean; userId?: number; getDeptLabel:(k:string)=>string; onClose:()=>void; onRefresh:()=>void;
 }){
   const{toast}=useToast();
   const{data:items}=useSetItems(open?set.id:undefined);
@@ -982,7 +982,7 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,onClose,o
               <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-muted-foreground">
                 <span>{year.label}</span>
                 {person.designation&&<span>· {person.designation}</span>}
-                {person.department&&<span>· {person.department}</span>}
+                {person.department&&<span>· {getDeptLabel(person.department)}</span>}
                 <Badge variant="outline" className={cn("text-[10px] px-1.5",STATUS_COLORS[set.status]||"")}>{set.status}</Badge>
                 {set.actualsStatus&&set.actualsStatus!=="NotStarted"&&(
                   <Badge variant="outline" className={cn("text-[10px] px-1.5",ACTUALS_STATUS_COLORS[set.actualsStatus]||"")}>
@@ -1123,10 +1123,11 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,onClose,o
 
 // ─── KPI Sets Tab ─────────────────────────────────────────────────────────────
 
-function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter,isAdmin,isEmployee,isCxo,isHR,userId,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onPerformance,onRefresh}:{
+function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter,isAdmin,isEmployee,isCxo,isHR,userId,getDeptLabel,onView,onUpload,onHistory,onEdit,onSubmit,onDelete,onPerformance,onRefresh}:{
   sets: KpiSet[]; archivedSets: KpiSet[]; persons: KpiPerson[]; years: KpiYear[];
   statusFilter: string; onStatusFilter:(s:string)=>void;
   isAdmin: boolean; isEmployee?: boolean; isCxo?: boolean; isHR?: boolean; userId?: number;
+  getDeptLabel:(k:string)=>string;
   onView:(s:KpiSet)=>void; onUpload:(s:KpiSet)=>void; onHistory:(s:KpiSet)=>void;
   onEdit:(s:KpiSet)=>void; onSubmit:(s:KpiSet)=>void; onDelete:(s:KpiSet)=>void;
   onPerformance:(s:KpiSet)=>void; onRefresh:()=>void;
@@ -1165,7 +1166,7 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                     {person?.email&&<div className="text-[10px] text-muted-foreground">{person.email}</div>}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.designation||"—"}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.department||"—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{person?.department?getDeptLabel(person.department):"—"}</td>
                   <td className="px-4 py-2.5 text-xs">{year?.label||"—"}</td>
                   <td className="px-4 py-2.5 text-center">
                     {set.versionNumber?<span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-400/20 text-blue-700 dark:text-blue-400 font-semibold">v{set.versionNumber}</span>:<span className="text-xs text-muted-foreground">—</span>}
@@ -1284,6 +1285,7 @@ export default function KpisPage(){
   const{data:persons}=usePersons();
   const{data:kpiUsers=[]}=useKpiUsers();
   const{data:deptMasters=[]}=useDeptMasters();
+  const getDeptLabel=useCallback((key:string)=>deptMasters.find(d=>d.key===key)?.label||key,[deptMasters]);
   const{data:sets}=useKpiSets(yearFilter);
   const{data:archivedSets=[]}=useArchivedSets(yearFilter);
 
@@ -1364,13 +1366,14 @@ export default function KpisPage(){
       <KpiSetsTab sets={filteredSets} archivedSets={archivedSets} persons={persons||[]} years={years||[]}
         statusFilter={statusFilter} onStatusFilter={setStatusFilter}
         isAdmin={isAdmin} isEmployee={isEmployee} isCxo={isCxo} isHR={isHR} userId={user?.id}
+        getDeptLabel={getDeptLabel}
         onView={setDetailSet} onUpload={setUploadSet} onHistory={setHistorySet}
         onEdit={setEditSet} onSubmit={handleSubmit} onDelete={handleDelete}
         onPerformance={setPerformanceSet} onRefresh={refresh}/>
 
       {/* Dialogs */}
       {detailSet&&(()=>{const person=getPerson(detailSet);const year=getYear(detailSet.yearId);if(!person||!year) return null;
-        return(<CategoryGroupedKpiDialog open={!!detailSet} set={detailSet} person={person} year={year} isAdmin={isAdmin} userId={user?.id} onClose={()=>setDetailSet(null)} onRefresh={refresh}/>);
+        return(<CategoryGroupedKpiDialog open={!!detailSet} set={detailSet} person={person} year={year} isAdmin={isAdmin} userId={user?.id} getDeptLabel={getDeptLabel} onClose={()=>setDetailSet(null)} onRefresh={refresh}/>);
       })()}
       {uploadSet&&(()=>{const person=getPerson(uploadSet);const year=getYear(uploadSet.yearId);if(!person||!year) return null;
         return(<UploadDialog open={!!uploadSet} set={uploadSet} person={person} year={year} userId={user?.id} onClose={()=>setUploadSet(null)} onSuccess={()=>{setUploadSet(null);refresh();}}/>);
@@ -1383,7 +1386,7 @@ export default function KpisPage(){
           onClose={()=>setEditSet(null)} onSuccess={()=>{setEditSet(null);qc.invalidateQueries({queryKey:["kpi-persons"]});refresh();}}/>
       )}
       {performanceSet&&(()=>{const person=getPerson(performanceSet);const year=getYear(performanceSet.yearId);if(!person||!year) return null;
-        return(<PerformanceCaptureDialog open={!!performanceSet} set={performanceSet} person={person} year={year} isAdmin={isAdmin} userId={user?.id} onClose={()=>setPerformanceSet(null)} onRefresh={refresh}/>);
+        return(<PerformanceCaptureDialog open={!!performanceSet} set={performanceSet} person={person} year={year} isAdmin={isAdmin} userId={user?.id} getDeptLabel={getDeptLabel} onClose={()=>setPerformanceSet(null)} onRefresh={refresh}/>);
       })()}
     </div>
   );

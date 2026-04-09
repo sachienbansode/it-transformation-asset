@@ -68,8 +68,8 @@ function StatCard({ title, value, sub, icon, color = "text-primary" }: {
 }
 
 // ─── Department Summary Row ────────────────────────────────────────────────────
-function DeptSummaryRow({ dept, sets, persons }: {
-  dept: string; sets: KpiSet[]; persons: KpiPerson[];
+function DeptSummaryRow({ dept, sets, persons, getDeptLabel }: {
+  dept: string; sets: KpiSet[]; persons: KpiPerson[]; getDeptLabel:(k:string)=>string;
 }) {
   const total = sets.length;
   const approved = sets.filter(s => s.status === "Approved" || s.status === "Approved - Partial").length;
@@ -79,7 +79,7 @@ function DeptSummaryRow({ dept, sets, persons }: {
   const pct = total > 0 ? Math.round((approved / total) * 100) : 0;
   return (
     <tr className="border-b border-border/50 hover:bg-muted/20">
-      <td className="px-4 py-2.5 font-medium text-sm">{dept}</td>
+      <td className="px-4 py-2.5 font-medium text-sm">{getDeptLabel(dept)}</td>
       <td className="px-4 py-2.5 text-center text-sm">{total}</td>
       <td className="px-4 py-2.5 text-center"><span className="text-green-600 font-semibold">{approved}</span></td>
       <td className="px-4 py-2.5 text-center"><span className="text-yellow-600 font-semibold">{pending}</span></td>
@@ -176,6 +176,11 @@ export default function KpiDashboard() {
     queryKey: ["kpi-years"],
     queryFn: () => apiFetch<KpiYear[]>("/kpi-years"),
   });
+  const { data: deptMasters = [] } = useQuery({
+    queryKey: ["masters-department"],
+    queryFn: () => apiFetch<{key:string;label:string}[]>("/masters?category=department"),
+  });
+  const getDeptLabel = (key: string) => deptMasters.find(d => d.key === key)?.label || key;
 
   // Stats
   const totalSets = sets.length;
@@ -219,7 +224,7 @@ export default function KpiDashboard() {
         <div>
           <h1 className="text-xl font-bold">KPI Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isCxo && `Department performance overview — ${user?.department || "your department"}`}
+            {isCxo && `Department performance overview — ${user?.department ? getDeptLabel(user.department) : "your department"}`}
             {isHR && "Organisation-wide KPI tracking"}
             {isEmployee && "Your KPI sets and performance"}
           </p>
@@ -337,7 +342,7 @@ export default function KpiDashboard() {
                 </thead>
                 <tbody>
                   {byDept.map(([dept, deptSets]) => (
-                    <DeptSummaryRow key={dept} dept={dept} sets={deptSets} persons={persons} />
+                    <DeptSummaryRow key={dept} dept={dept} sets={deptSets} persons={persons} getDeptLabel={getDeptLabel} />
                   ))}
                 </tbody>
               </table>

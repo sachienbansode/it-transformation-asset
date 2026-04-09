@@ -106,12 +106,11 @@ router.delete("/kpi-persons/:id", async (req, res): Promise<void> => {
 
 router.get("/kpi-users", async (req, res): Promise<void> => {
   const scope = await getKpiScope(req);
-  const conditions: any[] = [eq(usersTable.isActive, true)];
+  // Exclude system admins — they manage the system, not KPI targets
+  const conditions: any[] = [eq(usersTable.isActive, true), ne(usersTable.role, "admin")];
   if (scope.role === "cxo" && scope.department) {
     conditions.push(eq(usersTable.department, scope.department));
   }
-  // Exclude pure admins from selection (they manage the system, not KPI targets)
-  // Include: user, cxo, kpi_employee, hr
   const rows = await db.select({
     id: usersTable.id, name: usersTable.name, email: usersTable.email,
     role: usersTable.role, department: usersTable.department,
