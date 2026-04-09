@@ -27,6 +27,13 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
 
+/** Format ISO date (YYYY-MM-DD) → DD-MM-YYYY for display */
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
+}
+
 // ─── Gantt Chart ─────────────────────────────────────────────────────────────
 
 const PHASE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
@@ -47,15 +54,23 @@ function GanttChart({ items }: { items: RoadmapItem[] }) {
   }
 
   // Determine timeline range from startDate/endDate if available, else startMonth/endMonth
-  const hasRealDates = activeItems.some(i => (i as any).startDate && (i as any).endDate);
+  // DB stores dates as ISO YYYY-MM-DD strings (PostgreSQL date type)
+  const parseIsoDate = (d: unknown): Date | null => {
+    if (!d || typeof d !== "string") return null;
+    const dt = new Date(d + "T00:00:00"); // force local-time parse
+    return isNaN(dt.getTime()) ? null : dt;
+  };
+  const hasRealDates = activeItems.some(i => parseIsoDate((i as any).startDate) && parseIsoDate((i as any).endDate));
 
   let totalMonths = 12;
   if (hasRealDates) {
-    const dates = activeItems.flatMap(i => [(i as any).startDate, (i as any).endDate].filter(Boolean));
+    const dates = activeItems
+      .flatMap(i => [parseIsoDate((i as any).startDate), parseIsoDate((i as any).endDate)])
+      .filter((d): d is Date => d !== null);
     if (dates.length >= 2) {
-      const sorted = dates.sort();
-      const start = new Date(sorted[0]);
-      const end = new Date(sorted[sorted.length - 1]);
+      const sorted = dates.sort((a, b) => a.getTime() - b.getTime());
+      const start = sorted[0];
+      const end = sorted[sorted.length - 1];
       totalMonths = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30)) + 1;
       totalMonths = Math.max(12, Math.min(totalMonths, 36));
     }
@@ -385,7 +400,7 @@ export default function Roadmap() {
                   <span className="text-muted-foreground flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
                     {(item as any).startDate && (item as any).endDate
-                      ? `${(item as any).startDate} → ${(item as any).endDate}`
+                      ? `${fmtDate((item as any).startDate)} → ${fmtDate((item as any).endDate)}`
                       : `M${item.startMonth} – M${item.endMonth}`
                     }
                   </span>

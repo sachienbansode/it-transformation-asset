@@ -69,6 +69,29 @@ function parseCSVLine(line: string): string[] {
 function num(v: string): number { return v ? (parseInt(v, 10) || 0) : 0; }
 function bool(v: string): boolean { return v?.toLowerCase() === "true" || v === "1"; }
 
+/**
+ * Normalise any date string to ISO YYYY-MM-DD for PostgreSQL date columns.
+ * Accepts: DD-MM-YYYY  DD/MM/YYYY  YYYY-MM-DD  YYYY/MM/DD
+ * Returns null when the input is empty or unparseable.
+ */
+function parseDate(v: string): string | null {
+  if (!v?.trim()) return null;
+  const s = v.trim();
+  // Already ISO YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  // DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return null;
+}
+
 // ─── CHECKLIST ────────────────────────────────────────────────────────────────
 
 const CHECKLIST_COLS = ["category", "feature", "business", "currentApp", "status", "priority", "comments"];
@@ -123,13 +146,21 @@ router.post("/checklist/import", async (req, res): Promise<void> => {
 
 const ROADMAP_COLS = ["title","description","phase","business","status","priority","budgetLakhs","startMonth","endMonth","startDate","endDate","isActive","owner"];
 
+/** Convert ISO YYYY-MM-DD → DD-MM-YYYY for export (matches template) */
+function formatDateForExport(iso: unknown): string {
+  if (!iso) return "";
+  const s = String(iso);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : s;
+}
+
 router.get("/roadmap/export", async (_req, res): Promise<void> => {
   const rows = await db.select().from(roadmapItemsTable);
   const csv = toCSV(rows.map(r => ({
     title: r.title, description: r.description ?? "", phase: r.phase,
     business: r.business, status: r.status, priority: r.priority,
     budgetLakhs: r.budgetLakhs, startMonth: r.startMonth, endMonth: r.endMonth,
-    startDate: r.startDate ?? "", endDate: r.endDate ?? "",
+    startDate: formatDateForExport(r.startDate), endDate: formatDateForExport(r.endDate),
     isActive: r.isActive, owner: r.owner ?? "",
   })), ROADMAP_COLS);
   res.setHeader("Content-Type", "text/csv");
@@ -154,25 +185,32 @@ router.post("/roadmap/import", async (req, res): Promise<void> => {
   const rows = parseCSV(csv);
   const createdBy = await getPerformedBy((req.session as any).userId);
   let imported = 0, skipped = 0;
-  for (const r of rows) {
+  const rowErrors: string[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     if (!r.title?.trim() || !r.phase?.trim()) { skipped++; continue; }
-    await db.insert(roadmapItemsTable).values({
-      title: r.title, description: r.description || null,
-      phase: r.phase, business: r.business || "All",
-      status: r.status || "Planning", priority: r.priority || "Medium",
-      budgetLakhs: num(r.budgetLakhs),
-      startMonth: num(r.startMonth) || 1,
-      endMonth: num(r.endMonth) || 6,
-      startDate: r.startDate || null,
-      endDate: r.endDate || null,
-      isActive: r.isActive !== undefined ? bool(r.isActive) : true,
-      owner: r.owner || null,
-      createdBy,
-      modifiedBy: createdBy,
-    } as any);
-    imported++;
+    try {
+      await db.insert(roadmapItemsTable).values({
+        title: r.title.trim(), description: r.description?.trim() || null,
+        phase: r.phase.trim(), business: (r.business?.trim()) || "All",
+        status: r.status?.trim() || "Planning", priority: r.priority?.trim() || "Medium",
+        budgetLakhs: num(r.budgetLakhs),
+        startMonth: num(r.startMonth) || 1,
+        endMonth: num(r.endMonth) || 6,
+        startDate: parseDate(r.startDate),
+        endDate: parseDate(r.endDate),
+        isActive: r.isActive !== undefined ? bool(r.isActive) : true,
+        owner: r.owner?.trim() || null,
+        createdBy,
+        modifiedBy: createdBy,
+      } as any);
+      imported++;
+    } catch (err: any) {
+      rowErrors.push(`Row ${i + 2}: ${err?.message ?? "Insert failed"}`);
+      skipped++;
+    }
   }
-  res.json({ imported, skipped });
+  res.json({ imported, skipped, rowErrors });
 });
 
 // ─── RETIREMENTS ──────────────────────────────────────────────────────────────

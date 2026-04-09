@@ -1,0 +1,15 @@
+title,description,phase,business,status,priority,budgetLakhs,startMonth,endMonth,startDate,endDate,isActive,owner
+Microsoft M365 suite ,migration from Google and Netcore email suite to M365.,Phase 1: Quick Wins,Broking,Planning,High,50,1,2,01-04-2026,15-05-2026,TRUE,Sachin Bansode
+SEBI AIF Reporting Portal,Build investor-facing and SEBI-facing AIF reporting portal with Form A/B automation,Phase 1: Quick Wins,AIF,In Progress,High,5,2,4,,,TRUE,
+CI/CD DevSecOps Integration,"Integrate SAST, DAST, and SCA into Jenkins pipeline; shift-left security across all development teams",Phase 1: Quick Wins,All,In Progress,High,1,2,3,,,TRUE,
+CRM - AI-powered,Deploy AI-based CRM Module,Phase 2: Innovation & Scale,NBFC,Planning,High,25,2,6,,,TRUE,
+Customer Master - directory and document management,Customer Master - directory and document management,Phase 2: Core Transformation,All,Planning,High,560,5,12,,,TRUE,
+Zero Trust Network Implementation,"Implement Zero Trust across all internal and external access, replacing legacy VPN-based access",Phase 2: Core Transformation,All,Planning,High,150,4,8,,,TRUE,
+Unified Data Platform (AWS Redshift),Consolidate all business data into Redshift with real-time streaming from core systems via Kafka,Phase 2: Core Transformation,All,In Progress,High,180,3,8,,,TRUE,
+Co-lending API Integration,Build co-lending integration with 3 partner banks per RBI co-lending model circular guidelines,Phase 2: Core Transformation,NBFC,Planning,High,130,5,9,,,TRUE,
+SEBI-Compliant AI Trading Signals,Build explainable AI trading recommendation engine compliant with SEBI algo trading regulations,Phase 3: Innovation & Scale,Broking,Planning,Medium,190,9,12,,,TRUE,
+AI Chatbot — Financial Assistant,"Customer-facing AI chatbot for account queries, trade execution help, and compliance self-service",Phase 3: Innovation & Scale,All,Planning,Medium,110,8,12,,,TRUE,
+Institutional Research Platform (GenAI),AI-powered institutional research summarisation and distribution platform for equities team,Phase 3: Innovation & Scale,Broking,Planning,Low,80,10,12,,,TRUE,
+Loan against Securities (LAS),"Build end-to-end LAS product covering pledge creation, monitoring, margin calls, and liquidation",Phase 2: Core Transformation,Both,Planning,High,240,4,9,,,TRUE,
+T+1 Settlement Automation,Automate end-to-end T+1 settlement including payout/payin reconciliation eliminating manual Excel processes,Phase 1: Quick Wins,Broking,In Progress,High,90,1,3,,,TRUE,
+Digital KYC Overhaul,Replace KarvyKYC Pro with in-house VKYC pipeline with Aadhaar/PAN/DigiLocker integration,Phase 1: Quick Wins,All,In Progress,High,1,1,4,,,TRUE,
