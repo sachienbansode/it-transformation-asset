@@ -517,16 +517,8 @@ router.patch("/kpi-set-items/:id/review", async (req, res): Promise<void> => {
     .returning();
   if (!item) { res.status(404).json({ error: "Not found" }); return; }
 
-  // Auto-update set status based on all item statuses
-  const allItems = await db.select({ approvalStatus: kpiSetItemsTable.approvalStatus })
-    .from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, item.setId));
-  const newStatus = computeSetStatus(allItems.map(i => i.approvalStatus || ""));
-
-  await db.update(kpiSetsTable)
-    .set({ status: newStatus, updatedAt: new Date() })
-    .where(eq(kpiSetsTable.id, item.setId));
-
-  res.json({ ...item, setStatus: newStatus });
+  // Status is NOT auto-updated here — it only changes on final submit
+  res.json(item);
 });
 
 // ─── Batch approve/reject all pending items in a set ──────────────────────────
@@ -552,23 +544,11 @@ router.post("/kpi-sets/:id/batch-review", async (req, res): Promise<void> => {
     })
     .where(and(eq(kpiSetItemsTable.setId, id), ne(kpiSetItemsTable.approvalStatus, "Approved"), ne(kpiSetItemsTable.approvalStatus, "Rejected")));
 
-  // Recompute set status based on final item statuses
-  const allAfter = await db.select({ approvalStatus: kpiSetItemsTable.approvalStatus })
+  // Status is NOT auto-updated here — it only changes on final submit
+  const updatedItems = await db.select({ approvalStatus: kpiSetItemsTable.approvalStatus })
     .from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, id));
-  const newStatus = computeSetStatus(allAfter.map(i => i.approvalStatus || ""));
-
-  const [set] = await db.update(kpiSetsTable)
-    .set({
-      status: newStatus,
-      approvedBy: body.data.approvedBy,
-      approvalComments: body.data.approvalComments,
-      approvedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(kpiSetsTable.id, id))
-    .returning();
-  if (!set) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(set);
+  const remaining = updatedItems.filter(i => !["Approved", "Rejected"].includes(i.approvalStatus || "")).length;
+  res.json({ updated: updatedItems.length, pending: remaining });
 });
 
 // ─── Submit for approval ───────────────────────────────────────────────────────
