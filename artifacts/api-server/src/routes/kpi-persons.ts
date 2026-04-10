@@ -209,8 +209,13 @@ router.get("/kpi-sets", async (req, res): Promise<void> => {
 });
 
 router.post("/kpi-sets", async (req, res): Promise<void> => {
+  const sessionUserId = (req.session as any)?.userId;
   const scope = await getKpiScope(req);
+  // Log every POST /kpi-sets call for diagnostics
+  (req as any).log?.info({ sessionUserId, scopeRole: scope.role, scopeEmail: scope.email }, "[KPI-SET] POST /kpi-sets invoked");
+  // Only kpi_employee role is blocked from creating sets; CXO/HR/Admin/user all allowed
   if (scope.role === "kpi_employee") {
+    (req as any).log?.warn({ sessionUserId, scopeRole: scope.role, scopeEmail: scope.email }, "[KPI-SET 403] kpi_employee attempted to create a KPI set");
     res.status(403).json({ error: `You are currently signed in as an employee (${scope.email}). Only CXO, HR, or Admin accounts can create KPI sets. Please sign out and sign in with the correct account.` });
     return;
   }

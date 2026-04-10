@@ -153,7 +153,9 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  // Login complete
+  // Login complete — regenerate session ID to prevent session fixation
+  // (if a different user was previously logged in, this discards their session)
+  await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id;
   req.session.mfaVerified = true;
   await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
@@ -192,7 +194,8 @@ router.post("/auth/login/mfa", async (req, res): Promise<void> => {
     return;
   }
 
-  delete req.session.pendingMfaUserId;
+  // Regenerate session ID after MFA to prevent session fixation
+  await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id;
   req.session.mfaVerified = true;
   await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));

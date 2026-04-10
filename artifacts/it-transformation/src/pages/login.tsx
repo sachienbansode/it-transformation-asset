@@ -256,11 +256,19 @@ export default function Login() {
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span>meera.iyer@ashikagroup.com <span className="text-[10px] text-primary/60">(CXO)</span></span>
+                  <span>sachin.bansode@ashikagroup.com <span className="text-[10px] text-primary/60">(CXO · IT)</span></span>
+                  <span className="text-foreground">Ashika@2025</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>meera.iyer@ashikagroup.com <span className="text-[10px] text-primary/60">(CXO · Compliance)</span></span>
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
                 <div className="flex justify-between gap-4">
                   <span>anjali.sharma@ashikagroup.com <span className="text-[10px] text-primary/60">(HR)</span></span>
+                  <span className="text-foreground">Ashika@2025</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>deepak.agarwal@ashikagroup.com <span className="text-[10px] text-primary/60">(Employee · IT)</span></span>
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
               </div>

@@ -249,6 +249,7 @@ function KpiSetDialog({open,initialSet,users,years,deptMasters,onClose,onSuccess
   open: boolean; initialSet: KpiSet|null; users: KpiUser[]; years: KpiYear[]; deptMasters:{key:string;label:string}[]; onClose:()=>void; onSuccess:()=>void;
 }){
   const{toast}=useToast();
+  const{refresh}=useAuth();
   const[saving,setSaving]=useState(false);
   const[userId,setUserId]=useState("");
   const[yearId,setYearId]=useState("");
@@ -280,6 +281,11 @@ function KpiSetDialog({open,initialSet,users,years,deptMasters,onClose,onSuccess
     }catch(e:any){
       if((e instanceof ApiError&&e.status===409)||e.message?.toLowerCase().includes("already exists")){
         toast({title:"Duplicate KPI Set",description:"A KPI set for this employee and financial year already exists. Archive the existing set to create a new one.",variant:"destructive"});
+      }else if(e instanceof ApiError&&e.status===403){
+        // Session may have been overwritten (e.g. another login in a different tab).
+        // Re-fetch auth state so the UI reflects the actual signed-in account.
+        await refresh();
+        toast({title:"Session Mismatch",description:e.message||"Your session has changed. Please sign out and sign in with a CXO / HR account to create KPI sets.",variant:"destructive",duration:8000});
       }else{
         toast({title:"Error",description:e.message,variant:"destructive"});
       }
@@ -1344,11 +1350,9 @@ export default function KpisPage(){
               <SelectContent>{years.map(y=><SelectItem key={y.id} value={y.id.toString()}>{y.label}{y.isCurrent?" ★":""}</SelectItem>)}</SelectContent>
             </Select>
           )}
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={()=>downloadTemplate(currentYear?.label)}><Download className="mr-1.5 h-3.5 w-3.5"/>Template</Button>
           {(isAdmin||isCxo||isHR)&&(
-            <>
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={()=>downloadTemplate(currentYear?.label)}><Download className="mr-1.5 h-3.5 w-3.5"/>Template</Button>
-              <Button size="sm" className="h-8 text-xs" onClick={()=>setEditSet("new")}><Plus className="mr-1.5 h-3.5 w-3.5"/>New KPI Set</Button>
-            </>
+            <Button size="sm" className="h-8 text-xs" onClick={()=>setEditSet("new")}><Plus className="mr-1.5 h-3.5 w-3.5"/>New KPI Set</Button>
           )}
         </div>
       </div>

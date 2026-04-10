@@ -176,7 +176,7 @@ const masters = [
   { category: "compliance_status", key: "exempt", label: "Exempt", color: "gray", sortOrder: 4 },
 
   // ─── DEPARTMENT ────────────────────────────────────────────
-  { category: "department", key: "it", label: "Information Technology", sortOrder: 1 },
+  { category: "department", key: "it", label: "Technology", sortOrder: 1 },
   { category: "department", key: "risk", label: "Risk Management", sortOrder: 2 },
   { category: "department", key: "compliance", label: "Compliance & Legal", sortOrder: 3 },
   { category: "department", key: "operations", label: "Operations", sortOrder: 4 },
