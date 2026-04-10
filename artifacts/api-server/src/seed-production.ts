@@ -732,6 +732,60 @@ INSERT INTO public.sbom_entries VALUES (15, 'commons-text', '1.9.0', 'Apache', '
 COMMIT;
 `;
 
+export async function forceSeedProductionDatabase(): Promise<void> {
+  try {
+    console.log("[seed] FORCE MODE — truncating all tables and re-seeding...");
+
+    const client = await pool.connect();
+    try {
+      // Wipe everything in dependency-safe order
+      await client.query(`
+        TRUNCATE TABLE
+          audit_logs, user_sessions,
+          retirement_documents, aibom_entries, sbom_entries,
+          retirements, applications,
+          roadmap_items, roadmap_upload_batches,
+          checklist_items,
+          kpi_approvals, kpi_actuals, kpi_targets, kpis,
+          kpi_set_items, kpi_set_versions, kpi_sets,
+          kpi_categories, kpi_years, kpi_persons, kpi_settings,
+          role_permissions, user_roles, users,
+          business_units, masters, settings, roles
+        RESTART IDENTITY CASCADE
+      `);
+      await client.query(SEED_SQL);
+    } finally {
+      client.release();
+    }
+
+    // Reset sequences
+    const sequences = [
+      ["users_id_seq", "users"], ["roles_id_seq", "roles"],
+      ["user_roles_id_seq", "user_roles"], ["kpi_persons_id_seq", "kpi_persons"],
+      ["kpi_years_id_seq", "kpi_years"], ["kpi_categories_id_seq", "kpi_categories"],
+      ["kpi_sets_id_seq", "kpi_sets"], ["kpi_set_versions_id_seq", "kpi_set_versions"],
+      ["kpi_set_items_id_seq", "kpi_set_items"], ["kpis_id_seq", "kpis"],
+      ["kpi_targets_id_seq", "kpi_targets"], ["kpi_actuals_id_seq", "kpi_actuals"],
+      ["kpi_approvals_id_seq", "kpi_approvals"], ["checklist_items_id_seq", "checklist_items"],
+      ["roadmap_upload_batches_id_seq", "roadmap_upload_batches"],
+      ["roadmap_items_id_seq", "roadmap_items"], ["applications_id_seq", "applications"],
+      ["retirements_id_seq", "retirements"], ["aibom_entries_id_seq", "aibom_entries"],
+      ["sbom_entries_id_seq", "sbom_entries"], ["settings_id_seq", "settings"],
+      ["masters_id_seq", "masters"], ["business_units_id_seq", "business_units"],
+    ];
+    for (const [seq, tbl] of sequences) {
+      try {
+        await pool.query(`SELECT setval('${seq}', COALESCE((SELECT MAX(id) FROM ${tbl}), 0) + 1, false)`);
+      } catch { /* ignore missing sequences */ }
+    }
+
+    console.log("[seed] Force seed complete — all tables populated.");
+  } catch (err) {
+    console.error("[seed] Force seed failed:", err);
+    throw err;
+  }
+}
+
 export async function seedProductionDatabase(): Promise<void> {
   try {
     // Check if the database is already populated (users table)

@@ -16,7 +16,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-seedProductionDatabase()
+forceSeedProductionDatabase()
   .then(() => {
     app.listen(port, (err) => {
       if (err) {
