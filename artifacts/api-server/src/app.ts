@@ -59,7 +59,7 @@ if (process.env.NODE_ENV === "production") {
   const publicDir = path.resolve("artifacts/it-transformation/dist/public");
   if (fs.existsSync(publicDir)) {
     app.use(express.static(publicDir));
-    app.get("*", (_req, res) => {
+    app.get(/.*/, (_req, res) => {
       res.sendFile(path.join(publicDir, "index.html"));
     });
   }
