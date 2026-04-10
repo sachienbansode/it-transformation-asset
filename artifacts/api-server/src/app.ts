@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
+import path from "path";
 import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -51,5 +52,15 @@ app.use(session({
 }));
 
 app.use("/api", router);
+
+// In production: serve the React frontend as static files
+// (api-server builds and serves the frontend too, keeping a single port)
+if (process.env.NODE_ENV === "production") {
+  const distPath = path.resolve("artifacts/it-transformation/dist/public");
+  app.use(express.static(distPath));
+  app.use(/(.*)/, (_req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
 
 export default app;

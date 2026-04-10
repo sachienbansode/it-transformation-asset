@@ -17,15 +17,6 @@ localPort = 22340
 [services.development]
 run = "pnpm --filter @workspace/it-transformation run dev"
 
-[services.production]
-build = [ "pnpm", "--filter", "@workspace/it-transformation", "run", "build" ]
-publicDir = "artifacts/it-transformation/dist/public"
-serve = "static"
-
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
-
 [services.env]
 PORT = "22340"
 BASE_PATH = "/"
