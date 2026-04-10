@@ -15,11 +15,6 @@ import { requireAuth, requireAdmin } from "./auth";
 import { getPerformedBy } from "./audit-logs";
 
 const router = Router();
-router.use(requireAuth);
-router.use((req, res, next) => {
-  if (req.method === "POST") return requireAdmin(req, res, next);
-  next();
-});
 
 // ─── CSV Utilities ────────────────────────────────────────────────────────────
 
@@ -111,7 +106,7 @@ router.get("/checklist/export", async (_req, res): Promise<void> => {
   res.send(csv);
 });
 
-router.post("/checklist/preview-import", async (req, res): Promise<void> => {
+router.post("/checklist/preview-import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   const valid: typeof rows = [], errors: string[] = [];
@@ -122,7 +117,7 @@ router.post("/checklist/preview-import", async (req, res): Promise<void> => {
   res.json({ total: rows.length, valid: valid.length, errors, sample: valid.slice(0, 5) });
 });
 
-router.post("/checklist/import", async (req, res): Promise<void> => {
+router.post("/checklist/import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   const createdBy = await getPerformedBy((req.session as any).userId);
@@ -171,7 +166,7 @@ router.get("/roadmap/export", async (_req, res): Promise<void> => {
   res.send(csv);
 });
 
-router.post("/roadmap/preview-import", async (req, res): Promise<void> => {
+router.post("/roadmap/preview-import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   const valid: typeof rows = [], errors: string[] = [];
@@ -183,7 +178,7 @@ router.post("/roadmap/preview-import", async (req, res): Promise<void> => {
   res.json({ total: rows.length, valid: valid.length, errors, sample: valid.slice(0, 5) });
 });
 
-router.post("/roadmap/import", async (req, res): Promise<void> => {
+router.post("/roadmap/import", requireAdmin, async (req, res): Promise<void> => {
   const { csv, fileName } = req.body as { csv: string; fileName?: string };
   const rows = parseCSV(csv);
   const createdBy = await getPerformedBy((req.session as any).userId);
@@ -273,7 +268,7 @@ router.get("/retirements/export", async (_req, res): Promise<void> => {
   res.send(csv);
 });
 
-router.post("/retirements/preview-import", async (req, res): Promise<void> => {
+router.post("/retirements/preview-import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   const valid: typeof rows = [], errors: string[] = [];
@@ -284,7 +279,7 @@ router.post("/retirements/preview-import", async (req, res): Promise<void> => {
   res.json({ total: rows.length, valid: valid.length, errors, sample: valid.slice(0, 5) });
 });
 
-router.post("/retirements/import", async (req, res): Promise<void> => {
+router.post("/retirements/import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   let imported = 0, skipped = 0;
@@ -323,7 +318,7 @@ router.get("/applications/export", async (_req, res): Promise<void> => {
   res.send(csv);
 });
 
-router.post("/applications/preview-import", async (req, res): Promise<void> => {
+router.post("/applications/preview-import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   const valid: typeof rows = [], errors: string[] = [];
@@ -334,7 +329,7 @@ router.post("/applications/preview-import", async (req, res): Promise<void> => {
   res.json({ total: rows.length, valid: valid.length, errors, sample: valid.slice(0, 5) });
 });
 
-router.post("/applications/import", async (req, res): Promise<void> => {
+router.post("/applications/import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   let imported = 0, skipped = 0;
@@ -374,7 +369,7 @@ router.get("/aibom/export", async (_req, res): Promise<void> => {
   res.send(csv);
 });
 
-router.post("/aibom/preview-import", async (req, res): Promise<void> => {
+router.post("/aibom/preview-import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   const valid: typeof rows = [], errors: string[] = [];
@@ -385,7 +380,7 @@ router.post("/aibom/preview-import", async (req, res): Promise<void> => {
   res.json({ total: rows.length, valid: valid.length, errors, sample: valid.slice(0, 5) });
 });
 
-router.post("/aibom/import", async (req, res): Promise<void> => {
+router.post("/aibom/import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   let imported = 0, skipped = 0;
@@ -422,7 +417,7 @@ router.get("/sbom/export", async (_req, res): Promise<void> => {
   res.send(csv);
 });
 
-router.post("/sbom/preview-import", async (req, res): Promise<void> => {
+router.post("/sbom/preview-import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   const valid: typeof rows = [], errors: string[] = [];
@@ -433,7 +428,7 @@ router.post("/sbom/preview-import", async (req, res): Promise<void> => {
   res.json({ total: rows.length, valid: valid.length, errors, sample: valid.slice(0, 5) });
 });
 
-router.post("/sbom/import", async (req, res): Promise<void> => {
+router.post("/sbom/import", requireAdmin, async (req, res): Promise<void> => {
   const { csv } = req.body as { csv: string };
   const rows = parseCSV(csv);
   let imported = 0, skipped = 0;
