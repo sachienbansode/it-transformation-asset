@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { eq, and, lt } from "drizzle-orm";
 import { db, usersTable, settingsTable } from "@workspace/db";
+import { pool } from "@workspace/db";
 import { z } from "zod";
 import { requireAdmin } from "./auth";
 import bcrypt from "bcryptjs";
@@ -132,6 +133,27 @@ router.delete("/admin/users/:id", requireAdmin, async (req, res): Promise<void> 
   const [user] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning();
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   res.sendStatus(204);
+});
+
+// ─── TEMPORARY: ONE-TIME PRODUCTION DB RESET ─────────────────
+// Remove this endpoint after use.
+router.post("/admin/reset-production-db", requireAdmin, async (_req, res): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      TRUNCATE TABLE
+        sbom_entries, aibom_entries, retirement_documents, retirements,
+        applications, roadmap_items, roadmap_upload_batches, checklist_items,
+        audit_logs, kpi_approvals, kpi_targets, kpi_actuals, kpi_set_items,
+        kpis, kpi_set_versions, kpi_sets, kpi_persons, kpi_categories,
+        kpi_years, user_roles, role_permissions, user_sessions, users,
+        business_units, masters, kpi_settings, settings, roles
+      RESTART IDENTITY CASCADE
+    `);
+    res.json({ ok: true, message: "All production tables truncated and sequences reset." });
+  } finally {
+    client.release();
+  }
 });
 
 export default router;
