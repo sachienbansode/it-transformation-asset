@@ -6,8 +6,6 @@ import connectPgSimple from "connect-pg-simple";
 import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import path from "path";
-import fs from "fs";
 
 const app: Express = express();
 
@@ -53,16 +51,5 @@ app.use(session({
 }));
 
 app.use("/api", router);
-
-// In production, serve the built frontend static files and fall back to index.html
-if (process.env.NODE_ENV === "production") {
-  const publicDir = path.resolve("artifacts/it-transformation/dist/public");
-  if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
-    app.get(/.*/, (_req, res) => {
-      res.sendFile(path.join(publicDir, "index.html"));
-    });
-  }
-}
 
 export default app;

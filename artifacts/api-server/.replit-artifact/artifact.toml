@@ -15,8 +15,7 @@ kind = "api"
   [services.production]
 
   [services.production.build]
-  # Build frontend first so the API server can serve its static files
-  args = ["sh", "-c", "pnpm --filter @workspace/it-transformation run build && pnpm --filter @workspace/api-server run build"]
+  args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
 
   [services.production.build.env]
   NODE_ENV = "production"
