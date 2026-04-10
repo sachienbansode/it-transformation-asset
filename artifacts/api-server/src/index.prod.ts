@@ -12,7 +12,7 @@ if (Number.isNaN(port) || port <= 0) {
 const app = createProdApp();
 
 // Always seed on production boot — skips gracefully if already populated
-forceSeedProductionDatabase()
+seedProductionDatabase()
   .then(() => {
     app.listen(port, (err) => {
       if (err) {
