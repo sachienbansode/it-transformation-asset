@@ -8,59 +8,71 @@ import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
-const app: Express = express();
+export async function createApp(): Promise<Express> {
+  const app: Express = express();
 
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) {
-        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
+  app.use(
+    pinoHttp({
+      logger,
+      serializers: {
+        req(req) {
+          return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
+        },
+        res(res) {
+          return { statusCode: res.statusCode };
+        },
       },
-      res(res) {
-        return { statusCode: res.statusCode };
-      },
+    }),
+  );
+
+  app.use(cors({
+    origin: true,
+    credentials: true,
+  }));
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+  const PgSession = connectPgSimple(session);
+
+  app.use(session({
+    store: new PgSession({
+      pool,
+      tableName: "user_sessions",
+      createTableIfMissing: true,
+    }),
+    name: "ashika.sid",
+    secret: process.env.SESSION_SECRET || "ashika-dev-secret-change-in-prod",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 8 * 60 * 60 * 1000,
+      sameSite: "lax",
     },
-  }),
-);
+  }));
 
-app.use(cors({
-  origin: true,
-  credentials: true,
-}));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+  app.use("/api", router);
 
-const PgSession = connectPgSimple(session);
+  if (process.env.NODE_ENV === "production") {
+    // Production: serve the pre-built React frontend as static files
+    const distPath = path.resolve(__dirname, "../../it-transformation/dist/public");
+    app.use(express.static(distPath));
+    app.use(/(.*)/, (_req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  } else {
+    // Development: run Vite dev server as Express middleware (single port, HMR included)
+    const { createServer: createViteServer } = await import("vite");
+    const viteConfigFile = path.resolve(__dirname, "../../it-transformation/vite.config.ts");
+    const vite = await createViteServer({
+      configFile: viteConfigFile,
+      server: { middlewareMode: true },
+      appType: "spa",
+      clearScreen: false,
+    });
+    app.use(vite.middlewares);
+  }
 
-app.use(session({
-  store: new PgSession({
-    pool,
-    tableName: "user_sessions",
-    createTableIfMissing: true,
-  }),
-  name: "ashika.sid",
-  secret: process.env.SESSION_SECRET || "ashika-dev-secret-change-in-prod",
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 8 * 60 * 60 * 1000, // 8 hours
-    sameSite: "lax",
-  },
-}));
-
-app.use("/api", router);
-
-// In production: serve the React frontend as static files
-// (api-server builds and serves the frontend too, keeping a single port)
-if (process.env.NODE_ENV === "production") {
-  const distPath = path.resolve("artifacts/it-transformation/dist/public");
-  app.use(express.static(distPath));
-  app.use(/(.*)/, (_req, res) => {
-    res.sendFile(path.join(distPath, "index.html"));
-  });
+  return app;
 }
-
-export default app;

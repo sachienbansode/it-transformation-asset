@@ -1,22 +1,9 @@
 kind = "web"
-previewPath = "/"
+previewPath = "/it-src"
 title = "IT Transformation Planning Suite"
 version = "1.0.0"
 id = "artifacts/it-transformation"
-router = "path"
 
 [[integratedSkills]]
 name = "react-vite"
 version = "1.0.0"
-
-[[services]]
-name = "web"
-paths = [ "/" ]
-localPort = 22340
-
-[services.development]
-run = "pnpm --filter @workspace/it-transformation run dev"
-
-[services.development.env]
-PORT = "22340"
-BASE_PATH = "/"

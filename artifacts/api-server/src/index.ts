@@ -1,4 +1,4 @@
-import app from "./app";
+import { createApp } from "./app";
 import { logger } from "./lib/logger";
 import { seedProductionDatabase } from "./seed-production";
 
@@ -16,8 +16,9 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-seedProductionDatabase()
-  .then(() => {
+createApp()
+  .then((app) => seedProductionDatabase().then(() => app))
+  .then((app) => {
     app.listen(port, (err) => {
       if (err) {
         logger.error({ err }, "Error listening on port");
@@ -27,6 +28,6 @@ seedProductionDatabase()
     });
   })
   .catch((err) => {
-    logger.error({ err }, "Database seed failed — aborting startup");
+    logger.error({ err }, "Startup failed");
     process.exit(1);
   });

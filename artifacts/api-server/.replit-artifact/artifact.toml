@@ -1,13 +1,13 @@
 kind = "api"
-previewPath = "/api"
-title = "API Server"
+previewPath = "/"
+title = "IT Transformation Planning Suite"
 version = "1.0.0"
 id = "3B4_FFSkEVBkAeYMFRJ2e"
 
 [[services]]
 localPort = 8080
 name = "API Server"
-paths = ["/api"]
+paths = ["/"]
 
 [services.development]
 run = "pnpm --filter @workspace/api-server run dev"
