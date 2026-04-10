@@ -220,10 +220,10 @@ router.get("/kpi-sets", async (req, res): Promise<void> => {
 router.post("/kpi-sets", async (req, res): Promise<void> => {
   const sessionUserId = (req.session as any)?.userId;
   const scope = await getKpiScope(req);
-  logger.info({ sessionUserId, scopeRole: scope.role, scopeEmail: scope.email, scopeDept: scope.department }, "[KPI-SETS] POST /kpi-sets invoked");
+  console.log(`[KPI-SETS] POST /kpi-sets: userId=${sessionUserId} role=${scope.role} email=${scope.email} dept=${scope.department}`);
   // Only kpi_employee role is blocked from creating sets; CXO / HR / Admin can create
   if (scope.role === "kpi_employee") {
-    logger.warn({ sessionUserId, scopeRole: scope.role, scopeEmail: scope.email }, "[KPI-SETS 403] kpi_employee blocked from creating KPI set");
+    console.log(`[KPI-SETS 403] kpi_employee blocked: userId=${sessionUserId} email=${scope.email}`);
     res.status(403).json({ error: `You are signed in as an Employee (${scope.email}). Only CXO, HR, or Admin accounts can create KPI sets. Please sign out and sign in with the correct account.` });
     return;
   }
@@ -299,16 +299,16 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
 
   const scope = await getKpiScope(req);
   const sessionUserId = (req.session as any)?.userId;
-  logger.info({ sessionUserId, scopeRole: scope.role, scopeEmail: scope.email, scopeDept: scope.department, setId }, "[KPI-UPLOAD] POST /kpi-sets/:id/upload invoked");
+  console.log(`[KPI-UPLOAD] setId=${setId} userId=${sessionUserId} role=${scope.role} email=${scope.email} dept=${scope.department}`);
 
   const [existingSet] = await db.select().from(kpiSetsTable).where(eq(kpiSetsTable.id, setId));
   if (!existingSet) { res.status(404).json({ error: "KPI set not found" }); return; }
 
-  logger.info({ setId, setStatus: existingSet.status, setPersonId: existingSet.personId }, "[KPI-UPLOAD] set found");
+  console.log(`[KPI-UPLOAD] set found: status=${existingSet.status} personId=${existingSet.personId}`);
 
   const blockedForUpload = ["Pending", "Approved", "Approved - Partial"];
   if (blockedForUpload.includes(existingSet.status ?? "")) {
-    logger.warn({ setId, setStatus: existingSet.status }, "[KPI-UPLOAD 403] set is locked");
+    console.log(`[KPI-UPLOAD 403] set is locked: status=${existingSet.status}`);
     res.status(403).json({ error: `KPI set is currently "${existingSet.status}" — uploads are locked. Recall the submission first, or wait for it to be reviewed before uploading again.` });
     return;
   }
@@ -316,9 +316,9 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
   // Role-based ownership: employee can only upload to their own set
   if (scope.role === "kpi_employee") {
     const [person] = await db.select({ email: kpiPersonsTable.email }).from(kpiPersonsTable).where(eq(kpiPersonsTable.id, existingSet.personId));
-    logger.info({ personEmail: person?.email, scopeEmail: scope.email, match: person?.email?.toLowerCase().trim() === scope.email?.toLowerCase().trim() }, "[KPI-UPLOAD] employee email check");
+    console.log(`[KPI-UPLOAD] employee email check: personEmail=${person?.email} scopeEmail=${scope.email} match=${person?.email?.toLowerCase().trim() === scope.email?.toLowerCase().trim()}`);
     if (!person || person.email?.toLowerCase().trim() !== scope.email?.toLowerCase().trim()) {
-      logger.warn({ personEmail: person?.email, scopeEmail: scope.email }, "[KPI-UPLOAD 403] employee email mismatch");
+      console.log(`[KPI-UPLOAD 403] employee email mismatch: personEmail=${person?.email} scopeEmail=${scope.email}`);
       res.status(403).json({ error: `This KPI set does not belong to your account (${scope.email}). You can only upload to your own KPI set.` });
       return;
     }
@@ -326,9 +326,9 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
   // CXO: can only upload to sets within their department
   if (scope.role === "cxo" && scope.department) {
     const [person] = await db.select({ department: kpiPersonsTable.department }).from(kpiPersonsTable).where(eq(kpiPersonsTable.id, existingSet.personId));
-    logger.info({ personDept: person?.department, scopeDept: scope.department, match: person?.department === scope.department }, "[KPI-UPLOAD] CXO dept check");
+    console.log(`[KPI-UPLOAD] CXO dept check: personDept=${person?.department} scopeDept=${scope.department} match=${person?.department === scope.department}`);
     if (!person || person.department !== scope.department) {
-      logger.warn({ personDept: person?.department, scopeDept: scope.department }, "[KPI-UPLOAD 403] CXO dept mismatch");
+      console.log(`[KPI-UPLOAD 403] CXO dept mismatch: personDept=${person?.department} scopeDept=${scope.department}`);
       res.status(403).json({ error: `This KPI set belongs to a different department. As a CXO you can only upload to KPI sets within your department (${scope.department}).` });
       return;
     }
