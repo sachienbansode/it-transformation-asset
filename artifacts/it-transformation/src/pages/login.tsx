@@ -88,7 +88,6 @@ export default function Login() {
     }
   };
 
-  const isDev = import.meta.env.DEV;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
@@ -245,41 +244,6 @@ export default function Login() {
           </CardContent>
         </Card>
 
-        {/* Dev credentials — visible only in development */}
-        {isDev && (
-          <Card className="border-dashed border-primary/40 bg-primary/5">
-            <CardContent className="py-3 px-4">
-              <p className="text-xs font-semibold text-primary mb-2">Dev Environment — Sample Credentials</p>
-              <div className="space-y-1 text-xs font-mono text-muted-foreground">
-                <div className="flex justify-between gap-4">
-                  <span>admin@ashikagroup.com <span className="text-[10px] text-primary/60">(Admin)</span></span>
-                  <span className="text-foreground">Ashika@2025</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span>sachin.bansode@ashikagroup.com <span className="text-[10px] text-primary/60">(CXO · IT)</span></span>
-                  <span className="text-foreground">Ashika@2025</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span>meera.iyer@ashikagroup.com <span className="text-[10px] text-primary/60">(CXO · Compliance)</span></span>
-                  <span className="text-foreground">Ashika@2025</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span>anjali.sharma@ashikagroup.com <span className="text-[10px] text-primary/60">(HR)</span></span>
-                  <span className="text-foreground">Ashika@2025</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span>deepak.agarwal@ashikagroup.com <span className="text-[10px] text-primary/60">(Employee · IT)</span></span>
-                  <span className="text-foreground">Ashika@2025</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span>arunava.nandi@ashikagroup.com <span className="text-[10px] text-primary/60">(Employee · IT)</span></span>
-                  <span className="text-foreground">Ashika@2025</span>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2 italic">This panel is hidden in production.</p>
-            </CardContent>
-          </Card>
-        )}
 
         <p className="text-center text-xs text-muted-foreground">
           Protected under Ashika Group IT Security Policy &mdash; Unauthorized access is prohibited.
