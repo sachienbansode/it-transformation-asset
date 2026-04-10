@@ -5,6 +5,7 @@ import { pool } from "@workspace/db";
 import { z } from "zod";
 import { requireAdmin } from "./auth";
 import bcrypt from "bcryptjs";
+import { forceSeedProductionDatabase } from "../seed-production";
 
 const router = Router();
 
@@ -137,22 +138,13 @@ router.delete("/admin/users/:id", requireAdmin, async (req, res): Promise<void> 
 
 // ─── TEMPORARY: ONE-TIME PRODUCTION DB RESET ─────────────────
 // Remove this endpoint after use.
-router.post("/admin/reset-production-db", requireAdmin, async (_req, res): Promise<void> => {
-  const client = await pool.connect();
+router.post("/admin/force-seed", requireAdmin, async (_req, res): Promise<void> => {
   try {
-    await client.query(`
-      TRUNCATE TABLE
-        sbom_entries, aibom_entries, retirement_documents, retirements,
-        applications, roadmap_items, roadmap_upload_batches, checklist_items,
-        audit_logs, kpi_approvals, kpi_targets, kpi_actuals, kpi_set_items,
-        kpis, kpi_set_versions, kpi_sets, kpi_persons, kpi_categories,
-        kpi_years, user_roles, role_permissions, user_sessions, users,
-        business_units, masters, kpi_settings, settings, roles
-      RESTART IDENTITY CASCADE
-    `);
-    res.json({ ok: true, message: "All production tables truncated and sequences reset." });
-  } finally {
-    client.release();
+    await forceSeedProductionDatabase();
+    res.json({ ok: true, message: "All tables truncated and re-seeded with full dev dataset." });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Force seed failed", detail: msg });
   }
 });
 

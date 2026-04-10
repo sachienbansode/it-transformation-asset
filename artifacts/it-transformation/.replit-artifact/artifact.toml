@@ -17,6 +17,6 @@ localPort = 22340
 [services.development]
 run = "pnpm --filter @workspace/it-transformation run dev"
 
-[services.env]
+[services.development.env]
 PORT = "22340"
 BASE_PATH = "/"
