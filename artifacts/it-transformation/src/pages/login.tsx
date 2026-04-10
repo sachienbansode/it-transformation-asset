@@ -7,7 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-import { Shield, Building2, User, Loader2 } from "lucide-react";
+import { Shield, Building2, User, Loader2, ChevronDown } from "lucide-react";
+
+const DEV_CREDENTIALS = [
+  { label: "Administrator", email: "admin@ashikagroup.com" },
+  { label: "CXO – IT", email: "sachin.bansode@ashikagroup.com" },
+  { label: "CXO – Compliance", email: "meera.iyer@ashikagroup.com" },
+  { label: "HR", email: "anjali.sharma@ashikagroup.com" },
+  { label: "KPI Employee", email: "deepak.agarwal@ashikagroup.com" },
+];
+const DEV_PASSWORD = "Ashika@2025";
 
 type UserType = "internal" | "external";
 type LoginStep = "credentials" | "mfa";
@@ -30,6 +39,7 @@ export default function Login() {
   const [mfaToken, setMfaToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [ssoConfig, setSsoConfig] = useState<{ enabled: boolean; configured: boolean } | null>(null);
+  const [showDevCreds, setShowDevCreds] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig>({
     appName: "Ashika Drishti Transform",
     appTagline: "IT Transformation Planning Suite — Ashika Group",
@@ -248,6 +258,33 @@ export default function Login() {
         <p className="text-center text-xs text-muted-foreground">
           Protected under Ashika Group IT Security Policy &mdash; Unauthorized access is prohibited.
         </p>
+
+        {import.meta.env.DEV && (
+          <div className="border border-amber-400/40 rounded-lg bg-amber-50/60 dark:bg-amber-900/10 text-xs">
+            <button
+              onClick={() => setShowDevCreds(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 text-amber-700 dark:text-amber-400 font-medium"
+            >
+              <span>🛠 Dev credentials (not visible in production)</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showDevCreds ? "rotate-180" : ""}`} />
+            </button>
+            {showDevCreds && (
+              <div className="px-3 pb-3 space-y-1 border-t border-amber-400/30">
+                <p className="pt-2 pb-1 text-amber-600 dark:text-amber-500">Password for all: <span className="font-mono font-semibold">{DEV_PASSWORD}</span></p>
+                {DEV_CREDENTIALS.map(c => (
+                  <button
+                    key={c.email}
+                    onClick={() => { setEmail(c.email); setPassword(DEV_PASSWORD); }}
+                    className="w-full text-left flex items-center justify-between px-2 py-1.5 rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
+                  >
+                    <span className="font-medium text-foreground">{c.label}</span>
+                    <span className="text-muted-foreground font-mono">{c.email}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
