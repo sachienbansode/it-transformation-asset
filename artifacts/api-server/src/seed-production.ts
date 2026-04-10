@@ -2,7 +2,6 @@ import { pool } from "@workspace/db";
 
 const SEED_SQL = `
 BEGIN;
-SET session_replication_role = replica;
 INSERT INTO public.roles VALUES (1, 'HR Manager', 'Human Resources team - full KPI management access', false, '2026-04-09 09:45:05.236654+00', '/');
 INSERT INTO public.roles VALUES (2, 'CXO Viewer', 'CXO level read-only access to all modules', false, '2026-04-09 09:45:05.236654+00', '/');
 INSERT INTO public.roles VALUES (3, 'IT Admin', 'IT team - full access to IT modules', false, '2026-04-09 09:45:05.236654+00', '/');
@@ -730,7 +729,6 @@ INSERT INTO public.sbom_entries VALUES (12, 'python', '3.10.12', 'MIT', 'CVE-202
 INSERT INTO public.sbom_entries VALUES (13, 'kafka-clients', '3.4.0', 'Apache', 'None', '2025-04-01', 'Event streaming (settlement, trading events)', 'Low', 'None. Stable version.', '2026-04-08 15:34:58.890614+00', '2026-04-08 15:34:58.890614+00', NULL, NULL, NULL, NULL, NULL, NULL);
 INSERT INTO public.sbom_entries VALUES (14, 'jwt', '8.5.1', 'MIT', 'CVE-2022-23529', '2025-04-01', 'Auth middleware, API security', 'High', 'Upgrade to 9.0.0. Secret exposure vulnerability.', '2026-04-08 15:34:58.890614+00', '2026-04-08 15:34:58.890614+00', NULL, NULL, NULL, NULL, NULL, NULL);
 INSERT INTO public.sbom_entries VALUES (15, 'commons-text', '1.9.0', 'Apache', 'CVE-2022-42889', '2025-04-01', 'Finacle OMS, Nucleus LOS backend', 'Critical', 'Text4Shell vulnerability. Upgrade to 1.10.0 immediately.', '2026-04-08 15:34:58.890614+00', '2026-04-08 15:34:58.890614+00', NULL, NULL, NULL, NULL, NULL, NULL);
-SET session_replication_role = DEFAULT;
 COMMIT;
 `;
 
