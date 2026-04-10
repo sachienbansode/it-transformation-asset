@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, getRoleLabel } from "@/lib/utils";
 
 interface AppConfig {
   appName: string;
@@ -258,7 +258,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <div className="text-[11px] font-semibold text-white/80 truncate">{user?.name}</div>
                     <span className={`text-[9px] px-1 py-px rounded border leading-none ${
                       user?.role === "admin" ? "border-yellow-500/40 text-yellow-400/90" : "border-white/20 text-white/40"
-                    }`}>{user?.role}</span>
+                    }`}>{getRoleLabel(user?.role)}</span>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

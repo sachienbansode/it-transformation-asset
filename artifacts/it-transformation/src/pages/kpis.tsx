@@ -22,6 +22,18 @@ import {
   Pencil, Trash2, RefreshCw, AlertTriangle, Target, Archive,
   FolderOpen, RotateCcw, Info, Search, UserCheck,
 } from "lucide-react";
+// ─── Role label helper ────────────────────────────────────────────────────────
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Administrator",
+  cxo: "CXO",
+  kpi_employee: "Employee",
+  hr: "HR Manager",
+  user: "User",
+};
+function getRoleLabel(role: string): string {
+  return ROLE_LABELS[role] ?? role;
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface KpiYear { id: number; label: string; startDate: string; endDate: string; isActive: boolean; isCurrent: boolean; }
@@ -282,10 +294,8 @@ function KpiSetDialog({open,initialSet,users,years,deptMasters,onClose,onSuccess
       if((e instanceof ApiError&&e.status===409)||e.message?.toLowerCase().includes("already exists")){
         toast({title:"Duplicate KPI Set",description:"A KPI set for this employee and financial year already exists. Archive the existing set to create a new one.",variant:"destructive"});
       }else if(e instanceof ApiError&&e.status===403){
-        // Session may have been overwritten (e.g. another login in a different tab).
-        // Re-fetch auth state so the UI reflects the actual signed-in account.
         await refresh();
-        toast({title:"Session Mismatch",description:e.message||"Your session has changed. Please sign out and sign in with a CXO / HR account to create KPI sets.",variant:"destructive",duration:8000});
+        toast({title:"Access Denied",description:e.message||"You do not have permission to create KPI sets. Please sign in with a CXO or HR account.",variant:"destructive",duration:8000});
       }else{
         toast({title:"Error",description:e.message,variant:"destructive"});
       }
@@ -1343,7 +1353,7 @@ export default function KpisPage(){
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {user&&<span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5 hidden sm:inline">{user.name} · <span className="font-medium capitalize">{user.role === "kpi_employee" ? "Employee" : user.role.toUpperCase()}</span></span>}
+          {user&&<span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5 hidden sm:inline">{user.name} · <span className="font-medium">{getRoleLabel(user.role)}</span></span>}
           {years&&(
             <Select value={yearFilter?.toString()} onValueChange={v=>setYearFilter(parseInt(v))}>
               <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Select year"/></SelectTrigger>

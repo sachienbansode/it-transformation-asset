@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { getRoleLabel } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -531,7 +532,7 @@ function UsersTab() {
                   </td>
                   <td className="px-4 py-2.5">
                     <Badge variant="outline" className={u.role === "admin" ? "border-yellow-500/30 text-yellow-400" : "border-gray-500/30 text-gray-400"}>
-                      {u.role}
+                      {getRoleLabel(u.role)}
                     </Badge>
                   </td>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">{deptLabel(u.department || "") || "-"}</td>

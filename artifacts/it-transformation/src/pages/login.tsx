@@ -271,6 +271,10 @@ export default function Login() {
                   <span>deepak.agarwal@ashikagroup.com <span className="text-[10px] text-primary/60">(Employee · IT)</span></span>
                   <span className="text-foreground">Ashika@2025</span>
                 </div>
+                <div className="flex justify-between gap-4">
+                  <span>arunava.nandi@ashikagroup.com <span className="text-[10px] text-primary/60">(Employee · IT)</span></span>
+                  <span className="text-foreground">Ashika@2025</span>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground mt-2 italic">This panel is hidden in production.</p>
             </CardContent>

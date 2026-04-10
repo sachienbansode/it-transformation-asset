@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getRoleLabel } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -157,7 +158,7 @@ export default function Profile() {
               <p className="text-lg font-semibold">{profile?.name || user?.name}</p>
               <p className="text-sm text-muted-foreground">{profile?.email || user?.email}</p>
               <div className="flex flex-wrap gap-1.5 mt-2">
-                <Badge variant="outline" className="capitalize text-xs">{profile?.role || user?.role}</Badge>
+                <Badge variant="outline" className="text-xs">{getRoleLabel(profile?.role || user?.role)}</Badge>
                 <Badge variant="outline" className="capitalize text-xs">{profile?.userType || user?.userType}</Badge>
                 {profile?.status && (
                   <Badge variant="outline" className={`text-xs capitalize ${statusColor[profile.status] || ""}`}>
@@ -185,7 +186,7 @@ export default function Profile() {
             <FieldRow label="Designation" value={profile?.designation} />
             <FieldRow label="Mobile" value={profile?.mobile} />
             <FieldRow label="User Type" value={profile?.userType ? profile.userType.charAt(0).toUpperCase() + profile.userType.slice(1) : null} />
-            <FieldRow label="Account Role" value={profile?.role} />
+            <FieldRow label="Account Role" value={getRoleLabel(profile?.role)} />
           </div>
           <p className="text-xs text-muted-foreground mt-5 border-t border-border pt-3">
             These details are managed by your administrator. Contact your admin to update any information.
