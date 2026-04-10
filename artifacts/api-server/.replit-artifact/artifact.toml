@@ -13,7 +13,7 @@ paths = ["/"]
 run = "pnpm --filter @workspace/api-server run dev"
 
 [services.production]
-run = "NODE_ENV=production PORT=8080 node --enable-source-maps artifacts/api-server/dist/index.mjs"
+run = "PORT=8080 node --enable-source-maps artifacts/api-server/dist/index.prod.mjs"
 
 [services.production.build]
 args = ["sh", "-c", "pnpm --filter @workspace/it-transformation run build && pnpm --filter @workspace/api-server run build"]
