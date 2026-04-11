@@ -1,9 +1,10 @@
 kind = "web"
-previewPath = "/it-src"
-title = "IT Transformation Planning Suite"
-version = "1.0.0"
-id = "artifacts/it-transformation"
+  previewPath = "/it-src"
+  title = "IT Transformation Planning Suite"
+  version = "1.0.0"
+  id = "artifacts/it-transformation"
 
-[[integratedSkills]]
-name = "react-vite"
-version = "1.0.0"
+  [[integratedSkills]]
+  name = "react-vite"
+  version = "1.0.0"
+  

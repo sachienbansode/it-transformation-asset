@@ -26,6 +26,7 @@ interface AppConfig {
 
 type SidebarState = "expanded" | "collapsed" | "hidden";
 const SIDEBAR_KEY = "ashika-sidebar";
+const SECTIONS_KEY = "ashika-sidebar-sections";
 
 const DRISHTI_ITEMS = [
   { href: "/", label: "Executive Dashboard", icon: LayoutDashboard, module: "dashboard", adminOnly: true },
@@ -81,14 +82,25 @@ function NavItem({
   );
 }
 
-function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
+function SectionLabel({
+  children, collapsed, open, onToggle,
+}: {
+  children: React.ReactNode; collapsed: boolean; open: boolean; onToggle: () => void;
+}) {
   if (collapsed) return <div className="h-px bg-sidebar-border/40 mx-2 my-1.5" />;
   return (
-    <div className="px-2.5 pt-2 pb-0.5">
-      <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-sidebar-foreground/30 select-none">
+    <button
+      onClick={onToggle}
+      className="w-full flex items-center justify-between px-2.5 pt-2 pb-0.5 group/sec"
+    >
+      <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-sidebar-foreground/30 select-none group-hover/sec:text-sidebar-foreground/50 transition-colors">
         {children}
       </span>
-    </div>
+      <ChevronDown className={cn(
+        "h-2.5 w-2.5 text-sidebar-foreground/20 group-hover/sec:text-sidebar-foreground/50 transition-all duration-200 flex-shrink-0",
+        open ? "rotate-0" : "-rotate-90"
+      )} />
+    </button>
   );
 }
 
@@ -101,6 +113,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const [sidebar, setSidebar] = useState<SidebarState>(() => {
     try { return (localStorage.getItem(SIDEBAR_KEY) as SidebarState) || "expanded"; } catch { return "expanded"; }
+  });
+  const [sectionsOpen, setSectionsOpen] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(SECTIONS_KEY);
+      return saved ? JSON.parse(saved) : { drishti: true, kpi: true, admin: true };
+    } catch { return { drishti: true, kpi: true, admin: true }; }
   });
   const [appConfig, setAppConfig] = useState<AppConfig>({ appName: "Ashika Drishti Transform", appTagline: "", logoUrl: "" });
 
@@ -117,6 +135,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const setSidebarState = useCallback((s: SidebarState) => {
     setSidebar(s);
     try { localStorage.setItem(SIDEBAR_KEY, s); } catch {}
+  }, []);
+
+  const toggleSection = useCallback((key: string) => {
+    setSectionsOpen(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
   }, []);
 
   const handleLogout = async () => {
@@ -194,8 +220,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <nav className="flex-1 px-1.5 py-1.5 space-y-0.5 overflow-y-auto min-h-0">
             {visibleDrishtiItems.length > 0 && (
               <>
-                <SectionLabel collapsed={isCollapsed}>IT – Drishti</SectionLabel>
-                {visibleDrishtiItems.map(item => (
+                <SectionLabel
+                  collapsed={isCollapsed}
+                  open={sectionsOpen.drishti ?? true}
+                  onToggle={() => toggleSection("drishti")}
+                >
+                  IT – Drishti
+                </SectionLabel>
+                {(isCollapsed || sectionsOpen.drishti) && visibleDrishtiItems.map(item => (
                   <NavItem
                     key={item.href}
                     href={item.href}
@@ -209,8 +241,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
             )}
             {visibleKpiItems.length > 0 && (
               <>
-                <SectionLabel collapsed={isCollapsed}>Performance</SectionLabel>
-                {visibleKpiItems.map(item => (
+                <SectionLabel
+                  collapsed={isCollapsed}
+                  open={sectionsOpen.kpi ?? true}
+                  onToggle={() => toggleSection("kpi")}
+                >
+                  Performance
+                </SectionLabel>
+                {(isCollapsed || sectionsOpen.kpi) && visibleKpiItems.map(item => (
                   <NavItem
                     key={item.href}
                     href={item.href}
@@ -224,8 +262,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
             )}
             {(isAdmin || isHR) && (
               <>
-                <SectionLabel collapsed={isCollapsed}>Admin</SectionLabel>
-                {(isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter(i => i.tab === "users")).map(item => (
+                <SectionLabel
+                  collapsed={isCollapsed}
+                  open={sectionsOpen.admin ?? true}
+                  onToggle={() => toggleSection("admin")}
+                >
+                  Admin
+                </SectionLabel>
+                {(isCollapsed || sectionsOpen.admin) && (isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter(i => i.tab === "users")).map(item => (
                   <NavItem
                     key={item.href + item.label}
                     href={item.href}

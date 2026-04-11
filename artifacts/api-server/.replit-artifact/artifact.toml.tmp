@@ -1,0 +1,23 @@
+kind = "api"
+  previewPath = "/"
+  title = "IT Transformation Planning Suite"
+  version = "1.0.0"
+  id = "3B4_FFSkEVBkAeYMFRJ2e"
+
+  [[services]]
+  localPort = 8080
+  name = "API Server"
+  paths = ["/"]
+
+  [services.production]
+  run = "PORT=8080 node --enable-source-maps artifacts/api-server/dist/index.prod.mjs"
+
+  [services.production.build]
+  args = ["sh", "-c", "pnpm --filter @workspace/it-transformation run build && pnpm --filter @workspace/api-server run build"]
+
+  [services.production.build.env]
+  NODE_ENV = "production"
+
+  [services.production.health.startup]
+  path = "/api/healthz"
+  
