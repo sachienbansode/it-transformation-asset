@@ -77,6 +77,8 @@ export const itsmSlaPoliciesTable = pgTable("itsm_sla_policies", {
   resolutionTimeHours: integer("resolution_time_hours").notNull(),
   escalationEnabled: boolean("escalation_enabled").notNull().default(true),
   escalationPolicy: text("escalation_policy"),
+  businessHours: boolean("business_hours").notNull().default(true),
+  slaType: text("sla_type").notNull().default("24x7"),
   status: text("status").notNull().default("Active"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

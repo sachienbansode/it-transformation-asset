@@ -20,7 +20,8 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 const PAGE_SIZE = 10;
 const CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
 const RISKS = ["High", "Medium", "Low"];
-const STATUSES = ["Open", "Draft", "Submitted", "Approved", "In Progress", "Completed", "Failed", "Rolled Back"];
+const STATUSES = ["Draft", "Open", "Pending Approval", "Approved", "Rejected", "In Progress", "Completed", "Failed", "Rolled Back", "Closed"];
+const CREATE_STATUSES = ["Draft"];
 const APPROVAL_STATUSES = ["Pending", "Approved", "Rejected"];
 const TYPE_BADGE: Record<string, string> = { Standard: "border-blue-500/30 text-blue-600 bg-blue-50", Normal: "border-teal-500/30 text-teal-600 bg-teal-50", Emergency: "border-red-500/30 text-red-600 bg-red-50" };
 const APPROVAL_BADGE: Record<string, string> = { Pending: "border-amber-500/30 text-amber-600 bg-amber-50", Approved: "border-emerald-500/30 text-emerald-600 bg-emerald-50", Rejected: "border-red-500/30 text-red-600 bg-red-50" };
@@ -157,7 +158,7 @@ export default function ItsmChanges() {
             <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
             <div><Label>Change Type</Label><Select value={formData.type || "Normal"} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CHANGE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Risk Level</Label><Select value={formData.riskLevel || "Medium"} onValueChange={v => setFormData({ ...formData, riskLevel: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RISKS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Status</Label><Select value={formData.status || "Draft"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Approval Status</Label><Select value={formData.approvalStatus || "Pending"} onValueChange={v => setFormData({ ...formData, approvalStatus: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{APPROVAL_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Requested By</Label><Input value={formData.requestedBy || ""} onChange={e => setFormData({ ...formData, requestedBy: e.target.value })} /></div>
             <div><Label>Approved By</Label><Input value={formData.approvedBy || ""} onChange={e => setFormData({ ...formData, approvedBy: e.target.value })} /></div>

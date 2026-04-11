@@ -18,7 +18,8 @@ import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 
 const PAGE_SIZE = 10;
-const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Closed"];
+const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"];
+const CREATE_STATUSES = ["Open"];
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const PRIORITY_BADGE: Record<string, string> = { Critical: "border-red-500/50 text-red-700 bg-red-50 dark:bg-red-400/10", High: "border-orange-500/50 text-orange-700 bg-orange-50 dark:bg-orange-400/10", Medium: "border-amber-500/50 text-amber-700 bg-amber-50 dark:bg-amber-400/10", Low: "border-blue-500/50 text-blue-600 bg-blue-50 dark:bg-blue-400/10" };
 const STATUS_BADGE: Record<string, string> = { Open: "border-red-500/30 text-red-600 bg-red-50", "Under Investigation": "border-violet-500/30 text-violet-600 bg-violet-50", "Root Cause Identified": "border-teal-500/30 text-teal-600 bg-teal-50", "Known Error": "border-orange-500/30 text-orange-600 bg-orange-50", Closed: "border-gray-400/30 text-gray-500 bg-gray-50" };
@@ -154,7 +155,7 @@ export default function ItsmProblems() {
             <div className="col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
             <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
             <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Assigned To</Label><Input value={formData.assignedTo || ""} onChange={e => setFormData({ ...formData, assignedTo: e.target.value })} /></div>
             <div><Label>Related Incidents</Label><Input value={formData.relatedIncidents || ""} onChange={e => setFormData({ ...formData, relatedIncidents: e.target.value })} placeholder="INC-00001, INC-00002" /></div>
             <div className="col-span-2"><Label>Affected Systems</Label><Input value={formData.affectedSystems || ""} onChange={e => setFormData({ ...formData, affectedSystems: e.target.value })} /></div>

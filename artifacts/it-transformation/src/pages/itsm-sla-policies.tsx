@@ -68,7 +68,7 @@ export default function ItsmSlaPolicies() {
   const avgResolution = typeSlas.length > 0 ? (typeSlas.reduce((s: number, p: any) => s + (p.resolutionTimeHours || 0), 0) / typeSlas.length).toFixed(1) : "—";
   const escalationCount = typeSlas.filter((s: any) => s.escalationEnabled).length;
 
-  function openCreate() { setEditingItem(null); setFormData({ ticketType: activeType, priority: "Medium", responseTimeHours: 4, resolutionTimeHours: 24, escalationEnabled: true }); setIsModalOpen(true); }
+  function openCreate() { setEditingItem(null); setFormData({ ticketType: activeType, priority: "Medium", responseTimeHours: 4, resolutionTimeHours: 24, escalationEnabled: true, businessHours: true, slaType: "24x7" }); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
 
   async function handleSave() {
@@ -127,16 +127,17 @@ export default function ItsmSlaPolicies() {
           </div>
           <Table>
             <TableHeader><TableRow>
-              <TableHead>Policy Name</TableHead><TableHead>Priority</TableHead><TableHead>Response Time</TableHead><TableHead>Resolution Time</TableHead><TableHead>Escalation</TableHead><TableHead>Status</TableHead><TableHead className="w-[100px] text-center">Actions</TableHead>
+              <TableHead>Policy Name</TableHead><TableHead>Priority</TableHead><TableHead>Response Time</TableHead><TableHead>Resolution Time</TableHead><TableHead>SLA Type</TableHead><TableHead>Escalation</TableHead><TableHead>Status</TableHead><TableHead className="w-[100px] text-center">Actions</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {paged.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No SLA policies for {activeType}</TableCell></TableRow>}
+              {paged.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No SLA policies for {activeType}</TableCell></TableRow>}
               {paged.map((s: any) => (
                 <TableRow key={s.id}>
                   <TableCell className="font-medium">{s.name}</TableCell>
                   <TableCell><Badge variant="outline" style={{ borderColor: PRIORITY_COLORS[s.priority], color: PRIORITY_COLORS[s.priority] }}>{s.priority}</Badge></TableCell>
                   <TableCell className="font-semibold">{s.responseTimeHours}h</TableCell>
                   <TableCell className="font-semibold">{s.resolutionTimeHours}h</TableCell>
+                  <TableCell><Badge variant="outline" className={s.slaType === "Business Hours" ? "border-blue-500/30 text-blue-600 bg-blue-50 dark:bg-blue-400/10" : "border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10"}>{s.slaType || "24x7"}</Badge></TableCell>
                   <TableCell>
                     {s.escalationEnabled ? (
                       <div>
@@ -171,7 +172,7 @@ export default function ItsmSlaPolicies() {
               <h3 className="font-semibold">{viewModal.name}</h3>
               <Badge variant="outline" className={TYPE_COLOR[viewModal.ticketType] || ""}>{viewModal.ticketType}</Badge>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Priority", viewModal.priority], ["Response Time", `${viewModal.responseTimeHours} hours`], ["Resolution Time", `${viewModal.resolutionTimeHours} hours`], ["Status", viewModal.isActive !== false ? "Active" : "Inactive"]].map(([l, v]) => (
+                {[["Priority", viewModal.priority], ["Response Time", `${viewModal.responseTimeHours} hours`], ["Resolution Time", `${viewModal.resolutionTimeHours} hours`], ["SLA Type", viewModal.slaType || "24x7"], ["Business Hours", viewModal.businessHours ? "Yes" : "No"], ["Status", viewModal.isActive !== false ? "Active" : "Inactive"]].map(([l, v]) => (
                   <div key={l as string}><div className="text-[10px] uppercase text-muted-foreground font-semibold">{l}</div><div className="font-medium">{v as string}</div></div>
                 ))}
               </div>
@@ -190,6 +191,8 @@ export default function ItsmSlaPolicies() {
             <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Response Time (hours) *</Label><Input type="number" value={formData.responseTimeHours || ""} onChange={e => setFormData({ ...formData, responseTimeHours: parseInt(e.target.value) })} /></div>
             <div><Label>Resolution Time (hours) *</Label><Input type="number" value={formData.resolutionTimeHours || ""} onChange={e => setFormData({ ...formData, resolutionTimeHours: parseInt(e.target.value) })} /></div>
+            <div><Label>SLA Type</Label><Select value={formData.slaType || "24x7"} onValueChange={v => setFormData({ ...formData, slaType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="24x7">24x7</SelectItem><SelectItem value="Business Hours">Business Hours</SelectItem></SelectContent></Select></div>
+            <div><Label>Business Hours Only</Label><Select value={formData.businessHours ? "true" : "false"} onValueChange={v => setFormData({ ...formData, businessHours: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes</SelectItem><SelectItem value="false">No</SelectItem></SelectContent></Select></div>
             <div><Label>Escalation Enabled</Label><Select value={formData.escalationEnabled ? "true" : "false"} onValueChange={v => setFormData({ ...formData, escalationEnabled: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes</SelectItem><SelectItem value="false">No</SelectItem></SelectContent></Select></div>
             <div><Label>Active</Label><Select value={formData.isActive !== false ? "true" : "false"} onValueChange={v => setFormData({ ...formData, isActive: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Active</SelectItem><SelectItem value="false">Inactive</SelectItem></SelectContent></Select></div>
             <div className="col-span-2"><Label>Escalation Policy</Label><Input value={formData.escalationPolicy || ""} onChange={e => setFormData({ ...formData, escalationPolicy: e.target.value })} placeholder="Describe escalation procedure" /></div>

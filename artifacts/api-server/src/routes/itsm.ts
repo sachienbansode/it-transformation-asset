@@ -6,6 +6,37 @@ import { logAudit } from "./audit-logs";
 
 const router = Router();
 
+router.use(requireAuth);
+
+const responseCache = new Map<string, { data: any; ts: number }>();
+const CACHE_TTL = 10000;
+const inflightPromises = new Map<string, Promise<any>>();
+
+router.use(async (req, res, next) => {
+  if (req.method === "GET") {
+    const cached = responseCache.get(req.path);
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      res.json(cached.data);
+      return;
+    }
+    const inflight = inflightPromises.get(req.path);
+    if (inflight) {
+      try {
+        const data = await inflight;
+        res.json(data);
+      } catch {
+        next();
+      }
+      return;
+    }
+  } else if (req.method !== "OPTIONS") {
+    responseCache.clear();
+  }
+  next();
+});
+
+const DISALLOWED_CREATE_STATUSES = ["Resolved", "Closed"];
+
 async function createApprovalRecords(ticketId: number, ticketType: string, priority?: string, severity?: string) {
   const rules = await db.select().from(itsmApprovalMatrixTable)
     .where(and(eq(itsmApprovalMatrixTable.ticketType, ticketType), eq(itsmApprovalMatrixTable.isActive, true)))
@@ -20,11 +51,11 @@ async function createApprovalRecords(ticketId: number, ticketType: string, prior
       const vals = r.condition.replace("Severity:", "").split(",").map(v => v.trim());
       return vals.includes(severity || "");
     }
-    if (r.condition.startsWith("Type:")) {
-      return true;
-    }
+    if (r.condition.startsWith("Type:")) return true;
     return true;
   });
+
+  const isLowPriority = priority === "Low";
   if (filtered.length > 0) {
     await db.insert(itsmApprovalsTable).values(
       filtered.map(r => ({
@@ -32,24 +63,81 @@ async function createApprovalRecords(ticketId: number, ticketType: string, prior
         ticketType,
         approverLevel: r.approverLevel,
         approverRole: r.approverRole,
-        status: "Pending",
+        status: isLowPriority ? "Auto-Approved" : "Pending",
+        approverName: isLowPriority ? "System (Auto-Approval)" : null,
+        actionAt: isLowPriority ? new Date() : null,
+        notes: isLowPriority ? "Auto-approved: Low priority ticket" : null,
       }))
     );
   }
+
+  if (isLowPriority && filtered.length > 0) {
+    await db.insert(itsmTicketHistoryTable).values({
+      ticketId,
+      ticketType: ticketType.toLowerCase().replace(/ /g, "_"),
+      oldStatus: "Pending",
+      newStatus: "Auto-Approved",
+      updatedBy: "System",
+      notes: "All approval levels auto-approved for low priority ticket",
+    });
+    await logAudit({ entityType: `itsm_${ticketType.toLowerCase().replace(/ /g, "_")}`, entityId: ticketId, action: "auto_approve", summary: `Auto-approved all levels for low priority ${ticketType}` });
+  }
 }
 
-router.get("/incidents", requireAuth, async (_req, res) => {
-  const items = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(desc(itsmIncidentsTable.createdAt));
-  res.json(items);
-});
+async function computeSlaBreachCount() {
+  const slas = await db.select().from(itsmSlaPoliciesTable).where(eq(itsmSlaPoliciesTable.isActive, true));
+  const incidents = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true));
+  let breached = 0;
+  for (const inc of incidents) {
+    if (inc.status === "Closed" || inc.status === "Resolved") continue;
+    const sla = slas.find(s => s.ticketType === "Incident" && s.priority === inc.priority);
+    if (!sla) continue;
+    const createdAt = new Date(inc.createdAt).getTime();
+    const now = Date.now();
+    const hoursElapsed = (now - createdAt) / 3600000;
+    if (hoursElapsed > sla.resolutionTimeHours) breached++;
+  }
+  return breached;
+}
+
+function cachedGet(path: string, handler: () => Promise<any>) {
+  return async (req: any, res: any) => {
+    const p = handler().then(data => {
+      responseCache.set(path, { data, ts: Date.now() });
+      inflightPromises.delete(path);
+      return data;
+    }).catch(err => {
+      inflightPromises.delete(path);
+      throw err;
+    });
+    inflightPromises.set(path, p);
+    try {
+      const data = await p;
+      if (!res.headersSent) res.json(data);
+    } catch (err: any) {
+      if (!res.headersSent) res.status(500).json({ error: err.message || "Internal error" });
+    }
+  };
+}
+
+router.get("/incidents", requireAuth, cachedGet("/incidents", async () => {
+  return db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(desc(itsmIncidentsTable.createdAt));
+}));
 
 router.post("/incidents", requireAuth, async (req, res) => {
+  if (DISALLOWED_CREATE_STATUSES.includes(req.body.status)) {
+    res.status(400).json({ error: "Cannot create a ticket with Resolved or Closed status" }); return;
+  }
   const count = await db.select({ count: sql<number>`count(*)::int` }).from(itsmIncidentsTable);
   const ticketNo = `INC-${String((count[0]?.count || 0) + 1).padStart(5, "0")}`;
-  const body = { ...req.body, ticketNo, status: req.body.status || "Open" };
+  const body = { ...req.body, ticketNo, status: "Open" };
   const [item] = await db.insert(itsmIncidentsTable).values(body).returning();
-  await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "incident", oldStatus: null, newStatus: item.status, updatedBy: req.body.createdBy || "System", notes: "Incident created" });
+  await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "incident", oldStatus: null, newStatus: "Open", updatedBy: req.body.createdBy || "System", notes: "Incident created" });
   await createApprovalRecords(item.id, "Incident", item.priority, item.severity);
+  if (item.priority === "Critical" && item.severity === "S1") {
+    await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "incident", oldStatus: "Open", newStatus: "Escalated", updatedBy: "System", notes: "Auto-escalated: P1/S1 incident requires immediate attention" });
+    await logAudit({ entityType: "itsm_incident", entityId: item.id, action: "auto_escalate", summary: `Auto-escalated P1/S1 incident: ${item.title}` });
+  }
   await logAudit({ entityType: "itsm_incident", entityId: item.id, action: "create", summary: `Created incident: ${item.title}`, newValues: item });
   res.status(201).json(item);
 });
@@ -74,26 +162,29 @@ router.delete("/incidents/:id", requireAuth, async (req, res) => {
   res.status(204).end();
 });
 
-router.get("/incidents/stats", requireAuth, async (_req, res) => {
+router.get("/incidents/stats", requireAuth, cachedGet("/incidents/stats", async () => {
   const total = await db.select({ count: sql<number>`count(*)::int` }).from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true));
   const byStatus = await db.select({ status: itsmIncidentsTable.status, count: sql<number>`count(*)::int` }).from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).groupBy(itsmIncidentsTable.status);
   const byPriority = await db.select({ priority: itsmIncidentsTable.priority, count: sql<number>`count(*)::int` }).from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).groupBy(itsmIncidentsTable.priority);
   const bySeverity = await db.select({ severity: itsmIncidentsTable.severity, count: sql<number>`count(*)::int` }).from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).groupBy(itsmIncidentsTable.severity);
   const byCategory = await db.select({ category: itsmIncidentsTable.category, count: sql<number>`count(*)::int` }).from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).groupBy(itsmIncidentsTable.category);
-  res.json({ total: total[0]?.count || 0, byStatus, byPriority, bySeverity, byCategory });
-});
+  const slaBreached = await computeSlaBreachCount();
+  return { total: total[0]?.count || 0, byStatus, byPriority, bySeverity, byCategory, slaBreached };
+}));
 
-router.get("/problems", requireAuth, async (_req, res) => {
-  const items = await db.select().from(itsmProblemsTable).where(eq(itsmProblemsTable.isActive, true)).orderBy(desc(itsmProblemsTable.createdAt));
-  res.json(items);
-});
+router.get("/problems", requireAuth, cachedGet("/problems", async () => {
+  return db.select().from(itsmProblemsTable).where(eq(itsmProblemsTable.isActive, true)).orderBy(desc(itsmProblemsTable.createdAt));
+}));
 
 router.post("/problems", requireAuth, async (req, res) => {
+  if (DISALLOWED_CREATE_STATUSES.includes(req.body.status)) {
+    res.status(400).json({ error: "Cannot create a ticket with Resolved or Closed status" }); return;
+  }
   const count = await db.select({ count: sql<number>`count(*)::int` }).from(itsmProblemsTable);
   const problemNo = `PRB-${String((count[0]?.count || 0) + 1).padStart(5, "0")}`;
-  const body = { ...req.body, problemNo, status: req.body.status || "Open" };
+  const body = { ...req.body, problemNo, status: "Open" };
   const [item] = await db.insert(itsmProblemsTable).values(body).returning();
-  await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "problem", oldStatus: null, newStatus: item.status, updatedBy: req.body.createdBy || "System", notes: "Problem created" });
+  await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "problem", oldStatus: null, newStatus: "Open", updatedBy: req.body.createdBy || "System", notes: "Problem created" });
   await createApprovalRecords(item.id, "Problem", item.priority);
   await logAudit({ entityType: "itsm_problem", entityId: item.id, action: "create", summary: `Created problem: ${item.title}`, newValues: item });
   res.status(201).json(item);
@@ -116,17 +207,19 @@ router.delete("/problems/:id", requireAuth, async (req, res) => {
   res.status(204).end();
 });
 
-router.get("/changes", requireAuth, async (_req, res) => {
-  const items = await db.select().from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)).orderBy(desc(itsmChangesTable.createdAt));
-  res.json(items);
-});
+router.get("/changes", requireAuth, cachedGet("/changes", async () => {
+  return db.select().from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)).orderBy(desc(itsmChangesTable.createdAt));
+}));
 
 router.post("/changes", requireAuth, async (req, res) => {
+  if (DISALLOWED_CREATE_STATUSES.includes(req.body.status) || req.body.status === "Completed") {
+    res.status(400).json({ error: "Cannot create a change request with Completed, Resolved, or Closed status" }); return;
+  }
   const count = await db.select({ count: sql<number>`count(*)::int` }).from(itsmChangesTable);
   const changeNo = `CHG-${String((count[0]?.count || 0) + 1).padStart(5, "0")}`;
-  const body = { ...req.body, changeNo, status: req.body.status || "Open" };
+  const body = { ...req.body, changeNo, status: "Draft", approvalStatus: "Pending" };
   const [item] = await db.insert(itsmChangesTable).values(body).returning();
-  await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "change", oldStatus: null, newStatus: item.status, updatedBy: req.body.createdBy || "System", notes: "Change request created" });
+  await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "change", oldStatus: null, newStatus: "Draft", updatedBy: req.body.createdBy || "System", notes: "Change request created (mandatory approval required)" });
   await createApprovalRecords(item.id, "Change Request", undefined, undefined);
   await logAudit({ entityType: "itsm_change", entityId: item.id, action: "create", summary: `Created change request: ${item.title}`, newValues: item });
   res.status(201).json(item);
@@ -136,9 +229,12 @@ router.patch("/changes/:id", requireAuth, async (req, res) => {
   const id = parseInt(req.params.id);
   const [old] = await db.select().from(itsmChangesTable).where(eq(itsmChangesTable.id, id));
   if (!old) { res.status(404).json({ error: "Not found" }); return; }
+  if (req.body.status === "In Progress" && old.approvalStatus !== "Approved") {
+    res.status(400).json({ error: "Change request must be approved before moving to In Progress" }); return;
+  }
   const [item] = await db.update(itsmChangesTable).set({ ...req.body, updatedAt: new Date() }).where(eq(itsmChangesTable.id, id)).returning();
   if (old.status !== item.status) {
-    await db.insert(itsmTicketHistoryTable).values({ ticketId: id, ticketType: "change", oldStatus: old.status, newStatus: item.status, updatedBy: req.body.updatedBy || "System" });
+    await db.insert(itsmTicketHistoryTable).values({ ticketId: id, ticketType: "change", oldStatus: old.status, newStatus: item.status, updatedBy: req.body.updatedBy || "System", notes: `Status changed to ${item.status}` });
   }
   await logAudit({ entityType: "itsm_change", entityId: id, action: "update", summary: `Updated change request: ${item.title}`, oldValues: old, newValues: item });
   res.json(item);
@@ -149,24 +245,16 @@ router.delete("/changes/:id", requireAuth, async (req, res) => {
   res.status(204).end();
 });
 
-router.get("/changes/stats", requireAuth, async (_req, res) => {
+router.get("/changes/stats", requireAuth, cachedGet("/changes/stats", async () => {
   const total = await db.select({ count: sql<number>`count(*)::int` }).from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true));
   const byStatus = await db.select({ status: itsmChangesTable.status, count: sql<number>`count(*)::int` }).from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)).groupBy(itsmChangesTable.status);
   const byType = await db.select({ type: itsmChangesTable.type, count: sql<number>`count(*)::int` }).from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)).groupBy(itsmChangesTable.type);
-  res.json({ total: total[0]?.count || 0, byStatus, byType });
-});
+  return { total: total[0]?.count || 0, byStatus, byType };
+}));
 
-router.get("/sla-policies", requireAuth, async (req, res) => {
-  const ticketType = req.query.ticketType as string || null;
-  let q;
-  if (ticketType) {
-    q = db.select().from(itsmSlaPoliciesTable).where(and(eq(itsmSlaPoliciesTable.isActive, true), eq(itsmSlaPoliciesTable.ticketType, ticketType))).orderBy(itsmSlaPoliciesTable.priority);
-  } else {
-    q = db.select().from(itsmSlaPoliciesTable).where(eq(itsmSlaPoliciesTable.isActive, true)).orderBy(itsmSlaPoliciesTable.priority);
-  }
-  const items = await q;
-  res.json(items);
-});
+router.get("/sla-policies", requireAuth, cachedGet("/sla-policies", async () => {
+  return db.select().from(itsmSlaPoliciesTable).where(eq(itsmSlaPoliciesTable.isActive, true)).orderBy(itsmSlaPoliciesTable.priority);
+}));
 
 router.post("/sla-policies", requireAuth, async (req, res) => {
   const [item] = await db.insert(itsmSlaPoliciesTable).values(req.body).returning();
@@ -197,10 +285,9 @@ router.get("/ticket-history", requireAuth, async (req, res) => {
   res.json(items);
 });
 
-router.get("/knowledge-base", requireAuth, async (_req, res) => {
-  const items = await db.select().from(itsmKnowledgeBaseTable).where(eq(itsmKnowledgeBaseTable.isActive, true)).orderBy(desc(itsmKnowledgeBaseTable.createdAt));
-  res.json(items);
-});
+router.get("/knowledge-base", requireAuth, cachedGet("/knowledge-base", async () => {
+  return db.select().from(itsmKnowledgeBaseTable).where(eq(itsmKnowledgeBaseTable.isActive, true)).orderBy(desc(itsmKnowledgeBaseTable.createdAt));
+}));
 
 router.post("/knowledge-base", requireAuth, async (req, res) => {
   const [item] = await db.insert(itsmKnowledgeBaseTable).values(req.body).returning();
@@ -218,17 +305,19 @@ router.delete("/knowledge-base/:id", requireAuth, async (req, res) => {
   res.status(204).end();
 });
 
-router.get("/service-requests", requireAuth, async (_req, res) => {
-  const items = await db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.isActive, true)).orderBy(desc(itsmServiceRequestsTable.createdAt));
-  res.json(items);
-});
+router.get("/service-requests", requireAuth, cachedGet("/service-requests", async () => {
+  return db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.isActive, true)).orderBy(desc(itsmServiceRequestsTable.createdAt));
+}));
 
 router.post("/service-requests", requireAuth, async (req, res) => {
+  if (DISALLOWED_CREATE_STATUSES.includes(req.body.status) || req.body.status === "Completed") {
+    res.status(400).json({ error: "Cannot create a service request with Completed or Closed status" }); return;
+  }
   const count = await db.select({ count: sql<number>`count(*)::int` }).from(itsmServiceRequestsTable);
   const requestNo = `SR-${String((count[0]?.count || 0) + 1).padStart(5, "0")}`;
-  const body = { ...req.body, requestNo, status: req.body.status || "Open" };
+  const body = { ...req.body, requestNo, status: "Open" };
   const [item] = await db.insert(itsmServiceRequestsTable).values(body).returning();
-  await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "service_request", oldStatus: null, newStatus: item.status, updatedBy: req.body.createdBy || "System", notes: "Service request created" });
+  await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "service_request", oldStatus: null, newStatus: "Open", updatedBy: req.body.createdBy || "System", notes: "Service request created" });
   await createApprovalRecords(item.id, "Service Request", item.priority);
   await logAudit({ entityType: "itsm_service_request", entityId: item.id, action: "create", summary: `Created service request: ${item.title}`, newValues: item });
   res.status(201).json(item);
@@ -238,7 +327,9 @@ router.patch("/service-requests/:id", requireAuth, async (req, res) => {
   const id = parseInt(req.params.id);
   const [old] = await db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.id, id));
   if (!old) { res.status(404).json({ error: "Not found" }); return; }
-  const [item] = await db.update(itsmServiceRequestsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(itsmServiceRequestsTable.id, id)).returning();
+  const updates: any = { ...req.body, updatedAt: new Date() };
+  if (req.body.status === "Completed" && !old.completedAt) updates.completedAt = new Date();
+  const [item] = await db.update(itsmServiceRequestsTable).set(updates).where(eq(itsmServiceRequestsTable.id, id)).returning();
   if (old.status !== item.status) {
     await db.insert(itsmTicketHistoryTable).values({ ticketId: id, ticketType: "service_request", oldStatus: old.status, newStatus: item.status, updatedBy: req.body.updatedBy || "System", notes: `Status changed to ${item.status}` });
   }
@@ -309,6 +400,7 @@ router.post("/approvals/:id/action", requireAdmin, async (req, res) => {
     updatedBy: approverName,
     notes: `${approval.approverLevel} (${approval.approverRole}): ${action}${notes ? " - " + notes : ""}`,
   });
+  await logAudit({ entityType: `itsm_approval`, entityId: id, action: action.toLowerCase(), summary: `${action} ${approval.ticketType} #${approval.ticketId} at ${approval.approverLevel}`, performedBy: approverName });
   res.json(updated);
 });
 

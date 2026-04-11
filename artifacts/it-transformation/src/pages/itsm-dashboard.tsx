@@ -67,11 +67,13 @@ export default function ItsmDashboard() {
   const openIncidents = incidents.filter((i: any) => i.status === "Open").length;
   const inProgressIncidents = incidents.filter((i: any) => i.status === "In Progress").length;
   const resolvedIncidents = incidents.filter((i: any) => i.status === "Resolved" || i.status === "Closed").length;
+  const closedIncidents = incidents.filter((i: any) => i.status === "Closed").length;
   const criticalIncidents = incidents.filter((i: any) => i.priority === "Critical" && i.status !== "Closed" && i.status !== "Resolved").length;
   const pendingChanges = changes.filter((c: any) => c.approvalStatus === "Pending").length;
   const activeProblems = problems.filter((p: any) => p.status !== "Closed").length;
   const openSR = serviceRequests.filter((s: any) => s.status !== "Completed" && s.status !== "Cancelled").length;
   const totalTickets = incidents.length + problems.length + changes.length + serviceRequests.length;
+  const slaBreachedCount = incidentStats?.slaBreached || 0;
 
   const totalIncidents = incidentStats?.total || incidents.length;
   const resolutionRate = totalIncidents > 0 ? Math.round((resolvedIncidents / totalIncidents) * 100) : 0;
@@ -189,8 +191,9 @@ export default function ItsmDashboard() {
         <StatCard icon={Bug} label="Active Problems" value={activeProblems} iconBg="bg-violet-100 dark:bg-violet-900/30" iconColor="text-violet-600" borderColor="border-l-violet-500" />
         <StatCard icon={GitBranch} label="Pending Changes" value={pendingChanges} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" sub={`${changes.length} total`} />
         <StatCard icon={Headphones} label="Open Requests" value={openSR} iconBg="bg-teal-100 dark:bg-teal-900/30" iconColor="text-teal-600" borderColor="border-l-teal-500" sub={`${serviceRequests.length} total`} />
+        <StatCard icon={Shield} label="SLA Breached" value={slaBreachedCount} iconBg="bg-orange-100 dark:bg-orange-900/30" iconColor="text-orange-600" borderColor="border-l-orange-500" />
         <StatCard icon={BookOpen} label="KB Articles" value={kb.length} iconBg="bg-indigo-100 dark:bg-indigo-900/30" iconColor="text-indigo-600" borderColor="border-l-indigo-500" sub={`${kbViews} views`} />
-        <StatCard icon={Gauge} label="Total Tickets" value={totalTickets} iconBg="bg-gray-100 dark:bg-gray-900/30" iconColor="text-gray-600" borderColor="border-l-gray-400" />
+        <StatCard icon={Gauge} label="Total Tickets" value={totalTickets} iconBg="bg-gray-100 dark:bg-gray-900/30" iconColor="text-gray-600" borderColor="border-l-gray-400" sub={`${closedIncidents} closed`} />
       </div>
 
       {criticalIncidents > 0 && (
@@ -462,36 +465,6 @@ export default function ItsmDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="col-span-12 lg:col-span-4">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2"><Shield className="w-4 h-4 text-amber-500" />SLA Targets</CardTitle>
-              <Button size="sm" variant="ghost" className="text-[10px] h-6 px-2 gap-1" onClick={() => navigate("/itsm-sla")}>View <ArrowUpRight className="w-3 h-3" /></Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {slas.map((s: any) => (
-                <div key={s.id} className="rounded-lg border p-2.5 hover:bg-muted/30 transition">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <Badge variant="outline" className="text-[10px] font-semibold" style={{ borderColor: PRIORITY_COLORS[s.priority], color: PRIORITY_COLORS[s.priority] }}>{s.priority}</Badge>
-                    <span className="text-[10px] text-muted-foreground font-medium">{s.name}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded px-2 py-1 text-center">
-                      <div className="text-[9px] text-blue-600/70 dark:text-blue-400/70">Response</div>
-                      <div className="text-sm font-bold text-blue-600 dark:text-blue-400">{s.responseTimeHours}h</div>
-                    </div>
-                    <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded px-2 py-1 text-center">
-                      <div className="text-[9px] text-emerald-600/70 dark:text-emerald-400/70">Resolution</div>
-                      <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{s.resolutionTimeHours}h</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

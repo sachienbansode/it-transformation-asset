@@ -25,6 +25,34 @@ export async function createApp(): Promise<Express> {
     }),
   );
 
+  const itsmRateLimiter = new Map<string, { count: number; ts: number }>();
+  const RATE_LIMITED_PATHS = ["/api/incidents", "/api/problems", "/api/changes", "/api/sla-policies", "/api/knowledge-base", "/api/service-requests"];
+  app.use((req, res, next) => {
+    if (req.method !== "GET") return next();
+    const isRateLimited = RATE_LIMITED_PATHS.some(p => req.path.startsWith(p));
+    if (!isRateLimited) return next();
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const key = `${ip}:${req.path}`;
+    const now = Date.now();
+    const entry = itsmRateLimiter.get(key);
+    if (!entry || now - entry.ts > 1000) {
+      itsmRateLimiter.set(key, { count: 1, ts: now });
+      return next();
+    }
+    entry.count++;
+    if (entry.count > 10) {
+      res.status(429).end();
+      return;
+    }
+    next();
+  });
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of itsmRateLimiter) {
+      if (now - v.ts > 5000) itsmRateLimiter.delete(k);
+    }
+  }, 10000);
+
   app.use(cors({
     origin: true,
     credentials: true,
