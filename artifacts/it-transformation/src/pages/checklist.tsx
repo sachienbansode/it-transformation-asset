@@ -148,8 +148,9 @@ export default function Checklist() {
     return (items ?? []).filter(item => {
       if (search && !item.feature.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterBUs.length > 0) {
-        const itemBUs = (item.business || "").split(",").map(b => b.trim());
-        if (!filterBUs.some(f => itemBUs.includes(f))) return false;
+        const itemBUsNorm = (item.business || "").split(",").map(b => b.trim().toLowerCase());
+        const isAll = itemBUsNorm.includes("all");
+        if (!isAll && !filterBUs.some(f => itemBUsNorm.includes(f.toLowerCase()))) return false;
       }
       if (filterStatus !== "all" && item.status !== filterStatus) return false;
       return true;

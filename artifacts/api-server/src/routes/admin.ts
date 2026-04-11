@@ -137,7 +137,6 @@ router.delete("/admin/users/:id", requireAdmin, async (req, res): Promise<void> 
 });
 
 // ─── TEMPORARY: ONE-TIME PRODUCTION DB RESET ─────────────────
-// Remove this endpoint after use.
 router.post("/admin/force-seed", requireAdmin, async (_req, res): Promise<void> => {
   try {
     await forceSeedProductionDatabase();
@@ -145,6 +144,58 @@ router.post("/admin/force-seed", requireAdmin, async (_req, res): Promise<void> 
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: "Force seed failed", detail: msg });
+  }
+});
+
+// Safe endpoint: inserts checklist items for businesses that have none — never wipes data
+router.post("/admin/seed-missing-checklist", requireAdmin, async (_req, res): Promise<void> => {
+  try {
+    const newItems = [
+      // IE — Insurance & Education
+      [77, 'Policy & Product Management', 'Policy Administration System', 'IE', 'Custom Portal', 'Available', 'High', 'Life & health policy lifecycle management'],
+      [78, 'Policy & Product Management', 'Claims Management System', 'IE', 'Finacle Claims', 'Partial', 'High', 'Partial automation; manual adjudication'],
+      [79, 'Policy & Product Management', 'Underwriting Engine', 'IE', 'Manual + Excel', 'Legacy', 'High', 'Rules-based engine needed'],
+      [80, 'Policy & Product Management', 'Customer Self-Service Portal', 'IE', 'Not Available', 'Not Available', 'High', 'No digital self-service yet'],
+      [81, 'Compliance & KYC', 'KYC/AML Platform', 'IE', 'KarvyKYC Pro', 'Available', 'High', 'IRDAI-compliant KYC'],
+      [82, 'Compliance & KYC', 'IRDAI Regulatory Reporting', 'IE', 'Manual + Excel', 'Legacy', 'High', 'Manual filing; automation pending'],
+      [83, 'Education Platform', 'Learning Management System', 'IE', 'Moodle', 'Available', 'Medium', 'LMS deployed for Ashika Academy'],
+      [84, 'Education Platform', 'SEBI NISM Exam Integration', 'IE', 'Partial', 'Partial', 'Medium', 'Exam registration linked; score sync pending'],
+      // MF — Mutual Fund
+      [85, 'Fund Operations', 'Portfolio Management System', 'MF', 'Advent Geneva', 'Available', 'High', 'Core PMS for fund management'],
+      [86, 'Fund Operations', 'NAV Calculation Engine', 'MF', 'Custom + Geneva', 'Available', 'High', 'Daily NAV calculation automated'],
+      [87, 'Fund Operations', 'Investor Portal & Reporting', 'MF', 'Custom Portal', 'Partial', 'High', 'Partial features; SOA download missing'],
+      [88, 'Fund Operations', 'SIP & STP Processing System', 'MF', 'Finacle', 'Available', 'High', 'SIP automation live; STP partial'],
+      [89, 'Compliance & Regulatory', 'SEBI MF Compliance Module', 'MF', 'Manual + Excel', 'Legacy', 'High', 'Manual SEBI filings; automation needed'],
+      [90, 'Compliance & Regulatory', 'CKYC / KYC Integration', 'MF', 'KarvyKYC Pro', 'Available', 'High', 'CKYC registry integrated'],
+      [91, 'Fund Accounting', 'Fund Accounting System', 'MF', 'Advent Geneva', 'Available', 'High', 'GL and sub-ledger managed via Geneva'],
+      [92, 'Fund Accounting', 'Unit Holder Register (UTR)', 'MF', 'Custom', 'Partial', 'Medium', 'Unit holder data partially digitised'],
+      // IB — Investment Banking
+      [93, 'Deal Management', 'Deal Pipeline & CRM', 'IB', 'Salesforce CRM', 'Partial', 'High', 'CRM active; deal stage automation pending'],
+      [94, 'Deal Management', 'Financial Modelling Platform', 'IB', 'Excel + Python', 'Legacy', 'High', 'Manual models; SaaS platform needed'],
+      [95, 'Deal Management', 'Virtual Data Room (VDR)', 'IB', 'Not Available', 'Not Available', 'High', 'No secure VDR; using email/SharePoint'],
+      [96, 'Due Diligence', 'Due Diligence Management Platform', 'IB', 'Manual + Excel', 'Legacy', 'High', 'No structured DD workflow tool'],
+      [97, 'Due Diligence', 'Company Research & Analytics', 'IB', 'Bloomberg Terminal', 'Available', 'High', 'Bloomberg active for market data & comps'],
+      [98, 'Regulatory & Compliance', 'SEBI IB Regulatory Filing System', 'IB', 'Manual', 'Legacy', 'High', 'Manual filings to SEBI; portal integration needed'],
+      [99, 'Regulatory & Compliance', 'Conflict of Interest Management', 'IB', 'Not Available', 'Not Available', 'Medium', 'No system; policy-only controls'],
+      [100, 'Pitch & Reporting', 'Pitch Book Automation Tool', 'IB', 'Not Available', 'Not Available', 'Medium', 'PowerPoint-only; no automation'],
+    ] as const;
+
+    const inserted: number[] = [];
+    const skipped: number[] = [];
+    for (const [id, category, feature, business, currentTool, status, priority, notes] of newItems) {
+      const existing = await pool.query('SELECT id FROM checklist_items WHERE id = $1', [id]);
+      if (existing.rows.length > 0) { skipped.push(id); continue; }
+      await pool.query(
+        `INSERT INTO checklist_items (id, category, feature, business, current_app, status, priority, comments)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [id, category, feature, business, currentTool, status, priority, notes]
+      );
+      inserted.push(id);
+    }
+    res.json({ ok: true, inserted: inserted.length, skipped: skipped.length, insertedIds: inserted });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Seed missing checklist failed", detail: msg });
   }
 });
 
