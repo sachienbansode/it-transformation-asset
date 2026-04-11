@@ -23,6 +23,35 @@ const STATUS_COLORS: Record<string, string> = { Open: "#dc2626", "In Progress": 
 const CHANGE_STATUS_COLORS: Record<string, string> = { Draft: "#6b7280", Submitted: "#8b5cf6", Approved: "#2563eb", "In Progress": "#ea580c", Completed: "#059669", Failed: "#dc2626", "Rolled Back": "#9ca3af" };
 const SEVERITY_COLORS: Record<string, string> = { S1: "#dc2626", S2: "#ea580c", S3: "#d4a843", S4: "#2563eb" };
 
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs">
+      {label && <div className="font-semibold text-foreground mb-1">{label}</div>}
+      {payload.map((p: any, i: number) => (
+        <div key={i} className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color || p.fill }} />
+          <span className="text-muted-foreground">{p.name || p.dataKey}:</span>
+          <span className="font-semibold text-foreground">{p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const PieTooltip = ({ active, payload }: any) => {
+  if (!active || !payload?.length) return null;
+  const d = payload[0];
+  return (
+    <div className="bg-popover border border-border rounded-lg shadow-lg px-3 py-2 text-xs">
+      <div className="flex items-center gap-2">
+        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.payload?.fill }} />
+        <span className="font-semibold">{d.name}: {d.value}</span>
+      </div>
+    </div>
+  );
+};
+
 export default function ItsmDashboard() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
@@ -44,8 +73,8 @@ export default function ItsmDashboard() {
   const openSR = serviceRequests.filter((s: any) => s.status !== "Completed" && s.status !== "Cancelled").length;
   const totalTickets = incidents.length + problems.length + changes.length + serviceRequests.length;
 
-  const resolutionRate = incidents.length > 0 ? Math.round((resolvedIncidents / incidents.length) * 100) : 0;
-  const firstCallResolution = incidents.length > 0 ? Math.round((incidents.filter((i: any) => i.status === "Resolved").length / Math.max(incidents.length, 1)) * 100) : 0;
+  const totalIncidents = incidentStats?.total || incidents.length;
+  const resolutionRate = totalIncidents > 0 ? Math.round((resolvedIncidents / totalIncidents) * 100) : 0;
 
   const statusData = incidentStats?.byStatus?.map((s: any) => ({ name: s.status, value: s.count, fill: STATUS_COLORS[s.status] || "#999" })) || [];
   const priorityData = incidentStats?.byPriority?.map((p: any) => ({ name: p.priority, value: p.count, fill: PRIORITY_COLORS[p.priority] || "#999" })) || [];
@@ -268,9 +297,9 @@ export default function ItsmDashboard() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
                 <YAxis fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-                <Area type="monotone" dataKey="opened" stroke="#dc2626" fill="url(#openGrad)" strokeWidth={2} name="Opened" />
-                <Area type="monotone" dataKey="resolved" stroke="#059669" fill="url(#resolvedGrad)" strokeWidth={2} name="Resolved" />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="opened" stroke="#dc2626" fill="url(#openGrad)" strokeWidth={2} name="Opened" dot={{ r: 3, fill: "#dc2626" }} />
+                <Area type="monotone" dataKey="resolved" stroke="#059669" fill="url(#resolvedGrad)" strokeWidth={2} name="Resolved" dot={{ r: 3, fill: "#059669" }} />
                 <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
               </AreaChart>
             </ResponsiveContainer>
@@ -289,7 +318,7 @@ export default function ItsmDashboard() {
                 <Pie data={statusData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" paddingAngle={3} strokeWidth={0}>
                   {statusData.map((entry: any, i: number) => <Cell key={i} fill={entry.fill} />)}
                 </Pie>
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                <Tooltip content={<PieTooltip />} />
               </PieChart>
             </ResponsiveContainer>
             <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center">
@@ -313,7 +342,7 @@ export default function ItsmDashboard() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
                 <YAxis fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                   {priorityData.map((entry: any, i: number) => <Cell key={i} fill={entry.fill} />)}
                 </Bar>
@@ -340,7 +369,7 @@ export default function ItsmDashboard() {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
                 <XAxis type="number" fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
                 <YAxis type="category" dataKey="name" fontSize={9} width={75} tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="value" fill="#6366f1" radius={[0, 6, 6, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -357,7 +386,7 @@ export default function ItsmDashboard() {
                 <Pie data={severityData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" paddingAngle={3} strokeWidth={0}>
                   {severityData.map((entry: any, i: number) => <Cell key={i} fill={entry.fill} />)}
                 </Pie>
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                <Tooltip content={<PieTooltip />} />
               </PieChart>
             </ResponsiveContainer>
             <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center">
@@ -424,9 +453,9 @@ export default function ItsmDashboard() {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
                 <XAxis type="number" fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
                 <YAxis type="category" dataKey="name" fontSize={9} width={80} tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="open" stackId="a" fill="#dc2626" name="Open" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="inProgress" stackId="a" fill="#ea580c" name="In Progress" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="inProgress" stackId="a" fill="#ea580c" name="In Progress" radius={[0, 4, 4, 0]} />
                 <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
               </BarChart>
             </ResponsiveContainer>

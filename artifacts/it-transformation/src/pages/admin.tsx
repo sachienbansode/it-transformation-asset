@@ -633,28 +633,58 @@ function UsersTab() {
 
 // ─── MASTERS TAB ─────────────────────────────────────────────────────────────
 
-const CATEGORIES = [
-  { key: "vendor", label: "Vendor" },
-  { key: "business", label: "Business Unit" },
-  { key: "app_category", label: "Application Category" },
-  { key: "hosting", label: "Hosting Type" },
-  { key: "criticality", label: "Criticality" },
-  { key: "license_type", label: "License Type" },
-  { key: "data_classification", label: "Data Classification" },
-  { key: "priority", label: "Priority" },
-  { key: "checklist_status", label: "Checklist Status" },
-  { key: "checklist_category", label: "Checklist Category" },
-  { key: "phase", label: "Roadmap Phase" },
-  { key: "roadmap_status", label: "Roadmap Status" },
-  { key: "retirement_reason", label: "Retirement Reason" },
-  { key: "retirement_status", label: "Retirement Status" },
-  { key: "migration_effort", label: "Migration Effort" },
-  { key: "support_status", label: "Support Status" },
-  { key: "ai_type", label: "AI Component Type" },
-  { key: "risk_level", label: "Risk Level" },
-  { key: "compliance_status", label: "Compliance Status" },
-  { key: "department", label: "Department" },
+const MASTER_MODULES = [
+  { module: "General", items: [
+    { key: "vendor", label: "Vendor" },
+    { key: "department", label: "Department" },
+    { key: "priority", label: "Priority" },
+    { key: "risk_level", label: "Risk Level" },
+    { key: "criticality", label: "Criticality" },
+    { key: "compliance_status", label: "Compliance Status" },
+  ]},
+  { module: "Applications", items: [
+    { key: "app_category", label: "Application Category" },
+    { key: "hosting", label: "Hosting Type" },
+    { key: "license_type", label: "Software License Type" },
+    { key: "data_classification", label: "Data Classification" },
+    { key: "support_status", label: "Support Status" },
+  ]},
+  { module: "Transformation", items: [
+    { key: "checklist_status", label: "Checklist Status" },
+    { key: "checklist_category", label: "Checklist Category" },
+    { key: "phase", label: "Roadmap Phase" },
+    { key: "roadmap_status", label: "Roadmap Status" },
+    { key: "retirement_reason", label: "Retirement Reason" },
+    { key: "retirement_status", label: "Retirement Status" },
+    { key: "migration_effort", label: "Migration Effort" },
+  ]},
+  { module: "AI / SBOM", items: [
+    { key: "ai_type", label: "AI Component Type" },
+  ]},
+  { module: "IT Asset Management", items: [
+    { key: "asset_type", label: "Asset Type" },
+    { key: "asset_status", label: "Asset Status" },
+    { key: "asset_license_type", label: "Asset License Type" },
+    { key: "asset_license_status", label: "Asset License Status" },
+  ]},
+  { module: "IT Service Management", items: [
+    { key: "incident_priority", label: "Incident Priority" },
+    { key: "incident_severity", label: "Incident Severity" },
+    { key: "incident_status", label: "Incident Status" },
+    { key: "incident_category", label: "Incident Category" },
+    { key: "problem_status", label: "Problem Status" },
+    { key: "change_type", label: "Change Type" },
+    { key: "change_risk", label: "Change Risk Level" },
+    { key: "change_status", label: "Change Status" },
+    { key: "change_approval", label: "Change Approval Status" },
+    { key: "kb_category", label: "KB Category" },
+    { key: "kb_status", label: "KB Status" },
+    { key: "sr_category", label: "Service Request Category" },
+    { key: "sr_status", label: "Service Request Status" },
+    { key: "sla_priority", label: "SLA Priority" },
+  ]},
 ];
+const CATEGORIES = MASTER_MODULES.flatMap(m => m.items);
 
 function MastersTab() {
   const { toast } = useToast();
@@ -723,24 +753,40 @@ function MastersTab() {
     }
   };
 
+  const [masterSearch, setMasterSearch] = useState("");
+  const filteredModules = masterSearch
+    ? MASTER_MODULES.map(mod => ({ ...mod, items: mod.items.filter(c => c.label.toLowerCase().includes(masterSearch.toLowerCase())) })).filter(mod => mod.items.length > 0)
+    : MASTER_MODULES;
+
   return (
     <div className="space-y-4">
       <div className="flex gap-4">
-        {/* Category list */}
-        <div className="w-52 shrink-0 space-y-1">
-          {CATEGORIES.map(c => (
-            <button
-              key={c.key}
-              onClick={() => setSelectedCategory(c.key)}
-              className={`w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
-                selectedCategory === c.key ? "bg-primary/20 text-primary font-medium" : "text-muted-foreground hover:bg-muted"
-              }`}
-            >
-              {c.label}
-              <span className="ml-1 text-xs opacity-60">
-                ({(allMasters || []).filter(m => m.category === c.key).length})
-              </span>
-            </button>
+        {/* Category list with module groups */}
+        <div className="w-56 shrink-0 space-y-1 max-h-[600px] overflow-y-auto">
+          <div className="sticky top-0 bg-background pb-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input placeholder="Search masters..." value={masterSearch} onChange={e => setMasterSearch(e.target.value)} className="h-8 pl-8 text-xs" />
+            </div>
+          </div>
+          {filteredModules.map(mod => (
+            <div key={mod.module} className="mb-2">
+              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">{mod.module}</div>
+              {mod.items.map(c => (
+                <button
+                  key={c.key}
+                  onClick={() => setSelectedCategory(c.key)}
+                  className={`w-full text-left px-3 py-1.5 rounded text-xs transition-colors ${
+                    selectedCategory === c.key ? "bg-primary/20 text-primary font-medium" : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {c.label}
+                  <span className="ml-1 text-[10px] opacity-60">
+                    ({(allMasters || []).filter(m => m.category === c.key).length})
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
         </div>
 
@@ -748,6 +794,9 @@ function MastersTab() {
         <div className="flex-1 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">
+              <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mr-1.5">
+                {MASTER_MODULES.find(m => m.items.some(i => i.key === selectedCategory))?.module} /
+              </span>
               {CATEGORIES.find(c => c.key === selectedCategory)?.label}
               <span className="text-muted-foreground font-normal ml-2">({filtered.length} items)</span>
             </h3>
