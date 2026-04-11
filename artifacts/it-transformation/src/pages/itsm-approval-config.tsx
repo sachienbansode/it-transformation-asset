@@ -26,6 +26,30 @@ interface MatrixRule {
 }
 
 const TICKET_TYPES = ["Incident", "Problem", "Change Request", "Service Request"];
+
+const CONDITIONS: { label: string; value: string }[] = [
+  { label: "All — always applies", value: "All" },
+  { label: "Priority: Critical only", value: "Priority:Critical" },
+  { label: "Priority: Critical or High", value: "Priority:Critical,High" },
+  { label: "Priority: High only", value: "Priority:High" },
+  { label: "Priority: Medium only", value: "Priority:Medium" },
+  { label: "Priority: Low only", value: "Priority:Low" },
+  { label: "Severity: S1 (Critical)", value: "Severity:S1" },
+  { label: "Severity: S2 (High)", value: "Severity:S2" },
+  { label: "Severity: S3 (Medium)", value: "Severity:S3" },
+  { label: "Severity: S4 (Low)", value: "Severity:S4" },
+  { label: "Type: Emergency change", value: "Type:Emergency" },
+  { label: "Type: Standard change", value: "Type:Standard" },
+  { label: "Type: Normal change", value: "Type:Normal" },
+  { label: "Risk: High", value: "Risk:High" },
+  { label: "Risk: Medium", value: "Risk:Medium" },
+  { label: "Risk: Low", value: "Risk:Low" },
+  { label: "Category: Security", value: "Category:Security" },
+  { label: "Category: Infrastructure", value: "Category:Infrastructure" },
+  { label: "Category: Application", value: "Category:Application" },
+  { label: "Category: Network", value: "Category:Network" },
+];
+
 const APPROVER_ROLES = [
   "Service Desk Manager", "IT Manager", "IT Director", "CTO", "CISO",
   "Department Head", "Change Manager", "Change Advisory Board (CAB)", "CTO / IT Director",
@@ -290,22 +314,29 @@ export default function ItsmApprovalConfig() {
 
             <div className="space-y-1.5">
               <Label>Condition</Label>
-              <Input
-                value={form.condition}
-                onChange={e => setForm(f => ({ ...f, condition: e.target.value }))}
-                placeholder="e.g. All, Priority:Critical,High, Type:Emergency"
-              />
-              <p className="text-[11px] text-muted-foreground">When this rule applies. Use "All" to always trigger, or specify e.g. "Priority:Critical,High".</p>
+              <Select value={form.condition} onValueChange={v => setForm(f => ({ ...f, condition: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select condition…" /></SelectTrigger>
+                <SelectContent>
+                  {CONDITIONS.map(c => (
+                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">When this rule is triggered. "All" means it applies to every ticket of this type.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Approver Level *</Label>
-                <Input
-                  value={form.approverLevel}
-                  onChange={e => setForm(f => ({ ...f, approverLevel: e.target.value }))}
-                  placeholder="e.g. L1, L2, L3"
-                />
+                <Select value={form.approverLevel} onValueChange={v => setForm(f => ({ ...f, approverLevel: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select level…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="L1">L1 — First Level</SelectItem>
+                    <SelectItem value="L2">L2 — Second Level</SelectItem>
+                    <SelectItem value="L3">L3 — Third Level</SelectItem>
+                    <SelectItem value="L4">L4 — Fourth Level</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Sequence *</Label>
