@@ -3,6 +3,8 @@ modules = ["nodejs-24", "postgresql-16"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+build = ["sh", "-c", "node api-server/dist/index.mjs"]
+run = ["sh", "-c", "Run command: node api-server/dist/index.mjs"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
@@ -24,23 +26,18 @@ externalPort = 8080
 
 [[ports]]
 localPort = 8081
-externalPort = 80
 
 [[ports]]
 localPort = 8082
-externalPort = 4200
 
 [[ports]]
 localPort = 22340
-externalPort = 3000
 
 [[ports]]
 localPort = 22341
-externalPort = 3003
 
 [[ports]]
 localPort = 24678
-externalPort = 3001
 
 [nix]
 channel = "stable-25_05"
