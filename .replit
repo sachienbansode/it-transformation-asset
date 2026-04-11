@@ -3,8 +3,8 @@ modules = ["nodejs-24", "postgresql-16"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
-build = ["sh", "-c", "node api-server/dist/index.mjs"]
-run = ["sh", "-c", "Run command: node api-server/dist/index.mjs"]
+build = ["sh", "-c", "pnpm --filter @workspace/it-transformation run build && pnpm --filter @workspace/api-server run build"]
+run = ["sh", "-c", "pnpm --filter @workspace/it-transformation run build && pnpm --filter @workspace/api-server run build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
