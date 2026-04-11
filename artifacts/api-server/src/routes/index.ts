@@ -21,6 +21,10 @@ import storageRouter from "./storage";
 import searchRouter from "./search";
 import notificationsRouter, { seedNotifications } from "./notifications";
 import checklistCommentsRouter from "./checklist-comments";
+import assetsRouter from "./assets";
+import itsmRouter from "./itsm";
+import { seedAssetAndItsmModules } from "./seed-modules";
+import docsExportRouter from "./docs-export";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -32,6 +36,7 @@ router.use(healthRouter);
 seedBusinessUnits().catch(console.error);
 seedKpiData().catch(console.error);
 seedNotifications().catch(console.error);
+seedAssetAndItsmModules().catch(console.error);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/masters" && req.method === "GET") return next();
@@ -46,6 +51,10 @@ router.use((req: Request, res: Response, next: NextFunction) => {
     const adminOnlyPrefixes = [
       "/admin/", "/masters", "/roles", "/settings",
       "/business-units", "/audit-logs",
+      "/assets", "/asset-vendors", "/asset-licenses", "/asset-allocations",
+      "/asset-transactions", "/maintenance-records", "/asset-categories",
+      "/incidents", "/problems", "/changes", "/sla-policies",
+      "/knowledge-base", "/service-requests",
     ];
     const isAdminOnly = adminOnlyPrefixes.some(p =>
       req.path === p || req.path.startsWith(p + "/") || req.path.startsWith(p)
@@ -76,5 +85,8 @@ router.use(storageRouter);
 router.use(searchRouter);
 router.use(notificationsRouter);
 router.use(checklistCommentsRouter);
+router.use(assetsRouter);
+router.use(itsmRouter);
+router.use(docsExportRouter);
 
 export default router;

@@ -33,7 +33,7 @@ A full-stack IT Transformation Planning Suite built for the CTO of Ashika Group 
 
 ---
 
-## 7 Data Modules (All Seeded)
+## 9 Data Modules (All Seeded)
 
 | Module | Page | Records |
 |--------|------|---------|
@@ -44,6 +44,8 @@ A full-stack IT Transformation Planning Suite built for the CTO of Ashika Group 
 | Application Inventory | `/applications` | 20 apps |
 | AI Bill of Materials | `/aibom` | 10 AI components |
 | Software Bill of Materials | `/sbom` | 15 packages, CVE tracking |
+| IT Asset Management | `/assets` | 15 assets, 5 vendors, 8 licenses, 8 categories |
+| IT Service Management (ITSM) | `/itsm` | 10 incidents, 5 problems, 5 changes, 4 SLA policies, 5 KB articles, 5 service requests |
 
 ---
 
@@ -304,3 +306,29 @@ CSV import routes (checklist, roadmap) also set `createdBy` to the importing adm
 ### New Frontend Components
 - `artifacts/it-transformation/src/components/search-modal.tsx`
 - `artifacts/it-transformation/src/components/notification-bell.tsx`
+
+## IT Asset Management Module (`/assets`)
+- **14 DB tables** across `lib/db/src/schema/assets.ts` and `lib/db/src/schema/itsm.ts`
+- **Asset tables:** asset_categories, asset_vendors, assets, asset_licenses, asset_allocations, asset_transactions, maintenance_records
+- **ITSM tables:** itsm_incidents, itsm_problems, itsm_changes, itsm_sla_policies, itsm_ticket_history, itsm_knowledge_base, itsm_service_requests
+- **API routes:** `artifacts/api-server/src/routes/assets.ts` (CRUD for all asset entities + /assets/stats)
+- **Frontend:** Tabbed dashboard (Dashboard, Asset Registry, Vendors, Licenses, Allocations) with Recharts
+- **Seed data:** 15 assets, 5 vendors, 8 licenses, 8 categories (Ashika Group context)
+- **Word export:** `GET /api/export/asset-management-doc` — NIYTRI-branded DOCX with full asset inventory
+
+## IT Service Management Module (`/itsm`)
+- **ITIL v4 aligned:** Incident, Problem, Change, Knowledge, Service Request management
+- **API routes:** `artifacts/api-server/src/routes/itsm.ts` (CRUD + stats endpoints)
+- **Frontend:** 7-tab interface (Dashboard, Incidents, Problems, Changes, KB, SLA Policies, Service Requests)
+- **Seed data:** 10 incidents, 5 problems, 5 changes, 4 SLA policies, 5 KB articles, 5 service requests
+- **Word export:** `GET /api/export/itsm-doc` — NIYTRI-branded DOCX with full ITSM documentation
+- **Roles added:** Asset Manager, Service Desk L1, L2/L3 Support, Change Manager, Problem Manager, Compliance Officer, Auditor, Business User, Vendor
+- **Ticket format:** INC-XXXXX, PRB-XXXXX, CHG-XXXXX, SR-XXXXX
+- **SLA policies:** Critical (1h/4h), High (2h/8h), Medium (4h/24h), Low (8h/72h)
+
+## Word Document Export (NIYTRI Branded)
+- Package: `docx` npm module
+- Route file: `artifacts/api-server/src/routes/docs-export.ts`
+- Branding: NIYTRI Technologies Pvt. Ltd. header/footer, confidential classification, gold/navy theme
+- Two endpoints: `/api/export/asset-management-doc`, `/api/export/itsm-doc`
+- Download buttons on both Asset Management and ITSM pages

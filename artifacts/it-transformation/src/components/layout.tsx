@@ -8,6 +8,7 @@ import {
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
+  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -44,6 +45,14 @@ const DRISHTI_ITEMS = [
 const KPI_ITEMS = [
   { href: "/kpi-dashboard", label: "KPI Dashboard", icon: BarChart3, module: "kpis" },
   { href: "/kpis", label: "KPI Management", icon: ClipboardList, module: "kpis" },
+];
+
+const ASSET_ITEMS = [
+  { href: "/assets", label: "Asset Management", icon: Monitor, module: "assets" },
+];
+
+const ITSM_ITEMS = [
+  { href: "/itsm", label: "Service Management", icon: AlertTriangle, module: "itsm" },
 ];
 
 const ADMIN_ITEMS = [
@@ -169,10 +178,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
     canAccess(item.module) && (!item.adminOnly || isAdmin)
   );
   const visibleKpiItems = KPI_ITEMS.filter(item => canAccess(item.module));
+  const visibleAssetItems = ASSET_ITEMS;
+  const visibleItsmItems = ITSM_ITEMS;
 
   const currentPage =
     DRISHTI_ITEMS.find(i => i.href === "/" ? location === "/" : location.startsWith(i.href))?.label
     ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
+    ?? ASSET_ITEMS.find(i => location.startsWith(i.href))?.label
+    ?? ITSM_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? (location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : "");
 
   const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
@@ -263,6 +276,48 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   Performance
                 </SectionLabel>
                 {(isCollapsed || sectionsOpen.kpi) && visibleKpiItems.map(item => (
+                  <NavItem
+                    key={item.href}
+                    href={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    active={location.startsWith(item.href)}
+                    collapsed={isCollapsed}
+                  />
+                ))}
+              </>
+            )}
+            {visibleAssetItems.length > 0 && (
+              <>
+                <SectionLabel
+                  collapsed={isCollapsed}
+                  open={sectionsOpen.assets ?? true}
+                  onToggle={() => toggleSection("assets")}
+                >
+                  IT Assets
+                </SectionLabel>
+                {(isCollapsed || sectionsOpen.assets) && visibleAssetItems.map(item => (
+                  <NavItem
+                    key={item.href}
+                    href={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    active={location.startsWith(item.href)}
+                    collapsed={isCollapsed}
+                  />
+                ))}
+              </>
+            )}
+            {visibleItsmItems.length > 0 && (
+              <>
+                <SectionLabel
+                  collapsed={isCollapsed}
+                  open={sectionsOpen.itsm ?? true}
+                  onToggle={() => toggleSection("itsm")}
+                >
+                  ITSM
+                </SectionLabel>
+                {(isCollapsed || sectionsOpen.itsm) && visibleItsmItems.map(item => (
                   <NavItem
                     key={item.href}
                     href={item.href}

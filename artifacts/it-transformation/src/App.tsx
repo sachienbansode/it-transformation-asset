@@ -21,6 +21,8 @@ import Admin from "@/pages/admin";
 import Profile from "@/pages/profile";
 import Reports from "@/pages/reports";
 import Kpis from "@/pages/kpis";
+import AssetManagement from "@/pages/asset-management";
+import ITSM from "@/pages/itsm";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const queryClient = new QueryClient({
@@ -94,6 +96,8 @@ function Router() {
               <Route path="/sbom" component={Sbom} />
               <Route path="/reports" component={Reports} />
               <Route path="/kpis" component={Kpis} />
+              <Route path="/assets" component={AssetManagement} />
+              <Route path="/itsm" component={ITSM} />
               <Route path="/profile" component={Profile} />
               <Route path="/admin">
                 {user.role === "admin" ? <Admin /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}

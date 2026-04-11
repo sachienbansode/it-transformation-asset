@@ -13,3 +13,5 @@ export * from "./kpis";
 export * from "./roles";
 export * from "./notifications";
 export * from "./checklist-comments";
+export * from "./assets";
+export * from "./itsm";
