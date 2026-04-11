@@ -18,6 +18,9 @@ import kpisRouter, { seedKpiData } from "./kpis";
 import kpiPersonsRouter from "./kpi-persons";
 import rolesRouter from "./roles";
 import storageRouter from "./storage";
+import searchRouter from "./search";
+import notificationsRouter, { seedNotifications } from "./notifications";
+import checklistCommentsRouter from "./checklist-comments";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router: IRouter = Router();
@@ -28,6 +31,7 @@ router.use(healthRouter);
 // Seed on startup (idempotent)
 seedBusinessUnits().catch(console.error);
 seedKpiData().catch(console.error);
+seedNotifications().catch(console.error);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/masters" && req.method === "GET") return next();
@@ -69,5 +73,8 @@ router.use(kpisRouter);
 router.use(kpiPersonsRouter);
 router.use(rolesRouter);
 router.use(storageRouter);
+router.use(searchRouter);
+router.use(notificationsRouter);
+router.use(checklistCommentsRouter);
 
 export default router;

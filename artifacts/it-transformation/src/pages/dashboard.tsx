@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { useGetDashboardSummary } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import {
 import {
   Server, Archive, CheckSquare, IndianRupee, ShieldAlert, BrainCircuit,
   Filter, X, LayoutDashboard, Map, Shield, ChevronLeft, ChevronRight,
-  TrendingUp, AlertTriangle, CheckCircle2, Clock,
+  TrendingUp, AlertTriangle, CheckCircle2, Clock, FileDown, Settings2, Check,
 } from "lucide-react";
 import { useCurrency } from "@/contexts/currency-context";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 import { apiFetch } from "@/lib/api";
 import { StatCard } from "@/components/stat-card";
 
@@ -139,7 +142,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ─── Tab: Overview ───────────────────────────────────────────────────────────
-function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; format: any; unit: string }) {
+function OverviewTab({ s, filterBU, format, unit, widgets }: { s: any; filterBU: string; format: any; unit: string; widgets?: WidgetConfig }) {
+  const w = widgets ?? DEFAULT_WIDGETS;
   const filtChecklist = useMemo(() => {
     const all: any[] = s.checklistByBusiness ?? [];
     if (filterBU === "all") return all;
@@ -154,7 +158,7 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
   return (
     <div className="space-y-4">
       {/* KPI Row */}
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+      {w.kpiCards && <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
         <KpiCard title="Applications" value={s.totalApplications} sub="in inventory"
           icon={Server} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600 dark:text-blue-400" border="border-blue-400" />
         <KpiCard title="Total Budget" value={format(s.roadmapBudgetLakhs, 0)}
@@ -170,7 +174,7 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
         <KpiCard title="Critical CVEs" value={s.sbomCriticalCves}
           sub={`${s.sbomHighCves} high · ${s.sbomTotal} entries`}
           icon={ShieldAlert} iconBg="bg-red-50 dark:bg-red-400/10" iconColor="text-red-600 dark:text-red-400" border="border-red-500" />
-      </div>
+      </div>}
 
       {/* 3-column chart row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -312,7 +316,7 @@ function OverviewTab({ s, filterBU, format, unit }: { s: any; filterBU: string; 
 }
 
 // ─── Tab: Applications ───────────────────────────────────────────────────────
-function ApplicationsTab({ filterBU, format }: { filterBU: string; format: any }) {
+function ApplicationsTab({ filterBU, format, widgets }: { filterBU: string; format: any; widgets?: WidgetConfig }) {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 8;
 
@@ -447,7 +451,7 @@ function ApplicationsTab({ filterBU, format }: { filterBU: string; format: any }
 }
 
 // ─── Tab: Roadmap ────────────────────────────────────────────────────────────
-function RoadmapTab({ s, filterBU, format, unit }: { s: any; filterBU: string; format: any; unit: string }) {
+function RoadmapTab({ s, filterBU, format, unit, widgets }: { s: any; filterBU: string; format: any; unit: string; widgets?: WidgetConfig }) {
   const [filterPhase, setFilterPhase] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [page, setPage] = useState(1);
@@ -624,7 +628,7 @@ function ChecklistTab({ s, filterBU }: { s: any; filterBU: string }) {
 }
 
 // ─── Tab: Security ───────────────────────────────────────────────────────────
-function SecurityTab({ s, format }: { s: any; format: any }) {
+function SecurityTab({ s, format, widgets }: { s: any; format: any; widgets?: WidgetConfig }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -693,6 +697,42 @@ function SecurityTab({ s, format }: { s: any; format: any }) {
   );
 }
 
+// ─── Widget Configuration ─────────────────────────────────────────────────────
+const WIDGET_KEY = "ashika-dashboard-widgets";
+const DEFAULT_WIDGETS = {
+  kpiCards: true,
+  checklistProgress: true,
+  roadmapPhase: true,
+  roadmapStatus: true,
+  appLifecycle: true,
+  sbomRisk: true,
+  aibomCategory: true,
+  riskSummary: true,
+  roadmapDrilldown: true,
+  appDrilldown: true,
+};
+type WidgetConfig = typeof DEFAULT_WIDGETS;
+
+function loadWidgets(): WidgetConfig {
+  try {
+    const saved = localStorage.getItem(WIDGET_KEY);
+    return saved ? { ...DEFAULT_WIDGETS, ...JSON.parse(saved) } : DEFAULT_WIDGETS;
+  } catch { return DEFAULT_WIDGETS; }
+}
+
+const WIDGET_LABELS: Record<keyof WidgetConfig, string> = {
+  kpiCards: "KPI Summary Cards",
+  checklistProgress: "Checklist Progress (Overview)",
+  roadmapPhase: "Roadmap by Phase",
+  roadmapStatus: "Roadmap Status Chart",
+  appLifecycle: "App Lifecycle Chart",
+  sbomRisk: "SBOM Risk Chart",
+  aibomCategory: "AI Components Chart",
+  riskSummary: "Risk Summary Cards",
+  roadmapDrilldown: "Roadmap Drill-down Table",
+  appDrilldown: "Applications Drill-down Table",
+};
+
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { data: summary, isLoading } = useGetDashboardSummary();
@@ -700,6 +740,22 @@ export default function Dashboard() {
 
   const [filterBU, setFilterBU] = useState("all");
   const [activeTab, setActiveTab] = useState<DashTab>("overview");
+  const [widgets, setWidgets] = useState<WidgetConfig>(loadWidgets);
+
+  const toggleWidget = useCallback((key: keyof WidgetConfig) => {
+    setWidgets(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(WIDGET_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleExportPDF = useCallback(() => {
+    const title = document.title;
+    document.title = `Ashika Drishti Transform - Executive Dashboard`;
+    window.print();
+    document.title = title;
+  }, []);
 
   const s = summary as any;
 
@@ -727,7 +783,37 @@ export default function Dashboard() {
             <h1 className="text-lg font-bold text-foreground tracking-tight">Executive Dashboard</h1>
             <p className="text-[10px] text-muted-foreground">Ashika Group IT Transformation · Live Programme Overview</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Widget Customization */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1">
+                  <Settings2 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:block">Widgets</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="text-xs text-muted-foreground pb-1">Toggle Dashboard Widgets</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {(Object.keys(DEFAULT_WIDGETS) as (keyof WidgetConfig)[]).map(key => (
+                  <DropdownMenuItem key={key} onClick={() => toggleWidget(key)} className="flex items-center gap-2 text-xs py-1.5 cursor-pointer">
+                    <div className={cn("h-3.5 w-3.5 border rounded flex items-center justify-center flex-shrink-0 transition-colors",
+                      widgets[key] ? "bg-primary border-primary" : "border-muted-foreground/30"
+                    )}>
+                      {widgets[key] && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+                    </div>
+                    {WIDGET_LABELS[key]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* PDF Export */}
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1" onClick={handleExportPDF} title="Print / Export to PDF">
+              <FileDown className="h-3.5 w-3.5" />
+              <span className="hidden sm:block">Export PDF</span>
+            </Button>
+
             <Filter className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-xs font-medium text-muted-foreground">Business Unit:</span>
             <Select value={filterBU} onValueChange={setFilterBU}>
@@ -777,11 +863,11 @@ export default function Dashboard() {
 
       {/* ── Tab Content ────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {activeTab === "overview" && <OverviewTab s={s} filterBU={filterBU} format={format} unit={unit} />}
-        {activeTab === "applications" && <ApplicationsTab filterBU={filterBU} format={format} />}
-        {activeTab === "roadmap" && <RoadmapTab s={s} filterBU={filterBU} format={format} unit={unit} />}
+        {activeTab === "overview" && <OverviewTab s={s} filterBU={filterBU} format={format} unit={unit} widgets={widgets} />}
+        {activeTab === "applications" && <ApplicationsTab filterBU={filterBU} format={format} widgets={widgets} />}
+        {activeTab === "roadmap" && <RoadmapTab s={s} filterBU={filterBU} format={format} unit={unit} widgets={widgets} />}
         {activeTab === "checklist" && <ChecklistTab s={s} filterBU={filterBU} />}
-        {activeTab === "security" && <SecurityTab s={s} format={format} />}
+        {activeTab === "security" && <SecurityTab s={s} format={format} widgets={widgets} />}
       </div>
     </div>
   );

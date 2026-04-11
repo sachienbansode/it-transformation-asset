@@ -7,7 +7,7 @@ import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
-  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3,
+  PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { cn, getRoleLabel } from "@/lib/utils";
+import { SearchModal } from "@/components/search-modal";
+import { NotificationBell } from "@/components/notification-bell";
 
 interface AppConfig {
   appName: string;
@@ -121,6 +123,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     } catch { return { drishti: true, kpi: true, admin: true }; }
   });
   const [appConfig, setAppConfig] = useState<AppConfig>({ appName: "Ashika Drishti Transform", appTagline: "", logoUrl: "" });
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     apiFetch<AppConfig>("/config").then(cfg => {
@@ -130,6 +133,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
         if (link) link.href = cfg.logoUrl;
       }
     }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
   const setSidebarState = useCallback((s: SidebarState) => {
@@ -366,12 +380,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Global Search */}
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="hidden sm:flex items-center gap-2 text-xs bg-muted hover:bg-muted/80 border border-border rounded-md px-2.5 py-1.5 transition-colors text-muted-foreground hover:text-foreground"
+              title="Search (Ctrl+K)"
+            >
+              <Search className="h-3.5 w-3.5" />
+              <span className="hidden md:block">Search…</span>
+              <kbd className="hidden md:block text-[9px] bg-background border border-border rounded px-1">⌘K</kbd>
+            </button>
+
             <button
               onClick={cycle}
               className="flex items-center gap-1 text-xs bg-muted hover:bg-muted/80 border border-border rounded-md px-2.5 py-1.5 transition-colors font-semibold select-none text-foreground"
             >
               {unitLabels[unit]}
             </button>
+
+            <NotificationBell />
 
             <button
               onClick={toggleTheme}
@@ -413,6 +440,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </main>
+
+      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }

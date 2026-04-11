@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useListChecklistItems, useCreateChecklistItem, useUpdateChecklistItem, useDeleteChecklistItem, useGetChecklistStats, getListChecklistItemsQueryKey, getGetChecklistStatsQueryKey } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Plus, Trash2, Edit, X, ChevronLeft, ChevronRight, Check, CheckSquare, AlertTriangle, XCircle, TrendingUp } from "lucide-react";
+import { Search, Plus, Trash2, Edit, X, ChevronLeft, ChevronRight, Check, CheckSquare, AlertTriangle, XCircle, TrendingUp, MessageSquare, History, Send, Clock, User } from "lucide-react";
 import type { ChecklistItem } from "@workspace/api-client-react";
 import { MasterSelect } from "@/components/master-select";
 import { useMasters, getBadgeClass } from "@/hooks/use-masters";
@@ -20,6 +21,7 @@ import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ImportExportMenu } from "@/components/import-export-menu";
 import { StatCard } from "@/components/stat-card";
+import { formatDistanceToNow } from "date-fns";
 
 const PAGE_SIZE = 10;
 
@@ -117,6 +119,65 @@ function BUMultiSelect({ options, selected, onChange }: { options: BusinessUnit[
   );
 }
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+interface ChecklistComment { id: number; checklistItemId: number; authorName: string; content: string; createdAt: string; }
+interface AuditLog { id: number; entityType: string; entityId: number; action: string; performedBy: string; performedAt: string; summary: string; oldValues?: any; newValues?: any; }
+interface DashSummary { checklistByBusiness: { key: string; count: number; completed: number; pct: number }[] }
+
+// ─── BU Completion Bars ───────────────────────────────────────────────────────
+function BUCompletionBars({ items }: { items: ChecklistItem[] }) {
+  const buMap: Record<string, { total: number; completed: number }> = {};
+  const GENERIC = new Set(["All", "Both", "all", "both"]);
+
+  for (const item of items) {
+    const parts = (item.business || "").split(",").map(b => b.trim()).filter(b => b && !GENERIC.has(b));
+    for (const b of parts) {
+      if (!buMap[b]) buMap[b] = { total: 0, completed: 0 };
+      buMap[b].total++;
+      if (item.status === "Available") buMap[b].completed++;
+    }
+  }
+
+  const rows = Object.entries(buMap)
+    .map(([key, v]) => ({ key, ...v, pct: v.total ? Math.round((v.completed / v.total) * 100) : 0 }))
+    .sort((a, b) => b.pct - a.pct);
+
+  if (rows.length === 0) return null;
+
+  const getColor = (pct: number) => pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingUp className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">BU-wise Completion</h3>
+          <span className="text-xs text-muted-foreground">(% features Available)</span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+          {rows.map(row => (
+            <div key={row.key} className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-foreground truncate">{row.key}</span>
+                <span className={cn("text-xs font-bold", row.pct >= 70 ? "text-emerald-600" : row.pct >= 40 ? "text-amber-600" : "text-red-600")}>
+                  {row.pct}%
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full transition-all duration-500", getColor(row.pct))}
+                  style={{ width: `${row.pct}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground">{row.completed}/{row.total}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Checklist() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -138,6 +199,50 @@ export default function Checklist() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ChecklistItem | null>(null);
   const [formData, setFormData] = useState<Partial<ChecklistItem> & { businessMulti?: string[] }>({});
+  const [modalTab, setModalTab] = useState("details");
+
+  // Comments state
+  const [comments, setComments] = useState<ChecklistComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const [commentSaving, setCommentSaving] = useState(false);
+  const commentEndRef = useRef<HTMLDivElement>(null);
+
+  // History state
+  const [historyLogs, setHistoryLogs] = useState<AuditLog[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const fetchComments = async (id: number) => {
+    setCommentsLoading(true);
+    try {
+      const data = await apiFetch<ChecklistComment[]>(`/checklist/${id}/comments`);
+      setComments(data);
+    } catch { setComments([]); }
+    finally { setCommentsLoading(false); }
+  };
+
+  const fetchHistory = async (id: number) => {
+    setHistoryLoading(true);
+    try {
+      const data = await apiFetch<{ logs: AuditLog[] }>(`/audit-logs?entityType=checklist_item&entityId=${id}&limit=30`);
+      setHistoryLogs(data.logs ?? []);
+    } catch { setHistoryLogs([]); }
+    finally { setHistoryLoading(false); }
+  };
+
+  const handleAddComment = async () => {
+    if (!editingItem || !newComment.trim()) return;
+    setCommentSaving(true);
+    try {
+      await apiFetch(`/checklist/${editingItem.id}/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: newComment.trim() }) });
+      setNewComment("");
+      await fetchComments(editingItem.id);
+      setTimeout(() => commentEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      toast({ title: "Comment added" });
+    } catch (e: any) {
+      toast({ title: "Failed to add comment", description: e.message, variant: "destructive" });
+    } finally { setCommentSaving(false); }
+  };
 
   const toggleBU = (code: string) => {
     setFilterBUs(prev => prev.includes(code) ? prev.filter(b => b !== code) : [...prev, code]);
@@ -161,9 +266,15 @@ export default function Checklist() {
 
   const handleOpenModal = (item: ChecklistItem | null = null) => {
     setEditingItem(item);
+    setModalTab("details");
+    setComments([]);
+    setHistoryLogs([]);
+    setNewComment("");
     if (item) {
       const buList = (item.business || "").split(",").map(b => b.trim()).filter(Boolean);
       setFormData({ ...item, businessMulti: buList });
+      fetchComments(item.id);
+      fetchHistory(item.id);
     } else {
       setFormData({ category: "", feature: "", business: "", status: "", priority: "", businessMulti: [] });
     }
@@ -273,6 +384,9 @@ export default function Checklist() {
         <StatCard label="High Priority" value={highPriorityCount} sub="critical items" icon={XCircle} iconBg="bg-orange-50 dark:bg-orange-400/10" iconColor="text-orange-500" borderColor="border-l-orange-400" valueColor={highPriorityCount > 0 ? "text-orange-500" : undefined} />
       </div>
 
+      {/* BU Completion Bars */}
+      {items && items.length > 0 && <BUCompletionBars items={items} />}
+
       {/* Filter bar */}
       <Card>
         <CardContent className="p-3 space-y-2.5">
@@ -360,54 +474,189 @@ export default function Checklist() {
 
       {/* Add/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[540px]">
-          <DialogHeader>
-            <DialogTitle>{editingItem ? "Edit Checklist Item" : "Add Checklist Item"}</DialogTitle>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 pt-5 pb-3 border-b border-border shrink-0">
+            <DialogTitle className="text-base">{editingItem ? `Edit: ${editingItem.feature?.substring(0, 40)}${(editingItem.feature?.length ?? 0) > 40 ? "…" : ""}` : "Add Checklist Item"}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-3">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-1.5">
-                <Label>Category</Label>
-                <MasterSelect category="checklist_category" value={formData.category || ""} onChange={v => setFormData({...formData, category: v})} placeholder="Select category" />
+
+          {editingItem ? (
+            <Tabs value={modalTab} onValueChange={setModalTab} className="flex-1 flex flex-col overflow-hidden">
+              <TabsList className="rounded-none border-b border-border bg-transparent mx-6 h-9 justify-start gap-1 shrink-0">
+                <TabsTrigger value="details" className="text-xs px-3 h-7">Details</TabsTrigger>
+                <TabsTrigger value="comments" className="text-xs px-3 h-7 flex items-center gap-1">
+                  <MessageSquare className="h-3 w-3" />
+                  Comments {comments.length > 0 && <span className="bg-primary text-primary-foreground text-[9px] rounded-full px-1">{comments.length}</span>}
+                </TabsTrigger>
+                <TabsTrigger value="history" className="text-xs px-3 h-7 flex items-center gap-1">
+                  <History className="h-3 w-3" />
+                  History {historyLogs.length > 0 && <span className="bg-muted text-muted-foreground text-[9px] rounded-full px-1">{historyLogs.length}</span>}
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Details Tab */}
+              <TabsContent value="details" className="flex-1 overflow-y-auto m-0">
+                <div className="grid gap-4 px-6 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-1.5">
+                      <Label>Category</Label>
+                      <MasterSelect category="checklist_category" value={formData.category || ""} onChange={v => setFormData({...formData, category: v})} placeholder="Select category" />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label>Status</Label>
+                      <MasterSelect category="checklist_status" value={formData.status || ""} onChange={v => setFormData({...formData, status: v})} placeholder="Select status" />
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Feature / Requirement</Label>
+                    <Input value={formData.feature || ""} onChange={e => setFormData({...formData, feature: e.target.value})} placeholder="Describe the feature or requirement" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Business Units <span className="text-muted-foreground font-normal">(select all that apply)</span></Label>
+                    <BUMultiSelect options={businessUnits ?? []} selected={formData.businessMulti ?? []} onChange={v => setFormData({...formData, businessMulti: v})} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-1.5">
+                      <Label>Current App / System</Label>
+                      <Input value={formData.currentApp || ""} onChange={e => setFormData({...formData, currentApp: e.target.value})} placeholder="Existing system" />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label>Priority</Label>
+                      <MasterSelect category="priority" value={formData.priority || ""} onChange={v => setFormData({...formData, priority: v})} placeholder="Select priority" />
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Notes</Label>
+                    <Textarea value={formData.comments || ""} onChange={e => setFormData({...formData, comments: e.target.value})} placeholder="Additional notes..." rows={2} />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 px-6 pb-5 pt-2">
+                  <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+                  <Button onClick={handleSave} disabled={updateItem.isPending}>Update</Button>
+                </div>
+              </TabsContent>
+
+              {/* Comments Tab */}
+              <TabsContent value="comments" className="flex-1 flex flex-col overflow-hidden m-0">
+                <div className="flex-1 overflow-y-auto px-6 py-3 space-y-3">
+                  {commentsLoading && <p className="text-xs text-muted-foreground text-center py-4">Loading comments…</p>}
+                  {!commentsLoading && comments.length === 0 && (
+                    <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
+                      <MessageSquare className="h-8 w-8 opacity-20" />
+                      <p className="text-xs">No comments yet. Be the first to add one.</p>
+                    </div>
+                  )}
+                  {comments.map(c => (
+                    <div key={c.id} className="flex gap-2.5">
+                      <div className="h-7 w-7 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center flex-shrink-0">
+                        <span className="text-[10px] text-primary font-bold">{c.authorName?.[0]?.toUpperCase()}</span>
+                      </div>
+                      <div className="flex-1 bg-muted/40 rounded-lg px-3 py-2 border border-border/50">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-semibold text-foreground">{c.authorName}</span>
+                          <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(c.createdAt), { addSuffix: true })}</span>
+                        </div>
+                        <p className="text-xs text-foreground leading-relaxed">{c.content}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={commentEndRef} />
+                </div>
+                <div className="px-6 py-3 border-t border-border shrink-0">
+                  <div className="flex gap-2">
+                    <Textarea
+                      value={newComment}
+                      onChange={e => setNewComment(e.target.value)}
+                      placeholder="Add a comment…"
+                      rows={2}
+                      className="text-sm resize-none flex-1"
+                      onKeyDown={e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleAddComment(); }}
+                    />
+                    <Button onClick={handleAddComment} disabled={commentSaving || !newComment.trim()} size="icon" className="self-end h-9 w-9">
+                      <Send className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">Ctrl+Enter to submit</p>
+                </div>
+              </TabsContent>
+
+              {/* History Tab */}
+              <TabsContent value="history" className="flex-1 overflow-y-auto m-0">
+                <div className="px-6 py-3 space-y-2.5">
+                  {historyLoading && <p className="text-xs text-muted-foreground text-center py-4">Loading history…</p>}
+                  {!historyLoading && historyLogs.length === 0 && (
+                    <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
+                      <History className="h-8 w-8 opacity-20" />
+                      <p className="text-xs">No change history found for this item.</p>
+                    </div>
+                  )}
+                  {historyLogs.map(log => (
+                    <div key={log.id} className="flex gap-3 p-3 bg-muted/30 rounded-lg border border-border/40">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/30 text-primary">{log.action}</Badge>
+                          <span className="text-[10px] text-muted-foreground">
+                            {log.performedAt ? formatDistanceToNow(new Date(log.performedAt), { addSuffix: true }) : ""}
+                          </span>
+                        </div>
+                        <p className="text-xs text-foreground mt-1 leading-snug">{log.summary}</p>
+                        {log.performedBy && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <User className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-[10px] text-muted-foreground">{log.performedBy}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          ) : (
+            /* Create Mode (no tabs) */
+            <>
+              <div className="grid gap-4 px-6 py-4 overflow-y-auto flex-1">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-1.5">
+                    <Label>Category</Label>
+                    <MasterSelect category="checklist_category" value={formData.category || ""} onChange={v => setFormData({...formData, category: v})} placeholder="Select category" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Status</Label>
+                    <MasterSelect category="checklist_status" value={formData.status || ""} onChange={v => setFormData({...formData, status: v})} placeholder="Select status" />
+                  </div>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Feature / Requirement</Label>
+                  <Input value={formData.feature || ""} onChange={e => setFormData({...formData, feature: e.target.value})} placeholder="Describe the feature or requirement" />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Business Units <span className="text-muted-foreground font-normal">(select all that apply)</span></Label>
+                  <BUMultiSelect options={businessUnits ?? []} selected={formData.businessMulti ?? []} onChange={v => setFormData({...formData, businessMulti: v})} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-1.5">
+                    <Label>Current App / System</Label>
+                    <Input value={formData.currentApp || ""} onChange={e => setFormData({...formData, currentApp: e.target.value})} placeholder="Existing system" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Priority</Label>
+                    <MasterSelect category="priority" value={formData.priority || ""} onChange={v => setFormData({...formData, priority: v})} placeholder="Select priority" />
+                  </div>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Notes</Label>
+                  <Textarea value={formData.comments || ""} onChange={e => setFormData({...formData, comments: e.target.value})} placeholder="Additional notes..." rows={2} />
+                </div>
               </div>
-              <div className="grid gap-1.5">
-                <Label>Status</Label>
-                <MasterSelect category="checklist_status" value={formData.status || ""} onChange={v => setFormData({...formData, status: v})} placeholder="Select status" />
+              <div className="flex justify-end gap-2 px-6 pb-5 pt-2 shrink-0 border-t border-border">
+                <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+                <Button onClick={handleSave} disabled={createItem.isPending}>Create</Button>
               </div>
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Feature / Requirement</Label>
-              <Input value={formData.feature || ""} onChange={e => setFormData({...formData, feature: e.target.value})} placeholder="Describe the feature or requirement" />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Business Units <span className="text-muted-foreground font-normal">(select all that apply)</span></Label>
-              <BUMultiSelect
-                options={businessUnits ?? []}
-                selected={formData.businessMulti ?? []}
-                onChange={v => setFormData({...formData, businessMulti: v})}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-1.5">
-                <Label>Current App / System</Label>
-                <Input value={formData.currentApp || ""} onChange={e => setFormData({...formData, currentApp: e.target.value})} placeholder="Existing system" />
-              </div>
-              <div className="grid gap-1.5">
-                <Label>Priority</Label>
-                <MasterSelect category="priority" value={formData.priority || ""} onChange={v => setFormData({...formData, priority: v})} placeholder="Select priority" />
-              </div>
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Comments</Label>
-              <Textarea value={formData.comments || ""} onChange={e => setFormData({...formData, comments: e.target.value})} placeholder="Additional notes..." rows={2} />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={createItem.isPending || updateItem.isPending}>
-              {editingItem ? "Update" : "Create"}
-            </Button>
-          </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -202,3 +202,43 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/* ─── Print / PDF Export ─────────────────────────────────────────────────────── */
+@media print {
+  aside,
+  header,
+  [data-no-print],
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11px;
+  }
+
+  main {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .flex-1.min-h-0.overflow-auto {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .recharts-wrapper {
+    break-inside: avoid;
+  }
+
+  .grid {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 15mm;
+    size: A4 landscape;
+  }
+}

@@ -250,3 +250,57 @@ CSV import routes (checklist, roadmap) also set `createdBy` to the importing adm
 - Zod version is v3 — use `z.string().email()` not `z.email()` (v4 syntax)
 - MS SSO is backend-only redirect flow (no MSAL frontend library needed)
 - DB schema push uses `echo "No" | pnpm --filter @workspace/db run push` to auto-answer unique constraint prompt (or add columns directly via SQL ALTER TABLE)
+
+## Session Improvements (April 2026)
+
+### 7 New Features Added
+
+1. **Global Search (Cmd+K)**
+   - `SearchModal` component in header, triggered by Cmd+K keyboard shortcut
+   - Backend: `GET /api/search?q=...` (full-text search across checklist, roadmap, apps, AIBOM, SBOM)
+   - Debounced 280ms, results grouped by module, click navigates to the module page
+   - Empty state shows quick-nav links to all modules
+
+2. **BU-wise Completion % Bars** (Checklist page)
+   - `BUCompletionBars` component below KPI stat cards
+   - Computed live from checklist data, color-coded: green ≥70%, amber ≥40%, red <40%
+   - Shows completed/total count under each bar
+
+3. **Checklist Item Comments & Discussion**
+   - New DB table: `checklist_comments` (id, checklistItemId, authorName, content, createdAt)
+   - API: `GET/POST /api/checklist/:id/comments`, `DELETE /api/checklist/comments/:id`
+   - Edit modal now tabbed: **Details | Comments | History**
+   - Author name resolved from session → DB user lookup
+
+4. **Change History per Checklist Item**
+   - History tab in the edit modal, fetches from audit_logs filtered by `entityType=checklist_item&entityId=X`
+   - Shows action badge, summary, performer, relative time
+
+5. **In-app Notifications**
+   - New DB table: `notifications` (id, userId, title, message, type, read, link, createdAt)
+   - `NotificationBell` component in header with unread count badge, auto-refreshes every 30s
+   - API: `GET /api/notifications`, `PATCH /api/notifications/:id/read`, `POST /api/notifications/read-all`, `DELETE /api/notifications/:id`
+   - On server startup: auto-seeds overdue + due-within-30-days roadmap notifications
+
+6. **Export to PDF**
+   - "Export PDF" button on Executive Dashboard header
+   - Calls `window.print()` with print CSS (hides sidebar, header, buttons; A4 landscape layout)
+   - Print CSS in `index.css` `@media print` block
+
+7. **Dashboard Widget Customization**
+   - "Widgets" button on dashboard header opens dropdown with 10 toggleable widgets
+   - Each tab (Overview, Roadmap, Security, Applications) accepts optional `widgets` prop
+   - Preferences saved in `localStorage` key `ashika-dashboard-widgets`
+
+### New DB Tables (created via raw SQL)
+- `notifications` - in-app notification store
+- `checklist_comments` - discussion threads on checklist items
+
+### New API Routes
+- `artifacts/api-server/src/routes/search.ts` — global search
+- `artifacts/api-server/src/routes/notifications.ts` — notification CRUD + startup seeding
+- `artifacts/api-server/src/routes/checklist-comments.ts` — comment CRUD
+
+### New Frontend Components
+- `artifacts/it-transformation/src/components/search-modal.tsx`
+- `artifacts/it-transformation/src/components/notification-bell.tsx`
