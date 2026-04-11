@@ -12,6 +12,10 @@ import { logger } from "./lib/logger";
 export function createProdApp(): Express {
   const app: Express = express();
 
+  // Tell Express to trust Replit's HTTPS proxy so req.secure is true,
+  // which allows secure:true session cookies to be sent correctly
+  app.set("trust proxy", 1);
+
   app.use(
     pinoHttp({
       logger,
