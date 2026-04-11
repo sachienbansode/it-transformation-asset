@@ -43,26 +43,26 @@ const DRISHTI_ITEMS = [
 ];
 
 const KPI_ITEMS = [
-  { href: "/kpi-dashboard", label: "KPI Dashboard", icon: BarChart3, module: "kpis" },
+  { href: "/kpi-dashboard", label: "KPI Dashboard", icon: BarChart3, module: "kpi_dashboard" },
   { href: "/kpis", label: "KPI Management", icon: ClipboardList, module: "kpis" },
 ];
 
 const ASSET_ITEMS = [
   { href: "/assets", label: "Asset Dashboard", icon: Monitor, module: "assets" },
-  { href: "/asset-registry", label: "Asset Registry", icon: HardDrive, module: "assets" },
-  { href: "/asset-vendors", label: "Vendors", icon: Building2, module: "assets" },
-  { href: "/asset-licenses", label: "Licenses", icon: Shield, module: "assets" },
-  { href: "/asset-allocations", label: "Allocations", icon: Users, module: "assets" },
+  { href: "/asset-registry", label: "Asset Registry", icon: HardDrive, module: "asset_registry" },
+  { href: "/asset-vendors", label: "Vendors", icon: Building2, module: "asset_vendors" },
+  { href: "/asset-licenses", label: "Licenses", icon: Shield, module: "asset_licenses" },
+  { href: "/asset-allocations", label: "Allocations", icon: Users, module: "asset_allocations" },
 ];
 
 const ITSM_ITEMS = [
-  { href: "/itsm", label: "ITSM Dashboard", icon: BarChart3, module: "itsm" },
-  { href: "/itsm-incidents", label: "Incidents", icon: AlertTriangle, module: "itsm" },
-  { href: "/itsm-problems", label: "Problems", icon: Database, module: "itsm" },
-  { href: "/itsm-changes", label: "Changes", icon: GitBranch, module: "itsm" },
-  { href: "/itsm-kb", label: "Knowledge Base", icon: BookOpen, module: "itsm" },
-  { href: "/itsm-sla", label: "SLA Policies", icon: Shield, module: "itsm" },
-  { href: "/itsm-requests", label: "Service Requests", icon: Clock, module: "itsm" },
+  { href: "/itsm", label: "ITSM Dashboard", icon: BarChart3, module: "itsm_dashboard" },
+  { href: "/itsm-incidents", label: "Incidents", icon: AlertTriangle, module: "itsm_incidents" },
+  { href: "/itsm-problems", label: "Problems", icon: Database, module: "itsm_problems" },
+  { href: "/itsm-changes", label: "Changes", icon: GitBranch, module: "itsm_changes" },
+  { href: "/itsm-kb", label: "Knowledge Base", icon: BookOpen, module: "itsm_kb" },
+  { href: "/itsm-sla", label: "SLA Policies", icon: Shield, module: "itsm_sla" },
+  { href: "/itsm-requests", label: "Service Requests", icon: Clock, module: "itsm_requests" },
 ];
 
 const ADMIN_ITEMS = [
@@ -188,8 +188,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     canAccess(item.module) && (!item.adminOnly || isAdmin)
   );
   const visibleKpiItems = KPI_ITEMS.filter(item => canAccess(item.module));
-  const visibleAssetItems = ASSET_ITEMS;
-  const visibleItsmItems = ITSM_ITEMS;
+  const visibleAssetItems = ASSET_ITEMS.filter(item => canAccess(item.module));
+  const visibleItsmItems = ITSM_ITEMS.filter(item => canAccess(item.module));
 
   const currentPage =
     DRISHTI_ITEMS.find(i => i.href === "/" ? location === "/" : location.startsWith(i.href))?.label

@@ -6,19 +6,36 @@ import { z } from "zod";
 const router = Router();
 
 export const MODULES = [
-  { key: "dashboard", label: "Executive Dashboard" },
-  { key: "checklist", label: "IT Master Checklist" },
-  { key: "roadmap", label: "Transformation Roadmap" },
-  { key: "retirements", label: "App Retirement Plan" },
-  { key: "applications", label: "Application Inventory" },
-  { key: "aibom", label: "AI Bill of Materials" },
-  { key: "sbom", label: "Software BOM" },
-  { key: "kpis", label: "KPI Management" },
-  { key: "reports", label: "PPT Reports" },
-  { key: "admin", label: "Admin Panel" },
+  { key: "dashboard", label: "Executive Dashboard", group: "Core" },
+  { key: "checklist", label: "IT Master Checklist", group: "Core" },
+  { key: "roadmap", label: "Transformation Roadmap", group: "Core" },
+  { key: "retirements", label: "App Retirement Plan", group: "Core" },
+  { key: "applications", label: "Application Inventory", group: "Core" },
+  { key: "aibom", label: "AI Bill of Materials", group: "Security & Compliance" },
+  { key: "sbom", label: "Software BOM", group: "Security & Compliance" },
+  { key: "assets", label: "IT Asset Management", group: "IT Asset Management" },
+  { key: "asset_registry", label: "Asset Registry", group: "IT Asset Management" },
+  { key: "asset_vendors", label: "Asset Vendors", group: "IT Asset Management" },
+  { key: "asset_licenses", label: "Asset Licenses", group: "IT Asset Management" },
+  { key: "asset_allocations", label: "Asset Allocations", group: "IT Asset Management" },
+  { key: "itsm_dashboard", label: "ITSM Dashboard", group: "IT Service Management" },
+  { key: "itsm_incidents", label: "Incidents", group: "IT Service Management" },
+  { key: "itsm_problems", label: "Problems", group: "IT Service Management" },
+  { key: "itsm_changes", label: "Changes", group: "IT Service Management" },
+  { key: "itsm_kb", label: "Knowledge Base", group: "IT Service Management" },
+  { key: "itsm_sla", label: "SLA Policies", group: "IT Service Management" },
+  { key: "itsm_requests", label: "Service Requests", group: "IT Service Management" },
+  { key: "kpis", label: "KPI Management", group: "KPI & Reporting" },
+  { key: "kpi_dashboard", label: "KPI Dashboard", group: "KPI & Reporting" },
+  { key: "reports", label: "PPT Reports", group: "KPI & Reporting" },
+  { key: "admin", label: "Admin Panel", group: "Administration" },
 ];
 
 const MODULE_KEYS = MODULES.map(m => m.key);
+
+router.get("/roles/modules", async (_req, res): Promise<void> => {
+  res.json(MODULES);
+});
 
 router.get("/roles", async (_req, res): Promise<void> => {
   const roles = await db.select().from(rolesTable).orderBy(asc(rolesTable.name));
