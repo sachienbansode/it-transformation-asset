@@ -1,10 +1,17 @@
 kind = "web"
-  previewPath = "/it-src"
-  title = "IT Transformation Planning Suite"
-  version = "1.0.0"
-  id = "artifacts/it-transformation"
+previewPath = "/it-src"
+title = "IT Transformation Planning Suite"
+version = "1.0.0"
+id = "artifacts/it-transformation"
 
-  [[integratedSkills]]
-  name = "react-vite"
-  version = "1.0.0"
-  
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 5173
+name = "web"
+paths = ["/it-src"]
+
+[services.development]
+run = "PORT=5173 pnpm --filter @workspace/it-transformation run dev"
