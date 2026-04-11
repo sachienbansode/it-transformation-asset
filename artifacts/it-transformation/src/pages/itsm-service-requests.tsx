@@ -2,7 +2,6 @@ import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -10,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Headphones, CheckCircle2, Clock, Timer, Inbox } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Headphones, CheckCircle2, Timer, Inbox } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -22,13 +21,83 @@ const CATEGORIES = ["Access Request", "Software Install", "Hardware Request", "A
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const STATUSES = ["Open", "In Progress", "Pending Approval", "Approved", "Rejected", "Completed", "Cancelled"];
 const CREATE_STATUSES = ["Open"];
-const STATUS_BADGE: Record<string, string> = {
-  Open: "border-blue-500/30 text-blue-600 bg-blue-50 dark:bg-blue-400/10",
-  "In Progress": "border-amber-500/30 text-amber-600 bg-amber-50 dark:bg-amber-400/10",
-  "Pending Approval": "border-violet-500/30 text-violet-600 bg-violet-50 dark:bg-violet-400/10",
-  Completed: "border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10",
-  Cancelled: "border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10",
+
+const PRIORITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  Critical: { bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-700 dark:text-red-400", dot: "bg-red-500" },
+  High:     { bg: "bg-orange-100 dark:bg-orange-900/30", text: "text-orange-700 dark:text-orange-400", dot: "bg-orange-500" },
+  Medium:   { bg: "bg-amber-100 dark:bg-amber-900/30", text: "text-amber-700 dark:text-amber-400", dot: "bg-amber-500" },
+  Low:      { bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-700 dark:text-blue-400", dot: "bg-blue-400" },
 };
+
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  Open:               { bg: "bg-blue-50 dark:bg-blue-900/20", text: "text-blue-600 dark:text-blue-400", dot: "bg-blue-500" },
+  "In Progress":      { bg: "bg-amber-50 dark:bg-amber-900/20", text: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500" },
+  "Pending Approval": { bg: "bg-violet-50 dark:bg-violet-900/20", text: "text-violet-600 dark:text-violet-400", dot: "bg-violet-500" },
+  Approved:           { bg: "bg-teal-50 dark:bg-teal-900/20", text: "text-teal-600 dark:text-teal-400", dot: "bg-teal-500" },
+  Rejected:           { bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
+  Completed:          { bg: "bg-emerald-50 dark:bg-emerald-900/20", text: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500" },
+  Cancelled:          { bg: "bg-gray-100 dark:bg-gray-800/40", text: "text-gray-500 dark:text-gray-400", dot: "bg-gray-400" },
+};
+
+const CAT_COLORS = [
+  "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+  "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+  "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+  "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
+  "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+  "bg-gray-100 text-gray-700 dark:bg-gray-800/40 dark:text-gray-300",
+];
+
+function PriorityBadge({ value }: { value: string }) {
+  const s = PRIORITY_STYLES[value] || { bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" };
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      {value}
+    </span>
+  );
+}
+
+function StatusBadge({ value }: { value: string }) {
+  const s = STATUS_STYLES[value] || { bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" };
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
+      {value}
+    </span>
+  );
+}
+
+function CategoryBadge({ value }: { value: string }) {
+  const idx = CATEGORIES.indexOf(value) % CAT_COLORS.length;
+  const color = CAT_COLORS[Math.max(0, idx)];
+  return (
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${color}`}>{value}</span>
+  );
+}
+
+function AssigneeBadge({ name }: { name?: string }) {
+  if (!name) return <span className="text-xs text-muted-foreground italic">Unassigned</span>;
+  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{initials}</span>
+      <span className="text-sm font-medium truncate max-w-[100px]">{name}</span>
+    </span>
+  );
+}
+
+function TicketNo({ no }: { no: string }) {
+  const [prefix, ...rest] = no.split("-");
+  return (
+    <span className="inline-flex items-center gap-0.5 font-mono text-xs">
+      <span className="font-bold text-teal-600 dark:text-teal-400">{prefix}</span>
+      <span className="text-muted-foreground">-{rest.join("-")}</span>
+    </span>
+  );
+}
 
 export default function ItsmServiceRequests() {
   const queryClient = useQueryClient();
@@ -94,59 +163,115 @@ export default function ItsmServiceRequests() {
         <StatCard icon={Inbox} label="Open" value={openCount} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
         <StatCard icon={Timer} label="In Progress" value={inProgressCount} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
         <StatCard icon={CheckCircle2} label="Completed" value={completedCount} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600" borderColor="border-l-emerald-500" />
-        <StatCard icon={Headphones} label="Total" value={requests.length} iconBg="bg-violet-100 dark:bg-violet-900/30" iconColor="text-violet-600" borderColor="border-l-violet-500" />
+        <StatCard icon={Headphones} label="Total" value={requests.length} iconBg="bg-teal-100 dark:bg-teal-900/30" iconColor="text-teal-600" borderColor="border-l-teal-500" />
       </div>
 
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-3 items-center mb-4">
-            <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search requests..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" /></div>
-            <Select value={filterCategory} onValueChange={v => { setFilterCategory(v === "all" ? "" : v); setPage(1); }}><SelectTrigger className="w-[160px]"><SelectValue placeholder="All Categories" /></SelectTrigger><SelectContent><SelectItem value="all">All Categories</SelectItem>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select>
-            <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}><SelectTrigger className="w-[150px]"><SelectValue placeholder="All Statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All Statuses</SelectItem>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
+        <CardContent className="p-0">
+          <div className="flex flex-wrap gap-3 items-center p-4 border-b">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search requests..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" />
+            </div>
+            <Select value={filterCategory} onValueChange={v => { setFilterCategory(v === "all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-[160px]"><SelectValue placeholder="All Categories" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Categories</SelectItem>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Statuses</SelectItem>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            </Select>
+            {(search || filterCategory || filterStatus) && (
+              <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setFilterCategory(""); setFilterStatus(""); setPage(1); }} className="text-xs text-muted-foreground">Clear filters</Button>
+            )}
           </div>
+
+          <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
+            Showing <span className="font-semibold text-foreground">{filtered.length}</span> of <span className="font-semibold text-foreground">{requests.length}</span> requests
+          </div>
+
           <Table>
-            <TableHeader><TableRow>
-              <TableHead className="w-[90px]">Request #</TableHead><TableHead>Title</TableHead><TableHead>Category</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead>Requested By</TableHead><TableHead>Assigned To</TableHead><TableHead className="w-[100px] text-center">Actions</TableHead>
-            </TableRow></TableHeader>
+            <TableHeader>
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[110px]">Request #</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Title</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[140px]">Category</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[110px]">Priority</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[140px]">Status</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Requested By</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Assigned To</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[90px] text-center">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
             <TableBody>
-              {paged.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No service requests found</TableCell></TableRow>}
+              {paged.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-16 text-muted-foreground">
+                    <Headphones className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="font-medium">No service requests found</p>
+                    <p className="text-xs mt-1">Try adjusting your filters</p>
+                  </TableCell>
+                </TableRow>
+              )}
               {paged.map((r: any) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs font-semibold">{r.requestNo}</TableCell>
-                  <TableCell className="font-medium max-w-[200px] truncate">{r.title}</TableCell>
-                  <TableCell><Badge variant="outline">{r.category}</Badge></TableCell>
-                  <TableCell><Badge variant="outline" className={r.priority === "Critical" ? "border-red-500/50 text-red-700 bg-red-50" : r.priority === "High" ? "border-orange-500/50 text-orange-700 bg-orange-50" : r.priority === "Medium" ? "border-amber-500/50 text-amber-700 bg-amber-50" : "border-blue-500/50 text-blue-600 bg-blue-50"}>{r.priority}</Badge></TableCell>
-                  <TableCell><Badge variant="outline" className={STATUS_BADGE[r.status] || ""}>{r.status}</Badge></TableCell>
-                  <TableCell className="text-sm">{r.requestedBy || "—"}</TableCell>
-                  <TableCell className="text-sm">{r.assignedTo || <span className="text-red-500">Unassigned</span>}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1 justify-center">
-                      <button onClick={() => setViewModal(r)} className="p-1.5 rounded hover:bg-muted"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
-                      <button onClick={() => openEdit(r)} className="p-1.5 rounded hover:bg-muted"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
-                      {isAdmin && <button onClick={() => handleDelete(r.id, r.requestNo)} className="p-1.5 rounded hover:bg-muted"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
+                <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
+                  <TableCell className="py-3"><TicketNo no={r.requestNo} /></TableCell>
+                  <TableCell className="py-3">
+                    <div className="font-medium text-sm leading-tight max-w-[200px] truncate" title={r.title}>{r.title}</div>
+                    {r.department && <div className="text-[11px] text-muted-foreground mt-0.5">{r.department}</div>}
+                  </TableCell>
+                  <TableCell className="py-3"><CategoryBadge value={r.category} /></TableCell>
+                  <TableCell className="py-3"><PriorityBadge value={r.priority} /></TableCell>
+                  <TableCell className="py-3"><StatusBadge value={r.status} /></TableCell>
+                  <TableCell className="py-3"><AssigneeBadge name={r.requestedBy} /></TableCell>
+                  <TableCell className="py-3"><AssigneeBadge name={r.assignedTo} /></TableCell>
+                  <TableCell className="py-3">
+                    <div className="flex items-center gap-0.5 justify-center">
+                      <button onClick={() => setViewModal(r)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
+                      <button onClick={() => openEdit(r)} title="Edit" className="p-2 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600 transition-colors"><Edit className="w-4 h-4" /></button>
+                      {isAdmin && <button onClick={() => handleDelete(r.id, r.requestNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          <Pagination page={page} totalPages={totalPages} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+          <div className="px-4 pb-3">
+            <Pagination page={page} totalPages={totalPages} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+          </div>
         </CardContent>
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Service Request {viewModal?.requestNo}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <TicketNo no={viewModal?.requestNo || ""} />
+              <StatusBadge value={viewModal?.status || ""} />
+            </DialogTitle>
+          </DialogHeader>
           {viewModal && (
             <div className="space-y-4">
-              <h3 className="font-semibold">{viewModal.title}</h3>
-              <p className="text-sm text-muted-foreground">{viewModal.description || "No description"}</p>
+              <h3 className="font-semibold text-base">{viewModal.title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{viewModal.description || "No description provided"}</p>
+              <div className="flex flex-wrap gap-2">
+                <CategoryBadge value={viewModal.category} />
+                <PriorityBadge value={viewModal.priority} />
+              </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Category", viewModal.category], ["Priority", viewModal.priority], ["Status", viewModal.status], ["Requested By", viewModal.requestedBy], ["Assigned To", viewModal.assignedTo], ["Department", viewModal.department]].map(([l, v]) => (
-                  <div key={l as string}><div className="text-[10px] uppercase text-muted-foreground font-semibold">{l}</div><div className="font-medium">{(v as string) || "—"}</div></div>
+                {[["Requested By", viewModal.requestedBy], ["Assigned To", viewModal.assignedTo], ["Department", viewModal.department]].map(([l, v]) => (
+                  <div key={l as string} className="space-y-1">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
+                    <div className="font-medium text-sm">{(v as string) || "—"}</div>
+                  </div>
                 ))}
               </div>
-              {viewModal.fulfillmentNotes && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Fulfillment Notes</div><div className="text-sm bg-emerald-50 dark:bg-emerald-900/10 p-2 rounded">{viewModal.fulfillmentNotes}</div></div>}
+              {viewModal.fulfillmentNotes && (
+                <div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200/50 dark:border-emerald-800/30 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-semibold mb-1">Fulfillment Notes</div>
+                  <div className="text-sm text-emerald-800 dark:text-emerald-300">{viewModal.fulfillmentNotes}</div>
+                </div>
+              )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
             </div>
           )}
@@ -167,11 +292,7 @@ export default function ItsmServiceRequests() {
             <div><Label>Department</Label><Input value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} /></div>
             {formData.status === "Completed" && <div className="col-span-2"><Label>Fulfillment Notes</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} /></div>}
           </div>
-          {editingItem && (
-            <div className="mt-4">
-              <ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" />
-            </div>
-          )}
+          {editingItem && <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" /></div>}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>

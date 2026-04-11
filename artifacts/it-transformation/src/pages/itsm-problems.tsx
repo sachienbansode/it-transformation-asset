@@ -2,7 +2,6 @@ import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -21,8 +20,64 @@ const PAGE_SIZE = 10;
 const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"];
 const CREATE_STATUSES = ["Open"];
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
-const PRIORITY_BADGE: Record<string, string> = { Critical: "border-red-500/50 text-red-700 bg-red-50 dark:bg-red-400/10", High: "border-orange-500/50 text-orange-700 bg-orange-50 dark:bg-orange-400/10", Medium: "border-amber-500/50 text-amber-700 bg-amber-50 dark:bg-amber-400/10", Low: "border-blue-500/50 text-blue-600 bg-blue-50 dark:bg-blue-400/10" };
-const STATUS_BADGE: Record<string, string> = { Open: "border-red-500/30 text-red-600 bg-red-50", "Under Investigation": "border-violet-500/30 text-violet-600 bg-violet-50", "Root Cause Identified": "border-teal-500/30 text-teal-600 bg-teal-50", "Known Error": "border-orange-500/30 text-orange-600 bg-orange-50", Closed: "border-gray-400/30 text-gray-500 bg-gray-50" };
+
+const PRIORITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  Critical: { bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-700 dark:text-red-400", dot: "bg-red-500" },
+  High:     { bg: "bg-orange-100 dark:bg-orange-900/30", text: "text-orange-700 dark:text-orange-400", dot: "bg-orange-500" },
+  Medium:   { bg: "bg-amber-100 dark:bg-amber-900/30", text: "text-amber-700 dark:text-amber-400", dot: "bg-amber-500" },
+  Low:      { bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-700 dark:text-blue-400", dot: "bg-blue-400" },
+};
+
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  Open:                    { bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
+  "Under Investigation":   { bg: "bg-violet-50 dark:bg-violet-900/20", text: "text-violet-600 dark:text-violet-400", dot: "bg-violet-500" },
+  "Root Cause Identified": { bg: "bg-teal-50 dark:bg-teal-900/20", text: "text-teal-600 dark:text-teal-400", dot: "bg-teal-500" },
+  "Known Error":           { bg: "bg-orange-50 dark:bg-orange-900/20", text: "text-orange-600 dark:text-orange-400", dot: "bg-orange-500" },
+  "Pending Approval":      { bg: "bg-indigo-50 dark:bg-indigo-900/20", text: "text-indigo-600 dark:text-indigo-400", dot: "bg-indigo-500" },
+  Resolved:                { bg: "bg-emerald-50 dark:bg-emerald-900/20", text: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500" },
+  Closed:                  { bg: "bg-gray-100 dark:bg-gray-800/40", text: "text-gray-500 dark:text-gray-400", dot: "bg-gray-400" },
+};
+
+function PriorityBadge({ value }: { value: string }) {
+  const s = PRIORITY_STYLES[value] || { bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" };
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      {value}
+    </span>
+  );
+}
+
+function StatusBadge({ value }: { value: string }) {
+  const s = STATUS_STYLES[value] || { bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" };
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
+      {value}
+    </span>
+  );
+}
+
+function AssigneeBadge({ name }: { name?: string }) {
+  if (!name) return <span className="text-xs text-muted-foreground italic">Unassigned</span>;
+  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="w-6 h-6 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{initials}</span>
+      <span className="text-sm font-medium truncate max-w-[100px]">{name}</span>
+    </span>
+  );
+}
+
+function TicketNo({ no }: { no: string }) {
+  const [prefix, ...rest] = no.split("-");
+  return (
+    <span className="inline-flex items-center gap-0.5 font-mono text-xs">
+      <span className="font-bold text-violet-600 dark:text-violet-400">{prefix}</span>
+      <span className="text-muted-foreground">-{rest.join("-")}</span>
+    </span>
+  );
+}
 
 export default function ItsmProblems() {
   const queryClient = useQueryClient();
@@ -92,56 +147,114 @@ export default function ItsmProblems() {
       </div>
 
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-3 items-center mb-4">
-            <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search problems..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" /></div>
-            <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}><SelectTrigger className="w-[170px]"><SelectValue placeholder="All Statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All Statuses</SelectItem>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
-            <Select value={filterPriority} onValueChange={v => { setFilterPriority(v === "all" ? "" : v); setPage(1); }}><SelectTrigger className="w-[130px]"><SelectValue placeholder="Priority" /></SelectTrigger><SelectContent><SelectItem value="all">All Priorities</SelectItem>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select>
+        <CardContent className="p-0">
+          <div className="flex flex-wrap gap-3 items-center p-4 border-b">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search problems..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" />
+            </div>
+            <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-[170px]"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Statuses</SelectItem>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={filterPriority} onValueChange={v => { setFilterPriority(v === "all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-[130px]"><SelectValue placeholder="Priority" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Priorities</SelectItem>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+            </Select>
+            {(search || filterStatus || filterPriority) && (
+              <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setFilterStatus(""); setFilterPriority(""); setPage(1); }} className="text-xs text-muted-foreground">Clear filters</Button>
+            )}
           </div>
+
+          <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
+            Showing <span className="font-semibold text-foreground">{filtered.length}</span> of <span className="font-semibold text-foreground">{problems.length}</span> problems
+          </div>
+
           <Table>
-            <TableHeader><TableRow>
-              <TableHead className="w-[90px]">Problem #</TableHead><TableHead>Title</TableHead><TableHead>Status</TableHead><TableHead>Priority</TableHead><TableHead>Root Cause</TableHead><TableHead>Assigned To</TableHead><TableHead>Related</TableHead><TableHead className="w-[100px] text-center">Actions</TableHead>
-            </TableRow></TableHeader>
+            <TableHeader>
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[110px]">Problem #</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Title</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[170px]">Status</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[110px]">Priority</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Root Cause</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Assigned To</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Related</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[90px] text-center">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
             <TableBody>
-              {paged.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No problems found</TableCell></TableRow>}
+              {paged.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-16 text-muted-foreground">
+                    <Bug className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="font-medium">No problems found</p>
+                    <p className="text-xs mt-1">Try adjusting your filters</p>
+                  </TableCell>
+                </TableRow>
+              )}
               {paged.map((p: any) => (
-                <TableRow key={p.id}>
-                  <TableCell className="font-mono text-xs font-semibold">{p.problemNo}</TableCell>
-                  <TableCell className="font-medium max-w-[200px] truncate">{p.title}</TableCell>
-                  <TableCell><Badge variant="outline" className={STATUS_BADGE[p.status] || ""}>{p.status}</Badge></TableCell>
-                  <TableCell><Badge variant="outline" className={PRIORITY_BADGE[p.priority]}>{p.priority}</Badge></TableCell>
-                  <TableCell className="text-xs max-w-[180px] truncate text-muted-foreground">{p.rootCause || "TBD"}</TableCell>
-                  <TableCell className="text-sm">{p.assignedTo || "—"}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{p.relatedIncidents || "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1 justify-center">
-                      <button onClick={() => setViewModal(p)} className="p-1.5 rounded hover:bg-muted"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
-                      <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-muted"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
-                      {isAdmin && <button onClick={() => handleDelete(p.id, p.problemNo)} className="p-1.5 rounded hover:bg-muted"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
+                <TableRow key={p.id} className="hover:bg-muted/30 transition-colors">
+                  <TableCell className="py-3"><TicketNo no={p.problemNo} /></TableCell>
+                  <TableCell className="py-3">
+                    <div className="font-medium text-sm leading-tight max-w-[200px] truncate" title={p.title}>{p.title}</div>
+                    {p.affectedSystems && <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{p.affectedSystems}</div>}
+                  </TableCell>
+                  <TableCell className="py-3"><StatusBadge value={p.status} /></TableCell>
+                  <TableCell className="py-3"><PriorityBadge value={p.priority} /></TableCell>
+                  <TableCell className="py-3 text-xs text-muted-foreground max-w-[180px] truncate">{p.rootCause || <span className="italic">TBD</span>}</TableCell>
+                  <TableCell className="py-3"><AssigneeBadge name={p.assignedTo} /></TableCell>
+                  <TableCell className="py-3 font-mono text-xs text-muted-foreground">{p.relatedIncidents || "—"}</TableCell>
+                  <TableCell className="py-3">
+                    <div className="flex items-center gap-0.5 justify-center">
+                      <button onClick={() => setViewModal(p)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
+                      <button onClick={() => openEdit(p)} title="Edit" className="p-2 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600 transition-colors"><Edit className="w-4 h-4" /></button>
+                      {isAdmin && <button onClick={() => handleDelete(p.id, p.problemNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          <Pagination page={page} totalPages={totalPages} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+          <div className="px-4 pb-3">
+            <Pagination page={page} totalPages={totalPages} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+          </div>
         </CardContent>
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Problem {viewModal?.problemNo}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <TicketNo no={viewModal?.problemNo || ""} />
+              <StatusBadge value={viewModal?.status || ""} />
+            </DialogTitle>
+          </DialogHeader>
           {viewModal && (
             <div className="space-y-4">
-              <h3 className="font-semibold">{viewModal.title}</h3>
-              <p className="text-sm text-muted-foreground">{viewModal.description || "No description"}</p>
+              <h3 className="font-semibold text-base">{viewModal.title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{viewModal.description || "No description provided"}</p>
+              <PriorityBadge value={viewModal.priority} />
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Status", viewModal.status], ["Priority", viewModal.priority], ["Assigned To", viewModal.assignedTo], ["Related Incidents", viewModal.relatedIncidents], ["Affected Systems", viewModal.affectedSystems]].map(([l, v]) => (
-                  <div key={l as string}><div className="text-[10px] uppercase text-muted-foreground font-semibold">{l}</div><div className="font-medium">{(v as string) || "—"}</div></div>
+                {[["Assigned To", viewModal.assignedTo], ["Related Incidents", viewModal.relatedIncidents], ["Affected Systems", viewModal.affectedSystems]].map(([l, v]) => (
+                  <div key={l as string} className="space-y-1">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
+                    <div className="font-medium text-sm">{(v as string) || "—"}</div>
+                  </div>
                 ))}
               </div>
-              {viewModal.rootCause && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Root Cause</div><div className="text-sm bg-teal-50 dark:bg-teal-900/10 p-2 rounded">{viewModal.rootCause}</div></div>}
-              {viewModal.workaround && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Workaround</div><div className="text-sm bg-amber-50 dark:bg-amber-900/10 p-2 rounded">{viewModal.workaround}</div></div>}
+              {viewModal.rootCause && (
+                <div className="rounded-lg bg-teal-50 dark:bg-teal-900/10 border border-teal-200/50 dark:border-teal-800/30 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-teal-700 dark:text-teal-400 font-semibold mb-1">Root Cause</div>
+                  <div className="text-sm text-teal-800 dark:text-teal-300">{viewModal.rootCause}</div>
+                </div>
+              )}
+              {viewModal.workaround && (
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200/50 dark:border-amber-800/30 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-semibold mb-1">Workaround</div>
+                  <div className="text-sm text-amber-800 dark:text-amber-300">{viewModal.workaround}</div>
+                </div>
+              )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
             </div>
           )}
@@ -162,11 +275,7 @@ export default function ItsmProblems() {
             <div className="col-span-2"><Label>Root Cause</Label><Textarea value={formData.rootCause || ""} onChange={e => setFormData({ ...formData, rootCause: e.target.value })} rows={2} /></div>
             <div className="col-span-2"><Label>Workaround</Label><Textarea value={formData.workaround || ""} onChange={e => setFormData({ ...formData, workaround: e.target.value })} rows={2} /></div>
           </div>
-          {editingItem && (
-            <div className="mt-4">
-              <ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" />
-            </div>
-          )}
+          {editingItem && <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" /></div>}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>
