@@ -102,5 +102,13 @@ export async function createApp(): Promise<Express> {
     app.use(vite.middlewares);
   }
 
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal server error";
+    if (!res.headersSent) {
+      res.status(status).json({ error: message });
+    }
+  });
+
   return app;
 }
