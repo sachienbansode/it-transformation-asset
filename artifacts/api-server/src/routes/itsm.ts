@@ -129,6 +129,11 @@ router.patch("/sla-policies/:id", requireAuth, async (req, res) => {
   res.json(item);
 });
 
+router.delete("/sla-policies/:id", requireAuth, async (req, res) => {
+  await db.update(itsmSlaPoliciesTable).set({ isActive: false }).where(eq(itsmSlaPoliciesTable.id, parseInt(req.params.id)));
+  res.status(204).end();
+});
+
 router.get("/ticket-history", requireAuth, async (req, res) => {
   const ticketId = req.query.ticketId ? parseInt(req.query.ticketId as string) : null;
   const ticketType = req.query.ticketType as string || null;

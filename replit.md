@@ -1,334 +1,42 @@
 # Ashika Group — IT Transformation Planning Suite
 
-## Project Overview
-A full-stack IT Transformation Planning Suite built for the CTO of Ashika Group — a listed Indian financial services conglomerate operating Broking, AIF, Institutional Equities, and NBFC businesses.
+## Overview
+This project is an IT Transformation Planning Suite designed for the CTO of Ashika Group, a prominent Indian financial services conglomerate. It aims to provide comprehensive tools for managing IT operations, strategy, and compliance across various business units including Broking, AIF, Institutional Equities, and NBFC. The suite offers modules for IT master checklist, transformation roadmap, application management (retirement, inventory), AI/software bill of materials, IT asset management, IT service management, and enterprise-wide KPI management. The goal is to streamline IT planning, enhance regulatory compliance (SEBI, RBI, BSE, NSE, CDSL, NSDL), and provide a centralized platform for strategic IT decision-making.
 
-**Design aesthetic:** Bloomberg Terminal (dark navy, gold primary, teal accents)  
-**Currency:** ₹ INR with lakhs/millions toggle  
-**Regulatory context:** SEBI, RBI, BSE, NSE, CDSL, NSDL compliance throughout data
+## User Preferences
+I prefer the design aesthetic of a Bloomberg Terminal (dark navy, gold primary, teal accents). The currency should be ₹ INR with a toggle for lakhs/millions. I need to manage 9 data modules: Executive Dashboard, IT Master Checklist, Transformation Roadmap, App Retirement Plan, Application Inventory, AI Bill of Materials, Software Bill of Materials, IT Asset Management, and IT Service Management. I need to be able to export reports to Excel and Word documents with specific branding. I expect dynamic dropdowns for various categories and a robust authentication system supporting MFA and Microsoft SSO. I also need an Admin Panel for user and master data management. I prefer a global search functionality and in-app notifications for key events. I want to be able to customize my dashboard widgets.
 
----
+## System Architecture
+The application is a full-stack project utilizing React, Vite, TypeScript, TailwindCSS, and shadcn/ui for the frontend, and Node.js, Express, TypeScript for the backend. Drizzle ORM is used with a PostgreSQL database. Authentication is session-based with `express-session` and `connect-pg-simple`, featuring bcrypt for password hashing, `speakeasy` for TOTP MFA, and Microsoft SSO (Azure AD OAuth2). Data visualization is handled by Recharts, and server-side PPTX generation uses `pptxgenjs`. The API is RESTful, with auto-generated React Query hooks.
 
-## Tech Stack
-- **Frontend:** React + Vite + TypeScript + TailwindCSS + shadcn/ui
-- **Backend:** Node.js + Express + TypeScript  
+The architecture is divided into an Express REST API (`/artifacts/api-server`) and a React frontend (`/artifacts/it-transformation`). Core features include a comprehensive authentication system with admin/user roles and protected routes, an Admin Panel for managing users, master data (20 categories), and business units (6 seeded). A dynamic `MasterSelect` component fetches live data for dropdowns. The application supports a theme system (light/dark with `ThemeProvider`) and a currency toggle (`CurrencyProvider`).
+
+Key features include:
+- **9 Data Modules:** Each with specific functionalities and data models.
+- **Enterprise KPI Management:** A new module for managing CXO and employee KPIs, including Excel upload, version history, and a status workflow.
+- **Global Search:** Cmd+K triggered search across multiple modules with debounced results.
+- **BU-wise Completion % Bars:** Live computed completion percentages for the Checklist module.
+- **Checklist Item Comments & History:** Discussion threads and audit logs for checklist items.
+- **In-app Notifications:** Real-time alerts with unread counts and auto-refresh.
+- **PDF Export:** `window.print()` functionality with custom print CSS for the Executive Dashboard.
+- **Dashboard Widget Customization:** Toggable widgets with preferences saved in `localStorage`.
+- **IT Asset Management (Separate Pages):** 14 DB tables covering asset categories, vendors, licenses, allocations, and transactions. Each sub-entity has its own dedicated page with sidebar navigation: Asset Dashboard (`/assets`), Asset Registry (`/asset-registry`), Vendors (`/asset-vendors`), Licenses (`/asset-licenses`), Allocations (`/asset-allocations`). Each page has StatCard summaries, working filters/search, full CRUD with view/edit/delete modals, and pagination.
+- **IT Service Management (ITSM - Separate Pages):** ITIL v4 aligned modules each on dedicated pages: ITSM Dashboard (`/itsm`), Incidents (`/itsm-incidents`), Problems (`/itsm-problems`), Changes (`/itsm-changes`), Knowledge Base (`/itsm-kb`), SLA Policies (`/itsm-sla`), Service Requests (`/itsm-requests`). Each has StatCard summaries, filters, full CRUD, pagination, and admin-only delete.
+- **Word Document Export:** NIYTRI-branded DOCX exports for Asset Management and ITSM using the `docx` npm module.
+- **Audit Columns:** All data tables include `created_by` and `modified_by` fields, populated with user information.
+- **Retirement Plan Enhancements:** Linking retirement plans to application inventory, auto-filling details, and updating application status upon completion.
+- **Theme Fix:** Inline script to prevent Flash of Unstyled Content (FOUC) for the dark theme.
+
+Database schema is managed by Drizzle ORM, with seed scripts for initial data population. All tables are designed with specific purposes, including `checklist_items`, `roadmap_items`, `applications`, `retirements`, `aibom_entries`, `sbom_entries`, `masters`, `users`, `settings`, `user_sessions`, `business_units`, `kpi_persons`, `kpi_sets`, `kpi_set_versions`, `kpi_set_items`, `notifications`, and `checklist_comments`.
+
+## External Dependencies
+- **Frontend:** React, Vite, TypeScript, TailwindCSS, shadcn/ui
+- **Backend:** Node.js, Express, TypeScript
 - **ORM:** Drizzle ORM
 - **Database:** PostgreSQL (Replit managed)
-- **Session Store:** connect-pg-simple (user_sessions table in DB)
-- **Auth:** bcryptjs (passwords), speakeasy (TOTP MFA), express-session
+- **Session Store:** `connect-pg-simple`
+- **Authentication:** `bcryptjs` (passwords), `speakeasy` (TOTP MFA), `express-session`, Microsoft Azure AD OAuth2
 - **Charts:** Recharts
-- **PPT Generation:** pptxgenjs (server-side PPTX generation)
-- **API:** REST, auto-generated `@workspace/api-client-react` hooks
-
----
-
-## Architecture
-
-```
-/artifacts/api-server      — Express REST API (port 8080)
-/artifacts/it-transformation — React frontend (port 22340, proxied to /)
-/lib/db                    — Drizzle schema + seed scripts
-/lib/api-client-react      — Auto-generated React Query hooks
-```
-
----
-
-## 9 Data Modules (All Seeded)
-
-| Module | Page | Records |
-|--------|------|---------|
-| Executive Dashboard | `/` | KPIs + Recharts (pie, bar) |
-| IT Master Checklist | `/checklist` | 62 items |
-| Transformation Roadmap | `/roadmap` | Custom CSS Gantt chart (with dates + months), hide/show toggle, isActive flag |
-| App Retirement Plan | `/retirements` | 15 apps |
-| Application Inventory | `/applications` | 20 apps |
-| AI Bill of Materials | `/aibom` | 10 AI components |
-| Software Bill of Materials | `/sbom` | 15 packages, CVE tracking |
-| IT Asset Management | `/assets` | 15 assets, 5 vendors, 8 licenses, 8 categories |
-| IT Service Management (ITSM) | `/itsm` | 10 incidents, 5 problems, 5 changes, 4 SLA policies, 5 KB articles, 5 service requests |
-
----
-
-## Authentication System
-
-### Credentials
-- **Admin:** admin@ashikagroup.com / Ashika@2025
-- **Default role:** admin
-
-### Features
-- Password login with bcrypt hashing
-- TOTP MFA (speakeasy) — users can set up via Profile page
-- Microsoft SSO (Azure AD OAuth2 redirect) — configurable via Admin Panel
-- Session-based auth (express-session + connect-pg-simple)
-- Internal vs External user type classification
-- Protected routes redirect to `/login` when unauthenticated
-- Admin-only routes for `/admin`
-
----
-
-## Admin Panel (`/admin`)
-
-### Settings Tab
-- Authentication settings (self-registration, MFA requirements)
-- Microsoft SSO configuration (clientId, tenantId, clientSecret, redirectUri)
-- Branding settings (app name, company name)
-
-### User Management Tab
-- CRUD operations for all users
-- Role assignment (admin / user)
-- User type (internal / external)
-- Department assignment
-- Active/inactive toggle
-- Last login tracking
-
-### Master Data Tab
-- 20 categories of dropdown values (vendor, business, app_category, hosting, criticality, license_type, data_classification, priority, etc.)
-- 145 seeded records covering Ashika Group context
-- Add / Edit / Deactivate any master value
-- Color coding for badge rendering
-
-### Business Units Tab
-- List all 6 business units (active + inactive)
-- Create, edit, activate/deactivate any unit
-- Uses `/api/business-units/all` and `/api/admin/business-units` endpoints
-
----
-
-## Dynamic Dropdowns (MasterSelect)
-
-All module form modals use `<MasterSelect category="..." />` which fetches live from `/api/masters?category=xxx`.  
-Categories: vendor, business, app_category, hosting, criticality, support_status, license_type, risk_level, compliance_status, checklist_status, checklist_category, priority, phase, roadmap_status, retirement_reason, retirement_status, migration_effort, ai_type, data_classification, department
-
----
-
-## Theme System
-- `ThemeProvider` context wraps entire app in `App.tsx`
-- `useTheme()` → `{ theme, toggleTheme }` — toggles `.light` / `.dark` on `<html>`
-- Default: **light** theme
-- Persisted in `localStorage` via `theme-preference` key
-- Dark theme context file: `src/contexts/theme-context.tsx`
-- CSS: `:root` = light, `.dark` = dark; sidebar stays dark navy in both modes
-
----
-
-## Currency Toggle
-- Context: `CurrencyProvider` → `useCurrency()` hook
-- 3-way cycle: ₹ Lakhs → ₹ Crores → ₹ Millions (use `cycle()` not `toggle()`)
-- Exports: `format(n, decimals)`, `formatShort(n)`, `label`, `unitLabel`, `unit`, `setUnit`
-- Toggle button in the layout header, visible on all pages
-
----
-
-## Business Units
-- Separate `business_units` DB table (id, name, code, description, isActive, sortOrder, createdAt)
-- Seeded: AIF, IE, Broking (BROKING), MF, IB, NBFC
-- Public API: `GET /api/business-units` (active only)
-- Admin API: `GET /api/business-units/all`, `POST /admin/business-units`, `PATCH /admin/business-units/:id`
-- Admin tab in admin panel: "Business Units" tab for CRUD management
-- Route file: `artifacts/api-server/src/routes/business-units.ts`
-- Seeded on server startup via `seedBusinessUnits()` (idempotent)
-
----
-
-## Technology KPIs (`/tech-kpis`)
-- CTO-specific KPI scorecard for IT Run/Change/Transform pillars
-- 15 seeded KPIs for FY 2026-27 with quarterly targets
-- Reports tab: Excel export (3 sheets: Cover, Scorecard, Category Summary)
-- Submit to CEO workflow, year management, score tracking
-- Renamed in sidebar to "IT KPIs (CTO)" to distinguish from enterprise KPIs
-
-## Enterprise KPI Management (`/kpis`) — NEW MODULE
-- Full enterprise-wide KPI management for all CXOs and employees
-- **Sidebar section:** "Performance" → "KPI Management"
-- **Persons management:** Create CXO/employee profiles with designation, department, email, employee code, approving authority
-- **KPI Sets:** One KPI set per person per financial year (unique constraint)
-- **Excel upload:** Upload KPI data via Excel → parsed client-side → preview table → confirmation step → saved as versioned record
-- **Version history:** Every Excel upload is stored with base64 file data; all versions downloadable
-- **Download template:** Excel template with correct headers + sample data + instructions sheet
-- **Status workflow:** Draft → Pending (submit) → Approved/Rejected (admin review)
-- **2-decimal formatting:** All numeric values displayed to 2 decimal places throughout
-- **View KPIs dialog:** Full KPI detail view with all quarterly targets/actuals
-- Route: `artifacts/api-server/src/routes/kpi-persons.ts`
-- Page: `artifacts/it-transformation/src/pages/kpis.tsx`
-- DB tables: `kpi_persons`, `kpi_sets`, `kpi_set_versions`, `kpi_set_items`
-
-## Database Tables
-
-| Table | Purpose |
-|-------|---------|
-| checklist_items | IT checklist (62 items) |
-| roadmap_items | Transformation roadmap |
-| applications | Application inventory |
-| retirements | App retirement plans |
-| aibom_entries | AI components |
-| sbom_entries | Software packages + CVEs |
-| masters | Dynamic dropdown values (145 records) |
-| users | User accounts + MFA secrets |
-| settings | Admin configuration (13 keys) |
-| user_sessions | Session store (connect-pg-simple) |
-| business_units | Business unit structure (6 units) |
-| kpi_persons | Enterprise KPI person profiles |
-| kpi_sets | One KPI set per person per year (unique) |
-| kpi_set_versions | Excel upload version history (base64 file data) |
-| kpi_set_items | Individual KPI rows per version |
-
----
-
-## Key Files
-
-```
-artifacts/it-transformation/src/
-  App.tsx                         — Router + ThemeProvider + AuthProvider + CurrencyProvider
-  contexts/auth-context.tsx       — Auth state + login/logout/MFA
-  contexts/currency-context.tsx   — ₹ Lakhs/Crores/Millions cycle context
-  contexts/theme-context.tsx      — Light/dark theme toggle context (default: light)
-  hooks/use-masters.ts            — useMasters(category) hook
-  components/layout.tsx           — Sidebar + header + theme toggle + currency cycle
-  components/master-select.tsx    — Dynamic dropdown component
-  lib/api.ts                      — apiFetch helper (credentials: include)
-  pages/login.tsx                 — Login page (Internal/External, MFA, SSO)
-  pages/admin.tsx                 — Admin panel (settings/users/masters)
-  pages/profile.tsx               — Profile + password change + MFA setup
-
-artifacts/api-server/src/routes/
-  auth.ts              — Login, logout, MFA setup/enable/disable, SSO, profile
-  masters.ts           — CRUD for master data (GET public, write admin-only)
-  admin.ts             — Admin settings + user management
-  dashboard.ts         — KPI aggregation
-  business-units.ts    — Business units CRUD + seed on startup
-  [all modules].ts     — CRUD for each data module
-
-lib/db/src/
-  schema/index.ts        — All table definitions (Drizzle)
-  seed.ts                — Module data seeds
-  seed-masters.ts        — 145 master records + admin user + 13 settings
-```
-
----
-
-## Environment Variables
-
-| Variable | Purpose |
-|----------|---------|
-| DATABASE_URL | PostgreSQL connection string |
-| SESSION_SECRET | Express session signing secret |
-| PORT | App port (set by Replit per artifact) |
-
----
-
-## Running Seeds
-
-```bash
-# Seed module data (checklist, roadmap, applications, retirements, aibom, sbom)
-pnpm --filter @workspace/db exec tsx src/seed.ts
-
-# Seed master data + admin user + settings
-pnpm --filter @workspace/db exec tsx src/seed-masters.ts
-```
-
----
-
-## Audit Columns (All Data Tables)
-All 6 data tables (applications, retirements, roadmap_items, checklist_items, sbom_entries, aibom_entries) now have:
-- `created_by TEXT` — populated from session user via `getPerformedBy(userId)` on INSERT
-- `modified_by TEXT` — populated from session user via `getPerformedBy(userId)` on UPDATE
-- Format: `"Name <email>"` (e.g. `"Sachin B <sachin.b@ashikagroup.com>"`)
-
-CSV import routes (checklist, roadmap) also set `createdBy` to the importing admin.
-
-## Retirement Plan Enhancements
-- `application_id INTEGER` column added to `retirements` table to link to Application Inventory
-- Form has application dropdown at top — selecting an app auto-fills appName, business (read-only)
-- Panel shows vendor, category, hosting, criticality from linked app (read-only metadata)
-- When retirement status → "Completed": API auto-updates linked application's `applicationStatus="Retired"` and sets `dateOfRetirement` to the retirement's targetDate (or today)
-- Table now shows `created_by` column with user icon
-
-## Theme Fix
-- Added inline `<script>` to `artifacts/it-transformation/index.html` that reads `localStorage.getItem("ashika-theme")` and applies `.dark` class to `<html>` BEFORE React loads — prevents flash-of-wrong-theme (FOUC)
-
-## Session Notes
-- `user_sessions` table must exist in DB — was manually created (connect-pg-simple does `createTableIfMissing: true` but requires the DB user to have CREATE TABLE rights)
-- `session.save()` is explicitly called after login to ensure session is persisted before response
-- Zod version is v3 — use `z.string().email()` not `z.email()` (v4 syntax)
-- MS SSO is backend-only redirect flow (no MSAL frontend library needed)
-- DB schema push uses `echo "No" | pnpm --filter @workspace/db run push` to auto-answer unique constraint prompt (or add columns directly via SQL ALTER TABLE)
-
-## Session Improvements (April 2026)
-
-### 7 New Features Added
-
-1. **Global Search (Cmd+K)**
-   - `SearchModal` component in header, triggered by Cmd+K keyboard shortcut
-   - Backend: `GET /api/search?q=...` (full-text search across checklist, roadmap, apps, AIBOM, SBOM)
-   - Debounced 280ms, results grouped by module, click navigates to the module page
-   - Empty state shows quick-nav links to all modules
-
-2. **BU-wise Completion % Bars** (Checklist page)
-   - `BUCompletionBars` component below KPI stat cards
-   - Computed live from checklist data, color-coded: green ≥70%, amber ≥40%, red <40%
-   - Shows completed/total count under each bar
-
-3. **Checklist Item Comments & Discussion**
-   - New DB table: `checklist_comments` (id, checklistItemId, authorName, content, createdAt)
-   - API: `GET/POST /api/checklist/:id/comments`, `DELETE /api/checklist/comments/:id`
-   - Edit modal now tabbed: **Details | Comments | History**
-   - Author name resolved from session → DB user lookup
-
-4. **Change History per Checklist Item**
-   - History tab in the edit modal, fetches from audit_logs filtered by `entityType=checklist_item&entityId=X`
-   - Shows action badge, summary, performer, relative time
-
-5. **In-app Notifications**
-   - New DB table: `notifications` (id, userId, title, message, type, read, link, createdAt)
-   - `NotificationBell` component in header with unread count badge, auto-refreshes every 30s
-   - API: `GET /api/notifications`, `PATCH /api/notifications/:id/read`, `POST /api/notifications/read-all`, `DELETE /api/notifications/:id`
-   - On server startup: auto-seeds overdue + due-within-30-days roadmap notifications
-
-6. **Export to PDF**
-   - "Export PDF" button on Executive Dashboard header
-   - Calls `window.print()` with print CSS (hides sidebar, header, buttons; A4 landscape layout)
-   - Print CSS in `index.css` `@media print` block
-
-7. **Dashboard Widget Customization**
-   - "Widgets" button on dashboard header opens dropdown with 10 toggleable widgets
-   - Each tab (Overview, Roadmap, Security, Applications) accepts optional `widgets` prop
-   - Preferences saved in `localStorage` key `ashika-dashboard-widgets`
-
-### New DB Tables (created via raw SQL)
-- `notifications` - in-app notification store
-- `checklist_comments` - discussion threads on checklist items
-
-### New API Routes
-- `artifacts/api-server/src/routes/search.ts` — global search
-- `artifacts/api-server/src/routes/notifications.ts` — notification CRUD + startup seeding
-- `artifacts/api-server/src/routes/checklist-comments.ts` — comment CRUD
-
-### New Frontend Components
-- `artifacts/it-transformation/src/components/search-modal.tsx`
-- `artifacts/it-transformation/src/components/notification-bell.tsx`
-
-## IT Asset Management Module (`/assets`)
-- **14 DB tables** across `lib/db/src/schema/assets.ts` and `lib/db/src/schema/itsm.ts`
-- **Asset tables:** asset_categories, asset_vendors, assets, asset_licenses, asset_allocations, asset_transactions, maintenance_records
-- **ITSM tables:** itsm_incidents, itsm_problems, itsm_changes, itsm_sla_policies, itsm_ticket_history, itsm_knowledge_base, itsm_service_requests
-- **API routes:** `artifacts/api-server/src/routes/assets.ts` (CRUD for all asset entities + /assets/stats)
-- **Frontend:** Tabbed dashboard (Dashboard, Asset Registry, Vendors, Licenses, Allocations) with Recharts
-- **Seed data:** 15 assets, 5 vendors, 8 licenses, 8 categories (Ashika Group context)
-- **Word export:** `GET /api/export/asset-management-doc` — NIYTRI-branded DOCX with full asset inventory
-
-## IT Service Management Module (`/itsm`)
-- **ITIL v4 aligned:** Incident, Problem, Change, Knowledge, Service Request management
-- **API routes:** `artifacts/api-server/src/routes/itsm.ts` (CRUD + stats endpoints)
-- **Frontend:** 7-tab interface (Dashboard, Incidents, Problems, Changes, KB, SLA Policies, Service Requests)
-- **Seed data:** 10 incidents, 5 problems, 5 changes, 4 SLA policies, 5 KB articles, 5 service requests
-- **Word export:** `GET /api/export/itsm-doc` — NIYTRI-branded DOCX with full ITSM documentation
-- **Roles added:** Asset Manager, Service Desk L1, L2/L3 Support, Change Manager, Problem Manager, Compliance Officer, Auditor, Business User, Vendor
-- **Ticket format:** INC-XXXXX, PRB-XXXXX, CHG-XXXXX, SR-XXXXX
-- **SLA policies:** Critical (1h/4h), High (2h/8h), Medium (4h/24h), Low (8h/72h)
-
-## Word Document Export (NIYTRI Branded)
-- Package: `docx` npm module
-- Route file: `artifacts/api-server/src/routes/docs-export.ts`
-- Branding: NIYTRI Technologies Pvt. Ltd. header/footer, confidential classification, gold/navy theme
-- Two endpoints: `/api/export/asset-management-doc`, `/api/export/itsm-doc`
-- Download buttons on both Asset Management and ITSM pages
+- **PPT Generation:** `pptxgenjs`
+- **Document Export:** `docx` npm module (for Word exports)
+- **API Client:** `@workspace/api-client-react` (auto-generated)

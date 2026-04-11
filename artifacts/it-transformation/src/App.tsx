@@ -21,8 +21,18 @@ import Admin from "@/pages/admin";
 import Profile from "@/pages/profile";
 import Reports from "@/pages/reports";
 import Kpis from "@/pages/kpis";
-import AssetManagement from "@/pages/asset-management";
-import ITSM from "@/pages/itsm";
+import AssetDashboard from "@/pages/asset-dashboard";
+import AssetRegistry from "@/pages/asset-registry";
+import AssetVendors from "@/pages/asset-vendors";
+import AssetLicenses from "@/pages/asset-licenses";
+import AssetAllocations from "@/pages/asset-allocations";
+import ItsmDashboard from "@/pages/itsm-dashboard";
+import ItsmIncidents from "@/pages/itsm-incidents";
+import ItsmProblems from "@/pages/itsm-problems";
+import ItsmChanges from "@/pages/itsm-changes";
+import ItsmKnowledgeBase from "@/pages/itsm-knowledge-base";
+import ItsmSlaPolicies from "@/pages/itsm-sla-policies";
+import ItsmServiceRequests from "@/pages/itsm-service-requests";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const queryClient = new QueryClient({
@@ -96,8 +106,18 @@ function Router() {
               <Route path="/sbom" component={Sbom} />
               <Route path="/reports" component={Reports} />
               <Route path="/kpis" component={Kpis} />
-              <Route path="/assets" component={AssetManagement} />
-              <Route path="/itsm" component={ITSM} />
+              <Route path="/assets" component={AssetDashboard} />
+              <Route path="/asset-registry" component={AssetRegistry} />
+              <Route path="/asset-vendors" component={AssetVendors} />
+              <Route path="/asset-licenses" component={AssetLicenses} />
+              <Route path="/asset-allocations" component={AssetAllocations} />
+              <Route path="/itsm" component={ItsmDashboard} />
+              <Route path="/itsm-incidents" component={ItsmIncidents} />
+              <Route path="/itsm-problems" component={ItsmProblems} />
+              <Route path="/itsm-changes" component={ItsmChanges} />
+              <Route path="/itsm-kb" component={ItsmKnowledgeBase} />
+              <Route path="/itsm-sla" component={ItsmSlaPolicies} />
+              <Route path="/itsm-requests" component={ItsmServiceRequests} />
               <Route path="/profile" component={Profile} />
               <Route path="/admin">
                 {user.role === "admin" ? <Admin /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}

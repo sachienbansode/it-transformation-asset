@@ -48,11 +48,21 @@ const KPI_ITEMS = [
 ];
 
 const ASSET_ITEMS = [
-  { href: "/assets", label: "Asset Management", icon: Monitor, module: "assets" },
+  { href: "/assets", label: "Asset Dashboard", icon: Monitor, module: "assets" },
+  { href: "/asset-registry", label: "Asset Registry", icon: HardDrive, module: "assets" },
+  { href: "/asset-vendors", label: "Vendors", icon: Building2, module: "assets" },
+  { href: "/asset-licenses", label: "Licenses", icon: Shield, module: "assets" },
+  { href: "/asset-allocations", label: "Allocations", icon: Users, module: "assets" },
 ];
 
 const ITSM_ITEMS = [
-  { href: "/itsm", label: "Service Management", icon: AlertTriangle, module: "itsm" },
+  { href: "/itsm", label: "ITSM Dashboard", icon: BarChart3, module: "itsm" },
+  { href: "/itsm-incidents", label: "Incidents", icon: AlertTriangle, module: "itsm" },
+  { href: "/itsm-problems", label: "Problems", icon: Database, module: "itsm" },
+  { href: "/itsm-changes", label: "Changes", icon: GitBranch, module: "itsm" },
+  { href: "/itsm-kb", label: "Knowledge Base", icon: BookOpen, module: "itsm" },
+  { href: "/itsm-sla", label: "SLA Policies", icon: Shield, module: "itsm" },
+  { href: "/itsm-requests", label: "Service Requests", icon: Clock, module: "itsm" },
 ];
 
 const ADMIN_ITEMS = [
