@@ -116,7 +116,11 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   const { password, ...rest } = body.data;
   const update: Record<string, unknown> = { ...rest };
   // Keep isActive in sync with status
-  if (rest.status === "active") update.isActive = true;
+  if (rest.status === "active") {
+    update.isActive = true;
+    // Reset lastLoginAt so auto-dormant doesn't immediately re-trigger on next GET
+    update.lastLoginAt = new Date();
+  }
   if (rest.status === "inactive" || rest.status === "dormant") update.isActive = false;
   if (password) update.passwordHash = await bcrypt.hash(password, 12);
   const [user] = await db.update(usersTable).set(update).where(eq(usersTable.id, id)).returning({
