@@ -15,13 +15,14 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { ApprovalMatrix } from "@/components/approval-matrix";
 
 const PAGE_SIZE = 10;
 const CATEGORIES = ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Other"];
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
-const STATUSES = ["New", "In Progress", "Pending Approval", "Completed", "Cancelled"];
+const STATUSES = ["Open", "In Progress", "Pending Approval", "Completed", "Cancelled"];
 const STATUS_BADGE: Record<string, string> = {
-  New: "border-blue-500/30 text-blue-600 bg-blue-50 dark:bg-blue-400/10",
+  Open: "border-blue-500/30 text-blue-600 bg-blue-50 dark:bg-blue-400/10",
   "In Progress": "border-amber-500/30 text-amber-600 bg-amber-50 dark:bg-amber-400/10",
   "Pending Approval": "border-violet-500/30 text-violet-600 bg-violet-50 dark:bg-violet-400/10",
   Completed: "border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10",
@@ -57,11 +58,11 @@ export default function ItsmServiceRequests() {
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const newCount = requests.filter((r: any) => r.status === "New").length;
+  const openCount = requests.filter((r: any) => r.status === "Open").length;
   const inProgressCount = requests.filter((r: any) => r.status === "In Progress").length;
   const completedCount = requests.filter((r: any) => r.status === "Completed").length;
 
-  function openCreate() { setEditingItem(null); setFormData({ status: "New", priority: "Medium", category: "Other" }); setIsModalOpen(true); }
+  function openCreate() { setEditingItem(null); setFormData({ status: "Open", priority: "Medium", category: "Other" }); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
 
   async function handleSave() {
@@ -89,7 +90,7 @@ export default function ItsmServiceRequests() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard icon={Inbox} label="New Requests" value={newCount} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
+        <StatCard icon={Inbox} label="Open" value={openCount} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
         <StatCard icon={Timer} label="In Progress" value={inProgressCount} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
         <StatCard icon={CheckCircle2} label="Completed" value={completedCount} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600" borderColor="border-l-emerald-500" />
         <StatCard icon={Headphones} label="Total" value={requests.length} iconBg="bg-violet-100 dark:bg-violet-900/30" iconColor="text-violet-600" borderColor="border-l-violet-500" />
@@ -133,7 +134,7 @@ export default function ItsmServiceRequests() {
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Service Request {viewModal?.requestNo}</DialogTitle></DialogHeader>
           {viewModal && (
             <div className="space-y-4">
@@ -145,6 +146,7 @@ export default function ItsmServiceRequests() {
                 ))}
               </div>
               {viewModal.fulfillmentNotes && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Fulfillment Notes</div><div className="text-sm bg-emerald-50 dark:bg-emerald-900/10 p-2 rounded">{viewModal.fulfillmentNotes}</div></div>}
+              <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
             </div>
           )}
         </DialogContent>
@@ -158,12 +160,17 @@ export default function ItsmServiceRequests() {
             <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
             <div><Label>Category</Label><Select value={formData.category || "Other"} onValueChange={v => setFormData({ ...formData, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Status</Label><Select value={formData.status || "New"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Requested By</Label><Input value={formData.requestedBy || ""} onChange={e => setFormData({ ...formData, requestedBy: e.target.value })} /></div>
             <div><Label>Assigned To</Label><Input value={formData.assignedTo || ""} onChange={e => setFormData({ ...formData, assignedTo: e.target.value })} /></div>
             <div><Label>Department</Label><Input value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} /></div>
             {formData.status === "Completed" && <div className="col-span-2"><Label>Fulfillment Notes</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} /></div>}
           </div>
+          {editingItem && (
+            <div className="mt-4">
+              <ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" />
+            </div>
+          )}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>

@@ -59,7 +59,7 @@ const ITSM_ITEMS = [
   { href: "/itsm", label: "ITSM Dashboard", icon: BarChart3, module: "itsm_dashboard" },
   { href: "/itsm-incidents", label: "Incidents", icon: AlertTriangle, module: "itsm_incidents" },
   { href: "/itsm-problems", label: "Problems", icon: Database, module: "itsm_problems" },
-  { href: "/itsm-changes", label: "Changes", icon: GitBranch, module: "itsm_changes" },
+  { href: "/itsm-changes", label: "Change Requests", icon: GitBranch, module: "itsm_changes" },
   { href: "/itsm-kb", label: "Knowledge Base", icon: BookOpen, module: "itsm_kb" },
   { href: "/itsm-sla", label: "SLA Policies", icon: Shield, module: "itsm_sla" },
   { href: "/itsm-requests", label: "Service Requests", icon: Clock, module: "itsm_requests" },

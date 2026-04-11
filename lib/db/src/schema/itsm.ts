@@ -71,10 +71,12 @@ export const itsmChangesTable = pgTable("itsm_changes", {
 export const itsmSlaPoliciesTable = pgTable("itsm_sla_policies", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  ticketType: text("ticket_type").notNull().default("Incident"),
   priority: text("priority").notNull(),
   responseTimeHours: integer("response_time_hours").notNull(),
   resolutionTimeHours: integer("resolution_time_hours").notNull(),
   escalationEnabled: boolean("escalation_enabled").notNull().default(true),
+  escalationPolicy: text("escalation_policy"),
   status: text("status").notNull().default("Active"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -126,12 +128,38 @@ export const itsmServiceRequestsTable = pgTable("itsm_service_requests", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
+export const itsmApprovalMatrixTable = pgTable("itsm_approval_matrix", {
+  id: serial("id").primaryKey(),
+  ticketType: text("ticket_type").notNull(),
+  condition: text("condition"),
+  approverRole: text("approver_role").notNull(),
+  approverLevel: text("approver_level").notNull(),
+  sequence: integer("sequence").notNull().default(1),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const itsmApprovalsTable = pgTable("itsm_approvals", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  ticketType: text("ticket_type").notNull(),
+  approverLevel: text("approver_level").notNull(),
+  approverRole: text("approver_role").notNull(),
+  approverName: text("approver_name"),
+  status: text("status").notNull().default("Pending"),
+  notes: text("notes"),
+  actionAt: timestamp("action_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const insertIncidentSchema = createInsertSchema(itsmIncidentsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertProblemSchema = createInsertSchema(itsmProblemsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertChangeSchema = createInsertSchema(itsmChangesTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSlaPolicySchema = createInsertSchema(itsmSlaPoliciesTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertKnowledgeBaseSchema = createInsertSchema(itsmKnowledgeBaseTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertServiceRequestSchema = createInsertSchema(itsmServiceRequestsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertApprovalMatrixSchema = createInsertSchema(itsmApprovalMatrixTable).omit({ id: true, createdAt: true });
+export const insertApprovalSchema = createInsertSchema(itsmApprovalsTable).omit({ id: true, createdAt: true });
 
 export type ItsmIncident = typeof itsmIncidentsTable.$inferSelect;
 export type ItsmProblem = typeof itsmProblemsTable.$inferSelect;
@@ -140,3 +168,5 @@ export type ItsmSlaPolicy = typeof itsmSlaPoliciesTable.$inferSelect;
 export type ItsmTicketHistory = typeof itsmTicketHistoryTable.$inferSelect;
 export type ItsmKnowledgeBase = typeof itsmKnowledgeBaseTable.$inferSelect;
 export type ItsmServiceRequest = typeof itsmServiceRequestsTable.$inferSelect;
+export type ItsmApprovalMatrix = typeof itsmApprovalMatrixTable.$inferSelect;
+export type ItsmApproval = typeof itsmApprovalsTable.$inferSelect;

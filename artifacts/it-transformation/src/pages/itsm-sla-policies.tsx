@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Shield, Clock, Timer, Target } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Shield, Clock, Timer, Target, AlertTriangle, Bug, GitBranch, Headphones } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -17,7 +17,15 @@ import { apiFetch } from "@/lib/api";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
+const TICKET_TYPES = ["Incident", "Problem", "Change Request", "Service Request"];
 const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#d4a843", Low: "#2563eb" };
+const TYPE_ICON: Record<string, any> = { Incident: AlertTriangle, Problem: Bug, "Change Request": GitBranch, "Service Request": Headphones };
+const TYPE_COLOR: Record<string, string> = {
+  Incident: "border-red-500/30 text-red-600 bg-red-50 dark:bg-red-400/10",
+  Problem: "border-violet-500/30 text-violet-600 bg-violet-50 dark:bg-violet-400/10",
+  "Change Request": "border-teal-500/30 text-teal-600 bg-teal-50 dark:bg-teal-400/10",
+  "Service Request": "border-blue-500/30 text-blue-600 bg-blue-50 dark:bg-blue-400/10",
+};
 
 export default function ItsmSlaPolicies() {
   const queryClient = useQueryClient();
@@ -25,6 +33,7 @@ export default function ItsmSlaPolicies() {
   const { isAdmin, user } = useAuth();
   const [search, setSearch] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
+  const [activeType, setActiveType] = useState("Incident");
   const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewModal, setViewModal] = useState<any>(null);
@@ -37,20 +46,29 @@ export default function ItsmSlaPolicies() {
   const updateSla = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/sla-policies/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sla-policies"] }) });
   const deleteSla = useMutation({ mutationFn: (id: number) => apiFetch(`/sla-policies/${id}`, { method: "DELETE" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sla-policies"] }) });
 
+  const typeSlas = useMemo(() => slas.filter((s: any) => s.ticketType === activeType), [slas, activeType]);
+
   const filtered = useMemo(() => {
-    let list = slas;
+    let list = typeSlas;
     if (search) list = list.filter((s: any) => [s.name, s.priority].some(v => v?.toLowerCase().includes(search.toLowerCase())));
     if (filterPriority) list = list.filter((s: any) => s.priority === filterPriority);
     return list;
-  }, [slas, search, filterPriority]);
+  }, [typeSlas, search, filterPriority]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const activeCount = slas.filter((s: any) => s.isActive).length;
-  const avgResponse = slas.length > 0 ? (slas.reduce((s: number, p: any) => s + (p.responseTimeHours || 0), 0) / slas.length).toFixed(1) : "—";
-  const avgResolution = slas.length > 0 ? (slas.reduce((s: number, p: any) => s + (p.resolutionTimeHours || 0), 0) / slas.length).toFixed(1) : "—";
 
-  function openCreate() { setEditingItem(null); setFormData({ priority: "Medium", responseTimeHours: 4, resolutionTimeHours: 24, isActive: true }); setIsModalOpen(true); }
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    TICKET_TYPES.forEach(t => { counts[t] = slas.filter((s: any) => s.ticketType === t).length; });
+    return counts;
+  }, [slas]);
+
+  const avgResponse = typeSlas.length > 0 ? (typeSlas.reduce((s: number, p: any) => s + (p.responseTimeHours || 0), 0) / typeSlas.length).toFixed(1) : "—";
+  const avgResolution = typeSlas.length > 0 ? (typeSlas.reduce((s: number, p: any) => s + (p.resolutionTimeHours || 0), 0) / typeSlas.length).toFixed(1) : "—";
+  const escalationCount = typeSlas.filter((s: any) => s.escalationEnabled).length;
+
+  function openCreate() { setEditingItem(null); setFormData({ ticketType: activeType, priority: "Medium", responseTimeHours: 4, resolutionTimeHours: 24, escalationEnabled: true }); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
 
   async function handleSave() {
@@ -72,14 +90,31 @@ export default function ItsmSlaPolicies() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">SLA Policies</h1>
-          <p className="text-sm text-muted-foreground">Define service level agreements and response targets — {user?.name}</p>
+          <p className="text-sm text-muted-foreground">Define service level agreements per ticket type — {user?.name}</p>
         </div>
         <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New SLA Policy</Button>
       </div>
 
+      <div className="flex gap-2 border-b border-border pb-0">
+        {TICKET_TYPES.map(type => {
+          const Icon = TYPE_ICON[type];
+          return (
+            <button
+              key={type}
+              onClick={() => { setActiveType(type); setPage(1); setSearch(""); setFilterPriority(""); }}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeType === type ? "border-[#d4a843] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"}`}
+            >
+              <Icon className="w-4 h-4" />
+              {type}
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{typeCounts[type] || 0}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard icon={Shield} label="Total Policies" value={slas.length} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
-        <StatCard icon={Target} label="Active" value={activeCount} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600" borderColor="border-l-emerald-500" />
+        <StatCard icon={Shield} label={`${activeType} Policies`} value={typeSlas.length} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
+        <StatCard icon={Target} label="With Escalation" value={escalationCount} iconBg="bg-red-100 dark:bg-red-900/30" iconColor="text-red-600" borderColor="border-l-red-500" />
         <StatCard icon={Clock} label="Avg Response" value={`${avgResponse}h`} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
         <StatCard icon={Timer} label="Avg Resolution" value={`${avgResolution}h`} iconBg="bg-violet-100 dark:bg-violet-900/30" iconColor="text-violet-600" borderColor="border-l-violet-500" />
       </div>
@@ -95,15 +130,24 @@ export default function ItsmSlaPolicies() {
               <TableHead>Policy Name</TableHead><TableHead>Priority</TableHead><TableHead>Response Time</TableHead><TableHead>Resolution Time</TableHead><TableHead>Escalation</TableHead><TableHead>Status</TableHead><TableHead className="w-[100px] text-center">Actions</TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {paged.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No SLA policies found</TableCell></TableRow>}
+              {paged.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No SLA policies for {activeType}</TableCell></TableRow>}
               {paged.map((s: any) => (
                 <TableRow key={s.id}>
                   <TableCell className="font-medium">{s.name}</TableCell>
                   <TableCell><Badge variant="outline" style={{ borderColor: PRIORITY_COLORS[s.priority], color: PRIORITY_COLORS[s.priority] }}>{s.priority}</Badge></TableCell>
                   <TableCell className="font-semibold">{s.responseTimeHours}h</TableCell>
                   <TableCell className="font-semibold">{s.resolutionTimeHours}h</TableCell>
-                  <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">{s.escalationPolicy || "—"}</TableCell>
-                  <TableCell><Badge variant="outline" className={s.isActive ? "border-emerald-500/30 text-emerald-600 bg-emerald-50" : "border-gray-400/30 text-gray-500 bg-gray-50"}>{s.isActive ? "Active" : "Inactive"}</Badge></TableCell>
+                  <TableCell>
+                    {s.escalationEnabled ? (
+                      <div>
+                        <Badge variant="outline" className="border-red-500/30 text-red-600 bg-red-50 dark:bg-red-400/10">Enabled</Badge>
+                        {s.escalationPolicy && <p className="text-[10px] text-muted-foreground mt-1 max-w-[200px] truncate">{s.escalationPolicy}</p>}
+                      </div>
+                    ) : (
+                      <Badge variant="outline" className="border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10">Disabled</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell><Badge variant="outline" className={s.isActive !== false ? "border-emerald-500/30 text-emerald-600 bg-emerald-50" : "border-gray-400/30 text-gray-500 bg-gray-50"}>{s.isActive !== false ? "Active" : "Inactive"}</Badge></TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(s)} className="p-1.5 rounded hover:bg-muted"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
@@ -125,12 +169,13 @@ export default function ItsmSlaPolicies() {
           {viewModal && (
             <div className="space-y-4">
               <h3 className="font-semibold">{viewModal.name}</h3>
+              <Badge variant="outline" className={TYPE_COLOR[viewModal.ticketType] || ""}>{viewModal.ticketType}</Badge>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Priority", viewModal.priority], ["Response Time", `${viewModal.responseTimeHours} hours`], ["Resolution Time", `${viewModal.resolutionTimeHours} hours`], ["Status", viewModal.isActive ? "Active" : "Inactive"]].map(([l, v]) => (
+                {[["Priority", viewModal.priority], ["Response Time", `${viewModal.responseTimeHours} hours`], ["Resolution Time", `${viewModal.resolutionTimeHours} hours`], ["Status", viewModal.isActive !== false ? "Active" : "Inactive"]].map(([l, v]) => (
                   <div key={l as string}><div className="text-[10px] uppercase text-muted-foreground font-semibold">{l}</div><div className="font-medium">{v as string}</div></div>
                 ))}
               </div>
-              {viewModal.escalationPolicy && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Escalation Policy</div><div className="text-sm">{viewModal.escalationPolicy}</div></div>}
+              {viewModal.escalationPolicy && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Escalation Policy</div><div className="text-sm bg-amber-50 dark:bg-amber-900/10 p-2 rounded">{viewModal.escalationPolicy}</div></div>}
             </div>
           )}
         </DialogContent>
@@ -141,10 +186,12 @@ export default function ItsmSlaPolicies() {
           <DialogHeader><DialogTitle>{editingItem ? "Edit SLA Policy" : "New SLA Policy"}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2"><Label>Policy Name *</Label><Input value={formData.name || ""} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+            <div><Label>Ticket Type</Label><Select value={formData.ticketType || "Incident"} onValueChange={v => setFormData({ ...formData, ticketType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{TICKET_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Active</Label><Select value={formData.isActive ? "true" : "false"} onValueChange={v => setFormData({ ...formData, isActive: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Active</SelectItem><SelectItem value="false">Inactive</SelectItem></SelectContent></Select></div>
             <div><Label>Response Time (hours) *</Label><Input type="number" value={formData.responseTimeHours || ""} onChange={e => setFormData({ ...formData, responseTimeHours: parseInt(e.target.value) })} /></div>
             <div><Label>Resolution Time (hours) *</Label><Input type="number" value={formData.resolutionTimeHours || ""} onChange={e => setFormData({ ...formData, resolutionTimeHours: parseInt(e.target.value) })} /></div>
+            <div><Label>Escalation Enabled</Label><Select value={formData.escalationEnabled ? "true" : "false"} onValueChange={v => setFormData({ ...formData, escalationEnabled: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes</SelectItem><SelectItem value="false">No</SelectItem></SelectContent></Select></div>
+            <div><Label>Active</Label><Select value={formData.isActive !== false ? "true" : "false"} onValueChange={v => setFormData({ ...formData, isActive: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Active</SelectItem><SelectItem value="false">Inactive</SelectItem></SelectContent></Select></div>
             <div className="col-span-2"><Label>Escalation Policy</Label><Input value={formData.escalationPolicy || ""} onChange={e => setFormData({ ...formData, escalationPolicy: e.target.value })} placeholder="Describe escalation procedure" /></div>
           </div>
           <div className="flex justify-end gap-2 mt-4">

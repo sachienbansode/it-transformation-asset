@@ -15,6 +15,7 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { ApprovalMatrix } from "@/components/approval-matrix";
 
 const PAGE_SIZE = 10;
 const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Closed"];
@@ -127,7 +128,7 @@ export default function ItsmProblems() {
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Problem {viewModal?.problemNo}</DialogTitle></DialogHeader>
           {viewModal && (
             <div className="space-y-4">
@@ -140,6 +141,7 @@ export default function ItsmProblems() {
               </div>
               {viewModal.rootCause && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Root Cause</div><div className="text-sm bg-teal-50 dark:bg-teal-900/10 p-2 rounded">{viewModal.rootCause}</div></div>}
               {viewModal.workaround && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Workaround</div><div className="text-sm bg-amber-50 dark:bg-amber-900/10 p-2 rounded">{viewModal.workaround}</div></div>}
+              <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
             </div>
           )}
         </DialogContent>
@@ -159,6 +161,11 @@ export default function ItsmProblems() {
             <div className="col-span-2"><Label>Root Cause</Label><Textarea value={formData.rootCause || ""} onChange={e => setFormData({ ...formData, rootCause: e.target.value })} rows={2} /></div>
             <div className="col-span-2"><Label>Workaround</Label><Textarea value={formData.workaround || ""} onChange={e => setFormData({ ...formData, workaround: e.target.value })} rows={2} /></div>
           </div>
+          {editingItem && (
+            <div className="mt-4">
+              <ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" />
+            </div>
+          )}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>

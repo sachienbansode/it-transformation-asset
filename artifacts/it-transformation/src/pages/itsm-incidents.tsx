@@ -15,6 +15,7 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { ApprovalMatrix } from "@/components/approval-matrix";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
@@ -59,6 +60,7 @@ export default function ItsmIncidents() {
   const [formData, setFormData] = useState<any>({});
 
   const { data: incidents = [] } = useQuery({ queryKey: ["incidents"], queryFn: () => apiFetch<any[]>("/incidents") });
+  const { data: stats } = useQuery({ queryKey: ["incidents-stats"], queryFn: () => apiFetch<any>("/incidents/stats") });
 
   const createInc = useMutation({ mutationFn: (data: any) => apiFetch("/incidents", { method: "POST", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
   const updateInc = useMutation({ mutationFn: ({ id, ...data }: any) => apiFetch(`/incidents/${id}`, { method: "PATCH", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
@@ -80,6 +82,13 @@ export default function ItsmIncidents() {
   const inProgressCount = incidents.filter((i: any) => i.status === "In Progress").length;
   const resolvedCount = incidents.filter((i: any) => i.status === "Resolved").length;
   const criticalOpen = incidents.filter((i: any) => i.priority === "Critical" && (i.status === "Open" || i.status === "In Progress")).length;
+
+  const categoryBreakdown = useMemo(() => {
+    if (stats?.byCategory) return stats.byCategory;
+    const cats: Record<string, number> = {};
+    incidents.forEach((i: any) => { const c = i.category || "Uncategorized"; cats[c] = (cats[c] || 0) + 1; });
+    return Object.entries(cats).map(([category, count]) => ({ category, count }));
+  }, [stats, incidents]);
 
   function openCreate() { setEditingItem(null); setFormData({ status: "Open", priority: "Medium", severity: "S3" }); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
@@ -116,6 +125,26 @@ export default function ItsmIncidents() {
         <StatCard icon={XCircle} label="Total Incidents" value={incidents.length} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
       </div>
 
+      {categoryBreakdown.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">By Category</h3>
+            <div className="flex flex-wrap gap-2">
+              {categoryBreakdown.map((c: any) => (
+                <button
+                  key={c.category}
+                  onClick={() => { setFilterCategory(c.category === filterCategory ? "" : c.category); setPage(1); }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${filterCategory === c.category ? "bg-[#d4a843]/10 border-[#d4a843]/50 text-[#d4a843]" : "bg-muted/30 border-border hover:bg-muted/50"}`}
+                >
+                  {c.category || "Uncategorized"}
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-background border">{c.count}</span>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-wrap gap-3 items-center mb-4">
@@ -130,10 +159,6 @@ export default function ItsmIncidents() {
             <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent><SelectItem value="all">All Statuses</SelectItem>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={filterCategory} onValueChange={v => { setFilterCategory(v === "all" ? "" : v); setPage(1); }}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Category" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Categories</SelectItem>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
             {(search || filterPriority || filterStatus || filterCategory) && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-xs">Clear</Button>
@@ -174,7 +199,7 @@ export default function ItsmIncidents() {
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Incident {viewModal?.ticketNo}</DialogTitle></DialogHeader>
           {viewModal && (
             <div className="space-y-4">
@@ -186,6 +211,7 @@ export default function ItsmIncidents() {
                 ))}
               </div>
               {viewModal.resolutionNotes && <div><div className="text-[10px] uppercase text-muted-foreground font-semibold">Resolution Notes</div><div className="text-sm bg-emerald-50 dark:bg-emerald-900/10 p-2 rounded">{viewModal.resolutionNotes}</div></div>}
+              <ApprovalMatrix ticketId={viewModal.id} ticketType="Incident" readonly />
             </div>
           )}
         </DialogContent>
@@ -207,6 +233,11 @@ export default function ItsmIncidents() {
             <div><Label>Affected System</Label><Input value={formData.affectedSystem || ""} onChange={e => setFormData({ ...formData, affectedSystem: e.target.value })} /></div>
             {(formData.status === "Resolved" || formData.status === "Closed") && <div className="col-span-2"><Label>Resolution Notes</Label><Textarea value={formData.resolutionNotes || ""} onChange={e => setFormData({ ...formData, resolutionNotes: e.target.value })} rows={2} /></div>}
           </div>
+          {editingItem && (
+            <div className="mt-4">
+              <ApprovalMatrix ticketId={editingItem.id} ticketType="Incident" />
+            </div>
+          )}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>
