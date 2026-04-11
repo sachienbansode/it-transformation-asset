@@ -258,6 +258,9 @@ export default function Login() {
         <p className="text-center text-xs text-muted-foreground">
           Protected under Ashika Group IT Security Policy &mdash; Unauthorized access is prohibited.
         </p>
+        <p className="text-center text-[10px] text-muted-foreground/70 mt-2">
+          &copy; 2026 NIYTRI Technologies. All rights reserved.
+        </p>
 
         {import.meta.env.DEV && (
           <div className="border border-amber-400/40 rounded-lg bg-amber-50/60 dark:bg-amber-900/10 text-xs">

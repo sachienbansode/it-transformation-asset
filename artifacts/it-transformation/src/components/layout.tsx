@@ -499,10 +499,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto bg-background">
-          <div className="min-h-full p-5">
+        <div className="flex-1 overflow-auto bg-background flex flex-col">
+          <div className="flex-1 p-5">
             {children}
           </div>
+          <footer className="shrink-0 border-t border-border/40 px-5 py-2 text-center text-[10px] text-muted-foreground/60">
+            &copy; 2026 NIYTRI Technologies. All rights reserved.
+          </footer>
         </div>
       </main>
 
