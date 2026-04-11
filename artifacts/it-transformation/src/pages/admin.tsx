@@ -17,6 +17,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
@@ -1254,6 +1258,7 @@ function RolesTab() {
   const [editDefaultDashboard, setEditDefaultDashboard] = useState("/");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [usersPage, setUsersPage] = useState(1);
+  const [removeConfirm, setRemoveConfirm] = useState<UserRole | null>(null);
 
   const toggleGroup = (group: string) => {
     setCollapsedGroups(prev => {
@@ -1493,12 +1498,13 @@ function RolesTab() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
+                  <div className="max-h-[420px] overflow-y-auto relative">
                   <table className="w-full">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-background">
                       <tr className="border-b border-border bg-muted/30">
-                        <th className="text-left px-4 py-2 text-xs font-semibold">Module</th>
+                        <th className="text-left px-4 py-2 text-xs font-semibold bg-muted/30">Module</th>
                         {ACCESS_LEVELS.map(l => (
-                          <th key={l} className="text-center px-3 py-2 text-xs font-semibold capitalize w-[80px]">
+                          <th key={l} className="text-center px-3 py-2 text-xs font-semibold capitalize w-[80px] bg-muted/30">
                             <span className={LEVEL_COLORS[l]}>{l}</span>
                           </th>
                         ))}
@@ -1549,6 +1555,7 @@ function RolesTab() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                   <div className="flex items-center gap-4 px-4 py-2 border-t border-border/50 text-[10px] text-muted-foreground flex-wrap">
                     {ACCESS_LEVELS.map(l => (
                       <span key={l} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${LEVEL_BADGES[l]}`}>
@@ -1588,7 +1595,7 @@ function RolesTab() {
                               <p className="text-sm font-medium">{ur.userName || `User #${ur.userId}`}</p>
                               {ur.userEmail && <p className="text-[10px] text-muted-foreground">{ur.userEmail}</p>}
                             </div>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeUserFromRole(ur)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setRemoveConfirm(ur)}>
                               <Minus className="h-3.5 w-3.5"/>
                             </Button>
                           </div>
@@ -1626,6 +1633,21 @@ function RolesTab() {
           )}
         </div>
       )}
+
+      <AlertDialog open={!!removeConfirm} onOpenChange={open => { if (!open) setRemoveConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove User from Role</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove <strong>{removeConfirm?.userName || `User #${removeConfirm?.userId}`}</strong> from the <strong>{selectedRole?.name}</strong> role? This will revoke all permissions granted by this role.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => { if (removeConfirm) { removeUserFromRole(removeConfirm); setRemoveConfirm(null); } }}>Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* New Role Dialog */}
       <Dialog open={newRoleOpen} onOpenChange={setNewRoleOpen}>
