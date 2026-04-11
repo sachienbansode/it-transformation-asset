@@ -33,6 +33,7 @@ import ItsmChanges from "@/pages/itsm-changes";
 import ItsmKnowledgeBase from "@/pages/itsm-knowledge-base";
 import ItsmSlaPolicies from "@/pages/itsm-sla-policies";
 import ItsmServiceRequests from "@/pages/itsm-service-requests";
+import ItsmApprovalConfig from "@/pages/itsm-approval-config";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const queryClient = new QueryClient({
@@ -124,6 +125,7 @@ function Router() {
               <Route path="/itsm-kb" component={ItsmKnowledgeBase} />
               <Route path="/itsm-sla" component={ItsmSlaPolicies} />
               <Route path="/itsm-requests" component={ItsmServiceRequests} />
+              <Route path="/itsm-approval" component={ItsmApprovalConfig} />
               <Route path="/profile" component={Profile} />
               <Route path="/admin">
                 {user.role === "admin" ? <Admin /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}

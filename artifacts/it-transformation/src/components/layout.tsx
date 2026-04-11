@@ -8,7 +8,7 @@ import {
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
-  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive,
+  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -63,6 +63,7 @@ const ITSM_ITEMS = [
   { href: "/itsm-kb", label: "Knowledge Base", icon: BookOpen, module: "itsm_kb" },
   { href: "/itsm-sla", label: "SLA Policies", icon: Shield, module: "itsm_sla" },
   { href: "/itsm-requests", label: "Service Requests", icon: Clock, module: "itsm_requests" },
+  { href: "/itsm-approval", label: "Approval Workflow", icon: GitMerge, module: "itsm_approval" },
 ];
 
 const ADMIN_ITEMS = [

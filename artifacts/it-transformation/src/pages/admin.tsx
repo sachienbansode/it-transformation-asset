@@ -385,6 +385,8 @@ function UsersTab() {
   const [searchQ, setSearchQ] = useState("");
   const [sortCol, setSortCol] = useState<"name" | "email" | "department" | "role" | "status">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [userPage, setUserPage] = useState(1);
+  const USER_PAGE_SIZE = 10;
   const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
   const [deptMasters, setDeptMasters] = useState<DeptMaster[]>([]);
 
@@ -474,6 +476,11 @@ function UsersTab() {
     });
   }, [users, searchQ, sortCol, sortDir]);
 
+  useEffect(() => { setUserPage(1); }, [searchQ, sortCol, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredUsers.length / USER_PAGE_SIZE));
+  const pagedUsers = sortedFilteredUsers.slice((userPage - 1) * USER_PAGE_SIZE, userPage * USER_PAGE_SIZE);
+
   const SortIcon = ({ col }: { col: typeof sortCol }) => (
     sortCol === col
       ? <span className="ml-1 text-primary">{sortDir === "asc" ? "↑" : "↓"}</span>
@@ -493,7 +500,7 @@ function UsersTab() {
               className="w-full pl-8 pr-3 py-1.5 text-sm border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
-          <p className="text-xs text-muted-foreground whitespace-nowrap">{sortedFilteredUsers.length} / {users.length}</p>
+          <p className="text-xs text-muted-foreground whitespace-nowrap">{sortedFilteredUsers.length} / {users.length} users</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</Button>
@@ -504,8 +511,9 @@ function UsersTab() {
       {loading ? (
         <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
       ) : (
+        <>
         <div className="border border-border rounded-md overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
             <thead className="bg-muted/50">
               <tr>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer" onClick={() => toggleSort("name")}>Name<SortIcon col="name" /></th>
@@ -524,7 +532,7 @@ function UsersTab() {
               {sortedFilteredUsers.length === 0 && (
                 <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">No users match your search.</td></tr>
               )}
-              {sortedFilteredUsers.map(u => (
+              {pagedUsers.map(u => (
                 <tr key={u.id} className="border-t border-border hover:bg-muted/30">
                   <td className="px-4 py-2.5 font-medium">{u.name}</td>
                   <td className="px-4 py-2.5 text-muted-foreground text-xs">{u.email}</td>
@@ -564,6 +572,51 @@ function UsersTab() {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+            <p className="text-xs text-muted-foreground">
+              Showing {((userPage - 1) * USER_PAGE_SIZE) + 1}–{Math.min(userPage * USER_PAGE_SIZE, sortedFilteredUsers.length)} of {sortedFilteredUsers.length} users
+            </p>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline" size="sm" className="h-7 px-2 text-xs"
+                disabled={userPage === 1}
+                onClick={() => setUserPage(p => Math.max(1, p - 1))}
+              >
+                ← Prev
+              </Button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(p => p === 1 || p === totalPages || Math.abs(p - userPage) <= 1)
+                .reduce((acc: (number | string)[], p, idx, arr) => {
+                  if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push("…");
+                  acc.push(p); return acc;
+                }, [])
+                .map((p, idx) =>
+                  typeof p === "string" ? (
+                    <span key={`ellipsis-${idx}`} className="px-1 text-xs text-muted-foreground">…</span>
+                  ) : (
+                    <Button
+                      key={p}
+                      variant={p === userPage ? "default" : "outline"}
+                      size="sm"
+                      className={`h-7 w-7 p-0 text-xs ${p === userPage ? "bg-[#d4a843] hover:bg-[#b8922e] text-white border-[#d4a843]" : ""}`}
+                      onClick={() => setUserPage(p as number)}
+                    >
+                      {p}
+                    </Button>
+                  )
+                )}
+              <Button
+                variant="outline" size="sm" className="h-7 px-2 text-xs"
+                disabled={userPage === totalPages}
+                onClick={() => setUserPage(p => Math.min(totalPages, p + 1))}
+              >
+                Next →
+              </Button>
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
