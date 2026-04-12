@@ -184,7 +184,7 @@ export default function AssetManagement() {
               </TableBody>
             </Table>
           </Card>
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          <Pagination page={page} totalPages={totalPages} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
         </TabsContent>
 
         <TabsContent value="vendors" className="space-y-4">

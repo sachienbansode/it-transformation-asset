@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, AlertTriangle, CheckCircle2, Timer, XCircle } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, AlertTriangle, CheckCircle2, Timer, XCircle, Download } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -105,6 +105,34 @@ function timeSince(dateStr: string) {
   return hours > 0 ? `${hours}h ago` : "Just now";
 }
 
+function formatDate(dateStr: string | null | undefined) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatDateTime(dateStr: string | null | undefined) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+async function downloadReport(type: string, filename: string) {
+  const data = await apiFetch<any[]>(`/itsm-report?type=${type}`);
+  if (!data || !data.length) return;
+  const headers = Object.keys(data[0]);
+  const csvRows = [headers.join(","), ...data.map(row =>
+    headers.map(h => {
+      const val = row[h] == null ? "" : String(row[h]);
+      return `"${val.replace(/"/g, '""')}"`;
+    }).join(",")
+  )];
+  const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ItsmIncidents() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -175,7 +203,10 @@ export default function ItsmIncidents() {
           <h1 className="text-2xl font-bold tracking-tight">Incident Management</h1>
           <p className="text-sm text-muted-foreground">Track and resolve IT incidents — {user?.name}</p>
         </div>
-        <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Incident</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => downloadReport("incidents", `incidents-report-${new Date().toISOString().slice(0,10)}.csv`)} className="gap-2 text-xs"><Download className="w-3.5 h-3.5" />Export Report</Button>
+          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Incident</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -239,14 +270,15 @@ export default function ItsmIncidents() {
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[140px]">Status</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Category</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Assigned To</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[90px]">Age</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Created</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Updated</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[90px] text-center">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {paged.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-16 text-muted-foreground">
+                  <TableCell colSpan={11} className="text-center py-16 text-muted-foreground">
                     <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-30" />
                     <p className="font-medium">No incidents found</p>
                     <p className="text-xs mt-1">Try adjusting your filters</p>
@@ -268,7 +300,8 @@ export default function ItsmIncidents() {
                   <TableCell className="py-3"><StatusBadge value={inc.status} /></TableCell>
                   <TableCell className="py-3 text-xs text-muted-foreground font-medium">{inc.category || "—"}</TableCell>
                   <TableCell className="py-3"><AssigneeBadge name={inc.assignedTo} /></TableCell>
-                  <TableCell className="py-3 text-xs text-muted-foreground">{timeSince(inc.createdAt)}</TableCell>
+                  <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(inc.createdAt)}</TableCell>
+                  <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(inc.updatedAt)}</TableCell>
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(inc)} title="View details" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
@@ -303,7 +336,7 @@ export default function ItsmIncidents() {
                 <SeverityBadge value={viewModal.severity} />
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Category", viewModal.category], ["Assigned To", viewModal.assignedTo], ["Assigned Group", viewModal.assignedGroup], ["Reported By", viewModal.reportedBy], ["Affected System", viewModal.affectedSystem]].map(([l, v]) => (
+                {[["Category", viewModal.category], ["Assigned To", viewModal.assignedTo], ["Assigned Group", viewModal.assignedGroup], ["Reported By", viewModal.reportedBy], ["Affected System", viewModal.affectedSystem], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
                     <div className="font-medium text-sm">{(v as string) || "—"}</div>

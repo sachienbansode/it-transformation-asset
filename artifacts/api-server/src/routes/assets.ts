@@ -80,14 +80,19 @@ router.post("/asset-categories", requireAuth, async (req, res) => {
 router.patch("/asset-categories/:id", requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    const [old] = await db.select().from(assetCategoriesTable).where(eq(assetCategoriesTable.id, id));
     const [item] = await db.update(assetCategoriesTable).set(req.body).where(eq(assetCategoriesTable.id, id)).returning();
+    await safeLog({ entityType: "asset_category", entityId: id, action: "update", summary: `Updated category: ${item.name}`, oldValues: old, newValues: item });
     res.json(item);
   } catch (e) { handleError(res, e); }
 });
 
 router.delete("/asset-categories/:id", requireAuth, async (req, res) => {
   try {
-    await db.update(assetCategoriesTable).set({ isActive: false }).where(eq(assetCategoriesTable.id, parseInt(req.params.id)));
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(assetCategoriesTable).where(eq(assetCategoriesTable.id, id));
+    await db.update(assetCategoriesTable).set({ isActive: false }).where(eq(assetCategoriesTable.id, id));
+    await safeLog({ entityType: "asset_category", entityId: id, action: "delete", summary: `Deleted category: ${old?.name || id}` });
     res.status(204).end();
   } catch (e) { handleError(res, e); }
 });
@@ -110,14 +115,19 @@ router.post("/asset-vendors", requireAuth, async (req, res) => {
 router.patch("/asset-vendors/:id", requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    const [old] = await db.select().from(assetVendorsTable).where(eq(assetVendorsTable.id, id));
     const [item] = await db.update(assetVendorsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(assetVendorsTable.id, id)).returning();
+    await safeLog({ entityType: "asset_vendor", entityId: id, action: "update", summary: `Updated vendor: ${item.name}`, oldValues: old, newValues: item });
     res.json(item);
   } catch (e) { handleError(res, e); }
 });
 
 router.delete("/asset-vendors/:id", requireAuth, async (req, res) => {
   try {
-    await db.update(assetVendorsTable).set({ isActive: false }).where(eq(assetVendorsTable.id, parseInt(req.params.id)));
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(assetVendorsTable).where(eq(assetVendorsTable.id, id));
+    await db.update(assetVendorsTable).set({ isActive: false }).where(eq(assetVendorsTable.id, id));
+    await safeLog({ entityType: "asset_vendor", entityId: id, action: "delete", summary: `Deleted vendor: ${old?.name || id}` });
     res.status(204).end();
   } catch (e) { handleError(res, e); }
 });
@@ -140,14 +150,19 @@ router.post("/asset-licenses", requireAuth, async (req, res) => {
 router.patch("/asset-licenses/:id", requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    const [old] = await db.select().from(assetLicensesTable).where(eq(assetLicensesTable.id, id));
     const [item] = await db.update(assetLicensesTable).set({ ...req.body, updatedAt: new Date() }).where(eq(assetLicensesTable.id, id)).returning();
+    await safeLog({ entityType: "asset_license", entityId: id, action: "update", summary: `Updated license: ${item.productName}`, oldValues: old, newValues: item });
     res.json(item);
   } catch (e) { handleError(res, e); }
 });
 
 router.delete("/asset-licenses/:id", requireAuth, async (req, res) => {
   try {
-    await db.update(assetLicensesTable).set({ isActive: false }).where(eq(assetLicensesTable.id, parseInt(req.params.id)));
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(assetLicensesTable).where(eq(assetLicensesTable.id, id));
+    await db.update(assetLicensesTable).set({ isActive: false }).where(eq(assetLicensesTable.id, id));
+    await safeLog({ entityType: "asset_license", entityId: id, action: "delete", summary: `Deleted license: ${old?.productName || id}` });
     res.status(204).end();
   } catch (e) { handleError(res, e); }
 });

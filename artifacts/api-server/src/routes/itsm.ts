@@ -461,4 +461,125 @@ router.delete("/itsm-attachments/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+// ─── ITSM MASTER REPORT ───────────────────────────────────────
+router.get("/itsm-report", requireAuth, async (req, res): Promise<void> => {
+  const type = (req.query.type as string) || "all";
+
+  const allApprovals = await db.select().from(itsmApprovalsTable);
+  const slas = await db.select().from(itsmSlaPoliciesTable).where(eq(itsmSlaPoliciesTable.isActive, true));
+
+  function getCurrentStage(ticketId: number, ticketType: string) {
+    const ticketApprovals = allApprovals.filter(a => a.ticketId === ticketId && a.ticketType === ticketType);
+    if (!ticketApprovals.length) return { currentStage: "No Approval Required", pendingWith: "—" };
+    const pending = ticketApprovals.filter(a => a.status === "Pending").sort((a, b) => (a.approverLevel || "").localeCompare(b.approverLevel || ""))[0];
+    const approved = ticketApprovals.every(a => a.status === "Approved");
+    const rejected = ticketApprovals.find(a => a.status === "Rejected");
+    if (rejected) return { currentStage: `Rejected at ${rejected.approverLevel}`, pendingWith: rejected.approverRole || "—" };
+    if (approved) return { currentStage: "Fully Approved", pendingWith: "—" };
+    if (pending) return { currentStage: pending.approverLevel || "L1", pendingWith: `${pending.approverRole || ""}${pending.approverName ? " (" + pending.approverName + ")" : ""}` };
+    return { currentStage: "—", pendingWith: "—" };
+  }
+
+  function getSLABreach(createdAt: Date | null, resolvedAt: Date | null, closedAt: Date | null, priority: string, ticketTypeName: string) {
+    const sla = slas.find(s => s.priority === priority && s.ticketType === ticketTypeName);
+    if (!sla) return "No SLA";
+    if (resolvedAt || closedAt) return "No Breach";
+    const ageHours = (Date.now() - new Date(createdAt || Date.now()).getTime()) / 3600000;
+    return ageHours > sla.resolutionTimeHours ? `Breached (${Math.round(ageHours)}h / ${sla.resolutionTimeHours}h SLA)` : `Within SLA (${Math.round(ageHours)}h / ${sla.resolutionTimeHours}h)`;
+  }
+
+  function fmtDate(d: Date | string | null) {
+    if (!d) return "";
+    return new Date(d).toISOString().replace("T", " ").substring(0, 19) + " UTC";
+  }
+
+  const results: any[] = [];
+
+  if (type === "all" || type === "incidents") {
+    const rows = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(desc(itsmIncidentsTable.createdAt));
+    for (const r of rows) {
+      const { currentStage, pendingWith } = getCurrentStage(r.id, "Incident");
+      results.push({
+        type: "Incident",
+        ticketNo: r.ticketNo, title: r.title, description: r.description || "",
+        status: r.status, priority: r.priority, severity: r.severity,
+        category: r.category || "", subcategory: r.subcategory || "",
+        assignedTo: r.assignedTo || "", assignedGroup: r.assignedGroup || "",
+        reportedBy: r.reportedBy || "", reporterEmail: r.reporterEmail || "",
+        affectedSystem: r.affectedSystem || "", resolutionNotes: r.resolutionNotes || "",
+        resolvedAt: fmtDate(r.resolvedAt), closedAt: fmtDate(r.closedAt),
+        currentApprovalStage: currentStage, pendingWithApprover: pendingWith,
+        slaBreachStatus: getSLABreach(r.createdAt, r.resolvedAt, r.closedAt, r.priority, "Incident"),
+        createdBy: r.createdBy || "", updatedBy: r.updatedBy || "",
+        createdAt: fmtDate(r.createdAt), updatedAt: fmtDate(r.updatedAt),
+      });
+    }
+  }
+
+  if (type === "all" || type === "problems") {
+    const rows = await db.select().from(itsmProblemsTable).where(eq(itsmProblemsTable.isActive, true)).orderBy(desc(itsmProblemsTable.createdAt));
+    for (const r of rows) {
+      const { currentStage, pendingWith } = getCurrentStage(r.id, "Problem");
+      results.push({
+        type: "Problem",
+        ticketNo: r.problemNo, title: r.title, description: r.description || "",
+        status: r.status, priority: r.priority, severity: "", category: "", subcategory: "",
+        assignedTo: r.assignedTo || "", assignedGroup: "",
+        reportedBy: "", reporterEmail: "", affectedSystem: r.affectedSystems || "",
+        resolutionNotes: r.workaround || "", resolvedAt: "", closedAt: "",
+        rootCause: r.rootCause || "", relatedIncidents: r.relatedIncidents || "",
+        currentApprovalStage: currentStage, pendingWithApprover: pendingWith,
+        slaBreachStatus: getSLABreach(r.createdAt, null, null, r.priority, "Problem"),
+        createdBy: r.createdBy || "", updatedBy: r.updatedBy || "",
+        createdAt: fmtDate(r.createdAt), updatedAt: fmtDate(r.updatedAt),
+      });
+    }
+  }
+
+  if (type === "all" || type === "changes") {
+    const rows = await db.select().from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)).orderBy(desc(itsmChangesTable.createdAt));
+    for (const r of rows) {
+      const { currentStage, pendingWith } = getCurrentStage(r.id, "Change Request");
+      results.push({
+        type: "Change Request",
+        ticketNo: r.changeNo, title: r.title, description: r.description || "",
+        status: r.status, priority: r.riskLevel, severity: "",
+        category: r.type || "", subcategory: "",
+        assignedTo: r.requestedBy || "", assignedGroup: "",
+        reportedBy: r.requestedBy || "", reporterEmail: "",
+        affectedSystem: r.impact || "", resolutionNotes: r.rollbackPlan || "",
+        resolvedAt: r.implementationDate || "", closedAt: "",
+        approvalStatus: r.approvalStatus || "", approvedBy: r.approvedBy || "",
+        currentApprovalStage: currentStage, pendingWithApprover: pendingWith,
+        slaBreachStatus: "N/A (Change Request)",
+        createdBy: r.createdBy || "", updatedBy: r.updatedBy || "",
+        createdAt: fmtDate(r.createdAt), updatedAt: fmtDate(r.updatedAt),
+      });
+    }
+  }
+
+  if (type === "all" || type === "service-requests") {
+    const rows = await db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.isActive, true)).orderBy(desc(itsmServiceRequestsTable.createdAt));
+    for (const r of rows) {
+      const { currentStage, pendingWith } = getCurrentStage(r.id, "Service Request");
+      results.push({
+        type: "Service Request",
+        ticketNo: r.requestNo, title: r.title, description: r.description || "",
+        status: r.status, priority: r.priority, severity: "",
+        category: r.category || "", subcategory: "",
+        assignedTo: r.assignedTo || "", assignedGroup: "",
+        reportedBy: r.requestedBy || "", reporterEmail: "",
+        affectedSystem: "", resolutionNotes: "",
+        resolvedAt: fmtDate(r.completedAt), closedAt: "",
+        currentApprovalStage: currentStage, pendingWithApprover: pendingWith,
+        slaBreachStatus: getSLABreach(r.createdAt, r.completedAt, null, r.priority, "Service Request"),
+        createdBy: r.createdBy || "", updatedBy: r.updatedBy || "",
+        createdAt: fmtDate(r.createdAt), updatedAt: fmtDate(r.updatedAt),
+      });
+    }
+  }
+
+  res.json(results);
+});
+
 export default router;
