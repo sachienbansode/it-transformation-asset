@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { db, assetsTable, assetCategoriesTable, assetVendorsTable, assetLicensesTable, assetAllocationsTable, assetTransactionsTable, maintenanceRecordsTable } from "@workspace/db";
 import { eq, desc, sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
-import { logAudit } from "./audit-logs";
+import { logAudit, getPerformedBy } from "./audit-logs";
 
 const router = Router();
 
@@ -49,8 +49,9 @@ router.post("/assets", requireAuth, async (req, res) => {
         return;
       }
     }
-    const [item] = await db.insert(assetsTable).values(req.body).returning();
-    await safeLog({ entityType: "asset", entityId: item.id, action: "create", summary: `Created asset: ${item.name}`, newValues: item });
+    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+    const [item] = await db.insert(assetsTable).values({ ...req.body, createdBy: performedBy, updatedBy: performedBy }).returning();
+    await safeLog({ entityType: "asset", entityId: item.id, action: "create", performedBy, summary: `Created asset: ${item.name}`, newValues: item });
     res.status(201).json(item);
   } catch (e) { handleError(res, e); }
 });
@@ -69,11 +70,12 @@ router.patch("/assets/:id", requireAuth, async (req, res) => {
         return;
       }
     }
-    const [item] = await db.update(assetsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(assetsTable.id, id)).returning();
+    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+    const [item] = await db.update(assetsTable).set({ ...req.body, updatedBy: performedBy, updatedAt: new Date() }).where(eq(assetsTable.id, id)).returning();
     if (old.status !== item.status) {
-      await db.insert(assetTransactionsTable).values({ assetId: id, action: "Status Change", oldStatus: old.status, newStatus: item.status, userName: req.body.updatedBy || "System" });
+      await db.insert(assetTransactionsTable).values({ assetId: id, action: "Status Change", oldStatus: old.status, newStatus: item.status, userName: performedBy });
     }
-    await safeLog({ entityType: "asset", entityId: id, action: "update", summary: `Updated asset: ${item.name}`, oldValues: old, newValues: item });
+    await safeLog({ entityType: "asset", entityId: id, action: "update", performedBy, summary: `Updated asset: ${item.name}`, oldValues: old, newValues: item });
     res.json(item);
   } catch (e) { handleError(res, e); }
 });

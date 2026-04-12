@@ -344,6 +344,17 @@ function LogoUpload({ value, onChange }: { value: string; onChange: (v: string) 
               {processing ? "Processing…" : "Upload Logo"}
             </Button>
             {value && (
+              <Button type="button" variant="outline" size="sm" onClick={() => {
+                const a = document.createElement("a");
+                a.href = value;
+                const ext = value.startsWith("data:image/png") ? "png" : value.startsWith("data:image/svg") ? "svg" : "jpg";
+                a.download = `ashika-logo.${ext}`;
+                a.click();
+              }}>
+                Download Logo
+              </Button>
+            )}
+            {value && (
               <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => { onChange(""); setSizeInfo(""); }}>
                 Remove
               </Button>
