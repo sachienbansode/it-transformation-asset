@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketAttachments } from "@/components/itsm-attachments";
 
 const PAGE_SIZE = 10;
 const CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
@@ -267,6 +268,8 @@ export default function ItsmChanges() {
                 </div>
               )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Change Request" readonly />
+              <hr className="border-border/40" />
+              <TicketAttachments ticketType="Change Request" ticketId={viewModal.id} />
             </div>
           )}
         </DialogContent>

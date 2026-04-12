@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { db, itsmIncidentsTable, itsmProblemsTable, itsmChangesTable, itsmSlaPoliciesTable, itsmTicketHistoryTable, itsmKnowledgeBaseTable, itsmServiceRequestsTable, itsmApprovalMatrixTable, itsmApprovalsTable } from "@workspace/db";
+import { db, itsmIncidentsTable, itsmProblemsTable, itsmChangesTable, itsmSlaPoliciesTable, itsmTicketHistoryTable, itsmKnowledgeBaseTable, itsmServiceRequestsTable, itsmApprovalMatrixTable, itsmApprovalsTable, itsmAttachmentsTable, settingsTable } from "@workspace/db";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
-import { logAudit } from "./audit-logs";
+import { logAudit, getPerformedBy } from "./audit-logs";
+import { z } from "zod";
 
 const router = Router();
 
@@ -402,6 +403,62 @@ router.post("/approvals/:id/action", requireAdmin, async (req, res) => {
   });
   await logAudit({ entityType: `itsm_approval`, entityId: id, action: action.toLowerCase(), summary: `${action} ${approval.ticketType} #${approval.ticketId} at ${approval.approverLevel}`, performedBy: approverName });
   res.json(updated);
+});
+
+// ─── ITSM SETTINGS (attachment config) ───────────────────────
+router.get("/itsm-settings", async (_req, res): Promise<void> => {
+  const settings = await db.select().from(settingsTable).then(rows => {
+    return Object.fromEntries(rows.map(r => [r.key, r.value]));
+  });
+  res.json({
+    maxAttachmentSizeMB: parseInt(settings["itsm.maxAttachmentSizeMB"] ?? "20"),
+    maxAttachmentsPerTicket: parseInt(settings["itsm.maxAttachmentsPerTicket"] ?? "5"),
+    allowedFileTypes: JSON.parse(settings["itsm.allowedFileTypes"] ?? '["pdf","xlsx","xls","docx","doc","png","jpg","jpeg"]'),
+  });
+});
+
+// ─── ITSM ATTACHMENTS ─────────────────────────────────────────
+router.get("/itsm-attachments/:ticketType/:ticketId", async (req, res): Promise<void> => {
+  const ticketId = parseInt(req.params.ticketId);
+  const ticketType = req.params.ticketType;
+  if (isNaN(ticketId)) { res.status(400).json({ error: "Invalid ticketId" }); return; }
+  const rows = await db.select().from(itsmAttachmentsTable)
+    .where(and(eq(itsmAttachmentsTable.ticketType, ticketType), eq(itsmAttachmentsTable.ticketId, ticketId)))
+    .orderBy(desc(itsmAttachmentsTable.createdAt));
+  res.json(rows);
+});
+
+router.post("/itsm-attachments", async (req, res): Promise<void> => {
+  const body = z.object({
+    ticketType: z.string().min(1),
+    ticketId: z.number().int().positive(),
+    fileName: z.string().min(1),
+    fileSize: z.number().int().positive(),
+    contentType: z.string().min(1),
+    objectPath: z.string().min(1),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid attachment data" }); return; }
+
+  const userId = (req as any).user?.id;
+  const uploadedByName = await getPerformedBy(userId).catch(() => "Unknown");
+
+  const [attachment] = await db.insert(itsmAttachmentsTable).values({
+    ...body.data,
+    uploadedBy: userId,
+    uploadedByName,
+  }).returning();
+  await logAudit({ entityType: "itsm_attachment", entityId: attachment.id, action: "CREATE", performedBy: uploadedByName, summary: `Attachment uploaded: ${body.data.fileName} for ${body.data.ticketType} #${body.data.ticketId}` }).catch(() => {});
+  res.status(201).json(attachment);
+});
+
+router.delete("/itsm-attachments/:id", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [att] = await db.delete(itsmAttachmentsTable).where(eq(itsmAttachmentsTable.id, id)).returning();
+  if (!att) { res.status(404).json({ error: "Attachment not found" }); return; }
+  const actorName = await getPerformedBy((req as any).user?.id).catch(() => "Unknown");
+  await logAudit({ entityType: "itsm_attachment", entityId: id, action: "DELETE", performedBy: actorName, summary: `Attachment deleted: ${att.fileName} for ${att.ticketType} #${att.ticketId}` }).catch(() => {});
+  res.sendStatus(204);
 });
 
 export default router;

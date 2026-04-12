@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requireAdmin } from "./auth";
 import bcrypt from "bcryptjs";
 import { forceSeedProductionDatabase } from "../seed-production";
+import { logAudit, getPerformedBy } from "./audit-logs";
 
 const router = Router();
 
@@ -93,6 +94,8 @@ router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
     userType: usersTable.userType, role: usersTable.role, status: usersTable.status,
     mobile: usersTable.mobile,
   });
+  const adminName = await getPerformedBy((req as any).user?.id);
+  logAudit({ entityType: "User", entityId: user.id, action: "CREATE", performedBy: adminName, summary: `User created: ${user.email} (${user.role})`, newValues: { email: user.email, role: user.role, status: user.status } }).catch(() => {});
   res.status(201).json(user);
 });
 
@@ -123,20 +126,27 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   }
   if (rest.status === "inactive" || rest.status === "dormant") update.isActive = false;
   if (password) update.passwordHash = await bcrypt.hash(password, 12);
+  const [oldUser] = await db.select({ email: usersTable.email, role: usersTable.role, status: usersTable.status }).from(usersTable).where(eq(usersTable.id, id));
   const [user] = await db.update(usersTable).set(update).where(eq(usersTable.id, id)).returning({
     id: usersTable.id, email: usersTable.email, name: usersTable.name,
     userType: usersTable.userType, role: usersTable.role, status: usersTable.status,
     mobile: usersTable.mobile, mfaEnabled: usersTable.mfaEnabled,
   });
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  const adminNameU = await getPerformedBy((req as any).user?.id);
+  const changedFields = Object.keys(body.data).filter(k => k !== "password").join(", ");
+  logAudit({ entityType: "User", entityId: user.id, action: "UPDATE", performedBy: adminNameU, summary: `User updated: ${user.email} — fields: ${changedFields}`, oldValues: oldUser, newValues: { role: user.role, status: user.status } }).catch(() => {});
   res.json(user);
 });
 
 router.delete("/admin/users/:id", requireAdmin, async (req, res): Promise<void> => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [target] = await db.select({ email: usersTable.email, role: usersTable.role }).from(usersTable).where(eq(usersTable.id, id));
   const [user] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning();
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  const adminNameD = await getPerformedBy((req as any).user?.id);
+  logAudit({ entityType: "User", entityId: id, action: "DELETE", performedBy: adminNameD, summary: `User deleted: ${target?.email ?? id} (${target?.role ?? "?"})`, oldValues: target }).catch(() => {});
   res.sendStatus(204);
 });
 
@@ -200,6 +210,66 @@ router.post("/admin/seed-missing-checklist", requireAdmin, async (_req, res): Pr
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: "Seed missing checklist failed", detail: msg });
+  }
+});
+
+// ─── SAFE ITSM APPROVAL MATRIX SEED (idempotent, no truncate) ───
+router.post("/admin/seed-itsm-approval-matrix", requireAdmin, async (_req, res): Promise<void> => {
+  const rules = [
+    { ticketType: "Incident", condition: "All", approverRole: "Service Desk Manager", approverLevel: "L1", sequence: 1 },
+    { ticketType: "Incident", condition: "Priority:Critical,High", approverRole: "IT Manager", approverLevel: "L2", sequence: 2 },
+    { ticketType: "Incident", condition: "Severity:S1", approverRole: "CTO / IT Director", approverLevel: "L3", sequence: 3 },
+    { ticketType: "Incident", condition: "Severity:S1", approverRole: "CTO", approverLevel: "L4", sequence: 4 },
+    { ticketType: "Problem", condition: "All", approverRole: "Problem Manager", approverLevel: "L1", sequence: 1 },
+    { ticketType: "Problem", condition: "Priority:Critical,High", approverRole: "IT Manager", approverLevel: "L2", sequence: 2 },
+    { ticketType: "Change Request", condition: "All", approverRole: "Change Manager", approverLevel: "L1", sequence: 1 },
+    { ticketType: "Change Request", condition: "All", approverRole: "Change Advisory Board (CAB)", approverLevel: "L2", sequence: 2 },
+    { ticketType: "Change Request", condition: "Type:Emergency", approverRole: "CTO / IT Director", approverLevel: "L3", sequence: 3 },
+    { ticketType: "Service Request", condition: "All", approverRole: "Team Lead / Supervisor", approverLevel: "L1", sequence: 1 },
+    { ticketType: "Service Request", condition: "Priority:Critical,High", approverRole: "IT Manager", approverLevel: "L2", sequence: 2 },
+  ];
+  try {
+    const existing = await pool.query("SELECT COUNT(*)::int AS cnt FROM itsm_approval_matrix WHERE is_active = true");
+    if (existing.rows[0]?.cnt > 0) {
+      res.json({ ok: true, message: `Already seeded — ${existing.rows[0].cnt} active rules exist.`, skipped: true });
+      return;
+    }
+    for (const r of rules) {
+      await pool.query(
+        `INSERT INTO itsm_approval_matrix (ticket_type, condition, approver_role, approver_level, sequence, is_active)
+         VALUES ($1,$2,$3,$4,$5,true) ON CONFLICT DO NOTHING`,
+        [r.ticketType, r.condition, r.approverRole, r.approverLevel, r.sequence]
+      );
+    }
+    res.json({ ok: true, message: `Seeded ${rules.length} approval matrix rules.` });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Seed failed", detail: msg });
+  }
+});
+
+// ─── SAFE: Create itsm_attachments table if missing in prod ─────
+router.post("/admin/migrate-itsm-attachments", requireAdmin, async (_req, res): Promise<void> => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS itsm_attachments (
+        id SERIAL PRIMARY KEY,
+        ticket_type TEXT NOT NULL,
+        ticket_id INTEGER NOT NULL,
+        file_name TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        content_type TEXT NOT NULL,
+        object_path TEXT NOT NULL,
+        uploaded_by INTEGER,
+        uploaded_by_name TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_itsm_attachments_ticket ON itsm_attachments(ticket_type, ticket_id)`);
+    res.json({ ok: true, message: "itsm_attachments table ensured." });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Migration failed", detail: msg });
   }
 });
 

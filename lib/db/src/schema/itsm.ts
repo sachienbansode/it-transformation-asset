@@ -163,6 +163,21 @@ export const insertServiceRequestSchema = createInsertSchema(itsmServiceRequests
 export const insertApprovalMatrixSchema = createInsertSchema(itsmApprovalMatrixTable).omit({ id: true, createdAt: true });
 export const insertApprovalSchema = createInsertSchema(itsmApprovalsTable).omit({ id: true, createdAt: true });
 
+export const itsmAttachmentsTable = pgTable("itsm_attachments", {
+  id: serial("id").primaryKey(),
+  ticketType: text("ticket_type").notNull(),
+  ticketId: integer("ticket_id").notNull(),
+  fileName: text("file_name").notNull(),
+  fileSize: integer("file_size").notNull(),
+  contentType: text("content_type").notNull(),
+  objectPath: text("object_path").notNull(),
+  uploadedBy: integer("uploaded_by"),
+  uploadedByName: text("uploaded_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertAttachmentSchema = createInsertSchema(itsmAttachmentsTable).omit({ id: true, createdAt: true });
+
 export type ItsmIncident = typeof itsmIncidentsTable.$inferSelect;
 export type ItsmProblem = typeof itsmProblemsTable.$inferSelect;
 export type ItsmChange = typeof itsmChangesTable.$inferSelect;

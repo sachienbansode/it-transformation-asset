@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketAttachments } from "@/components/itsm-attachments";
 
 const PAGE_SIZE = 10;
 const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"];
@@ -256,6 +257,8 @@ export default function ItsmProblems() {
                 </div>
               )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
+              <hr className="border-border/40" />
+              <TicketAttachments ticketType="Problem" ticketId={viewModal.id} />
             </div>
           )}
         </DialogContent>

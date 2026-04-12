@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketAttachments } from "@/components/itsm-attachments";
 
 const PAGE_SIZE = 10;
 const CATEGORIES = ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Other"];
@@ -273,6 +274,8 @@ export default function ItsmServiceRequests() {
                 </div>
               )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
+              <hr className="border-border/40" />
+              <TicketAttachments ticketType="Service Request" ticketId={viewModal.id} />
             </div>
           )}
         </DialogContent>

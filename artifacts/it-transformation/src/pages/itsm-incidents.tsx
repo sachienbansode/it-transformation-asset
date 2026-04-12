@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketAttachments } from "@/components/itsm-attachments";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
@@ -316,6 +317,8 @@ export default function ItsmIncidents() {
                 </div>
               )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Incident" readonly />
+              <hr className="border-border/40" />
+              <TicketAttachments ticketType="Incident" ticketId={viewModal.id} />
             </div>
           )}
         </DialogContent>

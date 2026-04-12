@@ -25,11 +25,11 @@ import {
 } from "@/components/ui/select";
 import {
   Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield, Building2, Clock,
-  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info, Search,
+  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info, Search, Paperclip, X,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-type Tab = "settings" | "users" | "roles" | "masters" | "business-units" | "audit";
+type Tab = "settings" | "users" | "roles" | "masters" | "business-units" | "audit" | "itsm-config";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
@@ -65,7 +65,7 @@ export default function Admin() {
 
   useEffect(() => {
     const t = new URLSearchParams(search).get("tab") as Tab | null;
-    if (t && ["settings", "users", "roles", "masters", "business-units", "audit"].includes(t)) {
+    if (t && ["settings", "users", "roles", "masters", "business-units", "audit", "itsm-config"].includes(t)) {
       setTab(t as Tab);
     }
   }, [search]);
@@ -92,6 +92,7 @@ export default function Admin() {
           ["masters", Database, "Master Data"],
           ["business-units", Building2, "Business Units"],
           ["audit", Clock, "Audit Trail"],
+          ["itsm-config", Paperclip, "ITSM Config"],
         ] as [Tab, React.ElementType, string][]).map(([t, Icon, label]) => (
           <button
             key={t}
@@ -112,6 +113,7 @@ export default function Admin() {
       {tab === "masters" && <MastersTab />}
       {tab === "business-units" && <BusinessUnitsTab />}
       {tab === "audit" && <AuditTrailTab />}
+      {tab === "itsm-config" && <ItsmConfigTab />}
     </div>
   );
 }
@@ -1716,6 +1718,170 @@ function RolesTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ─── ITSM CONFIG TAB ────────────────────────────────────────────────────────
+
+const ALL_FILE_TYPES = ["pdf", "xlsx", "xls", "docx", "doc", "png", "jpg", "jpeg", "zip", "csv", "txt", "pptx"];
+
+function ItsmConfigTab() {
+  const { toast } = useToast();
+  const [maxSizeMB, setMaxSizeMB] = useState("20");
+  const [maxFiles, setMaxFiles] = useState("5");
+  const [allowedTypes, setAllowedTypes] = useState<string[]>(["pdf", "xlsx", "xls", "docx", "doc", "png", "jpg", "jpeg"]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+
+  useEffect(() => {
+    apiFetch<{ maxAttachmentSizeMB: number; maxAttachmentsPerTicket: number; allowedFileTypes: string[] }>("/itsm-settings")
+      .then(data => {
+        setMaxSizeMB(String(data.maxAttachmentSizeMB));
+        setMaxFiles(String(data.maxAttachmentsPerTicket));
+        setAllowedTypes(data.allowedFileTypes);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggleType = (t: string) => {
+    setAllowedTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await apiFetch("/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          "itsm.maxAttachmentSizeMB": maxSizeMB,
+          "itsm.maxAttachmentsPerTicket": maxFiles,
+          "itsm.allowedFileTypes": JSON.stringify(allowedTypes),
+        }),
+      });
+      toast({ title: "ITSM config saved" });
+    } catch {
+      toast({ title: "Save failed", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSeedMatrix = async () => {
+    setSeeding(true);
+    try {
+      const r = await apiFetch<{ ok: boolean; message: string }>("/admin/seed-itsm-approval-matrix", { method: "POST" });
+      toast({ title: r.message });
+    } catch {
+      toast({ title: "Seeding failed", variant: "destructive" });
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const handleMigrateAttachments = async () => {
+    setMigrating(true);
+    try {
+      const r = await apiFetch<{ ok: boolean; message: string }>("/admin/migrate-itsm-attachments", { method: "POST" });
+      toast({ title: r.message });
+    } catch {
+      toast({ title: "Migration failed", variant: "destructive" });
+    } finally {
+      setMigrating(false);
+    }
+  };
+
+  if (loading) return <div className="text-muted-foreground text-sm py-8">Loading ITSM settings…</div>;
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><Paperclip className="h-4 w-4" />Ticket Attachment Settings</CardTitle>
+          <CardDescription>Control file uploads allowed on ITSM tickets (Incidents, Problems, Changes, Service Requests).</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Max File Size (MB)</Label>
+              <Input
+                type="number" min="1" max="100"
+                value={maxSizeMB}
+                onChange={e => setMaxSizeMB(e.target.value)}
+                className="h-9"
+              />
+              <p className="text-[11px] text-muted-foreground">Maximum size per individual file (1–100 MB)</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Max Files Per Ticket</Label>
+              <Input
+                type="number" min="1" max="20"
+                value={maxFiles}
+                onChange={e => setMaxFiles(e.target.value)}
+                className="h-9"
+              />
+              <p className="text-[11px] text-muted-foreground">Maximum attachments allowed per ticket (1–20)</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Allowed File Types</Label>
+            <div className="flex flex-wrap gap-2">
+              {ALL_FILE_TYPES.map(t => (
+                <button
+                  key={t}
+                  onClick={() => toggleType(t)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    allowedTypes.includes(t)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted text-muted-foreground border-border hover:border-primary"
+                  }`}
+                >
+                  {allowedTypes.includes(t) && <CheckCircle2 className="h-3 w-3" />}
+                  .{t}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">Selected: {allowedTypes.length > 0 ? allowedTypes.map(t => `.${t}`).join(", ") : "None"}</p>
+          </div>
+
+          <Button onClick={handleSave} disabled={saving} className="bg-[#d4a843] hover:bg-[#c99b36] text-white">
+            {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
+            {saving ? "Saving…" : "Save Attachment Settings"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Production Database Setup</CardTitle>
+          <CardDescription>One-time operations to initialise ITSM data in the production database.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div>
+              <div className="text-sm font-medium">Approval Matrix Rules</div>
+              <div className="text-xs text-muted-foreground">Seeds the 11 default approval workflow rules (Incident, Problem, Change Request, Service Request). Skips if already seeded.</div>
+            </div>
+            <Button size="sm" variant="outline" onClick={handleSeedMatrix} disabled={seeding}>
+              {seeding ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Seed Rules"}
+            </Button>
+          </div>
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div>
+              <div className="text-sm font-medium">Attachment Table Migration</div>
+              <div className="text-xs text-muted-foreground">Creates the itsm_attachments table in production if it does not exist (safe, idempotent).</div>
+            </div>
+            <Button size="sm" variant="outline" onClick={handleMigrateAttachments} disabled={migrating}>
+              {migrating ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Run Migration"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
