@@ -22,8 +22,33 @@ router.get("/assets", requireAuth, async (_req, res) => {
   } catch (e) { handleError(res, e); }
 });
 
+const TYPE_PREFIX: Record<string, string> = {
+  "Laptop": "LAP", "Desktop": "DSK", "Server": "SRV", "Network Switch": "NSW",
+  "Firewall": "FWL", "Access Point": "WAP", "Printer": "PRN", "Tablet": "TAB",
+  "Mobile": "MOB", "Storage": "STR", "UPS": "UPS", "Others": "AST",
+};
+
+router.get("/assets/next-tag", requireAuth, async (req, res) => {
+  try {
+    const type = (req.query.type as string) || "Others";
+    const prefix = TYPE_PREFIX[type] || "AST";
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(assetsTable).where(sql`type = ${type}`);
+    const next = (count || 0) + 1;
+    res.json({ tag: `${prefix}-${String(next).padStart(4, "0")}`, prefix, count: count || 0 });
+  } catch (e) { handleError(res, e); }
+});
+
 router.post("/assets", requireAuth, async (req, res) => {
   try {
+    const { type, serialNumber } = req.body;
+    if (serialNumber && type) {
+      const existing = await db.select({ id: assetsTable.id }).from(assetsTable)
+        .where(sql`type = ${type} AND serial_number = ${serialNumber} AND is_active = true`);
+      if (existing.length > 0) {
+        res.status(400).json({ error: `Serial number "${serialNumber}" already exists for asset type "${type}"` });
+        return;
+      }
+    }
     const [item] = await db.insert(assetsTable).values(req.body).returning();
     await safeLog({ entityType: "asset", entityId: item.id, action: "create", summary: `Created asset: ${item.name}`, newValues: item });
     res.status(201).json(item);
@@ -35,6 +60,15 @@ router.patch("/assets/:id", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     const [old] = await db.select().from(assetsTable).where(eq(assetsTable.id, id));
     if (!old) { res.status(404).json({ error: "Asset not found" }); return; }
+    const { type, serialNumber } = req.body;
+    if (serialNumber && type) {
+      const existing = await db.select({ id: assetsTable.id }).from(assetsTable)
+        .where(sql`type = ${type} AND serial_number = ${serialNumber} AND is_active = true AND id != ${id}`);
+      if (existing.length > 0) {
+        res.status(400).json({ error: `Serial number "${serialNumber}" already exists for asset type "${type}"` });
+        return;
+      }
+    }
     const [item] = await db.update(assetsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(assetsTable.id, id)).returning();
     if (old.status !== item.status) {
       await db.insert(assetTransactionsTable).values({ assetId: id, action: "Status Change", oldStatus: old.status, newStatus: item.status, userName: req.body.updatedBy || "System" });

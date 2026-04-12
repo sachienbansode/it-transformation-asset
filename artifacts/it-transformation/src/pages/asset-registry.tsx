@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Monitor, Box, Eye, Wrench, Archive, HardDrive, Server } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Monitor, Box, Eye, Wrench, Archive, Tag, AlertCircle, Loader2, Printer } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -25,9 +25,74 @@ const STATUS_BADGE: Record<string, string> = {
   "Retired": "border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10",
   "Disposed": "border-red-500/30 text-red-600 bg-red-50 dark:bg-red-400/10",
 };
-const ASSET_TYPES = ["Laptop", "Desktop", "Server", "Network Switch", "Firewall", "Access Point", "Printer", "Tablet", "Mobile"];
+const ASSET_TYPES = ["Laptop", "Desktop", "Server", "Network Switch", "Firewall", "Access Point", "Printer", "Tablet", "Mobile", "Storage", "UPS", "Others"];
 const ASSET_STATUSES = ["In Stock", "Allocated", "In Use", "Under Maintenance", "Retired", "Disposed"];
 
+/* ─── Sticker Print Dialog ───────────────────────────────────────────────── */
+function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => void }) {
+  const printRef = useRef<HTMLDivElement>(null);
+
+  function handlePrint() {
+    const content = printRef.current?.innerHTML || "";
+    const win = window.open("", "_blank", "width=420,height=320");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Asset Sticker – ${asset.assetTag}</title><style>
+      @page { size: 85mm 54mm; margin: 0; }
+      * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
+      body { width: 85mm; height: 54mm; background: white; }
+    </style></head><body>${content}</body></html>`);
+    win.document.close();
+    win.onload = () => { win.focus(); win.print(); setTimeout(() => win.close(), 500); };
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Tag className="w-4 h-4 text-[#d4a843]" />Asset Sticker Preview</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">Preview below — print to a 85×54mm label (business card size).</p>
+        <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 flex justify-center">
+          <div ref={printRef}>
+            <div style={{ width: "320px", border: "1.5px solid #1a1a1a", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "5px", backgroundColor: "white", borderRadius: "4px", fontFamily: "Arial, sans-serif" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #ddd", paddingBottom: "5px", marginBottom: "3px" }}>
+                <div>
+                  <div style={{ fontSize: "8px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.8px", color: "#1a1a1a" }}>ASHIKA GROUP</div>
+                  <div style={{ fontSize: "7px", color: "#666" }}>IT Asset Management · NIYTRI</div>
+                </div>
+                <div style={{ width: "28px", height: "28px", backgroundColor: "#d4a843", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ fontSize: "14px", color: "white", fontWeight: "bold" }}>A</div>
+                </div>
+              </div>
+              <div style={{ fontSize: "26px", fontWeight: "900", fontFamily: "Courier New, monospace", color: "#1a1a1a", letterSpacing: "1px", lineHeight: "1" }}>{asset.assetTag || "—"}</div>
+              <div style={{ fontSize: "11px", fontWeight: "600", color: "#222", marginTop: "1px" }}>{asset.name || "—"}</div>
+              <div style={{ display: "flex", gap: "12px", marginTop: "3px" }}>
+                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Type</div><div style={{ fontSize: "9px", fontWeight: "500" }}>{asset.type || "—"}</div></div>
+                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Serial No</div><div style={{ fontSize: "9px", fontWeight: "500", fontFamily: "Courier New, monospace" }}>{asset.serialNumber || "—"}</div></div>
+                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Dept</div><div style={{ fontSize: "9px", fontWeight: "500" }}>{asset.department || "—"}</div></div>
+              </div>
+              <div style={{ display: "flex", gap: "12px" }}>
+                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Location</div><div style={{ fontSize: "9px", fontWeight: "500" }}>{asset.location || "—"}</div></div>
+                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Vendor</div><div style={{ fontSize: "9px", fontWeight: "500" }}>{asset.vendorName || "—"}</div></div>
+              </div>
+              <div style={{ borderTop: "0.5px solid #eee", paddingTop: "4px", fontSize: "6px", color: "#bbb", textAlign: "center", marginTop: "2px" }}>
+                Ashika Group · IT Department · {asset.purchaseDate ? `Purchased: ${asset.purchaseDate}` : new Date().getFullYear()}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+          <Button size="sm" className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2" onClick={handlePrint}>
+            <Printer className="w-4 h-4" />Print Sticker
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ─── Main Component ─────────────────────────────────────────────────────── */
 export default function AssetRegistry() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -39,11 +104,15 @@ export default function AssetRegistry() {
   const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewModal, setViewModal] = useState<any>(null);
+  const [stickerAsset, setStickerAsset] = useState<any>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
+  const [tagLoading, setTagLoading] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => apiFetch<any[]>("/assets") });
   const { data: stats } = useQuery({ queryKey: ["assets-stats"], queryFn: () => apiFetch<any>("/assets/stats") });
+  const { data: vendors = [] } = useQuery({ queryKey: ["asset-vendors"], queryFn: () => apiFetch<any[]>("/asset-vendors") });
 
   const createAsset = useMutation({ mutationFn: (data: any) => apiFetch("/assets", { method: "POST", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["assets"] }); queryClient.invalidateQueries({ queryKey: ["assets-stats"] }); } });
   const updateAsset = useMutation({ mutationFn: ({ id, ...data }: any) => apiFetch(`/assets/${id}`, { method: "PATCH", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["assets"] }); queryClient.invalidateQueries({ queryKey: ["assets-stats"] }); } });
@@ -67,21 +136,92 @@ export default function AssetRegistry() {
   const maintenanceCount = assets.filter((a: any) => a.status === "Under Maintenance").length;
   const retiredCount = assets.filter((a: any) => a.status === "Retired" || a.status === "Disposed").length;
 
-  function openCreate() { setEditingItem(null); setFormData({ status: "In Stock" }); setIsModalOpen(true); }
-  function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
+  async function fetchNextTag(type: string) {
+    if (!type) return;
+    setTagLoading(true);
+    try {
+      const res = await apiFetch<any>(`/assets/next-tag?type=${encodeURIComponent(type)}`);
+      setFormData((prev: any) => ({ ...prev, assetTag: res.tag }));
+    } catch { /* ignore */ } finally { setTagLoading(false); }
+  }
+
+  function openCreate() {
+    setEditingItem(null);
+    setFormData({ status: "In Stock", vendorSelect: "" });
+    setFormErrors({});
+    setIsModalOpen(true);
+  }
+
+  function openEdit(item: any) {
+    setEditingItem(item);
+    const vendorIsOthers = item.vendorId == null && item.vendorName;
+    setFormData({
+      ...item,
+      vendorSelect: item.vendorId ? String(item.vendorId) : (vendorIsOthers ? "__others__" : ""),
+      vendorOthersName: vendorIsOthers ? item.vendorName : "",
+    });
+    setFormErrors({});
+    setIsModalOpen(true);
+  }
+
   function clearFilters() { setSearch(""); setFilterType(""); setFilterStatus(""); setFilterDept(""); setPage(1); }
 
+  function setField(key: string, value: any) {
+    setFormData((prev: any) => ({ ...prev, [key]: value }));
+    if (formErrors[key]) setFormErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
+  }
+
+  function validateForm(): boolean {
+    const errors: Record<string, string> = {};
+    if (!formData.name?.trim()) errors.name = "Name is required";
+    if (!formData.type) errors.type = "Type is required";
+    if (!formData.serialNumber?.trim()) errors.serialNumber = "Serial number is required";
+    if (!formData.vendorSelect) errors.vendor = "Vendor is required";
+    if (formData.vendorSelect === "__others__" && !formData.vendorOthersName?.trim()) errors.vendor = "Vendor is required — please enter the vendor name below";
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
   async function handleSave() {
+    if (!validateForm()) return;
+    const vendorId = formData.vendorSelect && formData.vendorSelect !== "__others__" ? parseInt(formData.vendorSelect) : undefined;
+    const vendorObj = vendors.find((v: any) => v.id === vendorId);
+    const vendorName = vendorId ? vendorObj?.name : formData.vendorOthersName?.trim();
+
+    const payload = {
+      assetTag: formData.assetTag,
+      name: formData.name,
+      type: formData.type,
+      serialNumber: formData.serialNumber,
+      status: formData.status || "In Stock",
+      ownerName: formData.ownerName || null,
+      department: formData.department || null,
+      location: formData.location || null,
+      purchaseDate: formData.purchaseDate || null,
+      purchaseOrderNo: formData.purchaseOrderNo || null,
+      cost: formData.cost || null,
+      vendorId: vendorId || null,
+      vendorName: vendorName || null,
+      warrantyExpiry: formData.warrantyExpiry || null,
+      ipAddress: formData.ipAddress || null,
+      macAddress: formData.macAddress || null,
+      osVersion: formData.osVersion || null,
+      configuration: formData.configuration || null,
+      notes: formData.notes || null,
+    };
+
     try {
       if (editingItem) {
-        await updateAsset.mutateAsync({ id: editingItem.id, ...formData });
+        await updateAsset.mutateAsync({ id: editingItem.id, ...payload });
         toast({ title: "Asset updated successfully" });
       } else {
-        await createAsset.mutateAsync(formData);
-        toast({ title: "Asset created successfully" });
+        await createAsset.mutateAsync(payload);
+        toast({ title: "Asset registered", description: `Tag: ${payload.assetTag}` });
       }
       setIsModalOpen(false);
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   }
 
   async function handleDelete(id: number, name: string) {
@@ -139,23 +279,25 @@ export default function AssetRegistry() {
                 <TableHead className="w-[110px]">Asset Tag</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
+                <TableHead>Serial No</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Owner</TableHead>
                 <TableHead>Department</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead className="text-right">Cost (₹)</TableHead>
-                <TableHead className="w-[100px] text-center">Actions</TableHead>
+                <TableHead className="w-[110px] text-center">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {paged.length === 0 && (
-                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No assets found matching your filters</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No assets found matching your filters</TableCell></TableRow>
               )}
               {paged.map((a: any) => (
                 <TableRow key={a.id} className={a.status === "Retired" || a.status === "Disposed" ? "opacity-50" : ""}>
-                  <TableCell className="font-mono text-xs font-semibold">{a.assetTag}</TableCell>
+                  <TableCell className="font-mono text-xs font-semibold text-[#b8922e]">{a.assetTag}</TableCell>
                   <TableCell className="font-medium">{a.name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{a.type}</Badge></TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{a.serialNumber || "—"}</TableCell>
                   <TableCell><Badge variant="outline" className={STATUS_BADGE[a.status] || ""}>{a.status}</Badge></TableCell>
                   <TableCell className="text-sm">{a.ownerName || "—"}</TableCell>
                   <TableCell className="text-sm">{a.department || "—"}</TableCell>
@@ -163,7 +305,8 @@ export default function AssetRegistry() {
                   <TableCell className="text-sm text-right">{a.cost ? `₹${Number(a.cost).toLocaleString("en-IN")}` : "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-center">
-                      <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted" title="View"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
+                      <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted" title="View details"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
+                      <button onClick={() => setStickerAsset(a)} className="p-1.5 rounded hover:bg-muted" title="Print sticker"><Tag className="w-3.5 h-3.5 text-[#d4a843]" /></button>
                       <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
                       {isAdmin && <button onClick={() => handleDelete(a.id, a.name)} className="p-1.5 rounded hover:bg-muted" title="Delete"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
@@ -176,66 +319,270 @@ export default function AssetRegistry() {
         </CardContent>
       </Card>
 
+      {/* View Details Modal */}
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Asset Details — {viewModal?.assetTag}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="font-mono text-[#d4a843]">{viewModal?.assetTag}</span>
+              <span className="text-muted-foreground font-normal">— Asset Details</span>
+            </DialogTitle>
+          </DialogHeader>
           {viewModal && (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              {[
-                ["Name", viewModal.name], ["Type", viewModal.type], ["Serial Number", viewModal.serialNumber],
-                ["Status", viewModal.status], ["Owner", viewModal.ownerName], ["Department", viewModal.department],
-                ["Location", viewModal.location], ["Purchase Date", viewModal.purchaseDate], ["Cost", viewModal.cost ? `₹${Number(viewModal.cost).toLocaleString("en-IN")}` : "—"],
-                ["Vendor", viewModal.vendorName], ["Warranty Expiry", viewModal.warrantyExpiry], ["OS Version", viewModal.osVersion],
-                ["IP Address", viewModal.ipAddress], ["Configuration", viewModal.configuration],
-              ].map(([label, value]) => (
-                <div key={label as string}>
-                  <div className="text-[10px] uppercase text-muted-foreground font-semibold">{label}</div>
-                  <div className="font-medium">{(value as string) || "—"}</div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {([
+                  ["Name", viewModal.name], ["Type", viewModal.type],
+                  ["Serial Number", viewModal.serialNumber], ["Status", viewModal.status],
+                  ["Owner", viewModal.ownerName], ["Department", viewModal.department],
+                  ["Location", viewModal.location], ["Purchase Date", viewModal.purchaseDate],
+                  ["Cost", viewModal.cost ? `₹${Number(viewModal.cost).toLocaleString("en-IN")}` : "—"],
+                  ["Vendor", viewModal.vendorName], ["Warranty Expiry", viewModal.warrantyExpiry],
+                  ["IP Address", viewModal.ipAddress], ["MAC Address", viewModal.macAddress],
+                  ["OS Version", viewModal.osVersion],
+                ] as [string, string][]).map(([label, value]) => (
+                  <div key={label}>
+                    <div className="text-[10px] uppercase text-muted-foreground font-semibold tracking-wide">{label}</div>
+                    <div className="font-medium mt-0.5">{value || "—"}</div>
+                  </div>
+                ))}
+              </div>
+              {viewModal.configuration && (
+                <div>
+                  <div className="text-[10px] uppercase text-muted-foreground font-semibold tracking-wide">Configuration</div>
+                  <div className="font-medium mt-0.5 text-sm">{viewModal.configuration}</div>
                 </div>
-              ))}
-              {viewModal.notes && <div className="col-span-2"><div className="text-[10px] uppercase text-muted-foreground font-semibold">Notes</div><div>{viewModal.notes}</div></div>}
+              )}
+              {viewModal.notes && (
+                <div>
+                  <div className="text-[10px] uppercase text-muted-foreground font-semibold tracking-wide">Notes</div>
+                  <div className="text-sm mt-0.5">{viewModal.notes}</div>
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setStickerAsset(viewModal); setViewModal(null); }}>
+                  <Tag className="w-3.5 h-3.5" />Print Sticker
+                </Button>
+                <Button size="sm" className="gap-1.5 bg-[#d4a843] hover:bg-[#b8922e] text-white" onClick={() => { openEdit(viewModal); setViewModal(null); }}>
+                  <Edit className="w-3.5 h-3.5" />Edit Asset
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
+      {/* Add / Edit Asset Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editingItem ? "Edit Asset" : "Add New Asset"}</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Box className="w-4 h-4" />
+              {editingItem ? `Edit Asset — ${editingItem.assetTag}` : "Register New Asset"}
+            </DialogTitle>
+          </DialogHeader>
+
           <div className="grid grid-cols-2 gap-4">
-            <div><Label>Asset Tag *</Label><Input value={formData.assetTag || ""} onChange={e => setFormData({ ...formData, assetTag: e.target.value })} placeholder="AST-LAP-XXX" /></div>
-            <div><Label>Name *</Label><Input value={formData.name || ""} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
-            <div><Label>Type *</Label>
-              <Select value={formData.type || ""} onValueChange={v => setFormData({ ...formData, type: v })}>
-                <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+
+            {/* Type — first so tag auto-generates */}
+            <div>
+              <Label className="text-xs font-medium">Asset Type <span className="text-red-500">*</span></Label>
+              <Select
+                value={formData.type || ""}
+                onValueChange={v => {
+                  setField("type", v);
+                  if (!editingItem) fetchNextTag(v);
+                }}
+              >
+                <SelectTrigger className={formErrors.type ? "border-red-500" : ""}><SelectValue placeholder="Select asset type" /></SelectTrigger>
                 <SelectContent>{ASSET_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
               </Select>
+              {formErrors.type && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.type}</p>}
             </div>
-            <div><Label>Serial Number</Label><Input value={formData.serialNumber || ""} onChange={e => setFormData({ ...formData, serialNumber: e.target.value })} /></div>
-            <div><Label>Status</Label>
-              <Select value={formData.status || "In Stock"} onValueChange={v => setFormData({ ...formData, status: v })}>
+
+            {/* Auto-generated Asset Tag */}
+            <div>
+              <Label className="text-xs font-medium flex items-center gap-1.5">
+                Asset Tag / ID
+                {tagLoading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                {!editingItem && !tagLoading && <span className="text-[10px] bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded font-normal">auto-generated</span>}
+              </Label>
+              <Input
+                value={formData.assetTag || ""}
+                readOnly
+                className="bg-muted/60 font-mono text-sm cursor-not-allowed select-all border-dashed"
+                placeholder={tagLoading ? "Generating…" : "Select type above →"}
+              />
+              <p className="text-[10px] text-muted-foreground mt-0.5">System-assigned · non-editable</p>
+            </div>
+
+            {/* Name */}
+            <div>
+              <Label className="text-xs font-medium">Asset Name <span className="text-red-500">*</span></Label>
+              <Input value={formData.name || ""} onChange={e => setField("name", e.target.value)} placeholder="e.g. Dell Latitude 5540" className={formErrors.name ? "border-red-500" : ""} />
+              {formErrors.name && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.name}</p>}
+            </div>
+
+            {/* Serial Number — mandatory */}
+            <div>
+              <Label className="text-xs font-medium">Serial Number <span className="text-red-500">*</span></Label>
+              <Input
+                value={formData.serialNumber || ""}
+                onChange={e => setField("serialNumber", e.target.value)}
+                placeholder="Manufacturer serial number"
+                className={`font-mono text-sm ${formErrors.serialNumber ? "border-red-500" : ""}`}
+              />
+              {formErrors.serialNumber ? (
+                <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.serialNumber}</p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground mt-0.5">Must be unique per asset type</p>
+              )}
+            </div>
+
+            {/* Vendor — mandatory dropdown */}
+            <div className="col-span-2">
+              <Label className="text-xs font-medium">Vendor <span className="text-red-500">*</span></Label>
+              <Select
+                value={formData.vendorSelect || ""}
+                onValueChange={v => {
+                  setField("vendorSelect", v);
+                  if (v !== "__others__") setField("vendorOthersName", "");
+                }}
+              >
+                <SelectTrigger className={formErrors.vendor ? "border-red-500" : ""}><SelectValue placeholder="Select vendor from master list" /></SelectTrigger>
+                <SelectContent>
+                  {(vendors as any[]).filter(v => v.status === "Active").map((v: any) => (
+                    <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>
+                  ))}
+                  {(vendors as any[]).filter(v => v.status !== "Active").length > 0 && (
+                    <>
+                      <div className="px-2 pt-2 pb-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-t">Inactive Vendors</div>
+                      {(vendors as any[]).filter(v => v.status !== "Active").map((v: any) => (
+                        <SelectItem key={v.id} value={String(v.id)} className="text-muted-foreground">{v.name}</SelectItem>
+                      ))}
+                    </>
+                  )}
+                  <div className="border-t mt-1">
+                    <SelectItem value="__others__" className="text-[#d4a843] font-semibold">+ Others (not in vendor master)</SelectItem>
+                  </div>
+                </SelectContent>
+              </Select>
+              {formErrors.vendor && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.vendor}</p>}
+
+              {/* Others — free-text input */}
+              {formData.vendorSelect === "__others__" && (
+                <div className="mt-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <Label className="text-xs font-medium text-amber-800 dark:text-amber-300">Enter Vendor Name <span className="text-red-500">*</span></Label>
+                  <Input
+                    value={formData.vendorOthersName || ""}
+                    onChange={e => setField("vendorOthersName", e.target.value)}
+                    placeholder="Type vendor name…"
+                    className="mt-1"
+                    autoFocus
+                  />
+                  <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-1">This vendor is not in the master list. Consider adding them via the Asset Management → Vendors tab.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Status */}
+            <div>
+              <Label className="text-xs font-medium">Status</Label>
+              <Select value={formData.status || "In Stock"} onValueChange={v => setField("status", v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>{ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div><Label>Owner</Label><Input value={formData.ownerName || ""} onChange={e => setFormData({ ...formData, ownerName: e.target.value })} /></div>
-            <div><Label>Department</Label><Input value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} /></div>
-            <div><Label>Location</Label><Input value={formData.location || ""} onChange={e => setFormData({ ...formData, location: e.target.value })} /></div>
-            <div><Label>Purchase Date</Label><Input type="date" value={formData.purchaseDate || ""} onChange={e => setFormData({ ...formData, purchaseDate: e.target.value })} /></div>
-            <div><Label>Cost (₹)</Label><Input type="number" value={formData.cost || ""} onChange={e => setFormData({ ...formData, cost: e.target.value })} /></div>
-            <div><Label>Vendor</Label><Input value={formData.vendorName || ""} onChange={e => setFormData({ ...formData, vendorName: e.target.value })} /></div>
-            <div><Label>Warranty Expiry</Label><Input type="date" value={formData.warrantyExpiry || ""} onChange={e => setFormData({ ...formData, warrantyExpiry: e.target.value })} /></div>
-            <div><Label>IP Address</Label><Input value={formData.ipAddress || ""} onChange={e => setFormData({ ...formData, ipAddress: e.target.value })} /></div>
-            <div><Label>OS Version</Label><Input value={formData.osVersion || ""} onChange={e => setFormData({ ...formData, osVersion: e.target.value })} /></div>
-            <div className="col-span-2"><Label>Configuration</Label><Input value={formData.configuration || ""} onChange={e => setFormData({ ...formData, configuration: e.target.value })} /></div>
-            <div className="col-span-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={e => setFormData({ ...formData, notes: e.target.value })} rows={2} /></div>
+
+            {/* Owner */}
+            <div>
+              <Label className="text-xs font-medium">Owner / Assigned To</Label>
+              <Input value={formData.ownerName || ""} onChange={e => setField("ownerName", e.target.value)} placeholder="Employee name" />
+            </div>
+
+            {/* Department */}
+            <div>
+              <Label className="text-xs font-medium">Department</Label>
+              <Input value={formData.department || ""} onChange={e => setField("department", e.target.value)} />
+            </div>
+
+            {/* Location */}
+            <div>
+              <Label className="text-xs font-medium">Location</Label>
+              <Input value={formData.location || ""} onChange={e => setField("location", e.target.value)} placeholder="e.g. Mumbai HQ — Floor 3, Rack A" />
+            </div>
+
+            {/* Purchase Date */}
+            <div>
+              <Label className="text-xs font-medium">Purchase Date</Label>
+              <Input type="date" value={formData.purchaseDate || ""} onChange={e => setField("purchaseDate", e.target.value)} />
+            </div>
+
+            {/* Cost */}
+            <div>
+              <Label className="text-xs font-medium">Cost (₹)</Label>
+              <Input type="number" value={formData.cost || ""} onChange={e => setField("cost", e.target.value)} placeholder="0" />
+            </div>
+
+            {/* Warranty Expiry */}
+            <div>
+              <Label className="text-xs font-medium">Warranty Expiry</Label>
+              <Input type="date" value={formData.warrantyExpiry || ""} onChange={e => setField("warrantyExpiry", e.target.value)} />
+            </div>
+
+            {/* PO Number */}
+            <div>
+              <Label className="text-xs font-medium">Purchase Order No.</Label>
+              <Input value={formData.purchaseOrderNo || ""} onChange={e => setField("purchaseOrderNo", e.target.value)} placeholder="PO-XXXX" />
+            </div>
+
+            {/* IP Address */}
+            <div>
+              <Label className="text-xs font-medium">IP Address</Label>
+              <Input value={formData.ipAddress || ""} onChange={e => setField("ipAddress", e.target.value)} placeholder="192.168.x.x" className="font-mono" />
+            </div>
+
+            {/* MAC Address */}
+            <div>
+              <Label className="text-xs font-medium">MAC Address</Label>
+              <Input value={formData.macAddress || ""} onChange={e => setField("macAddress", e.target.value)} placeholder="XX:XX:XX:XX:XX:XX" className="font-mono" />
+            </div>
+
+            {/* OS Version */}
+            <div>
+              <Label className="text-xs font-medium">OS / Firmware Version</Label>
+              <Input value={formData.osVersion || ""} onChange={e => setField("osVersion", e.target.value)} placeholder="e.g. Windows 11 Pro 23H2" />
+            </div>
+
+            {/* Configuration */}
+            <div className="col-span-2">
+              <Label className="text-xs font-medium">Configuration / Specs</Label>
+              <Input value={formData.configuration || ""} onChange={e => setField("configuration", e.target.value)} placeholder="e.g. Intel i7, 16GB RAM, 512GB SSD" />
+            </div>
+
+            {/* Notes */}
+            <div className="col-span-2">
+              <Label className="text-xs font-medium">Notes</Label>
+              <Textarea value={formData.notes || ""} onChange={e => setField("notes", e.target.value)} rows={2} placeholder="Any additional remarks…" />
+            </div>
           </div>
-          <div className="flex justify-end gap-2 mt-4">
+
+          <div className="flex justify-end gap-2 mt-4 pt-3 border-t">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.assetTag || !formData.name || !formData.type} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update Asset" : "Create Asset"}</Button>
+            <Button
+              onClick={handleSave}
+              disabled={createAsset.isPending || updateAsset.isPending || tagLoading}
+              className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"
+            >
+              {(createAsset.isPending || updateAsset.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}
+              {editingItem ? "Update Asset" : "Register Asset"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Sticker Print */}
+      {stickerAsset && <StickerPrintDialog asset={stickerAsset} onClose={() => setStickerAsset(null)} />}
     </div>
   );
 }
