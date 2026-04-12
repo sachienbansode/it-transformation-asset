@@ -23,7 +23,7 @@ import notificationsRouter, { seedNotifications } from "./notifications";
 import checklistCommentsRouter from "./checklist-comments";
 import assetsRouter from "./assets";
 import itsmRouter from "./itsm";
-import { seedAssetAndItsmModules } from "./seed-modules";
+import { seedAssetAndItsmModules, seedExtendedItsmData } from "./seed-modules";
 import docsExportRouter from "./docs-export";
 import { requireAuth, requireAdmin } from "./auth";
 
@@ -37,6 +37,7 @@ seedBusinessUnits().catch(console.error);
 seedKpiData().catch(console.error);
 seedNotifications().catch(console.error);
 seedAssetAndItsmModules().catch(console.error);
+seedExtendedItsmData().catch(console.error);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/masters" && req.method === "GET") return next();

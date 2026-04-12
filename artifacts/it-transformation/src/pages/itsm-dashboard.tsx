@@ -17,7 +17,7 @@ import {
 } from "recharts";
 import { useLocation } from "wouter";
 
-const COLORS = ["#dc2626", "#ea580c", "#d4a843", "#059669", "#2563eb", "#8b5cf6", "#0f766e"];
+const COLORS = ["#d4a843", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
 const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#d4a843", Low: "#2563eb" };
 const STATUS_COLORS: Record<string, string> = { Open: "#dc2626", "In Progress": "#ea580c", Resolved: "#059669", Closed: "#6b7280", "On Hold": "#d4a843", Pending: "#8b5cf6" };
 const CHANGE_STATUS_COLORS: Record<string, string> = { Draft: "#6b7280", Submitted: "#8b5cf6", Approved: "#2563eb", "In Progress": "#ea580c", Completed: "#059669", Failed: "#dc2626", "Rolled Back": "#9ca3af" };
@@ -167,7 +167,7 @@ export default function ItsmDashboard() {
   const healthLabel = serviceHealth >= 80 ? "Healthy" : serviceHealth >= 60 ? "Degraded" : "Critical";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">ITSM Command Center</h1>

@@ -71,7 +71,7 @@ export default function Retirements() {
   const { isAdmin } = useAuth();
   const { data: items } = useListRetirements();
   const { data: allApps } = useListApplications();
-  const { format } = useCurrency();
+  const { format, unit, cycle, label: currencyLabel } = useCurrency();
 
   const createItem = useCreateRetirement();
   const updateItem = useUpdateRetirement();
@@ -338,7 +338,7 @@ export default function Retirements() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <StatCard label="Total Planned" value={totalPlanned} sub="retirement entries" icon={Archive} iconBg="bg-blue-50 dark:bg-blue-400/10" iconColor="text-blue-600" />
         <StatCard label="In Progress" value={inProgress} sub="actively being retired" icon={Clock} iconBg="bg-orange-50 dark:bg-orange-400/10" iconColor="text-orange-500" valueColor={inProgress > 0 ? "text-orange-500" : undefined} />
-        <StatCard label="Total Budget" value={formatINR(totalBudget)} sub="planned spend" icon={IndianRupee} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" />
+        <StatCard label={`Total Budget (${currencyLabel})`} value={format(totalBudget, 1)} sub="planned spend" icon={IndianRupee} iconBg="bg-emerald-50 dark:bg-emerald-400/10" iconColor="text-emerald-600" />
       </div>
 
       {/* Table */}
@@ -352,7 +352,11 @@ export default function Retirements() {
               <TableHead>Target Date</TableHead>
               <TableHead>Successor</TableHead>
               <TableHead>Effort</TableHead>
-              <TableHead>Budget (₹)</TableHead>
+              <TableHead>
+                <button onClick={cycle} className="flex items-center gap-1 hover:text-foreground transition-colors" title="Click to switch currency unit">
+                  Budget <span className="text-[10px] text-muted-foreground">({unit === "crores" ? "₹Cr" : unit === "millions" ? "$M" : "₹L"})</span>
+                </button>
+              </TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created By</TableHead>
               {isAdmin && <TableHead className="text-right">Actions</TableHead>}
@@ -367,7 +371,7 @@ export default function Retirements() {
                 <TableCell className="text-xs">{item.targetDate || "-"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{item.successor || "-"}</TableCell>
                 <TableCell><Badge className={getEffortBadge(item.migrationEffort)}>{item.migrationEffort}</Badge></TableCell>
-                <TableCell className="font-medium text-xs">{item.budgetLakhs != null ? formatINR(item.budgetLakhs) : "—"}</TableCell>
+                <TableCell className="font-medium text-xs">{item.budgetLakhs != null ? format(item.budgetLakhs, 1) : "—"}</TableCell>
                 <TableCell><Badge className={getStatusBadge(item.status)}>{item.status}</Badge></TableCell>
                 <TableCell className="text-xs text-muted-foreground max-w-28 truncate">
                   {(item as any).createdBy ? (

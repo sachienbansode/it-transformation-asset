@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Target, CheckCircle2, XCircle, Clock, TrendingUp, Users, FileText,
   AlertTriangle, BarChart3, ClipboardList, ChevronRight, Activity,
@@ -163,6 +164,7 @@ function MyKpiView({ sets, persons, years }: { sets: KpiSet[]; persons: KpiPerso
 export default function KpiDashboard() {
   const { user, isAdmin, isCxo, isEmployee, isHR } = useAuth();
   const [, navigate] = useLocation();
+  const [deptFilter, setDeptFilter] = React.useState("all");
 
   const { data: sets = [], isLoading: setsLoading } = useQuery({
     queryKey: ["kpi-sets-dashboard"],
@@ -182,24 +184,44 @@ export default function KpiDashboard() {
   });
   const getDeptLabel = (key: string) => deptMasters.find(d => d.key === key)?.label || key;
 
-  // Stats
-  const totalSets = sets.length;
-  const approvedSets = sets.filter(s => s.status === "Approved" || s.status === "Approved - Partial").length;
-  const pendingSets = sets.filter(s => s.status === "Pending").length;
-  const draftSets = sets.filter(s => s.status === "Draft").length;
-  const rejectedSets = sets.filter(s => s.status === "Rejected - All").length;
+  // Departments that actually have KPI sets
+  const activeDepts = useMemo(() => {
+    const depts = new Set<string>();
+    for (const s of sets) {
+      const person = persons.find(p => p.id === s.personId);
+      const dept = person?.department || "Unknown";
+      depts.add(dept);
+    }
+    return Array.from(depts).sort();
+  }, [sets, persons]);
+
+  // Filter sets by department
+  const filteredSets = useMemo(() => {
+    if (deptFilter === "all") return sets;
+    return sets.filter(s => {
+      const person = persons.find(p => p.id === s.personId);
+      return (person?.department || "Unknown") === deptFilter;
+    });
+  }, [sets, persons, deptFilter]);
+
+  // Stats based on filtered sets
+  const totalSets = filteredSets.length;
+  const approvedSets = filteredSets.filter(s => s.status === "Approved" || s.status === "Approved - Partial").length;
+  const pendingSets = filteredSets.filter(s => s.status === "Pending").length;
+  const draftSets = filteredSets.filter(s => s.status === "Draft").length;
+  const rejectedSets = filteredSets.filter(s => s.status === "Rejected - All").length;
 
   // Group by department for CXO/HR view
   const byDept = useMemo(() => {
     const map = new Map<string, KpiSet[]>();
-    for (const s of sets) {
+    for (const s of filteredSets) {
       const person = persons.find(p => p.id === s.personId);
       const dept = person?.department || "Unknown";
       if (!map.has(dept)) map.set(dept, []);
       map.get(dept)!.push(s);
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [sets, persons]);
+  }, [filteredSets, persons]);
 
   const completionRate = totalSets > 0 ? Math.round((approvedSets / totalSets) * 100) : 0;
 
@@ -230,8 +252,21 @@ export default function KpiDashboard() {
             {isEmployee && "Your KPI sets and performance"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline" className="text-xs">{roleLabel}</Badge>
+          {isKpiView && activeDepts.length > 1 && (
+            <Select value={deptFilter} onValueChange={setDeptFilter}>
+              <SelectTrigger className="h-8 text-xs w-44">
+                <SelectValue placeholder="All Departments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                {activeDepts.map(d => (
+                  <SelectItem key={d} value={d}>{getDeptLabel(d)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Button size="sm" variant="outline" onClick={() => navigate("/kpis")}>
             <ClipboardList className="h-3.5 w-3.5 mr-1.5" />KPI Management
           </Button>

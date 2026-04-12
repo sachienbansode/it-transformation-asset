@@ -1291,6 +1291,7 @@ export default function KpisPage(){
 
   const[yearFilter,setYearFilter]=useState<number|undefined>();
   const[statusFilter,setStatusFilter]=useState("all");
+  const[deptFilter,setDeptFilter]=useState("all");
   const[detailSet,setDetailSet]=useState<KpiSet|null>(null);
   const[uploadSet,setUploadSet]=useState<KpiSet|null>(null);
   const[historySet,setHistorySet]=useState<KpiSet|null>(null);
@@ -1314,7 +1315,12 @@ export default function KpisPage(){
     return{total:all.length,draft:all.filter(s=>s.status==="Draft").length,pending:all.filter(s=>s.status==="Pending").length,approved:all.filter(s=>s.status==="Approved").length,partial:all.filter(s=>s.status==="Approved - Partial").length,rejected:all.filter(s=>s.status==="Rejected - All").length};
   },[sets]);
 
-  const filteredSets=useMemo(()=>{const all=sets||[];return statusFilter==="all"?all:all.filter(s=>s.status===statusFilter);},[sets,statusFilter]);
+  const filteredSets=useMemo(()=>{
+    let all=sets||[];
+    if(statusFilter!=="all") all=all.filter(s=>s.status===statusFilter);
+    if(deptFilter!=="all") all=all.filter(s=>{const p=persons?.find(x=>x.id===s.personId);return (p?.department||"Unknown")===deptFilter;});
+    return all;
+  },[sets,persons,statusFilter,deptFilter]);
   const getPerson=(set:KpiSet)=>persons?.find(p=>p.id===set.personId);
   const getYear=(id:number)=>years?.find(y=>y.id===id);
   const currentYear=years?.find(y=>y.id===yearFilter);
@@ -1360,6 +1366,18 @@ export default function KpisPage(){
               <SelectContent>{years.map(y=><SelectItem key={y.id} value={y.id.toString()}>{y.label}{y.isCurrent?" ★":""}</SelectItem>)}</SelectContent>
             </Select>
           )}
+          {(isAdmin||isCxo||isHR)&&persons&&persons.length>0&&(()=>{
+            const depts=[...new Set((persons||[]).map(p=>p.department||"Unknown"))].sort();
+            return depts.length>1?(
+              <Select value={deptFilter} onValueChange={v=>{setDeptFilter(v);}}>
+                <SelectTrigger className="h-8 text-xs w-40"><SelectValue placeholder="Department"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {depts.map(d=><SelectItem key={d} value={d}>{getDeptLabel(d)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            ):null;
+          })()}
           <Button size="sm" variant="outline" className="h-8 text-xs" onClick={()=>downloadTemplate(currentYear?.label)}><Download className="mr-1.5 h-3.5 w-3.5"/>Template</Button>
           {(isAdmin||isCxo||isHR)&&(
             <Button size="sm" className="h-8 text-xs" onClick={()=>setEditSet("new")}><Plus className="mr-1.5 h-3.5 w-3.5"/>New KPI Set</Button>
