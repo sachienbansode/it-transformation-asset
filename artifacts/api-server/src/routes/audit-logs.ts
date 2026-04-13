@@ -1,6 +1,6 @@
 import { Router, Request } from "express";
 import { db, auditLogsTable, usersTable } from "@workspace/db";
-import { desc, eq, and, gte } from "drizzle-orm";
+import { desc, eq, and, gte, or, ilike, SQL } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router = Router();
@@ -48,29 +48,38 @@ export async function getPerformedBy(userId?: number): Promise<string> {
 }
 
 router.get("/audit-logs", requireAuth, requireAdmin, async (req, res): Promise<void> => {
-  const { entityType, page = "1", limit = "50", days = "30" } = req.query as Record<string, string>;
+  const { entityType, page = "1", limit = "50", days = "90", search = "" } = req.query as Record<string, string>;
   const limitNum = Math.min(100, parseInt(limit, 10) || 50);
   const offset = (parseInt(page, 10) - 1) * limitNum;
 
   const since = new Date();
-  since.setDate(since.getDate() - (parseInt(days, 10) || 30));
+  since.setDate(since.getDate() - (parseInt(days, 10) || 90));
 
-  let logs = await db
+  const conditions: SQL[] = [gte(auditLogsTable.performedAt, since)];
+
+  if (entityType && entityType !== "all") {
+    conditions.push(eq(auditLogsTable.entityType, entityType));
+  }
+
+  if (search.trim()) {
+    const s = `%${search.trim()}%`;
+    conditions.push(
+      or(
+        ilike(auditLogsTable.summary, s),
+        ilike(auditLogsTable.performedBy, s),
+        ilike(auditLogsTable.entityType, s),
+        ilike(auditLogsTable.action, s),
+      ) as SQL
+    );
+  }
+
+  const logs = await db
     .select()
     .from(auditLogsTable)
+    .where(and(...conditions))
     .orderBy(desc(auditLogsTable.performedAt))
     .limit(limitNum + 1)
     .offset(offset);
-
-  if (entityType && entityType !== "all") {
-    logs = await db
-      .select()
-      .from(auditLogsTable)
-      .where(and(eq(auditLogsTable.entityType, entityType), gte(auditLogsTable.performedAt, since)))
-      .orderBy(desc(auditLogsTable.performedAt))
-      .limit(limitNum + 1)
-      .offset(offset);
-  }
 
   const hasMore = logs.length > limitNum;
   res.json({ logs: logs.slice(0, limitNum), hasMore, page: parseInt(page, 10) });

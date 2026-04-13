@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-type Tab = "settings" | "users" | "roles" | "masters" | "business-units" | "audit" | "itsm-config";
+type Tab = "settings" | "masters" | "business-units" | "audit" | "itsm-config";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
@@ -65,7 +65,7 @@ export default function Admin() {
 
   useEffect(() => {
     const t = new URLSearchParams(search).get("tab") as Tab | null;
-    if (t && ["settings", "users", "roles", "masters", "business-units", "audit", "itsm-config"].includes(t)) {
+    if (t && ["settings", "masters", "business-units", "audit", "itsm-config"].includes(t)) {
       setTab(t as Tab);
     }
   }, [search]);
@@ -87,8 +87,6 @@ export default function Admin() {
       <div className="flex gap-1 border-b border-border pb-0 flex-wrap">
         {([
           ["settings", Settings, "Settings"],
-          ["users", Users, "User Management"],
-          ["roles", Shield, "Roles & Permissions"],
           ["masters", Database, "Master Data"],
           ["business-units", Building2, "Business Units"],
           ["audit", Clock, "Audit Trail"],
@@ -108,8 +106,6 @@ export default function Admin() {
       </div>
 
       {tab === "settings" && <SettingsTab />}
-      {tab === "users" && <UsersTab />}
-      {tab === "roles" && <RolesTab />}
       {tab === "masters" && <MastersTab />}
       {tab === "business-units" && <BusinessUnitsTab />}
       {tab === "audit" && <AuditTrailTab />}
@@ -1129,10 +1125,31 @@ interface AuditLog {
   newValues?: unknown;
 }
 
+const ENTITY_TYPES = [
+  { value: "all", label: "All Entities" },
+  { value: "asset", label: "Asset Registry" },
+  { value: "asset_allocation", label: "Asset Allocation" },
+  { value: "asset_license", label: "Asset License" },
+  { value: "maintenance", label: "Maintenance" },
+  { value: "asset_vendor", label: "Asset Vendor" },
+  { value: "incident", label: "ITSM Incident" },
+  { value: "problem", label: "ITSM Problem" },
+  { value: "change", label: "ITSM Change" },
+  { value: "service_request", label: "Service Request" },
+  { value: "application", label: "Application" },
+  { value: "roadmap", label: "Roadmap" },
+  { value: "checklist", label: "Checklist" },
+  { value: "kpi", label: "KPI" },
+  { value: "user", label: "User" },
+];
+
 function AuditTrailTab() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [entityType, setEntityType] = useState("all");
+  const [searchQ, setSearchQ] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [days, setDays] = useState("90");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -1140,15 +1157,20 @@ function AuditTrailTab() {
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page), limit: "20" });
+      const params = new URLSearchParams({ page: String(page), limit: "25", days });
       if (entityType !== "all") params.set("entityType", entityType);
+      if (searchQ.trim()) params.set("search", searchQ.trim());
       const result = await apiFetch<{ logs: AuditLog[]; hasMore: boolean }>(`/audit-logs?${params}`);
       setLogs(result.logs);
       setHasMore(result.hasMore);
     } catch { setLogs([]); } finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchLogs(); }, [entityType, page]);
+  useEffect(() => { fetchLogs(); }, [entityType, page, days, searchQ]);
+
+  const handleSearch = () => { setSearchQ(searchInput); setPage(1); };
+
+  const auditRecordId = (id: number) => `AUD-${String(id).padStart(6, "0")}`;
 
   const actionBadge = (action: string) => {
     const map: Record<string, string> = {
@@ -1156,67 +1178,100 @@ function AuditTrailTab() {
       update: "border-blue-500/30 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-400/10",
       delete: "border-red-500/30 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-400/10",
       import: "border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-400/10",
+      allocate: "border-orange-500/30 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-400/10",
+      return: "border-gray-500/30 text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-400/10",
     };
     return map[action] || "border-border text-muted-foreground";
   };
 
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold">Audit Trail</h2>
-          <p className="text-xs text-muted-foreground">All changes to application data, with before/after snapshots</p>
+          <p className="text-xs text-muted-foreground">Complete change history with record IDs — all data modifications are tracked</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Select value={entityType} onValueChange={v => { setEntityType(v); setPage(1); }}>
-            <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Entities</SelectItem>
-              <SelectItem value="application">Applications</SelectItem>
-              <SelectItem value="roadmap">Roadmap</SelectItem>
-              <SelectItem value="checklist">Checklist</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button size="sm" variant="outline" onClick={fetchLogs}><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</Button>
+        <Button size="sm" variant="outline" onClick={fetchLogs}><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</Button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            placeholder="Search summary, user, entity…"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSearch()}
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
         </div>
+        <Button size="sm" variant="outline" className="h-8" onClick={handleSearch}>Search</Button>
+        <Select value={entityType} onValueChange={v => { setEntityType(v); setPage(1); }}>
+          <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {ENTITY_TYPES.map(e => <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={days} onValueChange={v => { setDays(v); setPage(1); }}>
+          <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7">Last 7 days</SelectItem>
+            <SelectItem value="30">Last 30 days</SelectItem>
+            <SelectItem value="90">Last 90 days</SelectItem>
+            <SelectItem value="180">Last 6 months</SelectItem>
+            <SelectItem value="365">Last 1 year</SelectItem>
+          </SelectContent>
+        </Select>
+        {(searchQ || entityType !== "all") && (
+          <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setSearchQ(""); setSearchInput(""); setEntityType("all"); setPage(1); }}>
+            Clear
+          </Button>
+        )}
       </div>
 
       {loading ? (
         <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
       ) : logs.length === 0 ? (
         <div className="py-12 text-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
-          No audit records found.
+          No audit records found. Try adjusting your filters.
         </div>
       ) : (
         <div className="border border-border rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/40 border-b border-border">
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-36">Time</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-24">Entity</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-20">Action</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Summary</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Performed By</th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-muted-foreground uppercase w-16">Details</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-28">Record ID</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-36">Time</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-28">Entity</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-20">Action</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Summary</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-44">Performed By</th>
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground uppercase w-14">Details</th>
               </tr>
             </thead>
             <tbody>
               {logs.map(log => (
                 <React.Fragment key={log.id}>
                   <tr className="border-t border-border hover:bg-muted/20">
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                    <td className="px-3 py-2.5">
+                      <span className="font-mono text-[10px] font-semibold text-[#b8922e] bg-[#d4a843]/10 px-1.5 py-0.5 rounded">
+                        {auditRecordId(log.id)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                       {new Date(log.performedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
                     </td>
-                    <td className="px-4 py-2.5">
-                      <Badge variant="outline" className="text-[10px] capitalize">{log.entityType}</Badge>
+                    <td className="px-3 py-2.5">
+                      <Badge variant="outline" className="text-[10px] capitalize">{log.entityType.replace(/_/g, " ")}</Badge>
                     </td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-3 py-2.5">
                       <Badge variant="outline" className={`text-[10px] capitalize border ${actionBadge(log.action)}`}>{log.action}</Badge>
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-xs truncate" title={log.summary}>{log.summary}</td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground truncate max-w-[160px]" title={log.performedBy}>{log.performedBy || "—"}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      {(log.oldValues || log.newValues) && (
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-xs truncate" title={log.summary}>{log.summary || "—"}</td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground truncate max-w-[160px]" title={log.performedBy}>{log.performedBy || "—"}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      {log.newValues && (
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
                           {expandedId === log.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                         </Button>
@@ -1225,7 +1280,7 @@ function AuditTrailTab() {
                   </tr>
                   {expandedId === log.id && (
                     <tr className="border-t border-border bg-muted/10">
-                      <td colSpan={6} className="px-4 py-3">
+                      <td colSpan={7} className="px-4 py-3">
                         <div className="grid grid-cols-2 gap-4">
                           {log.oldValues && (
                             <div>
@@ -1251,7 +1306,7 @@ function AuditTrailTab() {
       )}
 
       <div className="flex items-center justify-between pt-1">
-        <span className="text-xs text-muted-foreground">Page {page}</span>
+        <span className="text-xs text-muted-foreground">Page {page} · {logs.length} records shown</span>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
           <Button size="sm" variant="outline" disabled={!hasMore} onClick={() => setPage(p => p + 1)}>Next</Button>

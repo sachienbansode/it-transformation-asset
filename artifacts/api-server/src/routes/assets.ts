@@ -255,7 +255,7 @@ router.post("/asset-allocations", requireAuth, async (req, res) => {
 /* Bulk allocation — POST /asset-allocations/bulk */
 router.post("/asset-allocations/bulk", requireAuth, async (req, res) => {
   try {
-    const { assetIds, userName, department, startDate, notes } = req.body as { assetIds: number[]; userName: string; department?: string; startDate?: string; notes?: string };
+    const { assetIds, userId, userName, employeeCode, designation, department, startDate, notes } = req.body as { assetIds: number[]; userId?: number; userName: string; employeeCode?: string; designation?: string; department?: string; startDate?: string; notes?: string };
     if (!assetIds?.length || !userName) {
       res.status(400).json({ error: "assetIds and userName are required" });
       return;
@@ -264,7 +264,7 @@ router.post("/asset-allocations/bulk", requireAuth, async (req, res) => {
     const ctx = buildContext(req, "Allocations");
     const results = [];
     for (const assetId of assetIds) {
-      const [item] = await db.insert(assetAllocationsTable).values({ assetId, userName, department, startDate: startDate || new Date().toISOString().split("T")[0], status: "Active", notes, createdBy: performedBy }).returning();
+      const [item] = await db.insert(assetAllocationsTable).values({ assetId, userId, userName, employeeCode, designation, department, startDate: startDate || new Date().toISOString().split("T")[0], status: "Active", notes, createdBy: performedBy }).returning();
       await db.update(assetsTable).set({ status: "Allocated", ownerName: userName, department }).where(eq(assetsTable.id, assetId));
       await db.insert(assetTransactionsTable).values({ assetId, action: "Bulk Allocation", oldStatus: "In Stock", newStatus: "Allocated", userName: performedBy, notes: `Bulk allocated to ${userName}` });
       results.push(item);

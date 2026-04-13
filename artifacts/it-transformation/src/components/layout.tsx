@@ -69,8 +69,8 @@ const ITSM_ITEMS = [
 
 const ADMIN_ITEMS = [
   { href: "/admin", label: "Settings", icon: Sliders, tab: "settings" },
-  { href: "/admin?tab=users", label: "User Management", icon: Users, tab: "users" },
-  { href: "/admin?tab=roles", label: "Roles & Permissions", icon: Shield, tab: "roles" },
+  { href: "/admin/users", label: "User Master", icon: Users, tab: "users" },
+  { href: "/admin/roles", label: "Roles & Permissions", icon: Shield, tab: "roles" },
   { href: "/admin?tab=masters", label: "Master Data", icon: Database, tab: "masters" },
   { href: "/admin?tab=business-units", label: "Business Units", icon: Building2, tab: "business-units" },
   { href: "/admin?tab=audit", label: "Audit Trail", icon: Clock, tab: "audit" },

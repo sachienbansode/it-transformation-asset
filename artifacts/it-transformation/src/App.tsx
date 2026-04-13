@@ -18,6 +18,8 @@ import Aibom from "@/pages/aibom";
 import Sbom from "@/pages/sbom";
 import Login from "@/pages/login";
 import Admin from "@/pages/admin";
+import AdminUsers from "@/pages/admin-users";
+import AdminRoles from "@/pages/admin-roles";
 import Profile from "@/pages/profile";
 import Reports from "@/pages/reports";
 import Kpis from "@/pages/kpis";
@@ -129,6 +131,12 @@ function Router() {
               <Route path="/itsm-requests" component={ItsmServiceRequests} />
               <Route path="/itsm-approval" component={ItsmApprovalConfig} />
               <Route path="/profile" component={Profile} />
+              <Route path="/admin/users">
+                {user.role === "admin" ? <AdminUsers /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              </Route>
+              <Route path="/admin/roles">
+                {user.role === "admin" ? <AdminRoles /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              </Route>
               <Route path="/admin">
                 {user.role === "admin" ? <Admin /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>
