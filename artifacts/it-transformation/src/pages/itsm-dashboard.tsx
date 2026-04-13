@@ -63,6 +63,7 @@ export default function ItsmDashboard() {
   const { data: kb = [] } = useQuery({ queryKey: ["knowledge-base"], queryFn: () => apiFetch<any[]>("/knowledge-base") });
   const { data: slas = [] } = useQuery({ queryKey: ["sla-policies"], queryFn: () => apiFetch<any[]>("/sla-policies") });
   const { data: serviceRequests = [] } = useQuery({ queryKey: ["service-requests"], queryFn: () => apiFetch<any[]>("/service-requests") });
+  const { data: itsmMetrics } = useQuery({ queryKey: ["itsm-metrics"], queryFn: () => apiFetch<any>("/itsm-metrics") });
 
   const openIncidents = incidents.filter((i: any) => i.status === "Open").length;
   const inProgressIncidents = incidents.filter((i: any) => i.status === "In Progress").length;
@@ -195,6 +196,76 @@ export default function ItsmDashboard() {
         <StatCard icon={BookOpen} label="KB Articles" value={kb.length} iconBg="bg-indigo-100 dark:bg-indigo-900/30" iconColor="text-indigo-600" borderColor="border-l-indigo-500" sub={`${kbViews} views`} />
         <StatCard icon={Gauge} label="Total Tickets" value={totalTickets} iconBg="bg-gray-100 dark:bg-gray-900/30" iconColor="text-gray-600" borderColor="border-l-gray-400" sub={`${closedIncidents} closed`} />
       </div>
+
+      {itsmMetrics && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="border-l-4 border-l-blue-500">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
+                  <Timer className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mean Time To Resolve</div>
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                    {itsmMetrics.mttr != null ? `${itsmMetrics.mttr}h` : "—"}
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Average resolution time across resolved incidents</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-l-4 border-l-emerald-500">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+                  <Shield className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SLA Compliance</div>
+                  <div className={`text-2xl font-bold ${itsmMetrics.slaCompliance == null ? "text-muted-foreground" : itsmMetrics.slaCompliance >= 90 ? "text-emerald-600 dark:text-emerald-400" : itsmMetrics.slaCompliance >= 70 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"}`}>
+                    {itsmMetrics.slaCompliance != null ? `${itsmMetrics.slaCompliance}%` : "—"}
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Percentage of incidents resolved within SLA</p>
+              {itsmMetrics.slaCompliance != null && (
+                <div className="mt-2 h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${itsmMetrics.slaCompliance >= 90 ? "bg-emerald-500" : itsmMetrics.slaCompliance >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${itsmMetrics.slaCompliance}%` }} />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-l-4 border-l-amber-500">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-9 h-9 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ticket Aging</div>
+                  <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{itsmMetrics.totalOpen ?? 0} open</div>
+                </div>
+              </div>
+              {itsmMetrics.aging && (
+                <div className="mt-2 space-y-1">
+                  {Object.entries(itsmMetrics.aging as Record<string, number>).map(([bucket, count]) => (
+                    <div key={bucket} className="flex items-center gap-2 text-xs">
+                      <span className="w-12 text-muted-foreground font-mono">{bucket}</span>
+                      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-amber-400 dark:bg-amber-500" style={{ width: itsmMetrics.totalOpen > 0 ? `${Math.round((count / itsmMetrics.totalOpen) * 100)}%` : "0%" }} />
+                      </div>
+                      <span className="font-semibold w-4 text-right">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {criticalIncidents > 0 && (
         <Card className="border-red-500/50 bg-red-50/50 dark:bg-red-950/20">

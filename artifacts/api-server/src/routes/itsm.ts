@@ -121,9 +121,49 @@ function cachedGet(path: string, handler: () => Promise<any>) {
   };
 }
 
-router.get("/incidents", requireAuth, cachedGet("/incidents", async () => {
-  return db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(desc(itsmIncidentsTable.createdAt));
-}));
+async function computeSlaBreachAt(priority: string, createdAt: Date): Promise<Date | null> {
+  const slas = await db.select().from(itsmSlaPoliciesTable)
+    .where(and(eq(itsmSlaPoliciesTable.isActive, true), eq(itsmSlaPoliciesTable.ticketType, "Incident")));
+  const sla = slas.find(s => s.priority === priority);
+  if (!sla) return null;
+  return new Date(createdAt.getTime() + sla.resolutionTimeHours * 3600 * 1000);
+}
+
+function computeSlaStatus(slaBreachAt: Date | null, status: string): string {
+  if (!slaBreachAt || status === "Resolved" || status === "Closed") return "ok";
+  const hoursLeft = (new Date(slaBreachAt).getTime() - Date.now()) / 3600000;
+  if (hoursLeft < 0) return "breached";
+  if (hoursLeft < 4) return "warning";
+  return "ok";
+}
+
+router.get("/incidents", requireAuth, async (req, res) => {
+  const problemId = req.query.problemId ? parseInt(req.query.problemId as string) : null;
+  const cacheKey = problemId ? `/incidents?problemId=${problemId}` : "/incidents";
+  const cached = responseCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) { res.json(cached.data); return; }
+  let rows = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(desc(itsmIncidentsTable.createdAt));
+  if (problemId) rows = rows.filter(r => r.problemId === problemId);
+  const data = rows.map(r => ({ ...r, slaStatus: computeSlaStatus(r.slaBreachAt, r.status) }));
+  responseCache.set(cacheKey, { data, ts: Date.now() });
+  res.json(data);
+});
+
+router.post("/incidents/bulk-update", requireAuth, async (req, res) => {
+  const { ids, status, assignedTo } = req.body;
+  if (!ids?.length) { res.status(400).json({ error: "ids required" }); return; }
+  const updates: any = { updatedAt: new Date() };
+  if (status) {
+    updates.status = status;
+    if (status === "Resolved") updates.resolvedAt = new Date();
+    if (status === "Closed") updates.closedAt = new Date();
+  }
+  if (assignedTo !== undefined) updates.assignedTo = assignedTo;
+  await db.update(itsmIncidentsTable).set(updates).where(inArray(itsmIncidentsTable.id, ids));
+  responseCache.clear();
+  await logAudit({ entityType: "itsm_incident", entityId: 0, action: "bulk_update", summary: `Bulk updated ${ids.length} incidents: ${status ? "status→" + status : ""}${assignedTo !== undefined ? " assigned→" + (assignedTo || "unassigned") : ""}` });
+  res.json({ updated: ids.length });
+});
 
 router.post("/incidents", requireAuth, async (req, res) => {
   if (DISALLOWED_CREATE_STATUSES.includes(req.body.status)) {
@@ -131,7 +171,9 @@ router.post("/incidents", requireAuth, async (req, res) => {
   }
   const count = await db.select({ count: sql<number>`count(*)::int` }).from(itsmIncidentsTable);
   const ticketNo = `INC-${String((count[0]?.count || 0) + 1).padStart(5, "0")}`;
-  const body = { ...req.body, ticketNo, status: "Open" };
+  const createdAt = new Date();
+  const slaBreachAt = await computeSlaBreachAt(req.body.priority || "Medium", createdAt);
+  const body = { ...req.body, ticketNo, status: "Open", slaBreachAt };
   const [item] = await db.insert(itsmIncidentsTable).values(body).returning();
   await db.insert(itsmTicketHistoryTable).values({ ticketId: item.id, ticketType: "incident", oldStatus: null, newStatus: "Open", updatedBy: req.body.createdBy || "System", notes: "Incident created" });
   await createApprovalRecords(item.id, "Incident", item.priority, item.severity);
@@ -208,6 +250,18 @@ router.delete("/problems/:id", requireAuth, async (req, res) => {
   res.status(204).end();
 });
 
+router.post("/problems/bulk-update", requireAuth, async (req, res) => {
+  const { ids, status, assignedTo } = req.body;
+  if (!ids?.length) { res.status(400).json({ error: "ids required" }); return; }
+  const updates: any = { updatedAt: new Date() };
+  if (status) updates.status = status;
+  if (assignedTo !== undefined) updates.assignedTo = assignedTo;
+  await db.update(itsmProblemsTable).set(updates).where(inArray(itsmProblemsTable.id, ids));
+  responseCache.clear();
+  await logAudit({ entityType: "itsm_problem", entityId: 0, action: "bulk_update", summary: `Bulk updated ${ids.length} problems` });
+  res.json({ updated: ids.length });
+});
+
 router.get("/changes", requireAuth, cachedGet("/changes", async () => {
   return db.select().from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)).orderBy(desc(itsmChangesTable.createdAt));
 }));
@@ -244,6 +298,18 @@ router.patch("/changes/:id", requireAuth, async (req, res) => {
 router.delete("/changes/:id", requireAuth, async (req, res) => {
   await db.update(itsmChangesTable).set({ isActive: false }).where(eq(itsmChangesTable.id, parseInt(req.params.id)));
   res.status(204).end();
+});
+
+router.post("/changes/bulk-update", requireAuth, async (req, res) => {
+  const { ids, status, assignedTo } = req.body;
+  if (!ids?.length) { res.status(400).json({ error: "ids required" }); return; }
+  const updates: any = { updatedAt: new Date() };
+  if (status) updates.status = status;
+  if (assignedTo !== undefined) updates.requestedBy = assignedTo;
+  await db.update(itsmChangesTable).set(updates).where(inArray(itsmChangesTable.id, ids));
+  responseCache.clear();
+  await logAudit({ entityType: "itsm_change", entityId: 0, action: "bulk_update", summary: `Bulk updated ${ids.length} changes` });
+  res.json({ updated: ids.length });
 });
 
 router.get("/changes/stats", requireAuth, cachedGet("/changes/stats", async () => {
@@ -341,6 +407,66 @@ router.patch("/service-requests/:id", requireAuth, async (req, res) => {
 router.delete("/service-requests/:id", requireAuth, async (req, res) => {
   await db.update(itsmServiceRequestsTable).set({ isActive: false }).where(eq(itsmServiceRequestsTable.id, parseInt(req.params.id)));
   res.status(204).end();
+});
+
+router.post("/service-requests/bulk-update", requireAuth, async (req, res) => {
+  const { ids, status, assignedTo } = req.body;
+  if (!ids?.length) { res.status(400).json({ error: "ids required" }); return; }
+  const updates: any = { updatedAt: new Date() };
+  if (status) {
+    updates.status = status;
+    if (status === "Completed") updates.completedAt = new Date();
+  }
+  if (assignedTo !== undefined) updates.assignedTo = assignedTo;
+  await db.update(itsmServiceRequestsTable).set(updates).where(inArray(itsmServiceRequestsTable.id, ids));
+  responseCache.clear();
+  await logAudit({ entityType: "itsm_service_request", entityId: 0, action: "bulk_update", summary: `Bulk updated ${ids.length} service requests` });
+  res.json({ updated: ids.length });
+});
+
+router.get("/itsm-metrics", requireAuth, async (_req, res) => {
+  const [incidents, problems, changes, slas] = await Promise.all([
+    db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)),
+    db.select().from(itsmProblemsTable).where(eq(itsmProblemsTable.isActive, true)),
+    db.select().from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)),
+    db.select().from(itsmSlaPoliciesTable).where(eq(itsmSlaPoliciesTable.isActive, true)),
+  ]);
+
+  // MTTR — mean time to resolve (hours) for resolved/closed incidents
+  const resolved = incidents.filter(i => i.resolvedAt && i.createdAt);
+  const mttr = resolved.length > 0
+    ? resolved.reduce((sum, i) => sum + (new Date(i.resolvedAt!).getTime() - new Date(i.createdAt).getTime()) / 3600000, 0) / resolved.length
+    : null;
+
+  // Aging buckets (open/in-progress incidents)
+  const open = incidents.filter(i => i.status !== "Resolved" && i.status !== "Closed");
+  const now = Date.now();
+  const aging = { "0-3d": 0, "4-7d": 0, "8-14d": 0, "15-30d": 0, "30d+": 0 };
+  for (const i of open) {
+    const days = (now - new Date(i.createdAt).getTime()) / 86400000;
+    if (days <= 3) aging["0-3d"]++;
+    else if (days <= 7) aging["4-7d"]++;
+    else if (days <= 14) aging["8-14d"]++;
+    else if (days <= 30) aging["15-30d"]++;
+    else aging["30d+"]++;
+  }
+
+  // SLA compliance
+  let slaTotal = 0, slaBreachedCount = 0;
+  for (const inc of incidents) {
+    if (inc.status === "Closed" || inc.status === "Resolved") {
+      slaTotal++;
+      if (inc.slaBreachAt && new Date(inc.resolvedAt || inc.closedAt || new Date()).getTime() > new Date(inc.slaBreachAt).getTime()) {
+        slaBreachedCount++;
+      }
+    } else if (inc.status !== "Resolved" && inc.status !== "Closed") {
+      slaTotal++;
+      if (inc.slaBreachAt && now > new Date(inc.slaBreachAt).getTime()) slaBreachedCount++;
+    }
+  }
+  const slaCompliance = slaTotal > 0 ? Math.round(((slaTotal - slaBreachedCount) / slaTotal) * 100) : null;
+
+  res.json({ mttr: mttr ? Math.round(mttr * 10) / 10 : null, slaCompliance, aging, totalOpen: open.length, openProblems: problems.filter(p => p.status !== "Closed").length, pendingChanges: changes.filter(c => c.approvalStatus === "Pending").length });
 });
 
 router.get("/approval-matrix", requireAuth, async (req, res) => {

@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, AlertTriangle, CheckCircle2, Timer, XCircle, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, AlertTriangle, CheckCircle2, Timer, XCircle, Download, Clock, Link2, X, ChevronDown } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -117,6 +118,25 @@ function formatDateTime(dateStr: string | null | undefined) {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+function SlaBadge({ slaBreachAt, status }: { slaBreachAt?: string | null; status: string }) {
+  if (!slaBreachAt || status === "Resolved" || status === "Closed") return null;
+  const hoursLeft = (new Date(slaBreachAt).getTime() - Date.now()) / 3600000;
+  if (hoursLeft < 0) {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800">
+        BREACHED
+      </span>
+    );
+  }
+  const display = hoursLeft < 1 ? `${Math.round(hoursLeft * 60)}m` : hoursLeft < 24 ? `${Math.round(hoursLeft)}h` : `${Math.round(hoursLeft / 24)}d`;
+  const isWarning = hoursLeft < 4;
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${isWarning ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800" : "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"}`}>
+      <Clock className="w-2.5 h-2.5" />{display}
+    </span>
+  );
+}
+
 async function downloadReport(type: string, filename: string) {
   const data = await apiFetch<any[]>(`/itsm-report?type=${type}`);
   if (!data || !data.length) return;
@@ -147,12 +167,22 @@ export default function ItsmIncidents() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
 
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkAssignee, setBulkAssignee] = useState("");
+  const [showBulkBar, setShowBulkBar] = useState(false);
+
   const { data: incidents = [] } = useQuery({ queryKey: ["incidents"], queryFn: () => apiFetch<any[]>("/incidents") });
   const { data: stats } = useQuery({ queryKey: ["incidents-stats"], queryFn: () => apiFetch<any>("/incidents/stats") });
+  const { data: problems = [] } = useQuery({ queryKey: ["problems"], queryFn: () => apiFetch<any[]>("/problems") });
 
   const createInc = useMutation({ mutationFn: (data: any) => apiFetch("/incidents", { method: "POST", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
   const updateInc = useMutation({ mutationFn: ({ id, ...data }: any) => apiFetch(`/incidents/${id}`, { method: "PATCH", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
   const deleteInc = useMutation({ mutationFn: (id: number) => apiFetch(`/incidents/${id}`, { method: "DELETE" }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
+  const bulkUpdate = useMutation({
+    mutationFn: (body: any) => apiFetch("/incidents/bulk-update", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); setSelectedIds([]); setBulkStatus(""); setBulkAssignee(""); setShowBulkBar(false); }
+  });
 
   const filtered = useMemo(() => {
     let list = incidents;
@@ -181,6 +211,25 @@ export default function ItsmIncidents() {
   function openCreate() { setEditingItem(null); setFormData({ status: "Open", priority: "Medium", severity: "S3" }); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
   function clearFilters() { setSearch(""); setFilterPriority(""); setFilterStatus(""); setFilterCategory(""); setPage(1); }
+
+  function toggleSelect(id: number) {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+  function toggleSelectAll() {
+    const pagedIds = paged.map((i: any) => i.id);
+    const allSelected = pagedIds.every((id: number) => selectedIds.includes(id));
+    setSelectedIds(allSelected ? selectedIds.filter(id => !pagedIds.includes(id)) : [...new Set([...selectedIds, ...pagedIds])]);
+  }
+  async function applyBulkAction() {
+    if (!selectedIds.length) return;
+    const body: any = { ids: selectedIds };
+    if (bulkStatus) body.status = bulkStatus;
+    if (bulkAssignee.trim()) body.assignedTo = bulkAssignee.trim();
+    try {
+      await bulkUpdate.mutateAsync(body);
+      toast({ title: `Updated ${selectedIds.length} incidents` });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  }
 
   async function handleSave() {
     try {
@@ -256,6 +305,21 @@ export default function ItsmIncidents() {
             )}
           </div>
 
+          {selectedIds.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-[#d4a843]/5 border-b border-[#d4a843]/20">
+              <span className="text-xs font-semibold text-[#b8922e]">{selectedIds.length} selected</span>
+              <Select value={bulkStatus} onValueChange={setBulkStatus}>
+                <SelectTrigger className="h-7 text-xs w-[140px]"><SelectValue placeholder="Change Status" /></SelectTrigger>
+                <SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              </Select>
+              <Input placeholder="Assign to..." value={bulkAssignee} onChange={e => setBulkAssignee(e.target.value)} className="h-7 text-xs w-[160px]" />
+              <Button size="sm" onClick={applyBulkAction} disabled={bulkUpdate.isPending || (!bulkStatus && !bulkAssignee.trim())} className="h-7 text-xs bg-[#d4a843] hover:bg-[#b8922e] text-white">Apply</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setSelectedIds([]); setBulkStatus(""); setBulkAssignee(""); }} className="h-7 text-xs text-muted-foreground">
+                <X className="w-3 h-3 mr-1" />Clear
+              </Button>
+            </div>
+          )}
+
           <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
             Showing <span className="font-semibold text-foreground">{filtered.length}</span> of <span className="font-semibold text-foreground">{incidents.length}</span> incidents
           </div>
@@ -263,16 +327,23 @@ export default function ItsmIncidents() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead className="w-10 py-3">
+                  <Checkbox
+                    checked={paged.length > 0 && paged.every((i: any) => selectedIds.includes(i.id))}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all"
+                  />
+                </TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[110px]">Ticket #</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Title</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[110px]">Priority</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[60px]">Sev</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[140px]">Status</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[80px]">SLA</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Category</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Assigned To</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Created</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Updated</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[90px] text-center">Actions</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[90px]">Created</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[80px] text-center">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -288,20 +359,23 @@ export default function ItsmIncidents() {
               {paged.map((inc: any) => (
                 <TableRow
                   key={inc.id}
-                  className={`transition-colors ${inc.priority === "Critical" && inc.status === "Open" ? "bg-red-50/40 dark:bg-red-900/5 hover:bg-red-50/60 dark:hover:bg-red-900/10" : "hover:bg-muted/30"}`}
+                  className={`transition-colors ${selectedIds.includes(inc.id) ? "bg-[#d4a843]/5 dark:bg-[#d4a843]/5" : inc.priority === "Critical" && inc.status === "Open" ? "bg-red-50/40 dark:bg-red-900/5 hover:bg-red-50/60 dark:hover:bg-red-900/10" : "hover:bg-muted/30"}`}
                 >
+                  <TableCell className="py-3">
+                    <Checkbox checked={selectedIds.includes(inc.id)} onCheckedChange={() => toggleSelect(inc.id)} />
+                  </TableCell>
                   <TableCell className="py-3"><TicketNo no={inc.ticketNo} /></TableCell>
                   <TableCell className="py-3">
-                    <div className="font-medium text-sm leading-tight max-w-[220px] truncate" title={inc.title}>{inc.title}</div>
+                    <div className="font-medium text-sm leading-tight max-w-[200px] truncate" title={inc.title}>{inc.title}</div>
                     {inc.affectedSystem && <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{inc.affectedSystem}</div>}
                   </TableCell>
                   <TableCell className="py-3"><PriorityBadge value={inc.priority} /></TableCell>
                   <TableCell className="py-3"><SeverityBadge value={inc.severity} /></TableCell>
                   <TableCell className="py-3"><StatusBadge value={inc.status} /></TableCell>
+                  <TableCell className="py-3"><SlaBadge slaBreachAt={inc.slaBreachAt} status={inc.status} /></TableCell>
                   <TableCell className="py-3 text-xs text-muted-foreground font-medium">{inc.category || "—"}</TableCell>
                   <TableCell className="py-3"><AssigneeBadge name={inc.assignedTo} /></TableCell>
                   <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(inc.createdAt)}</TableCell>
-                  <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(inc.updatedAt)}</TableCell>
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(inc)} title="View details" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
@@ -335,6 +409,21 @@ export default function ItsmIncidents() {
                 <PriorityBadge value={viewModal.priority} />
                 <SeverityBadge value={viewModal.severity} />
               </div>
+              {viewModal.slaBreachAt && viewModal.status !== "Resolved" && viewModal.status !== "Closed" && (
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${(new Date(viewModal.slaBreachAt).getTime() - Date.now()) < 0 ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400" : "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400"}`}>
+                  <Clock className="w-4 h-4 flex-shrink-0" />
+                  <span className="font-semibold">SLA Deadline:</span>
+                  <span>{formatDateTime(viewModal.slaBreachAt)}</span>
+                  <SlaBadge slaBreachAt={viewModal.slaBreachAt} status={viewModal.status} />
+                </div>
+              )}
+              {viewModal.problemId && (problems as any[]).find((p: any) => p.id === viewModal.problemId) && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-violet-50 dark:bg-violet-900/10 border-violet-200 dark:border-violet-800 text-sm text-violet-700 dark:text-violet-400">
+                  <Link2 className="w-4 h-4 flex-shrink-0" />
+                  <span className="font-semibold">Linked Problem:</span>
+                  <span>{(problems as any[]).find((p: any) => p.id === viewModal.problemId)?.problemNo} — {(problems as any[]).find((p: any) => p.id === viewModal.problemId)?.title}</span>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {[["Category", viewModal.category], ["Assigned To", viewModal.assignedTo], ["Assigned Group", viewModal.assignedGroup], ["Reported By", viewModal.reportedBy], ["Affected System", viewModal.affectedSystem], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1">
@@ -372,6 +461,18 @@ export default function ItsmIncidents() {
             <div><Label>Reported By</Label><Input value={formData.reportedBy || ""} onChange={e => setFormData({ ...formData, reportedBy: e.target.value })} /></div>
             <div><Label>Affected System</Label><Input value={formData.affectedSystem || ""} onChange={e => setFormData({ ...formData, affectedSystem: e.target.value })} /></div>
             {(formData.status === "Resolved" || formData.status === "Closed") && <div className="col-span-2"><Label>Resolution Notes</Label><Textarea value={formData.resolutionNotes || ""} onChange={e => setFormData({ ...formData, resolutionNotes: e.target.value })} rows={2} /></div>}
+            <div className="col-span-2">
+              <Label className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-muted-foreground" />Link to Problem</Label>
+              <Select value={formData.problemId ? String(formData.problemId) : "none"} onValueChange={v => setFormData({ ...formData, problemId: v === "none" ? null : parseInt(v) })}>
+                <SelectTrigger><SelectValue placeholder="No linked problem" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— No linked problem —</SelectItem>
+                  {(problems as any[]).filter((p: any) => p.status !== "Closed").map((p: any) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.problemNo} — {p.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {editingItem && <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Incident" /></div>}
           <div className="flex justify-end gap-2 mt-4">

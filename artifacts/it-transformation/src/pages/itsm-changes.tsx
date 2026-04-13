@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, GitBranch, CheckCircle2, Clock, AlertTriangle, Shield, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, GitBranch, CheckCircle2, Clock, AlertTriangle, Shield, Download, Link2, Server } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -134,6 +134,7 @@ export default function ItsmChanges() {
   const [formData, setFormData] = useState<any>({});
 
   const { data: changes = [] } = useQuery({ queryKey: ["changes"], queryFn: () => apiFetch<any[]>("/changes") });
+  const { data: problems = [] } = useQuery({ queryKey: ["problems"], queryFn: () => apiFetch<any[]>("/problems") });
 
   const createChange = useMutation({ mutationFn: (d: any) => apiFetch("/changes", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["changes"] }); queryClient.invalidateQueries({ queryKey: ["changes-stats"] }); } });
   const updateChange = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/changes/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["changes"] }); queryClient.invalidateQueries({ queryKey: ["changes-stats"] }); } });
@@ -296,6 +297,19 @@ export default function ItsmChanges() {
                   </div>
                 ))}
               </div>
+              {viewModal.problemId && (problems as any[]).find((p: any) => p.id === viewModal.problemId) && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-violet-50 dark:bg-violet-900/10 border-violet-200 dark:border-violet-800 text-sm text-violet-700 dark:text-violet-400">
+                  <Link2 className="w-4 h-4 flex-shrink-0" />
+                  <span className="font-semibold">Linked Problem:</span>
+                  <span className="truncate">{(problems as any[]).find((p: any) => p.id === viewModal.problemId)?.problemNo} — {(problems as any[]).find((p: any) => p.id === viewModal.problemId)?.title}</span>
+                </div>
+              )}
+              {viewModal.affectedAssets && (
+                <div className="rounded-lg bg-blue-50 dark:bg-blue-900/10 border border-blue-200/50 dark:border-blue-800/30 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-blue-700 dark:text-blue-400 font-semibold mb-1"><Server className="w-3 h-3" />Affected Assets / CIs</div>
+                  <div className="text-sm text-blue-800 dark:text-blue-300 whitespace-pre-wrap">{viewModal.affectedAssets}</div>
+                </div>
+              )}
               {viewModal.rollbackPlan && (
                 <div className="rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30 p-3">
                   <div className="text-[10px] uppercase tracking-wider text-red-700 dark:text-red-400 font-semibold mb-1">Rollback Plan</div>
@@ -325,6 +339,22 @@ export default function ItsmChanges() {
             <div><Label>Implementation Date</Label><Input type="date" value={formData.implementationDate || ""} onChange={e => setFormData({ ...formData, implementationDate: e.target.value })} /></div>
             <div><Label>Impact</Label><Input value={formData.impact || ""} onChange={e => setFormData({ ...formData, impact: e.target.value })} /></div>
             <div className="col-span-2"><Label>Rollback Plan</Label><Textarea value={formData.rollbackPlan || ""} onChange={e => setFormData({ ...formData, rollbackPlan: e.target.value })} rows={2} /></div>
+            <div className="col-span-2">
+              <Label className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-muted-foreground" />Linked Problem</Label>
+              <Select value={formData.problemId ? String(formData.problemId) : "none"} onValueChange={v => setFormData({ ...formData, problemId: v === "none" ? null : parseInt(v) })}>
+                <SelectTrigger><SelectValue placeholder="No linked problem" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— No linked problem —</SelectItem>
+                  {(problems as any[]).filter((p: any) => p.status !== "Closed").map((p: any) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.problemNo} — {p.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2">
+              <Label className="flex items-center gap-1.5"><Server className="w-3.5 h-3.5 text-muted-foreground" />Affected Assets / CIs</Label>
+              <Textarea placeholder="List affected assets or configuration items, one per line (e.g. SRV-001, SWITCH-12, APP-DB01)" value={formData.affectedAssets || ""} onChange={e => setFormData({ ...formData, affectedAssets: e.target.value })} rows={3} />
+            </div>
           </div>
           {editingItem && <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Change Request" /></div>}
           <div className="flex justify-end gap-2 mt-4">

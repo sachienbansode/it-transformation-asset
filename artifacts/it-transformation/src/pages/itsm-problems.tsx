@@ -9,13 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Bug, CheckCircle2, Clock, AlertTriangle, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Bug, CheckCircle2, Clock, AlertTriangle, Download, GitBranch, AlertCircle } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { useLocation } from "wouter";
 
 const PAGE_SIZE = 10;
 const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"];
@@ -112,6 +113,7 @@ export default function ItsmProblems() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { isAdmin, user } = useAuth();
+  const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
@@ -122,6 +124,7 @@ export default function ItsmProblems() {
   const [formData, setFormData] = useState<any>({});
 
   const { data: problems = [] } = useQuery({ queryKey: ["problems"], queryFn: () => apiFetch<any[]>("/problems") });
+  const { data: incidents = [] } = useQuery({ queryKey: ["incidents"], queryFn: () => apiFetch<any[]>("/incidents") });
 
   const createProblem = useMutation({ mutationFn: (d: any) => apiFetch("/problems", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["problems"] }) });
   const updateProblem = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/problems/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["problems"] }) });
@@ -266,19 +269,42 @@ export default function ItsmProblems() {
               <StatusBadge value={viewModal?.status || ""} />
             </DialogTitle>
           </DialogHeader>
-          {viewModal && (
+          {viewModal && (() => {
+            const linkedIncidents = (incidents as any[]).filter((i: any) => i.problemId === viewModal.id);
+            return (
             <div className="space-y-4">
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{viewModal.description || "No description provided"}</p>
-              <PriorityBadge value={viewModal.priority} />
+              <div className="flex flex-wrap gap-2 items-center">
+                <PriorityBadge value={viewModal.priority} />
+                <Button size="sm" variant="outline" onClick={() => { setViewModal(null); navigate("/itsm-changes"); }} className="h-7 text-xs gap-1.5 border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400">
+                  <GitBranch className="w-3.5 h-3.5" />Raise Change
+                </Button>
+              </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Assigned To", viewModal.assignedTo], ["Related Incidents", viewModal.relatedIncidents], ["Affected Systems", viewModal.affectedSystems], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
+                {[["Assigned To", viewModal.assignedTo], ["Affected Systems", viewModal.affectedSystems], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
                     <div className="font-medium text-sm">{(v as string) || "—"}</div>
                   </div>
                 ))}
               </div>
+              {linkedIncidents.length > 0 && (
+                <div className="rounded-lg border border-red-200/50 dark:border-red-800/30 bg-red-50/40 dark:bg-red-900/10 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-red-700 dark:text-red-400 font-semibold mb-2">
+                    <AlertCircle className="w-3.5 h-3.5" />Linked Incidents ({linkedIncidents.length})
+                  </div>
+                  <div className="space-y-1.5">
+                    {linkedIncidents.map((inc: any) => (
+                      <div key={inc.id} className="flex items-center gap-2 text-xs">
+                        <span className="font-mono font-bold text-red-600 dark:text-red-400">{inc.ticketNo}</span>
+                        <span className="text-muted-foreground truncate flex-1">{inc.title}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${inc.priority === "Critical" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}`}>{inc.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {viewModal.rootCause && (
                 <div className="rounded-lg bg-teal-50 dark:bg-teal-900/10 border border-teal-200/50 dark:border-teal-800/30 p-3">
                   <div className="text-[10px] uppercase tracking-wider text-teal-700 dark:text-teal-400 font-semibold mb-1">Root Cause</div>
@@ -295,7 +321,8 @@ export default function ItsmProblems() {
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Problem" ticketId={viewModal.id} />
             </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
