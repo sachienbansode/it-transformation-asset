@@ -12,7 +12,18 @@ if (!connectionString) {
   );
 }
 
-export const pool = new Pool({ connectionString });
+export const pool = new Pool({
+  connectionString,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
+
+// Prevent unhandled error crashes when DB severs a connection (e.g. on deployment)
+pool.on("error", (err) => {
+  console.error("[db-pool] idle client error:", err.message);
+});
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
