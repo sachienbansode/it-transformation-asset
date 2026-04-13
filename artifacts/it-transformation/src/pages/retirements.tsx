@@ -500,16 +500,17 @@ export default function Retirements() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
-                <Label className="text-xs">Budget Amount (₹)</Label>
+                <Label className="text-xs">Budget (₹ Lakhs)</Label>
                 <Input
                   type="number"
                   min="0"
-                  step="1"
+                  step="0.1"
                   value={formData.budgetLakhs ?? ""}
                   onChange={e => setFormData({ ...formData, budgetLakhs: e.target.value === "" ? undefined : Number(e.target.value) })}
-                  placeholder="e.g. 500000"
+                  placeholder="e.g. 25 for ₹25L"
                   className="text-xs h-8"
                 />
+                <p className="text-[10px] text-muted-foreground">Enter value in Lakhs (₹1L = ₹1,00,000)</p>
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-xs">Status <span className="text-destructive">*</span></Label>
