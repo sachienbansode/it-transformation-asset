@@ -1237,71 +1237,57 @@ function AuditTrailTab() {
           No audit records found. Try adjusting your filters.
         </div>
       ) : (
-        <div className="border border-border rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/40 border-b border-border">
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-28">Record ID</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-36">Time</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-28">Entity</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-20">Action</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase">Summary</th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase w-44">Performed By</th>
-                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground uppercase w-14">Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map(log => (
-                <React.Fragment key={log.id}>
-                  <tr className="border-t border-border hover:bg-muted/20">
-                    <td className="px-3 py-2.5">
-                      <span className="font-mono text-[10px] font-semibold text-[#b8922e] bg-[#d4a843]/10 px-1.5 py-0.5 rounded">
-                        {auditRecordId(log.id)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                      {new Date(log.performedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Badge variant="outline" className="text-[10px] capitalize">{log.entityType.replace(/_/g, " ")}</Badge>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Badge variant="outline" className={`text-[10px] capitalize border ${actionBadge(log.action)}`}>{log.action}</Badge>
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-xs truncate" title={log.summary}>{log.summary || "—"}</td>
-                    <td className="px-3 py-2.5 text-xs text-muted-foreground truncate max-w-[160px]" title={log.performedBy}>{log.performedBy || "—"}</td>
-                    <td className="px-3 py-2.5 text-right">
-                      {log.newValues && (
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
-                          {expandedId === log.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                  {expandedId === log.id && (
-                    <tr className="border-t border-border bg-muted/10">
-                      <td colSpan={7} className="px-4 py-3">
-                        <div className="grid grid-cols-2 gap-4">
-                          {log.oldValues && (
-                            <div>
-                              <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5">Before</p>
-                              <pre className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{JSON.stringify(log.oldValues, null, 2)}</pre>
-                            </div>
-                          )}
-                          {log.newValues && (
-                            <div>
-                              <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5">After</p>
-                              <pre className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{JSON.stringify(log.newValues, null, 2)}</pre>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
+        <div className="border border-border rounded-xl overflow-hidden divide-y divide-border">
+          {logs.map(log => (
+            <div key={log.id} className="hover:bg-muted/10 transition-colors">
+              {/* Row 1: Meta info */}
+              <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-1">
+                <span className="font-mono text-[10px] font-semibold text-[#b8922e] bg-[#d4a843]/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                  {auditRecordId(log.id)}
+                </span>
+                <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                  {new Date(log.performedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                </span>
+                <Badge variant="outline" className="text-[10px] capitalize">{log.entityType.replace(/_/g, " ")}</Badge>
+                <Badge variant="outline" className={`text-[10px] capitalize border ${actionBadge(log.action)}`}>{log.action}</Badge>
+                {log.performedBy && (
+                  <span className="text-[11px] text-muted-foreground ml-auto truncate max-w-[220px]" title={log.performedBy}>
+                    by {log.performedBy}
+                  </span>
+                )}
+                {log.newValues && (
+                  <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
+                    {expandedId === log.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  </Button>
+                )}
+              </div>
+              {/* Row 2: Summary */}
+              {log.summary && (
+                <p className="px-4 pb-3 text-xs text-foreground/80 leading-relaxed">
+                  {log.summary}
+                </p>
+              )}
+              {/* Expanded diff */}
+              {expandedId === log.id && (
+                <div className="px-4 pb-3 border-t border-border/50 mt-1 pt-3 bg-muted/10">
+                  <div className="grid grid-cols-2 gap-4">
+                    {log.oldValues && (
+                      <div>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5">Before</p>
+                        <pre className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{JSON.stringify(log.oldValues, null, 2)}</pre>
+                      </div>
+                    )}
+                    {log.newValues && (
+                      <div>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5">After</p>
+                        <pre className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{JSON.stringify(log.newValues, null, 2)}</pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

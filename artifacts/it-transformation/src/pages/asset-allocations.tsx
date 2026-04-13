@@ -27,6 +27,7 @@ interface Employee {
   designation?: string;
   employeeCode?: string;
 }
+interface DeptMaster { key: string; label: string; sortOrder: number; }
 
 export default function AssetAllocations() {
   const queryClient = useQueryClient();
@@ -60,6 +61,9 @@ export default function AssetAllocations() {
   const { data: allocations = [] } = useQuery({ queryKey: ["asset-allocations"], queryFn: () => apiFetch<any[]>("/asset-allocations") });
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => apiFetch<any[]>("/assets") });
   const { data: employees = [] } = useQuery({ queryKey: ["employees"], queryFn: () => apiFetch<Employee[]>("/admin/users") });
+  const { data: deptMasters = [] } = useQuery({ queryKey: ["dept-masters"], queryFn: () => apiFetch<DeptMaster[]>("/masters?category=department&active=true") });
+
+  const deptLabel = useMemo(() => (key: string) => (deptMasters as DeptMaster[]).find((d: DeptMaster) => d.key === key)?.label || key, [deptMasters]);
 
   const createAlloc = useMutation({ mutationFn: (data: any) => apiFetch("/asset-allocations", { method: "POST", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["asset-allocations"] }); queryClient.invalidateQueries({ queryKey: ["assets"] }); } });
   const updateAlloc = useMutation({ mutationFn: ({ id, ...data }: any) => apiFetch(`/asset-allocations/${id}`, { method: "PATCH", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["asset-allocations"] }); queryClient.invalidateQueries({ queryKey: ["assets"] }); } });
@@ -138,7 +142,18 @@ export default function AssetAllocations() {
   }
   function openEdit(item: any) {
     setEditingItem(item);
-    setFormData({ ...item });
+    setFormData({
+      assetId: item.assetId,
+      userId: item.userId,
+      userName: item.userName,
+      employeeCode: item.employeeCode,
+      designation: item.designation,
+      department: item.department,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      status: item.status,
+      notes: item.notes,
+    });
     setEmployeeSearch(item.userName || "");
     setIsModalOpen(true);
   }
@@ -218,9 +233,13 @@ export default function AssetAllocations() {
                 className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors"
                 onClick={() => onSelect(e)}
               >
-                <span className="font-medium">{e.name}</span>
-                {e.employeeCode && <span className="ml-2 text-[10px] text-muted-foreground font-mono">{e.employeeCode}</span>}
-                {e.department && <span className="ml-2 text-[10px] text-muted-foreground">{e.department}</span>}
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium">{e.name}</span>
+                  {e.employeeCode && <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1 rounded">{e.employeeCode}</span>}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {[e.designation, deptLabel(e.department || "")].filter(Boolean).join(" · ")}
+                </div>
               </button>
             ))}
           </div>
@@ -261,8 +280,8 @@ export default function AssetAllocations() {
               <SelectContent><SelectItem value="all">All Statuses</SelectItem><SelectItem value="Active">Active</SelectItem><SelectItem value="Returned">Returned</SelectItem><SelectItem value="Lost">Lost</SelectItem></SelectContent>
             </Select>
             <Select value={filterDept} onValueChange={v => { setFilterDept(v === "all" ? "" : v); setPage(1); }}>
-              <SelectTrigger className="w-[160px]"><SelectValue placeholder="All Depts" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Departments</SelectItem>{departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Depts" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Departments</SelectItem>{departments.map(d => <SelectItem key={d} value={d}>{deptLabel(d) || d}</SelectItem>)}</SelectContent>
             </Select>
             {(search || filterStatus || filterDept) && <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setFilterStatus(""); setFilterDept(""); setPage(1); }}>Clear</Button>}
           </div>
@@ -294,7 +313,7 @@ export default function AssetAllocations() {
                       <TableCell className="font-medium whitespace-nowrap">{a.userName || "—"}</TableCell>
                       <TableCell className="text-xs font-mono text-muted-foreground">{a.employeeCode || "—"}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{a.designation || "—"}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{a.department || "—"}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{deptLabel(a.department || "") || a.department || "—"}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{a.startDate || "—"}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{a.endDate || <span className="text-emerald-600">Ongoing</span>}</TableCell>
                       <TableCell>
@@ -390,7 +409,7 @@ export default function AssetAllocations() {
             </div>
             <div>
               <Label className="text-xs font-medium">Department</Label>
-              <Input value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} placeholder="Auto-filled from employee" className="bg-muted/30" />
+              <Input value={deptLabel(formData.department || "") || formData.department || ""} readOnly placeholder="Auto-filled from employee" className="bg-muted/30 text-muted-foreground" />
             </div>
             <div>
               <Label className="text-xs font-medium">Status</Label>
@@ -456,7 +475,7 @@ export default function AssetAllocations() {
                   <div className="flex-1 grid grid-cols-3 gap-3 text-sm">
                     <div><span className="text-[10px] text-muted-foreground uppercase">Emp Code</span><p className="font-mono font-medium">{bulkForm.employeeCode}</p></div>
                     <div><span className="text-[10px] text-muted-foreground uppercase">Designation</span><p className="font-medium">{bulkForm.designation || "—"}</p></div>
-                    <div><span className="text-[10px] text-muted-foreground uppercase">Department</span><p className="font-medium">{bulkForm.department || "—"}</p></div>
+                    <div><span className="text-[10px] text-muted-foreground uppercase">Department</span><p className="font-medium">{deptLabel(bulkForm.department) || bulkForm.department || "—"}</p></div>
                   </div>
                 </div>
               )}

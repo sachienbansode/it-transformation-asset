@@ -145,11 +145,14 @@ router.get("/roles/:id/users", async (req, res): Promise<void> => {
   const links = await db.select().from(userRolesTable).where(eq(userRolesTable.roleId, id));
   if (links.length === 0) { res.json([]); return; }
   const userIds = links.map(l => l.userId);
-  const users = await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email })
-    .from(usersTable).where(inArray(usersTable.id, userIds));
+  const users = await db.select({
+    id: usersTable.id, name: usersTable.name, email: usersTable.email,
+    role: usersTable.role, department: usersTable.department,
+    designation: usersTable.designation, employeeCode: usersTable.employeeCode,
+  }).from(usersTable).where(inArray(usersTable.id, userIds));
   const result = links.map(l => {
     const u = users.find(u => u.id === l.userId);
-    return { id: l.id, userId: l.userId, roleId: l.roleId, userName: u?.name, userEmail: u?.email };
+    return { id: l.id, userId: l.userId, roleId: l.roleId, userName: u?.name, userEmail: u?.email, userRole: u?.role, userDept: u?.department, userDesignation: u?.designation, userEmpCode: u?.employeeCode };
   });
   res.json(result);
 });

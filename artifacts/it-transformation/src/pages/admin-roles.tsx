@@ -13,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Shield, Plus, Trash2, ChevronDown, ChevronUp, Minus } from "lucide-react";
+import { Shield, Plus, Trash2, ChevronDown, ChevronUp, Minus, Search, X } from "lucide-react";
 
 const DASHBOARD_ROUTES = [
   { value: "/", label: "Executive Dashboard" },
@@ -50,11 +50,11 @@ const LEVEL_BADGES: Record<string, string> = {
   admin: "bg-red-50 dark:bg-red-400/10 text-red-600 dark:text-red-400 border-red-400",
 };
 
-interface AdminUser { id: number; name: string; email: string; }
+interface AdminUser { id: number; name: string; email: string; role?: string; department?: string; designation?: string; employeeCode?: string; }
 interface RoleModule { key: string; label: string; group: string; }
 interface Role { id: number; name: string; description?: string; isSystem: boolean; defaultDashboard?: string; createdAt: string; permissions?: any[]; userCount?: number; }
 interface RolePermission { id: number; roleId: number; module: string; accessLevel: string; }
-interface UserRole { id: number; userId: number; roleId: number; userName?: string; userEmail?: string; }
+interface UserRole { id: number; userId: number; roleId: number; userName?: string; userEmail?: string; userRole?: string; userDept?: string; userDesignation?: string; userEmpCode?: string; }
 
 const USERS_PAGE_SIZE = 5;
 
@@ -73,6 +73,8 @@ export default function AdminRoles() {
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDesc, setNewRoleDesc] = useState("");
   const [addUserRoleId, setAddUserRoleId] = useState("");
+  const [userSearchQ, setUserSearchQ] = useState("");
+  const [selectedUserToAdd, setSelectedUserToAdd] = useState<AdminUser | null>(null);
   const [editDefaultDashboard, setEditDefaultDashboard] = useState("/");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [usersPage, setUsersPage] = useState(1);
@@ -185,10 +187,12 @@ export default function AdminRoles() {
   };
 
   const addUserToRole = async () => {
-    if (!selectedRole || !addUserRoleId) return;
+    if (!selectedRole || !selectedUserToAdd) return;
     try {
-      await apiFetch(`/roles/${selectedRole.id}/users`, { method: "POST", body: JSON.stringify({ userId: parseInt(addUserRoleId) }) });
-      toast({ title: "User assigned to role" });
+      await apiFetch(`/roles/${selectedRole.id}/users`, { method: "POST", body: JSON.stringify({ userId: selectedUserToAdd.id }) });
+      toast({ title: `${selectedUserToAdd.name} assigned to role` });
+      setSelectedUserToAdd(null);
+      setUserSearchQ("");
       setAddUserRoleId("");
       loadRoleDetails(selectedRole);
       loadRoles();
@@ -206,6 +210,17 @@ export default function AdminRoles() {
   };
 
   const usersNotInRole = allUsers.filter(u => !userRoles.some(ur => ur.userId === u.id));
+  const searchedUsersToAdd = React.useMemo(() => {
+    if (!userSearchQ.trim()) return usersNotInRole.slice(0, 8);
+    const q = userSearchQ.toLowerCase();
+    return usersNotInRole.filter(u =>
+      u.name.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      (u.department || "").toLowerCase().includes(q) ||
+      (u.designation || "").toLowerCase().includes(q) ||
+      (u.employeeCode || "").toLowerCase().includes(q)
+    ).slice(0, 10);
+  }, [usersNotInRole, userSearchQ]);
   const totalUserPages = Math.ceil(userRoles.length / USERS_PAGE_SIZE);
   const pagedUsers = userRoles.slice((usersPage - 1) * USERS_PAGE_SIZE, usersPage * USERS_PAGE_SIZE);
 
@@ -377,31 +392,89 @@ export default function AdminRoles() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-semibold">Users with this Role</CardTitle>
-                    <span className="text-[10px] text-muted-foreground">{userRoles.length} user{userRoles.length !== 1 ? "s" : ""}</span>
+                    <span className="text-[10px] text-muted-foreground">{userRoles.length} user{userRoles.length !== 1 ? "s" : ""} assigned</span>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Select value={addUserRoleId} onValueChange={setAddUserRoleId}>
-                      <SelectTrigger className="h-8 text-xs flex-1"><SelectValue placeholder="Select user to add…" /></SelectTrigger>
-                      <SelectContent>
-                        {usersNotInRole.map(u => <SelectItem key={u.id} value={u.id.toString()}>{u.name} ({u.email})</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" className="h-8" onClick={addUserToRole} disabled={!addUserRoleId}><Plus className="mr-1 h-3.5 w-3.5" />Add</Button>
+                  {/* Search + Add */}
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground font-medium">Add user to this role</p>
+                    {selectedUserToAdd ? (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#d4a843]/40 bg-[#d4a843]/5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{selectedUserToAdd.name}</p>
+                          <p className="text-[10px] text-muted-foreground">{selectedUserToAdd.email}{selectedUserToAdd.department ? ` · ${selectedUserToAdd.department}` : ""}</p>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => { setSelectedUserToAdd(null); setUserSearchQ(""); }}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                        <Button size="sm" className="h-7 bg-[#d4a843] hover:bg-[#b8922e] text-white flex-shrink-0" onClick={addUserToRole}>
+                          <Plus className="mr-1 h-3 w-3" />Add
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <div className="flex items-center gap-2">
+                          <div className="relative flex-1">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <input
+                              value={userSearchQ}
+                              onChange={e => setUserSearchQ(e.target.value)}
+                              placeholder="Search by name, email, code, dept, designation…"
+                              className="w-full pl-8 pr-3 py-1.5 text-xs border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                          </div>
+                        </div>
+                        {(userSearchQ || true) && searchedUsersToAdd.length > 0 && (
+                          <div className="mt-1.5 border border-border rounded-lg overflow-hidden divide-y divide-border/50 max-h-[240px] overflow-y-auto">
+                            {searchedUsersToAdd.map(u => (
+                              <button key={u.id} type="button"
+                                className="w-full text-left px-3 py-2 hover:bg-muted/40 transition-colors"
+                                onClick={() => { setSelectedUserToAdd(u); setUserSearchQ(u.name); }}>
+                                <div className="flex items-center justify-between">
+                                  <div className="min-w-0">
+                                    <span className="text-sm font-medium">{u.name}</span>
+                                    {u.employeeCode && <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">{u.employeeCode}</span>}
+                                  </div>
+                                  <Plus className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 ml-2" />
+                                </div>
+                                <div className="flex gap-2 mt-0.5">
+                                  <span className="text-[10px] text-muted-foreground">{u.email}</span>
+                                  {u.designation && <span className="text-[10px] text-muted-foreground">· {u.designation}</span>}
+                                  {u.department && <span className="text-[10px] text-muted-foreground">· {u.department}</span>}
+                                </div>
+                              </button>
+                            ))}
+                            {usersNotInRole.length === 0 && (
+                              <div className="px-3 py-3 text-xs text-muted-foreground text-center">All users already have this role</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
+
+                  {/* Assigned users list */}
                   {userRoles.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-3">No users assigned to this role yet.</p>
+                    <p className="text-xs text-muted-foreground text-center py-3 border border-dashed border-border rounded-lg">No users assigned to this role yet.</p>
                   ) : (
                     <>
                       <div className="space-y-1.5">
                         {pagedUsers.map(ur => (
-                          <div key={ur.id} className="flex items-center justify-between py-1.5 px-3 border border-border rounded-lg">
-                            <div>
-                              <p className="text-sm font-medium">{ur.userName || `User #${ur.userId}`}</p>
-                              {ur.userEmail && <p className="text-[10px] text-muted-foreground">{ur.userEmail}</p>}
+                          <div key={ur.id} className="flex items-start justify-between py-2 px-3 border border-border rounded-lg hover:bg-muted/20 transition-colors">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <p className="text-sm font-medium">{ur.userName || `User #${ur.userId}`}</p>
+                                {ur.userEmpCode && <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1 rounded">{ur.userEmpCode}</span>}
+                                {ur.userRole && <span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground capitalize">{ur.userRole}</span>}
+                              </div>
+                              <div className="flex flex-wrap gap-x-3 mt-0.5">
+                                {ur.userEmail && <p className="text-[10px] text-muted-foreground">{ur.userEmail}</p>}
+                                {ur.userDesignation && <p className="text-[10px] text-muted-foreground">· {ur.userDesignation}</p>}
+                                {ur.userDept && <p className="text-[10px] text-muted-foreground">· {ur.userDept}</p>}
+                              </div>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setRemoveConfirm(ur)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive flex-shrink-0 ml-2" onClick={() => setRemoveConfirm(ur)}>
                               <Minus className="h-3.5 w-3.5" />
                             </Button>
                           </div>

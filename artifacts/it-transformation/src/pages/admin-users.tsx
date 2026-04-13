@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Users, Plus, Pencil, Trash2, RefreshCw, Search, UserCheck, UserX, Shield } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, RefreshCw, Search, UserCheck, UserX, Shield, Mail, Phone, Briefcase, Building2, KeyRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 interface AdminUser {
@@ -27,6 +27,14 @@ const ROLE_OPTIONS = [
   { value: "hr", label: "HR (KPI module only)" },
 ];
 
+const ROLE_BADGE: Record<string, string> = {
+  admin: "border-yellow-500/40 text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-400/10",
+  cxo: "border-violet-500/40 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-400/10",
+  hr: "border-pink-500/40 text-pink-700 dark:text-pink-400 bg-pink-50 dark:bg-pink-400/10",
+  user: "border-gray-400/40 text-gray-600 dark:text-gray-400",
+  kpi_employee: "border-blue-500/40 text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-400/10",
+};
+
 export default function AdminUsers() {
   const { toast } = useToast();
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -36,10 +44,10 @@ export default function AdminUsers() {
   const [searchQ, setSearchQ] = useState("");
   const [filterRole, setFilterRole] = useState("all");
   const [filterType, setFilterType] = useState("all");
-  const [sortCol, setSortCol] = useState<"name" | "email" | "department" | "role" | "status">("name");
+  const [sortCol, setSortCol] = useState<"name" | "department" | "role" | "status">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [userPage, setUserPage] = useState(1);
-  const USER_PAGE_SIZE = 15;
+  const USER_PAGE_SIZE = 12;
   const [form, setForm] = useState({
     name: "", email: "", password: "", userType: "internal", role: "user",
     department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true,
@@ -85,6 +93,9 @@ export default function AdminUsers() {
         if (!form.designation.trim() || !form.employeeCode.trim() || !form.department.trim()) {
           toast({ title: "Designation, Department, and Employee Code are required", variant: "destructive" }); return;
         }
+        // Client-side unique emp code check
+        const empCodeExists = users.some(u => u.employeeCode?.toLowerCase() === form.employeeCode.trim().toLowerCase());
+        if (empCodeExists) { toast({ title: "Employee Code already exists", description: "Employee codes must be unique.", variant: "destructive" }); return; }
         const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
         await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
@@ -115,12 +126,6 @@ export default function AdminUsers() {
     else { setSortCol(col); setSortDir("asc"); }
   };
 
-  const SortIcon = ({ col }: { col: typeof sortCol }) => (
-    sortCol === col
-      ? <span className="ml-1 text-primary">{sortDir === "asc" ? "↑" : "↓"}</span>
-      : <span className="ml-1 text-muted-foreground/40">↕</span>
-  );
-
   const sortedFilteredUsers = React.useMemo(() => {
     const q = searchQ.toLowerCase();
     let filtered = users;
@@ -128,6 +133,7 @@ export default function AdminUsers() {
       u.name.toLowerCase().includes(q) ||
       u.email.toLowerCase().includes(q) ||
       (u.department || "").toLowerCase().includes(q) ||
+      deptLabel(u.department || "").toLowerCase().includes(q) ||
       (u.designation || "").toLowerCase().includes(q) ||
       (u.employeeCode || "").toLowerCase().includes(q) ||
       (u.mobile || "").includes(q)
@@ -139,7 +145,7 @@ export default function AdminUsers() {
       const bVal = (b[sortCol] || "").toString().toLowerCase();
       return sortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     });
-  }, [users, searchQ, sortCol, sortDir, filterRole, filterType]);
+  }, [users, searchQ, sortCol, sortDir, filterRole, filterType, deptMasters]);
 
   useEffect(() => { setUserPage(1); }, [searchQ, sortCol, sortDir, filterRole, filterType]);
 
@@ -148,6 +154,13 @@ export default function AdminUsers() {
 
   const activeCount = users.filter(u => (u.status || (u.isActive ? "active" : "inactive")) === "active").length;
   const internalCount = users.filter(u => u.userType === "internal").length;
+
+  const statusCls = (s: string) =>
+    s === "active" ? "border-green-500/30 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-400/10"
+    : s === "dormant" ? "border-yellow-500/30 text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-400/10"
+    : "border-red-500/30 text-red-500 bg-red-50 dark:bg-red-400/10";
+
+  const initials = (name: string) => name.split(" ").slice(0, 2).map(n => n[0]).join("").toUpperCase();
 
   return (
     <div className="space-y-5">
@@ -184,7 +197,7 @@ export default function AdminUsers() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[200px] max-w-xs">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input
             placeholder="Search name, email, emp code, mobile…"
@@ -201,98 +214,106 @@ export default function AdminUsers() {
           </SelectContent>
         </Select>
         <Select value={filterType} onValueChange={setFilterType}>
-          <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue placeholder="All Types" /></SelectTrigger>
+          <SelectTrigger className="w-[130px] h-8 text-xs"><SelectValue placeholder="All Types" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
             <SelectItem value="internal">Internal</SelectItem>
             <SelectItem value="external">External</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-1 ml-1">
+          {(["name", "department", "role", "status"] as const).map(col => (
+            <button key={col} onClick={() => toggleSort(col)}
+              className={`px-2 py-1 text-[10px] rounded border transition-colors ${sortCol === col ? "border-primary/60 bg-primary/10 text-primary font-semibold" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+              {col === "name" ? "Name" : col === "department" ? "Dept" : col === "role" ? "Role" : "Status"}
+              {sortCol === col && <span className="ml-0.5">{sortDir === "asc" ? "↑" : "↓"}</span>}
+            </button>
+          ))}
+        </div>
         {(searchQ || filterRole !== "all" || filterType !== "all") && (
-          <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => { setSearchQ(""); setFilterRole("all"); setFilterType("all"); }}>Clear filters</Button>
+          <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => { setSearchQ(""); setFilterRole("all"); setFilterType("all"); }}>Clear</Button>
         )}
         <p className="text-xs text-muted-foreground ml-auto">{sortedFilteredUsers.length} / {users.length} users</p>
       </div>
 
       {loading ? (
-        <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
+        <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
       ) : (
         <>
-          <div className="border border-border rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[900px]">
-                <thead className="bg-muted/50 sticky top-0">
-                  <tr>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer whitespace-nowrap" onClick={() => toggleSort("name")}>Name<SortIcon col="name" /></th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Emp Code</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer whitespace-nowrap" onClick={() => toggleSort("email")}>Email<SortIcon col="email" /></th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Mobile</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Designation</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer whitespace-nowrap" onClick={() => toggleSort("department")}>Dept<SortIcon col="department" /></th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Type</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer whitespace-nowrap" onClick={() => toggleSort("role")}>Role<SortIcon col="role" /></th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">MFA</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground cursor-pointer whitespace-nowrap" onClick={() => toggleSort("status")}>Status<SortIcon col="status" /></th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Last Login</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedFilteredUsers.length === 0 && (
-                    <tr><td colSpan={12} className="px-4 py-8 text-center text-sm text-muted-foreground">No users match your search.</td></tr>
-                  )}
-                  {pagedUsers.map(u => (
-                    <tr key={u.id} className="border-t border-border hover:bg-muted/30">
-                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{u.name}</td>
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground font-mono">{u.employeeCode || "—"}</td>
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-[180px]">
-                        <span className="block truncate" title={u.email}>{u.email}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{u.mobile || "—"}</td>
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{u.designation || "—"}</td>
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{deptLabel(u.department || "") || "—"}</td>
-                      <td className="px-3 py-2.5">
-                        <Badge variant="outline" className={u.userType === "internal" ? "border-blue-500/30 text-blue-600 dark:text-blue-400 text-[10px]" : "border-purple-500/30 text-purple-600 dark:text-purple-400 text-[10px]"}>
+          <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
+            {pagedUsers.length === 0 && (
+              <div className="px-4 py-10 text-center text-sm text-muted-foreground">No users match your search.</div>
+            )}
+            {pagedUsers.map(u => {
+              const s = u.status || (u.isActive ? "active" : "inactive");
+              return (
+                <div key={u.id} className="px-4 py-3 hover:bg-muted/20 transition-colors">
+                  {/* Row 1: Identity + Badges + Actions */}
+                  <div className="flex items-center gap-3">
+                    {/* Avatar */}
+                    <div className="w-8 h-8 rounded-full bg-[#d4a843]/20 border border-[#d4a843]/30 flex items-center justify-center text-[11px] font-bold text-[#b8922e] flex-shrink-0">
+                      {initials(u.name)}
+                    </div>
+                    {/* Name + Emp Code */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-sm">{u.name}</span>
+                        {u.employeeCode && (
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">{u.employeeCode}</span>
+                        )}
+                        <Badge variant="outline" className={`text-[10px] capitalize ${statusCls(s)}`}>{s}</Badge>
+                        <Badge variant="outline" className={`text-[10px] capitalize ${ROLE_BADGE[u.role] || ""}`}>{getRoleLabel(u.role)}</Badge>
+                        <Badge variant="outline" className={`text-[10px] ${u.userType === "internal" ? "border-blue-400/40 text-blue-600 dark:text-blue-400" : "border-purple-400/40 text-purple-600 dark:text-purple-400"}`}>
                           {u.userType === "internal" ? "Internal" : "External"}
                         </Badge>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Badge variant="outline" className={`text-[10px] ${u.role === "admin" ? "border-yellow-500/30 text-yellow-600 dark:text-yellow-400" : "border-gray-500/30 text-gray-500"}`}>
-                          {getRoleLabel(u.role)}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Badge variant="outline" className={`text-[10px] ${u.mfaEnabled ? "border-green-500/30 text-green-600 dark:text-green-400" : "border-gray-500/30 text-gray-400"}`}>
-                          {u.mfaEnabled ? "ON" : "OFF"}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        {(() => {
-                          const s = u.status || (u.isActive ? "active" : "inactive");
-                          const cls = s === "active" ? "border-green-500/30 text-green-600 dark:text-green-400" : s === "dormant" ? "border-yellow-500/30 text-yellow-600 dark:text-yellow-400" : "border-red-500/30 text-red-500";
-                          return <Badge variant="outline" className={`text-[10px] capitalize ${cls}`}>{s}</Badge>;
-                        })()}
-                      </td>
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                        {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "Never"}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex gap-1 justify-end">
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(u)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        {u.mfaEnabled && (
+                          <Badge variant="outline" className="text-[10px] border-green-400/40 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-400/10">
+                            <KeyRound className="w-2.5 h-2.5 mr-0.5" />MFA ON
+                          </Badge>
+                        )}
+                      </div>
+                      {/* Row 2: Contact + Role info */}
+                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <Mail className="w-3 h-3 flex-shrink-0" />{u.email}
+                        </span>
+                        {u.mobile && (
+                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                            <Phone className="w-3 h-3 flex-shrink-0" />{u.mobile}
+                          </span>
+                        )}
+                        {u.designation && (
+                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                            <Briefcase className="w-3 h-3 flex-shrink-0" />{u.designation}
+                          </span>
+                        )}
+                        {u.department && (
+                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                            <Building2 className="w-3 h-3 flex-shrink-0" />{deptLabel(u.department)}
+                          </span>
+                        )}
+                        {u.lastLoginAt && (
+                          <span className="text-[10px] text-muted-foreground/60">
+                            Last login: {new Date(u.lastLoginAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Actions */}
+                    <div className="flex gap-1 flex-shrink-0">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(u)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-2">
+            <div className="flex items-center justify-between px-1">
               <p className="text-xs text-muted-foreground">
-                Showing {((userPage - 1) * USER_PAGE_SIZE) + 1}–{Math.min(userPage * USER_PAGE_SIZE, sortedFilteredUsers.length)} of {sortedFilteredUsers.length} users
+                Showing {((userPage - 1) * USER_PAGE_SIZE) + 1}–{Math.min(userPage * USER_PAGE_SIZE, sortedFilteredUsers.length)} of {sortedFilteredUsers.length}
               </p>
               <div className="flex items-center gap-1">
                 <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={userPage === 1} onClick={() => setUserPage(p => Math.max(1, p - 1))}>← Prev</Button>
@@ -338,6 +359,9 @@ export default function AdminUsers() {
             <div className="space-y-1.5">
               <Label>Employee Code <span className="text-red-500">*</span></Label>
               <Input value={form.employeeCode} onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value }))} placeholder="e.g. EMP001" />
+              {!editUser && form.employeeCode && users.some(u => u.employeeCode?.toLowerCase() === form.employeeCode.toLowerCase()) && (
+                <p className="text-[11px] text-red-500">⚠ Employee code already in use</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Designation <span className="text-red-500">*</span></Label>

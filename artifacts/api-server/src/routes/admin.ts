@@ -95,7 +95,7 @@ router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
     mobile: usersTable.mobile,
   });
   const adminName = await getPerformedBy((req as any).user?.id);
-  logAudit({ entityType: "User", entityId: user.id, action: "CREATE", performedBy: adminName, summary: `User created: ${user.email} (${user.role})`, newValues: { email: user.email, role: user.role, status: user.status } }).catch(() => {});
+  logAudit({ entityType: "user", entityId: user.id, action: "create", performedBy: adminName, summary: `Created user ${user.email} with role "${user.role}"`, newValues: { email: user.email, role: user.role, status: user.status } }).catch(() => {});
   res.status(201).json(user);
 });
 
@@ -126,16 +126,27 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   }
   if (rest.status === "inactive" || rest.status === "dormant") update.isActive = false;
   if (password) update.passwordHash = await bcrypt.hash(password, 12);
-  const [oldUser] = await db.select({ email: usersTable.email, role: usersTable.role, status: usersTable.status }).from(usersTable).where(eq(usersTable.id, id));
+  const [oldUser] = await db.select({
+    email: usersTable.email, name: usersTable.name, role: usersTable.role, status: usersTable.status,
+    department: usersTable.department, designation: usersTable.designation, mobile: usersTable.mobile,
+    userType: usersTable.userType, employeeCode: usersTable.employeeCode, mfaEnabled: usersTable.mfaEnabled,
+  }).from(usersTable).where(eq(usersTable.id, id));
   const [user] = await db.update(usersTable).set(update).where(eq(usersTable.id, id)).returning({
     id: usersTable.id, email: usersTable.email, name: usersTable.name,
     userType: usersTable.userType, role: usersTable.role, status: usersTable.status,
-    mobile: usersTable.mobile, mfaEnabled: usersTable.mfaEnabled,
+    department: usersTable.department, designation: usersTable.designation,
+    mobile: usersTable.mobile, mfaEnabled: usersTable.mfaEnabled, employeeCode: usersTable.employeeCode,
   });
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const adminNameU = await getPerformedBy((req as any).user?.id);
-  const changedFields = Object.keys(body.data).filter(k => k !== "password").join(", ");
-  logAudit({ entityType: "User", entityId: user.id, action: "UPDATE", performedBy: adminNameU, summary: `User updated: ${user.email} — fields: ${changedFields}`, oldValues: oldUser, newValues: { role: user.role, status: user.status } }).catch(() => {});
+  const updatedKeys = Object.keys(body.data).filter(k => k !== "password");
+  const oldSnap: Record<string, unknown> = {};
+  const newSnap: Record<string, unknown> = {};
+  for (const k of updatedKeys) {
+    oldSnap[k] = (oldUser as any)?.[k];
+    newSnap[k] = (user as any)[k] ?? (rest as any)[k];
+  }
+  logAudit({ entityType: "user", entityId: user.id, action: "update", performedBy: adminNameU, summary: `Updated user ${user.email}: ${updatedKeys.filter(k => oldSnap[k] !== newSnap[k]).map(k => `${k}: "${oldSnap[k]}" → "${newSnap[k]}"`).join(", ") || updatedKeys.join(", ")}`, oldValues: oldSnap, newValues: newSnap }).catch(() => {});
   res.json(user);
 });
 
