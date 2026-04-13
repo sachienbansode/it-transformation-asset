@@ -8,7 +8,7 @@ import {
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
-  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge,
+  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -53,6 +53,7 @@ const ASSET_ITEMS = [
   { href: "/asset-vendors", label: "Vendors", icon: Building2, module: "asset_vendors" },
   { href: "/asset-licenses", label: "Licenses", icon: Shield, module: "asset_licenses" },
   { href: "/asset-allocations", label: "Allocations", icon: Users, module: "asset_allocations" },
+  { href: "/maintenance-records", label: "Maintenance", icon: Wrench, module: "maintenance_records" },
 ];
 
 const ITSM_ITEMS = [

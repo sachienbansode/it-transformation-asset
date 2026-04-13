@@ -26,6 +26,7 @@ import AssetRegistry from "@/pages/asset-registry";
 import AssetVendors from "@/pages/asset-vendors";
 import AssetLicenses from "@/pages/asset-licenses";
 import AssetAllocations from "@/pages/asset-allocations";
+import MaintenanceRecords from "@/pages/maintenance-records";
 import ItsmDashboard from "@/pages/itsm-dashboard";
 import ItsmIncidents from "@/pages/itsm-incidents";
 import ItsmProblems from "@/pages/itsm-problems";
@@ -118,6 +119,7 @@ function Router() {
               <Route path="/asset-vendors" component={AssetVendors} />
               <Route path="/asset-licenses" component={AssetLicenses} />
               <Route path="/asset-allocations" component={AssetAllocations} />
+              <Route path="/maintenance-records" component={MaintenanceRecords} />
               <Route path="/itsm" component={ItsmDashboard} />
               <Route path="/itsm-incidents" component={ItsmIncidents} />
               <Route path="/itsm-problems" component={ItsmProblems} />

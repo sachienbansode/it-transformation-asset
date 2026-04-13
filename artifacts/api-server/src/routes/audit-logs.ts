@@ -1,9 +1,25 @@
-import { Router } from "express";
+import { Router, Request } from "express";
 import { db, auditLogsTable, usersTable } from "@workspace/db";
 import { desc, eq, and, gte } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
 
 const router = Router();
+
+export interface AuditContext {
+  ip?: string;
+  userAgent?: string;
+  pageContext?: string;
+  timestamp?: string;
+}
+
+export function buildContext(req: Request, pageContext?: string): AuditContext {
+  return {
+    ip: req.ip || (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "unknown",
+    userAgent: (req.headers["user-agent"] as string) || "unknown",
+    pageContext: pageContext || req.path,
+    timestamp: new Date().toISOString(),
+  };
+}
 
 export async function logAudit(params: {
   entityType: string;
@@ -11,8 +27,8 @@ export async function logAudit(params: {
   action: string;
   performedBy?: string;
   summary: string;
-  oldValues?: unknown;
   newValues?: unknown;
+  context?: AuditContext;
 }) {
   await db.insert(auditLogsTable).values({
     entityType: params.entityType,
@@ -20,8 +36,8 @@ export async function logAudit(params: {
     action: params.action,
     performedBy: params.performedBy,
     summary: params.summary,
-    oldValues: params.oldValues as any,
     newValues: params.newValues as any,
+    context: params.context as any,
   });
 }
 
@@ -50,7 +66,7 @@ router.get("/audit-logs", requireAuth, requireAdmin, async (req, res): Promise<v
     logs = await db
       .select()
       .from(auditLogsTable)
-      .where(eq(auditLogsTable.entityType, entityType))
+      .where(and(eq(auditLogsTable.entityType, entityType), gte(auditLogsTable.performedAt, since)))
       .orderBy(desc(auditLogsTable.performedAt))
       .limit(limitNum + 1)
       .offset(offset);

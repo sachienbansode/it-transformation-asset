@@ -28,6 +28,60 @@ const STATUS_BADGE: Record<string, string> = {
 const ASSET_TYPES = ["Laptop", "Desktop", "Server", "Network Switch", "Firewall", "Access Point", "Printer", "Tablet", "Mobile", "Storage", "UPS", "Others"];
 const ASSET_STATUSES = ["In Stock", "Allocated", "In Use", "Under Maintenance", "Retired", "Disposed"];
 
+/* ─── Asset Transaction History ─────────────────────────────────────────── */
+function AssetHistory({ assetId, assetTag }: { assetId: number; assetTag: string }) {
+  const { data: txns = [], isLoading } = useQuery({
+    queryKey: ["asset-transactions", assetId],
+    queryFn: () => apiFetch<any[]>(`/asset-transactions?assetId=${assetId}`),
+    enabled: !!assetId,
+  });
+
+  const ACTION_COLORS: Record<string, string> = {
+    "Allocation": "bg-emerald-500",
+    "Bulk Allocation": "bg-emerald-600",
+    "Return": "bg-blue-500",
+    "Status Change": "bg-amber-500",
+    "Maintenance Started": "bg-orange-500",
+    "Maintenance Completed": "bg-teal-500",
+  };
+
+  if (isLoading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading history…</div>;
+  if (txns.length === 0) return (
+    <div className="py-10 text-center">
+      <div className="text-4xl mb-2">📋</div>
+      <div className="text-sm text-muted-foreground">No transaction history for {assetTag}</div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+      {txns.map((t: any, i: number) => (
+        <div key={t.id} className="flex gap-3">
+          <div className="flex flex-col items-center">
+            <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${ACTION_COLORS[t.action] || "bg-gray-400"}`} />
+            {i < txns.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
+          </div>
+          <div className="pb-3 flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium">{t.action}</span>
+              <span className="text-[11px] text-muted-foreground shrink-0">{new Date(t.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>
+            </div>
+            {(t.oldStatus || t.newStatus) && (
+              <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+                {t.oldStatus && <span className="px-1.5 py-0.5 rounded bg-muted">{t.oldStatus}</span>}
+                {t.oldStatus && t.newStatus && <span>→</span>}
+                {t.newStatus && <span className="px-1.5 py-0.5 rounded bg-muted font-medium">{t.newStatus}</span>}
+              </div>
+            )}
+            {t.userName && <div className="text-xs text-muted-foreground mt-0.5">by {t.userName}</div>}
+            {t.notes && <div className="text-xs text-muted-foreground mt-0.5 italic">{t.notes}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ─── Sticker Print Dialog ───────────────────────────────────────────────── */
 function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => void }) {
   const printRef = useRef<HTMLDivElement>(null);
@@ -104,6 +158,7 @@ export default function AssetRegistry() {
   const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewModal, setViewModal] = useState<any>(null);
+  const [viewTab, setViewTab] = useState<"details" | "history">("details");
   const [stickerAsset, setStickerAsset] = useState<any>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
@@ -320,15 +375,24 @@ export default function AssetRegistry() {
       </Card>
 
       {/* View Details Modal */}
-      <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={!!viewModal} onOpenChange={() => { setViewModal(null); setViewTab("details"); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <span className="font-mono text-[#d4a843]">{viewModal?.assetTag}</span>
               <span className="text-muted-foreground font-normal">— Asset Details</span>
             </DialogTitle>
           </DialogHeader>
-          {viewModal && (
+          {/* Tab bar */}
+          <div className="flex gap-1 border-b mb-4 -mx-1 px-1">
+            {(["details", "history"] as const).map(tab => (
+              <button key={tab} onClick={() => setViewTab(tab)}
+                className={`px-4 py-2 text-sm font-medium capitalize transition border-b-2 -mb-px ${viewTab === tab ? "border-[#d4a843] text-[#b8922e]" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+                {tab}
+              </button>
+            ))}
+          </div>
+          {viewModal && viewTab === "details" && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {([
@@ -368,6 +432,9 @@ export default function AssetRegistry() {
                 </Button>
               </div>
             </div>
+          )}
+          {viewModal && viewTab === "history" && (
+            <AssetHistory assetId={viewModal.id} assetTag={viewModal.assetTag} />
           )}
         </DialogContent>
       </Dialog>

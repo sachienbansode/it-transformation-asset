@@ -10,6 +10,7 @@ export const auditLogsTable = pgTable("audit_logs", {
   summary: text("summary"),
   oldValues: jsonb("old_values"),
   newValues: jsonb("new_values"),
+  context: jsonb("context"),
 });
 
 export type AuditLog = typeof auditLogsTable.$inferSelect;
