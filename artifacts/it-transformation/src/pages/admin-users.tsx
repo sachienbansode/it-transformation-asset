@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Users, Plus, Pencil, Trash2, RefreshCw, Search, UserCheck, UserX, Shield, Mail, Phone, Briefcase, Building2, KeyRound } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, RefreshCw, Search, UserCheck, UserX, Shield, KeyRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 interface AdminUser {
@@ -237,77 +237,69 @@ export default function AdminUsers() {
       </div>
 
       {loading ? (
-        <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
+        <div className="space-y-1.5">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-10 w-full" />)}</div>
       ) : (
         <>
-          <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
-            {pagedUsers.length === 0 && (
-              <div className="px-4 py-10 text-center text-sm text-muted-foreground">No users match your search.</div>
-            )}
-            {pagedUsers.map(u => {
-              const s = u.status || (u.isActive ? "active" : "inactive");
-              return (
-                <div key={u.id} className="px-4 py-3 hover:bg-muted/20 transition-colors">
-                  {/* Row 1: Identity + Badges + Actions */}
-                  <div className="flex items-center gap-3">
-                    {/* Avatar */}
-                    <div className="w-8 h-8 rounded-full bg-[#d4a843]/20 border border-[#d4a843]/30 flex items-center justify-center text-[11px] font-bold text-[#b8922e] flex-shrink-0">
-                      {initials(u.name)}
-                    </div>
-                    {/* Name + Emp Code */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-sm">{u.name}</span>
-                        {u.employeeCode && (
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">{u.employeeCode}</span>
-                        )}
-                        <Badge variant="outline" className={`text-[10px] capitalize ${statusCls(s)}`}>{s}</Badge>
+          <div className="border border-border rounded-lg overflow-hidden">
+            <table className="w-full text-sm table-fixed">
+              <thead>
+                <tr className="bg-muted/40 border-b border-border">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[30%]">User</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[22%]">Email</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[22%]">Designation / Dept</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[12%]">Role</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[10%]">Status</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-semibold text-muted-foreground uppercase w-[4%]"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedUsers.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-muted-foreground">No users match your search.</td></tr>
+                )}
+                {pagedUsers.map(u => {
+                  const s = u.status || (u.isActive ? "active" : "inactive");
+                  return (
+                    <tr key={u.id} className="border-t border-border hover:bg-muted/20">
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-[#d4a843]/20 border border-[#d4a843]/30 flex items-center justify-center text-[10px] font-bold text-[#b8922e] flex-shrink-0">
+                            {initials(u.name)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm leading-tight truncate">{u.name}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {u.employeeCode && <span className="font-mono text-[10px] px-1 rounded bg-muted text-muted-foreground border border-border">{u.employeeCode}</span>}
+                              <span className={`text-[10px] ${u.userType === "internal" ? "text-blue-500" : "text-purple-500"}`}>{u.userType === "internal" ? "Internal" : "External"}</span>
+                              {u.mfaEnabled && <span className="text-[10px] text-green-600 dark:text-green-400 font-semibold">MFA</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <p className="text-xs text-foreground truncate">{u.email}</p>
+                        {u.mobile && <p className="text-[11px] text-muted-foreground truncate">{u.mobile}</p>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {u.designation && <p className="text-xs font-medium truncate">{u.designation}</p>}
+                        {u.department && <p className="text-[11px] text-muted-foreground truncate">{deptLabel(u.department)}</p>}
+                      </td>
+                      <td className="px-3 py-2.5">
                         <Badge variant="outline" className={`text-[10px] capitalize ${ROLE_BADGE[u.role] || ""}`}>{getRoleLabel(u.role)}</Badge>
-                        <Badge variant="outline" className={`text-[10px] ${u.userType === "internal" ? "border-blue-400/40 text-blue-600 dark:text-blue-400" : "border-purple-400/40 text-purple-600 dark:text-purple-400"}`}>
-                          {u.userType === "internal" ? "Internal" : "External"}
-                        </Badge>
-                        {u.mfaEnabled && (
-                          <Badge variant="outline" className="text-[10px] border-green-400/40 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-400/10">
-                            <KeyRound className="w-2.5 h-2.5 mr-0.5" />MFA ON
-                          </Badge>
-                        )}
-                      </div>
-                      {/* Row 2: Contact + Role info */}
-                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
-                        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                          <Mail className="w-3 h-3 flex-shrink-0" />{u.email}
-                        </span>
-                        {u.mobile && (
-                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Phone className="w-3 h-3 flex-shrink-0" />{u.mobile}
-                          </span>
-                        )}
-                        {u.designation && (
-                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Briefcase className="w-3 h-3 flex-shrink-0" />{u.designation}
-                          </span>
-                        )}
-                        {u.department && (
-                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Building2 className="w-3 h-3 flex-shrink-0" />{deptLabel(u.department)}
-                          </span>
-                        )}
-                        {u.lastLoginAt && (
-                          <span className="text-[10px] text-muted-foreground/60">
-                            Last login: {new Date(u.lastLoginAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {/* Actions */}
-                    <div className="flex gap-1 flex-shrink-0">
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(u)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Badge variant="outline" className={`text-[10px] capitalize ${statusCls(s)}`}>{s}</Badge>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <div className="flex gap-0.5 justify-end">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(u)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
           {totalPages > 1 && (

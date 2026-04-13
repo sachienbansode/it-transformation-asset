@@ -29,6 +29,94 @@ interface Employee {
 }
 interface DeptMaster { key: string; label: string; sortOrder: number; }
 
+function EmployeeDropdown({ employees, deptMasters, value, searchVal, onSearch, onSelect, placeholder }: {
+  employees: Employee[]; deptMasters: DeptMaster[]; value: string; searchVal: string;
+  onSearch: (v: string) => void; onSelect: (e: Employee) => void; placeholder?: string;
+}) {
+  const deptLabel = (key: string) => deptMasters.find(d => d.key === key)?.label || key;
+  const list = useMemo(() => {
+    if (!searchVal) return employees;
+    const q = searchVal.toLowerCase();
+    return employees.filter(e =>
+      e.name.toLowerCase().includes(q) ||
+      (e.employeeCode || "").toLowerCase().includes(q) ||
+      (e.email || "").toLowerCase().includes(q)
+    );
+  }, [employees, searchVal]);
+  return (
+    <div className="relative">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <Input
+          value={searchVal !== "" ? searchVal : value}
+          onChange={e => onSearch(e.target.value)}
+          placeholder={placeholder || "Search employee name or code…"}
+          className="pl-8"
+        />
+      </div>
+      {searchVal && (
+        <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
+          {list.length === 0
+            ? <div className="px-3 py-4 text-sm text-center text-muted-foreground">No employees found</div>
+            : list.slice(0, 10).map(e => (
+              <button key={e.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors" onClick={() => onSelect(e)}>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium">{e.name}</span>
+                  {e.employeeCode && <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1 rounded">{e.employeeCode}</span>}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">{[e.designation, deptLabel(e.department || "")].filter(Boolean).join(" · ")}</div>
+              </button>
+            ))
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssetDropdown({ assets, selectedId, searchVal, onSearch, onSelect }: {
+  assets: any[]; selectedId?: number; searchVal: string;
+  onSearch: (v: string) => void; onSelect: (a: any) => void;
+}) {
+  const selectedAsset = selectedId ? assets.find((a: any) => a.id === selectedId) : null;
+  const list = useMemo(() => {
+    if (!searchVal) return assets;
+    const q = searchVal.toLowerCase();
+    return assets.filter((a: any) =>
+      (a.assetTag || "").toLowerCase().includes(q) ||
+      (a.name || "").toLowerCase().includes(q) ||
+      (a.serialNumber || "").toLowerCase().includes(q) ||
+      (a.type || "").toLowerCase().includes(q)
+    );
+  }, [assets, searchVal]);
+  const displayVal = searchVal !== "" ? searchVal : (selectedAsset ? `${selectedAsset.assetTag} — ${selectedAsset.name}` : "");
+  return (
+    <div className="relative">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <Input value={displayVal} onChange={e => onSearch(e.target.value)} placeholder="Search asset tag, name, serial…" className="pl-8" />
+      </div>
+      {searchVal && (
+        <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
+          {list.length === 0
+            ? <div className="px-3 py-4 text-sm text-center text-muted-foreground">No assets found</div>
+            : list.slice(0, 15).map((a: any) => (
+              <button key={a.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors" onClick={() => onSelect(a)}>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-semibold text-[#b8922e] flex-shrink-0">{a.assetTag}</span>
+                  <span className="font-medium flex-1 truncate">{a.name}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${a.status === "In Stock" ? "border-green-500/30 text-green-600 bg-green-50 dark:bg-green-900/20" : a.status === "Allocated" ? "border-blue-500/30 text-blue-600" : "border-border text-muted-foreground"}`}>{a.status}</span>
+                </div>
+                {a.serialNumber && <div className="text-[10px] text-muted-foreground mt-0.5">S/N: {a.serialNumber}</div>}
+              </button>
+            ))
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AssetAllocations() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -43,6 +131,7 @@ export default function AssetAllocations() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
   const [employeeSearch, setEmployeeSearch] = useState("");
+  const [assetSearch, setAssetSearch] = useState("");
 
   // Bulk allocation state
   const [bulkSearch, setBulkSearch] = useState("");
@@ -138,6 +227,7 @@ export default function AssetAllocations() {
     setEditingItem(null);
     setFormData({ status: "Active", startDate: new Date().toISOString().split("T")[0] });
     setEmployeeSearch("");
+    setAssetSearch("");
     setIsModalOpen(true);
   }
   function openEdit(item: any) {
@@ -155,6 +245,7 @@ export default function AssetAllocations() {
       notes: item.notes,
     });
     setEmployeeSearch(item.userName || "");
+    setAssetSearch("");
     setIsModalOpen(true);
   }
 
@@ -199,54 +290,6 @@ export default function AssetAllocations() {
     if (bulkSelectedIds.length === bulkFiltered.length) setBulkSelectedIds([]);
     else setBulkSelectedIds(bulkFiltered.map((a: any) => a.id));
   }
-
-  const EmployeeDropdown = ({ value, searchVal, onSearch, onSelect, placeholder }: {
-    value: string; searchVal: string; onSearch: (v: string) => void; onSelect: (e: Employee) => void; placeholder?: string;
-  }) => {
-    const list = useMemo(() => {
-      if (!searchVal) return employees;
-      const q = searchVal.toLowerCase();
-      return employees.filter((e: Employee) =>
-        e.name.toLowerCase().includes(q) ||
-        (e.employeeCode || "").toLowerCase().includes(q) ||
-        (e.email || "").toLowerCase().includes(q)
-      );
-    }, [searchVal]);
-
-    return (
-      <div className="relative">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <Input
-            value={searchVal || value}
-            onChange={e => onSearch(e.target.value)}
-            placeholder={placeholder || "Search employee name or code…"}
-            className="pl-8"
-          />
-        </div>
-        {searchVal && list.length > 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
-            {list.slice(0, 10).map((e: Employee) => (
-              <button
-                key={e.id}
-                type="button"
-                className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors"
-                onClick={() => onSelect(e)}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="font-medium">{e.name}</span>
-                  {e.employeeCode && <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1 rounded">{e.employeeCode}</span>}
-                </div>
-                <div className="text-[10px] text-muted-foreground mt-0.5">
-                  {[e.designation, deptLabel(e.department || "")].filter(Boolean).join(" · ")}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-5">
@@ -369,23 +412,27 @@ export default function AssetAllocations() {
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>{editingItem ? "Edit Allocation" : "New Allocation"}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4">
-            {/* Asset */}
+            {/* Asset searchable dropdown */}
             <div>
               <Label className="text-xs font-medium">Asset <span className="text-red-500">*</span></Label>
-              <Select value={formData.assetId ? String(formData.assetId) : ""} onValueChange={v => setFormData({ ...formData, assetId: parseInt(v) })}>
-                <SelectTrigger><SelectValue placeholder="Select asset…" /></SelectTrigger>
-                <SelectContent>
-                  {assets.map((a: any) => (
-                    <SelectItem key={a.id} value={String(a.id)}>{a.assetTag} — {a.name} ({a.status})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <AssetDropdown
+                assets={assets as any[]}
+                selectedId={formData.assetId}
+                searchVal={assetSearch}
+                onSearch={v => {
+                  setAssetSearch(v);
+                  if (!v) setFormData((f: any) => ({ ...f, assetId: undefined }));
+                }}
+                onSelect={a => { setFormData((f: any) => ({ ...f, assetId: a.id })); setAssetSearch(""); }}
+              />
             </div>
 
             {/* Employee dropdown */}
             <div>
               <Label className="text-xs font-medium">Assigned To <span className="text-red-500">*</span></Label>
               <EmployeeDropdown
+                employees={employees as Employee[]}
+                deptMasters={deptMasters as DeptMaster[]}
                 value={formData.userName || ""}
                 searchVal={employeeSearch}
                 onSearch={v => {
@@ -456,6 +503,8 @@ export default function AssetAllocations() {
               <div className="col-span-2">
                 <Label className="text-xs font-medium">Assign To <span className="text-red-500">*</span></Label>
                 <EmployeeDropdown
+                  employees={employees as Employee[]}
+                  deptMasters={deptMasters as DeptMaster[]}
                   value={bulkForm.userName}
                   searchVal={bulkEmployeeSearch}
                   onSearch={v => {
