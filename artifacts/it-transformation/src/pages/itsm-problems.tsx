@@ -18,13 +18,12 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useLocation } from "wouter";
+import { useItsmConfig } from "@/hooks/use-itsm-config";
 
 const PAGE_SIZE = 10;
 const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"];
 const CREATE_STATUSES = ["Open"];
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
-const PROBLEM_CATEGORIES = ["Application", "Infrastructure", "Network", "Hardware", "Security", "Process", "Database", "Cloud", "Operations"];
-const IMPACT_LEVELS = ["Enterprise-wide", "Department", "Team", "Individual"];
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   Critical: { bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-700 dark:text-red-400", dot: "bg-red-500" },
@@ -113,6 +112,10 @@ async function downloadReport(type: string, filename: string) {
 }
 
 export default function ItsmProblems() {
+  const cfg = useItsmConfig();
+  const PROBLEM_CATEGORIES = cfg["itsm.problemCategories"];
+  const IMPACT_LEVELS = cfg["itsm.impactLevels"];
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { isAdmin, user } = useAuth();

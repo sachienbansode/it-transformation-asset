@@ -543,6 +543,64 @@ router.get("/itsm-settings", async (_req, res): Promise<void> => {
   });
 });
 
+// ─── ITSM CONFIG (all admin-configurable lookup lists) ────────
+const ITSM_CONFIG_DEFAULTS: Record<string, unknown> = {
+  "itsm.urgencyLevels": ["Critical", "High", "Medium", "Low"],
+  "itsm.impactLevels": ["Enterprise-wide", "Department", "Team", "Individual"],
+  "itsm.incidentSources": ["Phone", "Email", "Self-Service Portal", "Walk-in", "Monitoring Alert", "Teams / Chat", "API / Integration", "Other"],
+  "itsm.incidentCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Database", "Cloud", "End-User", "Operations", "Service Request"],
+  "itsm.incidentSubcategories": {
+    "Application": ["Performance", "Error / Exception", "Access Denied", "Data Issue", "Integration Failure", "Feature Request"],
+    "Infrastructure": ["Server Down", "Disk Space", "CPU / Memory", "Backup Failure", "VM / Container Issue", "Storage"],
+    "Network": ["Connectivity", "DNS", "VPN", "Firewall", "WiFi", "Bandwidth"],
+    "Hardware": ["Printer", "Laptop / Desktop", "Monitor", "Peripherals", "Battery / Power", "Other"],
+    "Security": ["Phishing", "Malware", "Unauthorized Access", "Data Leak", "Vulnerability", "MFA Issue"],
+    "Database": ["Slow Query", "Connection Failure", "Corruption", "Backup", "Replication Lag"],
+    "Cloud": ["Instance Down", "Storage", "Permissions", "Auto-scaling", "Cost Alert"],
+    "End-User": ["Outlook / Email", "Teams", "SharePoint", "Printing", "VPN", "Account Lock"],
+    "Operations": ["Scheduled Job", "Maintenance", "Deployment", "Monitoring Alert"],
+    "Service Request": ["Account", "Software", "Hardware", "Access", "Other"],
+  },
+  "itsm.problemCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Process", "Database", "Cloud", "Operations"],
+  "itsm.changeCategories": ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User"],
+  "itsm.srCategories": ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup", "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Other"],
+  "itsm.departments": ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"],
+  "itsm.itGroups": ["IT Helpdesk", "Infrastructure Team", "Network Team", "Security Team", "Applications Team", "Database Team", "Cloud Team", "Desktop Support", "Development Team", "Operations Team"],
+};
+
+function safeParseJson(val: unknown): unknown {
+  if (typeof val === "string") {
+    try { return JSON.parse(val); } catch { return val; }
+  }
+  return val;
+}
+
+router.get("/itsm-config", async (_req, res): Promise<void> => {
+  const rows = await db.select().from(settingsTable);
+  const saved: Record<string, unknown> = {};
+  for (const row of rows) {
+    if (row.key.startsWith("itsm.")) saved[row.key] = safeParseJson(row.value);
+  }
+  const config: Record<string, unknown> = { ...ITSM_CONFIG_DEFAULTS };
+  for (const [key, value] of Object.entries(saved)) {
+    if (key in config || key === "itsm.maxAttachmentSizeMB" || key === "itsm.maxAttachmentsPerTicket" || key === "itsm.allowedFileTypes") {
+      config[key] = value;
+    }
+  }
+  res.json(config);
+});
+
+router.put("/itsm-config", requireAdmin, async (req, res): Promise<void> => {
+  const body = req.body as Record<string, unknown>;
+  for (const [key, value] of Object.entries(body)) {
+    if (!key.startsWith("itsm.")) continue;
+    const serialized = typeof value === "string" ? value : JSON.stringify(value);
+    await db.insert(settingsTable).values({ key, value: serialized })
+      .onConflictDoUpdate({ target: settingsTable.key, set: { value: serialized } });
+  }
+  res.json({ ok: true });
+});
+
 // ─── ITSM ATTACHMENTS ─────────────────────────────────────────
 router.get("/itsm-attachments/:ticketType/:ticketId", async (req, res): Promise<void> => {
   const ticketId = parseInt(req.params.ticketId);

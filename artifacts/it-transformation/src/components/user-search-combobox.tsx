@@ -7,19 +7,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
-
-const IT_GROUPS = [
-  "IT Helpdesk",
-  "Infrastructure Team",
-  "Network Team",
-  "Security Team",
-  "Applications Team",
-  "Database Team",
-  "Cloud Team",
-  "Desktop Support",
-  "Development Team",
-  "Operations Team",
-];
+import { useItsmConfig } from "@/hooks/use-itsm-config";
 
 interface UserComboboxProps {
   value: string;
@@ -119,6 +107,9 @@ interface GroupSelectProps {
 }
 
 export function GroupSelect({ value, onChange, placeholder = "Select group" }: GroupSelectProps) {
+  const cfg = useItsmConfig();
+  const groups = cfg["itsm.itGroups"];
+
   return (
     <Select value={value || "__none__"} onValueChange={(v) => onChange(v === "__none__" ? "" : v)}>
       <SelectTrigger>
@@ -126,7 +117,7 @@ export function GroupSelect({ value, onChange, placeholder = "Select group" }: G
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="__none__">— No group —</SelectItem>
-        {IT_GROUPS.map((g) => (
+        {groups.map((g) => (
           <SelectItem key={g} value={g}>
             {g}
           </SelectItem>

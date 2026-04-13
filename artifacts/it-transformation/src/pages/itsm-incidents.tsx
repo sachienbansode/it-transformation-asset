@@ -18,28 +18,13 @@ import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
+import { useItsmConfig } from "@/hooks/use-itsm-config";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const SEVERITIES = ["S1", "S2", "S3", "S4"];
 const STATUSES = ["Open", "In Progress", "Pending Approval", "Resolved", "Closed"];
 const CREATE_STATUSES = ["Open"];
-const CATEGORIES = ["Application", "Infrastructure", "Network", "Hardware", "Security", "Database", "Cloud", "End-User", "Operations", "Service Request"];
-const URGENCIES = ["Critical", "High", "Medium", "Low"];
-const IMPACT_LEVELS = ["Enterprise-wide", "Department", "Team", "Individual"];
-const SOURCES = ["Phone", "Email", "Self-Service Portal", "Walk-in", "Monitoring Alert", "Teams / Chat", "API / Integration", "Other"];
-const SUBCATEGORIES: Record<string, string[]> = {
-  Application: ["Performance", "Error / Exception", "Access Denied", "Data Issue", "Integration Failure", "Feature Request"],
-  Infrastructure: ["Server Down", "Disk Space", "CPU / Memory", "Backup Failure", "VM / Container Issue", "Storage"],
-  Network: ["Connectivity", "DNS", "VPN", "Firewall", "WiFi", "Bandwidth"],
-  Hardware: ["Printer", "Laptop / Desktop", "Monitor", "Peripherals", "Battery / Power", "Other"],
-  Security: ["Phishing", "Malware", "Unauthorized Access", "Data Leak", "Vulnerability", "MFA Issue"],
-  Database: ["Slow Query", "Connection Failure", "Corruption", "Backup", "Replication Lag"],
-  Cloud: ["Instance Down", "Storage", "Permissions", "Auto-scaling", "Cost Alert"],
-  "End-User": ["Outlook / Email", "Teams", "SharePoint", "Printing", "VPN", "Account Lock"],
-  Operations: ["Scheduled Job", "Maintenance", "Deployment", "Monitoring Alert"],
-  "Service Request": ["Account", "Software", "Hardware", "Access", "Other"],
-};
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   Critical: { bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-700 dark:text-red-400", dot: "bg-red-500" },
@@ -170,6 +155,13 @@ async function downloadReport(type: string, filename: string) {
 }
 
 export default function ItsmIncidents() {
+  const cfg = useItsmConfig();
+  const CATEGORIES = cfg["itsm.incidentCategories"];
+  const URGENCIES = cfg["itsm.urgencyLevels"];
+  const IMPACT_LEVELS = cfg["itsm.impactLevels"];
+  const SOURCES = cfg["itsm.incidentSources"];
+  const SUBCATEGORIES = cfg["itsm.incidentSubcategories"];
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { isAdmin, user } = useAuth();

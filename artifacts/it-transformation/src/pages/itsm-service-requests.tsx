@@ -17,16 +17,10 @@ import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
+import { useItsmConfig } from "@/hooks/use-itsm-config";
 
 const PAGE_SIZE = 10;
-const CATEGORIES = [
-  "Access Request", "Software Install", "Hardware Request", "Account Setup",
-  "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup",
-  "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Other",
-];
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
-const URGENCIES = ["Critical", "High", "Medium", "Low"];
-const DEPARTMENTS = ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"];
 const STATUSES = ["Open", "In Progress", "Pending Approval", "Approved", "Rejected", "Completed", "Cancelled"];
 const CREATE_STATUSES = ["Open"];
 
@@ -79,8 +73,8 @@ function StatusBadge({ value }: { value: string }) {
 }
 
 function CategoryBadge({ value }: { value: string }) {
-  const idx = CATEGORIES.indexOf(value) % CAT_COLORS.length;
-  const color = CAT_COLORS[Math.max(0, idx)];
+  const hash = value.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const color = CAT_COLORS[hash % CAT_COLORS.length];
   return (
     <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${color}`}>{value}</span>
   );
@@ -136,6 +130,11 @@ async function downloadReport(type: string, filename: string) {
 }
 
 export default function ItsmServiceRequests() {
+  const cfg = useItsmConfig();
+  const CATEGORIES = cfg["itsm.srCategories"];
+  const URGENCIES = cfg["itsm.urgencyLevels"];
+  const DEPARTMENTS = cfg["itsm.departments"];
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { isAdmin, user } = useAuth();

@@ -17,10 +17,10 @@ import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
+import { useItsmConfig } from "@/hooks/use-itsm-config";
 
 const PAGE_SIZE = 10;
 const CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
-const CHANGE_CATEGORIES = ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User"];
 const RISKS = ["High", "Medium", "Low"];
 const STATUSES = ["Draft", "Open", "Pending Approval", "Approved", "Rejected", "In Progress", "Completed", "Failed", "Rolled Back", "Closed"];
 const CREATE_STATUSES = ["Draft"];
@@ -123,6 +123,9 @@ async function downloadReport(type: string, filename: string) {
 }
 
 export default function ItsmChanges() {
+  const cfg = useItsmConfig();
+  const CHANGE_CATEGORIES = cfg["itsm.changeCategories"];
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { isAdmin, user } = useAuth();

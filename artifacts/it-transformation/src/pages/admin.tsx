@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import {
   Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield, Building2, Clock,
-  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info, Search, Paperclip, X,
+  ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info, Search, Paperclip, X, Sliders,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -1776,46 +1776,196 @@ function RolesTab() {
 
 // ─── ITSM CONFIG TAB ────────────────────────────────────────────────────────
 
-const ALL_FILE_TYPES = ["pdf", "xlsx", "xls", "docx", "doc", "png", "jpg", "jpeg", "zip", "csv", "txt", "pptx"];
+const ALL_FILE_TYPES = ["pdf", "xlsx", "xls", "docx", "doc", "png", "jpg", "jpeg", "zip", "csv", "txt", "pptx", "ppt", "msg"];
+
+interface ItsmFullConfig {
+  "itsm.urgencyLevels": string[];
+  "itsm.impactLevels": string[];
+  "itsm.incidentSources": string[];
+  "itsm.incidentCategories": string[];
+  "itsm.incidentSubcategories": Record<string, string[]>;
+  "itsm.problemCategories": string[];
+  "itsm.changeCategories": string[];
+  "itsm.srCategories": string[];
+  "itsm.departments": string[];
+  "itsm.itGroups": string[];
+  "itsm.maxAttachmentSizeMB": number | string;
+  "itsm.maxAttachmentsPerTicket": number | string;
+  "itsm.allowedFileTypes": string[];
+}
+
+const ITSM_DEFAULTS: ItsmFullConfig = {
+  "itsm.urgencyLevels": ["Critical", "High", "Medium", "Low"],
+  "itsm.impactLevels": ["Enterprise-wide", "Department", "Team", "Individual"],
+  "itsm.incidentSources": ["Phone", "Email", "Self-Service Portal", "Walk-in", "Monitoring Alert", "Teams / Chat", "API / Integration", "Other"],
+  "itsm.incidentCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Database", "Cloud", "End-User", "Operations", "Service Request"],
+  "itsm.incidentSubcategories": {
+    "Application": ["Performance", "Error / Exception", "Access Denied", "Data Issue", "Integration Failure", "Feature Request"],
+    "Infrastructure": ["Server Down", "Disk Space", "CPU / Memory", "Backup Failure", "VM / Container Issue", "Storage"],
+    "Network": ["Connectivity", "DNS", "VPN", "Firewall", "WiFi", "Bandwidth"],
+    "Hardware": ["Printer", "Laptop / Desktop", "Monitor", "Peripherals", "Battery / Power", "Other"],
+    "Security": ["Phishing", "Malware", "Unauthorized Access", "Data Leak", "Vulnerability", "MFA Issue"],
+    "Database": ["Slow Query", "Connection Failure", "Corruption", "Backup", "Replication Lag"],
+    "Cloud": ["Instance Down", "Storage", "Permissions", "Auto-scaling", "Cost Alert"],
+    "End-User": ["Outlook / Email", "Teams", "SharePoint", "Printing", "VPN", "Account Lock"],
+    "Operations": ["Scheduled Job", "Maintenance", "Deployment", "Monitoring Alert"],
+    "Service Request": ["Account", "Software", "Hardware", "Access", "Other"],
+  },
+  "itsm.problemCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Process", "Database", "Cloud", "Operations"],
+  "itsm.changeCategories": ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User"],
+  "itsm.srCategories": ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup", "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Other"],
+  "itsm.departments": ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"],
+  "itsm.itGroups": ["IT Helpdesk", "Infrastructure Team", "Network Team", "Security Team", "Applications Team", "Database Team", "Cloud Team", "Desktop Support", "Development Team", "Operations Team"],
+  "itsm.maxAttachmentSizeMB": 20,
+  "itsm.maxAttachmentsPerTicket": 10,
+  "itsm.allowedFileTypes": ["pdf", "xlsx", "xls", "docx", "doc", "png", "jpg", "jpeg", "zip", "csv", "txt", "pptx", "ppt", "msg"],
+};
+
+function ListEditor({ label, description, items, onChange }: {
+  label: string; description?: string;
+  items: string[]; onChange: (items: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const v = draft.trim();
+    if (!v || items.includes(v)) { setDraft(""); return; }
+    onChange([...items, v]);
+    setDraft("");
+  };
+  return (
+    <div className="space-y-2">
+      <div>
+        <Label className="text-xs font-semibold">{label}</Label>
+        {description && <p className="text-[11px] text-muted-foreground mt-0.5">{description}</p>}
+      </div>
+      <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 rounded-md border bg-muted/30">
+        {items.length === 0 && <span className="text-xs text-muted-foreground italic">No items — add below</span>}
+        {items.map(item => (
+          <span key={item} className="inline-flex items-center gap-1 bg-background border rounded-full px-2.5 py-0.5 text-xs font-medium">
+            {item}
+            <button
+              onClick={() => onChange(items.filter(i => i !== item))}
+              className="text-muted-foreground hover:text-destructive ml-0.5 leading-none"
+              title="Remove"
+            >×</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          placeholder={`Add new ${label.toLowerCase()} value…`}
+          className="h-8 text-xs flex-1"
+        />
+        <Button size="sm" variant="outline" onClick={add} className="h-8 px-3 text-xs">Add</Button>
+      </div>
+    </div>
+  );
+}
+
+function SubcategoryEditor({ categories, subcategories, onChange }: {
+  categories: string[];
+  subcategories: Record<string, string[]>;
+  onChange: (v: Record<string, string[]>) => void;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  const addSub = (cat: string) => {
+    const v = draft.trim();
+    if (!v) return;
+    const existing = subcategories[cat] || [];
+    if (existing.includes(v)) { setDraft(""); return; }
+    onChange({ ...subcategories, [cat]: [...existing, v] });
+    setDraft("");
+  };
+
+  const removeSub = (cat: string, sub: string) => {
+    const existing = subcategories[cat] || [];
+    onChange({ ...subcategories, [cat]: existing.filter(s => s !== sub) });
+  };
+
+  return (
+    <div className="space-y-1">
+      {categories.map(cat => (
+        <div key={cat} className="border rounded-lg overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors text-left"
+            onClick={() => setExpanded(exp => exp === cat ? null : cat)}
+          >
+            <span className="flex items-center gap-2">
+              {cat}
+              <span className="text-[10px] text-muted-foreground font-normal">
+                {(subcategories[cat] || []).length} subcategories
+              </span>
+            </span>
+            <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded === cat ? "rotate-180" : ""}`} />
+          </button>
+          {expanded === cat && (
+            <div className="px-3 pb-3 pt-1 border-t bg-muted/20 space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                {(subcategories[cat] || []).length === 0 && (
+                  <span className="text-xs text-muted-foreground italic">No subcategories yet</span>
+                )}
+                {(subcategories[cat] || []).map(sub => (
+                  <span key={sub} className="inline-flex items-center gap-1 bg-background border rounded-full px-2.5 py-0.5 text-xs">
+                    {sub}
+                    <button
+                      onClick={() => removeSub(cat, sub)}
+                      className="text-muted-foreground hover:text-destructive ml-0.5 leading-none"
+                    >×</button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={expanded === cat ? draft : ""}
+                  onChange={e => setDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSub(cat); } }}
+                  placeholder="Add subcategory…"
+                  className="h-7 text-xs flex-1"
+                />
+                <Button size="sm" variant="outline" onClick={() => addSub(cat)} className="h-7 px-2 text-xs">Add</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function ItsmConfigTab() {
   const { toast } = useToast();
-  const [maxSizeMB, setMaxSizeMB] = useState("20");
-  const [maxFiles, setMaxFiles] = useState("5");
-  const [allowedTypes, setAllowedTypes] = useState<string[]>(["pdf", "xlsx", "xls", "docx", "doc", "png", "jpg", "jpeg"]);
+  const [cfg, setCfg] = useState<ItsmFullConfig>(ITSM_DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [migrating, setMigrating] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    apiFetch<{ maxAttachmentSizeMB: number; maxAttachmentsPerTicket: number; allowedFileTypes: string[] }>("/itsm-settings")
-      .then(data => {
-        setMaxSizeMB(String(data.maxAttachmentSizeMB));
-        setMaxFiles(String(data.maxAttachmentsPerTicket));
-        setAllowedTypes(data.allowedFileTypes);
-      })
+    apiFetch<ItsmFullConfig>("/itsm-config")
+      .then(data => setCfg({ ...ITSM_DEFAULTS, ...data }))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const toggleType = (t: string) => {
-    setAllowedTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
-  };
+  const set = <K extends keyof ItsmFullConfig>(key: K, value: ItsmFullConfig[K]) =>
+    setCfg(c => ({ ...c, [key]: value }));
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await apiFetch("/admin/settings", {
+      await apiFetch("/itsm-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          "itsm.maxAttachmentSizeMB": maxSizeMB,
-          "itsm.maxAttachmentsPerTicket": maxFiles,
-          "itsm.allowedFileTypes": JSON.stringify(allowedTypes),
-        }),
+        body: JSON.stringify(cfg),
       });
-      toast({ title: "ITSM config saved" });
+      queryClient.invalidateQueries({ queryKey: ["itsm-config"] });
+      toast({ title: "ITSM configuration saved", description: "All lookup lists have been updated." });
     } catch {
       toast({ title: "Save failed", variant: "destructive" });
     } finally {
@@ -1847,10 +1997,120 @@ function ItsmConfigTab() {
     }
   };
 
-  if (loading) return <div className="text-muted-foreground text-sm py-8">Loading ITSM settings…</div>;
+  if (loading) return <div className="text-muted-foreground text-sm py-8">Loading ITSM configuration…</div>;
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-3xl">
+      {/* ── Save Banner ── */}
+      <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3">
+        <div>
+          <p className="text-sm font-medium">ITSM Lookup Configuration</p>
+          <p className="text-[11px] text-muted-foreground">All dropdown lists used in Incident, Problem, Change, and Service Request forms are managed here.</p>
+        </div>
+        <Button onClick={handleSave} disabled={saving} className="bg-[#d4a843] hover:bg-[#c99b36] text-white shrink-0">
+          {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+          {saving ? "Saving…" : "Save All Changes"}
+        </Button>
+      </div>
+
+      {/* ── Shared Lookup Lists ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Database className="h-4 w-4" />Shared Lookup Lists
+          </CardTitle>
+          <CardDescription>These lists are used across multiple ticket types.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <ListEditor
+            label="Urgency Levels"
+            description="Used in Incidents and Service Requests."
+            items={cfg["itsm.urgencyLevels"]}
+            onChange={v => set("itsm.urgencyLevels", v)}
+          />
+          <ListEditor
+            label="Impact Levels"
+            description="Used in Incidents and Problems."
+            items={cfg["itsm.impactLevels"]}
+            onChange={v => set("itsm.impactLevels", v)}
+          />
+          <ListEditor
+            label="Departments"
+            description="Used in Service Requests."
+            items={cfg["itsm.departments"]}
+            onChange={v => set("itsm.departments", v)}
+          />
+          <ListEditor
+            label="IT Groups"
+            description="Assignable groups for all ticket types (Assigned Group dropdown)."
+            items={cfg["itsm.itGroups"]}
+            onChange={v => set("itsm.itGroups", v)}
+          />
+          <ListEditor
+            label="Incident Sources"
+            description="How an incident was reported (Phone, Email, Portal, etc.)."
+            items={cfg["itsm.incidentSources"]}
+            onChange={v => set("itsm.incidentSources", v)}
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── Category Lists ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sliders className="h-4 w-4" />Category Lists
+          </CardTitle>
+          <CardDescription>Each ticket type has its own category list.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <ListEditor
+            label="Incident Categories"
+            description="Used in the Incidents form. Each category can have subcategories (see below)."
+            items={cfg["itsm.incidentCategories"]}
+            onChange={v => set("itsm.incidentCategories", v)}
+          />
+          <ListEditor
+            label="Problem Categories"
+            description="Used in the Problems form."
+            items={cfg["itsm.problemCategories"]}
+            onChange={v => set("itsm.problemCategories", v)}
+          />
+          <ListEditor
+            label="Change Categories"
+            description="Used in the Change Requests form."
+            items={cfg["itsm.changeCategories"]}
+            onChange={v => set("itsm.changeCategories", v)}
+          />
+          <ListEditor
+            label="Service Request Categories"
+            description="Used in the Service Requests form."
+            items={cfg["itsm.srCategories"]}
+            onChange={v => set("itsm.srCategories", v)}
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── Incident Subcategories ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ChevronDown className="h-4 w-4" />Incident Subcategories
+          </CardTitle>
+          <CardDescription>
+            Subcategories appear when an incident category is selected. Click a category to expand and edit its subcategories.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SubcategoryEditor
+            categories={cfg["itsm.incidentCategories"]}
+            subcategories={cfg["itsm.incidentSubcategories"]}
+            onChange={v => set("itsm.incidentSubcategories", v)}
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── Attachment Settings ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2"><Paperclip className="h-4 w-4" />Ticket Attachment Settings</CardTitle>
@@ -1862,8 +2122,8 @@ function ItsmConfigTab() {
               <Label className="text-xs">Max File Size (MB)</Label>
               <Input
                 type="number" min="1" max="100"
-                value={maxSizeMB}
-                onChange={e => setMaxSizeMB(e.target.value)}
+                value={cfg["itsm.maxAttachmentSizeMB"]}
+                onChange={e => set("itsm.maxAttachmentSizeMB", e.target.value)}
                 className="h-9"
               />
               <p className="text-[11px] text-muted-foreground">Maximum size per individual file (1–100 MB)</p>
@@ -1872,42 +2132,46 @@ function ItsmConfigTab() {
               <Label className="text-xs">Max Files Per Ticket</Label>
               <Input
                 type="number" min="1" max="20"
-                value={maxFiles}
-                onChange={e => setMaxFiles(e.target.value)}
+                value={cfg["itsm.maxAttachmentsPerTicket"]}
+                onChange={e => set("itsm.maxAttachmentsPerTicket", e.target.value)}
                 className="h-9"
               />
               <p className="text-[11px] text-muted-foreground">Maximum attachments allowed per ticket (1–20)</p>
             </div>
           </div>
-
           <div className="space-y-2">
             <Label className="text-xs">Allowed File Types</Label>
             <div className="flex flex-wrap gap-2">
-              {ALL_FILE_TYPES.map(t => (
-                <button
-                  key={t}
-                  onClick={() => toggleType(t)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    allowedTypes.includes(t)
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-muted text-muted-foreground border-border hover:border-primary"
-                  }`}
-                >
-                  {allowedTypes.includes(t) && <CheckCircle2 className="h-3 w-3" />}
-                  .{t}
-                </button>
-              ))}
+              {ALL_FILE_TYPES.map(t => {
+                const active = (cfg["itsm.allowedFileTypes"] as string[]).includes(t);
+                return (
+                  <button
+                    key={t}
+                    onClick={() => set("itsm.allowedFileTypes", active
+                      ? (cfg["itsm.allowedFileTypes"] as string[]).filter(x => x !== t)
+                      : [...(cfg["itsm.allowedFileTypes"] as string[]), t])}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted text-muted-foreground border-border hover:border-primary"
+                    }`}
+                  >
+                    {active && <CheckCircle2 className="h-3 w-3" />}
+                    .{t}
+                  </button>
+                );
+              })}
             </div>
-            <p className="text-[11px] text-muted-foreground">Selected: {allowedTypes.length > 0 ? allowedTypes.map(t => `.${t}`).join(", ") : "None"}</p>
+            <p className="text-[11px] text-muted-foreground">
+              Selected: {(cfg["itsm.allowedFileTypes"] as string[]).length > 0
+                ? (cfg["itsm.allowedFileTypes"] as string[]).map(t => `.${t}`).join(", ")
+                : "None"}
+            </p>
           </div>
-
-          <Button onClick={handleSave} disabled={saving} className="bg-[#d4a843] hover:bg-[#c99b36] text-white">
-            {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
-            {saving ? "Saving…" : "Save Attachment Settings"}
-          </Button>
         </CardContent>
       </Card>
 
+      {/* ── Production Setup ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Production Database Setup</CardTitle>
