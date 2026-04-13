@@ -16,9 +16,11 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { UserSearchCombobox } from "@/components/user-search-combobox";
 
 const PAGE_SIZE = 10;
 const CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
+const CHANGE_CATEGORIES = ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User"];
 const RISKS = ["High", "Medium", "Low"];
 const STATUSES = ["Draft", "Open", "Pending Approval", "Approved", "Rejected", "In Progress", "Completed", "Failed", "Rolled Back", "Closed"];
 const CREATE_STATUSES = ["Draft"];
@@ -290,7 +292,7 @@ export default function ItsmChanges() {
                 <RiskBadge value={viewModal.riskLevel} />
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Status", viewModal.status], ["Requested By", viewModal.requestedBy], ["Approved By", viewModal.approvedBy], ["Implementation Date", viewModal.implementationDate], ["Impact", viewModal.impact], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
+                {[["Status", viewModal.status], ["Category", viewModal.category], ["Requested By", viewModal.requestedBy], ["Approved By", viewModal.approvedBy], ["Implementation Date", viewModal.implementationDate], ["Backout Duration", viewModal.backoutDuration], ["Impact", viewModal.impact], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
                     <div className="font-medium text-sm">{(v as string) || "—"}</div>
@@ -316,6 +318,12 @@ export default function ItsmChanges() {
                   <div className="text-sm text-red-800 dark:text-red-300">{viewModal.rollbackPlan}</div>
                 </div>
               )}
+              {viewModal.testPlan && (
+                <div className="rounded-lg bg-teal-50 dark:bg-teal-900/10 border border-teal-200/50 dark:border-teal-800/30 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-teal-700 dark:text-teal-400 font-semibold mb-1">Test Plan</div>
+                  <div className="text-sm text-teal-800 dark:text-teal-300 whitespace-pre-wrap">{viewModal.testPlan}</div>
+                </div>
+              )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Change Request" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Change Request" ticketId={viewModal.id} />
@@ -331,14 +339,17 @@ export default function ItsmChanges() {
             <div className="col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
             <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
             <div><Label>Change Type</Label><Select value={formData.type || "Normal"} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CHANGE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Category</Label><Select value={formData.category || "__none__"} onValueChange={v => setFormData({ ...formData, category: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{CHANGE_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Risk Level</Label><Select value={formData.riskLevel || "Medium"} onValueChange={v => setFormData({ ...formData, riskLevel: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RISKS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Status</Label><Select value={formData.status || "Draft"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Approval Status</Label><Select value={formData.approvalStatus || "Pending"} onValueChange={v => setFormData({ ...formData, approvalStatus: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{APPROVAL_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Requested By</Label><Input value={formData.requestedBy || ""} onChange={e => setFormData({ ...formData, requestedBy: e.target.value })} /></div>
-            <div><Label>Approved By</Label><Input value={formData.approvedBy || ""} onChange={e => setFormData({ ...formData, approvedBy: e.target.value })} /></div>
+            <div><Label>Requested By</Label><UserSearchCombobox value={formData.requestedBy || ""} onChange={v => setFormData({ ...formData, requestedBy: v })} placeholder="Search requester…" /></div>
+            <div><Label>Approved By</Label><UserSearchCombobox value={formData.approvedBy || ""} onChange={v => setFormData({ ...formData, approvedBy: v })} placeholder="Search approver…" /></div>
             <div><Label>Implementation Date</Label><Input type="date" value={formData.implementationDate || ""} onChange={e => setFormData({ ...formData, implementationDate: e.target.value })} /></div>
-            <div><Label>Impact</Label><Input value={formData.impact || ""} onChange={e => setFormData({ ...formData, impact: e.target.value })} /></div>
+            <div><Label>Backout Duration</Label><Input value={formData.backoutDuration || ""} onChange={e => setFormData({ ...formData, backoutDuration: e.target.value })} placeholder="e.g. 2 hours" /></div>
+            <div className="col-span-2"><Label>Impact</Label><Input value={formData.impact || ""} onChange={e => setFormData({ ...formData, impact: e.target.value })} placeholder="Describe the impact of this change" /></div>
             <div className="col-span-2"><Label>Rollback Plan</Label><Textarea value={formData.rollbackPlan || ""} onChange={e => setFormData({ ...formData, rollbackPlan: e.target.value })} rows={2} /></div>
+            <div className="col-span-2"><Label>Test Plan</Label><Textarea value={formData.testPlan || ""} onChange={e => setFormData({ ...formData, testPlan: e.target.value })} rows={2} placeholder="Steps to validate the change was successful…" /></div>
             <div className="col-span-2">
               <Label className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-muted-foreground" />Linked Problem</Label>
               <Select value={formData.problemId ? String(formData.problemId) : "none"} onValueChange={v => setFormData({ ...formData, problemId: v === "none" ? null : parseInt(v) })}>
@@ -356,7 +367,13 @@ export default function ItsmChanges() {
               <Textarea placeholder="List affected assets or configuration items, one per line (e.g. SRV-001, SWITCH-12, APP-DB01)" value={formData.affectedAssets || ""} onChange={e => setFormData({ ...formData, affectedAssets: e.target.value })} rows={3} />
             </div>
           </div>
-          {editingItem && <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Change Request" /></div>}
+          {editingItem && (
+            <>
+              <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Change Request" /></div>
+              <hr className="border-border/40 mt-4" />
+              <div className="mt-2"><TicketAttachments ticketType="Change Request" ticketId={editingItem.id} /></div>
+            </>
+          )}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>

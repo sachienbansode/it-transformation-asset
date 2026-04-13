@@ -16,10 +16,17 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 
 const PAGE_SIZE = 10;
-const CATEGORIES = ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Other"];
+const CATEGORIES = [
+  "Access Request", "Software Install", "Hardware Request", "Account Setup",
+  "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup",
+  "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Other",
+];
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
+const URGENCIES = ["Critical", "High", "Medium", "Low"];
+const DEPARTMENTS = ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"];
 const STATUSES = ["Open", "In Progress", "Pending Approval", "Approved", "Rejected", "Completed", "Cancelled"];
 const CREATE_STATUSES = ["Open"];
 
@@ -295,7 +302,7 @@ export default function ItsmServiceRequests() {
                 <PriorityBadge value={viewModal.priority} />
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Requested By", viewModal.requestedBy], ["Assigned To", viewModal.assignedTo], ["Department", viewModal.department], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
+                {[["Requested By", viewModal.requestedBy], ["Department", viewModal.department], ["Urgency", viewModal.urgency], ["Due Date", viewModal.dueDate], ["Assigned To", viewModal.assignedTo], ["Assigned Group", viewModal.assignedGroup], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
                     <div className="font-medium text-sm">{(v as string) || "—"}</div>
@@ -317,20 +324,29 @@ export default function ItsmServiceRequests() {
       </Dialog>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingItem ? `Edit ${editingItem.requestNo}` : "New Service Request"}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
             <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
             <div><Label>Category</Label><Select value={formData.category || "Other"} onValueChange={v => setFormData({ ...formData, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Urgency</Label><Select value={formData.urgency || "__none__"} onValueChange={v => setFormData({ ...formData, urgency: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select urgency" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{URGENCIES.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Requested By</Label><Input value={formData.requestedBy || ""} onChange={e => setFormData({ ...formData, requestedBy: e.target.value })} /></div>
-            <div><Label>Assigned To</Label><Input value={formData.assignedTo || ""} onChange={e => setFormData({ ...formData, assignedTo: e.target.value })} /></div>
-            <div><Label>Department</Label><Input value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} /></div>
-            {formData.status === "Completed" && <div className="col-span-2"><Label>Fulfillment Notes</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} /></div>}
+            <div><Label>Requested By</Label><UserSearchCombobox value={formData.requestedBy || ""} onChange={v => setFormData({ ...formData, requestedBy: v })} placeholder="Search requester…" /></div>
+            <div><Label>Department</Label><Select value={formData.department || "__none__"} onValueChange={v => setFormData({ ...formData, department: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Assigned To</Label><UserSearchCombobox value={formData.assignedTo || ""} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
+            <div><Label>Assigned Group</Label><GroupSelect value={formData.assignedGroup || ""} onChange={v => setFormData({ ...formData, assignedGroup: v })} /></div>
+            <div><Label>Due Date</Label><Input type="date" value={formData.dueDate || ""} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} /></div>
+            <div className="col-span-2"><Label>Fulfillment Notes</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} placeholder="Notes on fulfillment progress or completion…" /></div>
           </div>
-          {editingItem && <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" /></div>}
+          {editingItem && (
+            <>
+              <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" /></div>
+              <hr className="border-border/40 mt-4" />
+              <div className="mt-2"><TicketAttachments ticketType="Service Request" ticketId={editingItem.id} /></div>
+            </>
+          )}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>

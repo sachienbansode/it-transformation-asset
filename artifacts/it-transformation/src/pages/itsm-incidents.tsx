@@ -17,13 +17,29 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const SEVERITIES = ["S1", "S2", "S3", "S4"];
 const STATUSES = ["Open", "In Progress", "Pending Approval", "Resolved", "Closed"];
 const CREATE_STATUSES = ["Open"];
-const CATEGORIES = ["Application", "Infrastructure", "Network", "Hardware", "Security", "Service Request"];
+const CATEGORIES = ["Application", "Infrastructure", "Network", "Hardware", "Security", "Database", "Cloud", "End-User", "Operations", "Service Request"];
+const URGENCIES = ["Critical", "High", "Medium", "Low"];
+const IMPACT_LEVELS = ["Enterprise-wide", "Department", "Team", "Individual"];
+const SOURCES = ["Phone", "Email", "Self-Service Portal", "Walk-in", "Monitoring Alert", "Teams / Chat", "API / Integration", "Other"];
+const SUBCATEGORIES: Record<string, string[]> = {
+  Application: ["Performance", "Error / Exception", "Access Denied", "Data Issue", "Integration Failure", "Feature Request"],
+  Infrastructure: ["Server Down", "Disk Space", "CPU / Memory", "Backup Failure", "VM / Container Issue", "Storage"],
+  Network: ["Connectivity", "DNS", "VPN", "Firewall", "WiFi", "Bandwidth"],
+  Hardware: ["Printer", "Laptop / Desktop", "Monitor", "Peripherals", "Battery / Power", "Other"],
+  Security: ["Phishing", "Malware", "Unauthorized Access", "Data Leak", "Vulnerability", "MFA Issue"],
+  Database: ["Slow Query", "Connection Failure", "Corruption", "Backup", "Replication Lag"],
+  Cloud: ["Instance Down", "Storage", "Permissions", "Auto-scaling", "Cost Alert"],
+  "End-User": ["Outlook / Email", "Teams", "SharePoint", "Printing", "VPN", "Account Lock"],
+  Operations: ["Scheduled Job", "Maintenance", "Deployment", "Monitoring Alert"],
+  "Service Request": ["Account", "Software", "Hardware", "Access", "Other"],
+};
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   Critical: { bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-700 dark:text-red-400", dot: "bg-red-500" },
@@ -425,7 +441,7 @@ export default function ItsmIncidents() {
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Category", viewModal.category], ["Assigned To", viewModal.assignedTo], ["Assigned Group", viewModal.assignedGroup], ["Reported By", viewModal.reportedBy], ["Affected System", viewModal.affectedSystem], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
+                {[["Category", viewModal.category], ["Subcategory", viewModal.subcategory], ["Urgency", viewModal.urgency], ["Impact Level", viewModal.impactLevel], ["Source", viewModal.source], ["Assigned To", viewModal.assignedTo], ["Assigned Group", viewModal.assignedGroup], ["Reported By", viewModal.reportedBy], ["Affected System", viewModal.affectedSystem], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
                     <div className="font-medium text-sm">{(v as string) || "—"}</div>
@@ -454,12 +470,16 @@ export default function ItsmIncidents() {
             <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
             <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Severity</Label><Select value={formData.severity || "S3"} onValueChange={v => setFormData({ ...formData, severity: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{SEVERITIES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Category</Label><Select value={formData.category || ""} onValueChange={v => setFormData({ ...formData, category: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Urgency</Label><Select value={formData.urgency || "__none__"} onValueChange={v => setFormData({ ...formData, urgency: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select urgency" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{URGENCIES.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Impact Level</Label><Select value={formData.impactLevel || "__none__"} onValueChange={v => setFormData({ ...formData, impactLevel: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select impact" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{IMPACT_LEVELS.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Category</Label><Select value={formData.category || "__none__"} onValueChange={v => setFormData({ ...formData, category: v === "__none__" ? "" : v, subcategory: "" })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Subcategory</Label><Select value={formData.subcategory || "__none__"} onValueChange={v => setFormData({ ...formData, subcategory: v === "__none__" ? "" : v })} disabled={!formData.category || formData.category === "__none__"}><SelectTrigger><SelectValue placeholder={formData.category ? "Select subcategory" : "Select category first"} /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{(SUBCATEGORIES[formData.category] || []).map((s: string) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Source</Label><Select value={formData.source || "__none__"} onValueChange={v => setFormData({ ...formData, source: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="How was it reported?" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{SOURCES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Assigned To</Label><Input value={formData.assignedTo || ""} onChange={e => setFormData({ ...formData, assignedTo: e.target.value })} /></div>
-            <div><Label>Assigned Group</Label><Input value={formData.assignedGroup || ""} onChange={e => setFormData({ ...formData, assignedGroup: e.target.value })} /></div>
-            <div><Label>Reported By</Label><Input value={formData.reportedBy || ""} onChange={e => setFormData({ ...formData, reportedBy: e.target.value })} /></div>
-            <div><Label>Affected System</Label><Input value={formData.affectedSystem || ""} onChange={e => setFormData({ ...formData, affectedSystem: e.target.value })} /></div>
+            <div><Label>Assigned To</Label><UserSearchCombobox value={formData.assignedTo || ""} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
+            <div><Label>Assigned Group</Label><GroupSelect value={formData.assignedGroup || ""} onChange={v => setFormData({ ...formData, assignedGroup: v })} /></div>
+            <div><Label>Reported By</Label><UserSearchCombobox value={formData.reportedBy || ""} onChange={v => setFormData({ ...formData, reportedBy: v })} placeholder="Search reporter…" /></div>
+            <div><Label>Affected System</Label><Input value={formData.affectedSystem || ""} onChange={e => setFormData({ ...formData, affectedSystem: e.target.value })} placeholder="e.g. ERP, SAP, CRM Portal" /></div>
             {(formData.status === "Resolved" || formData.status === "Closed") && <div className="col-span-2"><Label>Resolution Notes</Label><Textarea value={formData.resolutionNotes || ""} onChange={e => setFormData({ ...formData, resolutionNotes: e.target.value })} rows={2} /></div>}
             <div className="col-span-2">
               <Label className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-muted-foreground" />Link to Problem</Label>
@@ -474,7 +494,13 @@ export default function ItsmIncidents() {
               </Select>
             </div>
           </div>
-          {editingItem && <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Incident" /></div>}
+          {editingItem && (
+            <>
+              <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Incident" /></div>
+              <hr className="border-border/40 mt-4" />
+              <div className="mt-2"><TicketAttachments ticketType="Incident" ticketId={editingItem.id} /></div>
+            </>
+          )}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>
