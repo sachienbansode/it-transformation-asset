@@ -9,11 +9,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Shield, Clock, Timer, Target, AlertTriangle, Bug, GitBranch, Headphones } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Shield, Clock, Timer, Target, AlertTriangle, Bug, GitBranch, Headphones, Download } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+
+function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
+  const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const csv = [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(r[c.key])).join(","))].join("\n");
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })), download: filename });
+  a.click(); URL.revokeObjectURL(a.href);
+}
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
@@ -92,7 +99,10 @@ export default function ItsmSlaPolicies() {
           <h1 className="text-2xl font-bold tracking-tight">SLA Policies</h1>
           <p className="text-sm text-muted-foreground">Define service level agreements per ticket type — {user?.name}</p>
         </div>
-        <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New SLA Policy</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(slas, [{label:"Name",key:"name"},{label:"Ticket Type",key:"ticketType"},{label:"Priority",key:"priority"},{label:"Response Time (hrs)",key:"responseTimeHrs"},{label:"Resolution Time (hrs)",key:"resolutionTimeHrs"},{label:"Escalation (hrs)",key:"escalationHrs"},{label:"Active",key:"isActive"}], "sla-policies.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
+          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New SLA Policy</Button>
+        </div>
       </div>
 
       <div className="flex gap-2 border-b border-border pb-0">

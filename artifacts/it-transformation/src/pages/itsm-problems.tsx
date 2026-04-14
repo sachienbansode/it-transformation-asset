@@ -253,7 +253,7 @@ export default function ItsmProblems() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(p)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      <button onClick={() => openEdit(p)} title="Edit" className="p-2 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600 transition-colors"><Edit className="w-4 h-4" /></button>
+                      <button onClick={() => openEdit(p)} title={["Resolved","Closed"].includes(p.status) ? "Ticket is locked — cannot edit resolved/closed" : "Edit"} disabled={["Resolved","Closed"].includes(p.status)} className={`p-2 rounded-md transition-colors ${["Resolved","Closed"].includes(p.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>
                       {isAdmin && <button onClick={() => handleDelete(p.id, p.problemNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
@@ -325,7 +325,7 @@ export default function ItsmProblems() {
               )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
               <hr className="border-border/40" />
-              <TicketAttachments ticketType="Problem" ticketId={viewModal.id} />
+              <TicketAttachments ticketType="Problem" ticketId={viewModal.id} readonly />
             </div>
             );
           })()}

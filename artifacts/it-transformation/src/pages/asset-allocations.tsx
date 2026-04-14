@@ -11,11 +11,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Users, CheckCircle2, Clock, ArrowRight, ListChecks, Loader2, UserCheck, Building2 } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Users, CheckCircle2, Clock, ArrowRight, ListChecks, Loader2, UserCheck, Building2, Download } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+
+function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
+  const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const csv = [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(r[c.key])).join(","))].join("\n");
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })), download: filename });
+  a.click(); URL.revokeObjectURL(a.href);
+}
 
 const PAGE_SIZE = 10;
 
@@ -299,6 +306,7 @@ export default function AssetAllocations() {
           <p className="text-sm text-muted-foreground">Track asset assignments to employees — {user?.name}</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => { const enriched = allocations.map((a: any) => { const asset = assets.find((x: any) => x.id === a.assetId); return { ...a, assetTag: asset?.assetTag || "", assetName: asset?.name || "" }; }); exportToCsv(enriched, [{label:"Asset Tag",key:"assetTag"},{label:"Asset Name",key:"assetName"},{label:"Allocated To",key:"userName"},{label:"Employee Code",key:"employeeCode"},{label:"Designation",key:"designation"},{label:"Department",key:"department"},{label:"Start Date",key:"startDate"},{label:"End Date",key:"endDate"},{label:"Status",key:"status"},{label:"Notes",key:"notes"}], "allocations.csv"); }} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
           <Button variant="outline" onClick={openBulk} className="gap-2 border-[#d4a843] text-[#b8922e] hover:bg-[#d4a843]/10"><ListChecks className="w-4 h-4" />Bulk Allocate</Button>
           <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Allocation</Button>
         </div>

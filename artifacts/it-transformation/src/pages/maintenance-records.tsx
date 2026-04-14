@@ -10,11 +10,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Wrench, CheckCircle2, Clock, AlertTriangle, XCircle, CalendarClock, DollarSign, Loader2, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Wrench, CheckCircle2, Clock, AlertTriangle, XCircle, CalendarClock, DollarSign, Loader2, AlertCircle, Download } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+
+function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
+  const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const csv = [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(r[c.key])).join(","))].join("\n");
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })), download: filename });
+  a.click(); URL.revokeObjectURL(a.href);
+}
 
 const PAGE_SIZE = 15;
 
@@ -148,7 +155,10 @@ export default function MaintenanceRecords() {
           <h1 className="text-2xl font-bold tracking-tight">Maintenance Records</h1>
           <p className="text-sm text-muted-foreground">Track scheduled and completed IT asset maintenance — {user?.name}</p>
         </div>
-        <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Record</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => { const enriched = records.map((r: any) => { const asset = assets.find((a: any) => a.id === r.assetId); return { ...r, assetTag: asset?.assetTag || "", assetName: asset?.name || "" }; }); exportToCsv(enriched, [{label:"Asset Tag",key:"assetTag"},{label:"Asset Name",key:"assetName"},{label:"Type",key:"type"},{label:"Description",key:"description"},{label:"Scheduled Date",key:"scheduledDate"},{label:"Completed Date",key:"completedDate"},{label:"Vendor",key:"vendorName"},{label:"Cost (₹)",key:"cost"},{label:"Status",key:"status"}], "maintenance-records.csv"); }} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
+          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Record</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

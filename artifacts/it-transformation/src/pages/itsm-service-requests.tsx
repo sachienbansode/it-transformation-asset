@@ -270,7 +270,7 @@ export default function ItsmServiceRequests() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(r)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      <button onClick={() => openEdit(r)} title="Edit" className="p-2 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600 transition-colors"><Edit className="w-4 h-4" /></button>
+                      <button onClick={() => openEdit(r)} title={["Completed","Cancelled"].includes(r.status) ? "Ticket is locked — cannot edit completed/cancelled requests" : "Edit"} disabled={["Completed","Cancelled"].includes(r.status)} className={`p-2 rounded-md transition-colors ${["Completed","Cancelled"].includes(r.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>
                       {isAdmin && <button onClick={() => handleDelete(r.id, r.requestNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
@@ -316,7 +316,7 @@ export default function ItsmServiceRequests() {
               )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
               <hr className="border-border/40" />
-              <TicketAttachments ticketType="Service Request" ticketId={viewModal.id} />
+              <TicketAttachments ticketType="Service Request" ticketId={viewModal.id} readonly />
             </div>
           )}
         </DialogContent>

@@ -387,7 +387,7 @@ export default function ItsmIncidents() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(inc)} title="View details" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      <button onClick={() => openEdit(inc)} title="Edit incident" className="p-2 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600 transition-colors"><Edit className="w-4 h-4" /></button>
+                      <button onClick={() => openEdit(inc)} title={["Resolved","Closed"].includes(inc.status) ? "Ticket is locked — cannot edit resolved/closed" : "Edit incident"} disabled={["Resolved","Closed"].includes(inc.status)} className={`p-2 rounded-md transition-colors ${["Resolved","Closed"].includes(inc.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>
                       {isAdmin && <button onClick={() => handleDelete(inc.id, inc.ticketNo)} title="Delete incident" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
@@ -448,7 +448,7 @@ export default function ItsmIncidents() {
               )}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Incident" readonly />
               <hr className="border-border/40" />
-              <TicketAttachments ticketType="Incident" ticketId={viewModal.id} />
+              <TicketAttachments ticketType="Incident" ticketId={viewModal.id} readonly />
             </div>
           )}
         </DialogContent>

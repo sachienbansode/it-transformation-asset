@@ -10,11 +10,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Monitor, Box, Eye, Wrench, Archive, Tag, AlertCircle, Loader2, Printer } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Monitor, Box, Eye, Wrench, Archive, Tag, AlertCircle, Loader2, Printer, Download } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+
+function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
+  const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const csv = [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(r[c.key])).join(","))].join("\n");
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })), download: filename });
+  a.click(); URL.revokeObjectURL(a.href);
+}
 
 const PAGE_SIZE = 10;
 const STATUS_BADGE: Record<string, string> = {
@@ -294,7 +301,10 @@ export default function AssetRegistry() {
           <h1 className="text-2xl font-bold tracking-tight">Asset Registry</h1>
           <p className="text-sm text-muted-foreground">Manage all IT hardware and equipment — {user?.name}</p>
         </div>
-        <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />Add Asset</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(assets, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"purchaseCost"},{label:"Manufacturer",key:"manufacturer"},{label:"Model",key:"model"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], "asset-registry.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
+          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />Add Asset</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
