@@ -17,11 +17,11 @@ import {
 } from "recharts";
 import { useLocation } from "wouter";
 
-const COLORS = ["#d4a843", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
-const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#d4a843", Low: "#2563eb" };
-const STATUS_COLORS: Record<string, string> = { Open: "#dc2626", "In Progress": "#ea580c", Resolved: "#059669", Closed: "#6b7280", "On Hold": "#d4a843", Pending: "#8b5cf6" };
+const COLORS = ["#2D7FF9", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
+const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#2D7FF9", Low: "#2563eb" };
+const STATUS_COLORS: Record<string, string> = { Open: "#dc2626", "In Progress": "#ea580c", Resolved: "#059669", Closed: "#6b7280", "On Hold": "#2D7FF9", Pending: "#8b5cf6" };
 const CHANGE_STATUS_COLORS: Record<string, string> = { Draft: "#6b7280", Submitted: "#8b5cf6", Approved: "#2563eb", "In Progress": "#ea580c", Completed: "#059669", Failed: "#dc2626", "Rolled Back": "#9ca3af" };
-const SEVERITY_COLORS: Record<string, string> = { S1: "#dc2626", S2: "#ea580c", S3: "#d4a843", S4: "#2563eb" };
+const SEVERITY_COLORS: Record<string, string> = { S1: "#dc2626", S2: "#ea580c", S3: "#2D7FF9", S4: "#2563eb" };
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -164,7 +164,7 @@ export default function ItsmDashboard() {
     return Math.min(100, score);
   }, [criticalIncidents, openIncidents, activeProblems]);
 
-  const healthColor = serviceHealth >= 80 ? "#059669" : serviceHealth >= 60 ? "#d4a843" : "#dc2626";
+  const healthColor = serviceHealth >= 80 ? "#059669" : serviceHealth >= 60 ? "#2D7FF9" : "#dc2626";
   const healthLabel = serviceHealth >= 80 ? "Healthy" : serviceHealth >= 60 ? "Degraded" : "Critical";
 
   return (
@@ -665,7 +665,7 @@ export default function ItsmDashboard() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2"><Zap className="w-4 h-4 text-[#d4a843]" />Quick Navigation</CardTitle>
+            <CardTitle className="text-sm font-semibold flex items-center gap-2"><Zap className="w-4 h-4 text-[#2D7FF9]" />Quick Navigation</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-2">
@@ -677,7 +677,7 @@ export default function ItsmDashboard() {
                 { label: "SLA Policies", desc: `${slas.length} policies`, href: "/itsm-sla", icon: Shield, color: "bg-amber-500" },
                 { label: "Service Requests", desc: `${serviceRequests.length} requests`, href: "/itsm-requests", icon: Headphones, color: "bg-teal-500" },
               ].map(item => (
-                <button key={item.href} onClick={() => navigate(item.href)} className="flex items-center gap-2.5 p-2.5 rounded-lg border hover:bg-muted/50 hover:border-[#d4a843]/30 transition text-left group">
+                <button key={item.href} onClick={() => navigate(item.href)} className="flex items-center gap-2.5 p-2.5 rounded-lg border hover:bg-muted/50 hover:border-[#2D7FF9]/30 transition text-left group">
                   <div className={`w-8 h-8 rounded-lg ${item.color} flex items-center justify-center flex-shrink-0`}>
                     <item.icon className="w-3.5 h-3.5 text-white" />
                   </div>

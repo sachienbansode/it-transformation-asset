@@ -109,7 +109,7 @@ export default function AssetLicenses() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(licenses, [{label:"Product",key:"productName"},{label:"Vendor",key:"vendorName"},{label:"Type",key:"licenseType"},{label:"License Key",key:"licenseKey"},{label:"Seats Total",key:"seatsTotal"},{label:"Seats Used",key:"seatsUsed"},{label:"Expiry Date",key:"expiryDate"},{label:"Cost (₹)",key:"cost"},{label:"Status",key:"status"}], "licenses.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />Add License</Button>
+          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />Add License</Button>
         </div>
       </div>
 
@@ -127,7 +127,7 @@ export default function AssetLicenses() {
         <StatCard icon={HardDrive} label="Total Licenses" value={licenses.length} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
         <StatCard icon={CheckCircle2} label="Seat Utilization" value={totalSeats > 0 ? `${Math.round((usedSeats / totalSeats) * 100)}%` : "—"} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600" borderColor="border-l-emerald-500" sub={`${usedSeats} of ${totalSeats} seats used`} />
         <StatCard icon={AlertTriangle} label="Expiring Soon" value={expiringSoon} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
-        <StatCard icon={DollarSign} label="Total License Cost" value={`₹${(totalCost / 100000).toFixed(1)}L`} iconBg="bg-[#d4a843]/20" iconColor="text-[#d4a843]" borderColor="border-l-[#d4a843]" />
+        <StatCard icon={DollarSign} label="Total License Cost" value={`₹${(totalCost / 100000).toFixed(1)}L`} iconBg="bg-[#2D7FF9]/20" iconColor="text-[#2D7FF9]" borderColor="border-l-[#2D7FF9]" />
       </div>
 
       <Card>
@@ -172,7 +172,7 @@ export default function AssetLicenses() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="w-16 bg-muted rounded-full h-2">
-                          <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: isOver ? "#dc2626" : pct > 90 ? "#dc2626" : pct > 70 ? "#d4a843" : "#059669" }} />
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: isOver ? "#dc2626" : pct > 90 ? "#dc2626" : pct > 70 ? "#2D7FF9" : "#059669" }} />
                         </div>
                         <span className={`text-xs ${isOver ? "text-red-600 font-semibold" : "text-muted-foreground"}`}>{l.seatsUsed}/{l.seatsTotal}</span>
                       </div>
@@ -275,7 +275,7 @@ export default function AssetLicenses() {
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={createLicense.isPending || updateLicense.isPending} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2">
+            <Button onClick={handleSave} disabled={createLicense.isPending || updateLicense.isPending} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2">
               {(createLicense.isPending || updateLicense.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}
               {editingItem ? "Update" : "Create"}
             </Button>

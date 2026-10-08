@@ -19,7 +19,7 @@ import { apiFetch, API } from "@/lib/api";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 const PAGE_SIZE = 10;
-const COLORS = ["#d4a843", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
+const COLORS = ["#2D7FF9", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
 
 const ASSET_TYPES = ["Laptop", "Desktop", "Server", "Network Switch", "Firewall", "Access Point", "Printer", "Tablet", "Mobile", "Storage", "UPS", "Others"];
 
@@ -117,7 +117,7 @@ function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => voi
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
-          <Button size="sm" className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2" onClick={handlePrint}>
+          <Button size="sm" className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2" onClick={handlePrint}>
             <Printer className="w-4 h-4" />Print Sticker
           </Button>
         </div>
@@ -267,7 +267,7 @@ export default function AssetManagement() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => { window.open(`${API}/export/asset-management-doc`, "_blank"); }} className="gap-2"><FileText className="w-4 h-4" />Export DOCX</Button>
-          {isAdmin && <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white"><Plus className="w-4 h-4 mr-2" />Add Asset</Button>}
+          {isAdmin && <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white"><Plus className="w-4 h-4 mr-2" />Add Asset</Button>}
         </div>
       </div>
 
@@ -299,7 +299,7 @@ export default function AssetManagement() {
             <Card className="p-4">
               <h3 className="font-semibold mb-3">Assets by Type</h3>
               <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={typeData}><XAxis dataKey="name" fontSize={11} /><YAxis /><Tooltip /><Bar dataKey="value" fill="#d4a843" radius={[4, 4, 0, 0]} /></BarChart>
+                <BarChart data={typeData}><XAxis dataKey="name" fontSize={11} /><YAxis /><Tooltip /><Bar dataKey="value" fill="#2D7FF9" radius={[4, 4, 0, 0]} /></BarChart>
               </ResponsiveContainer>
             </Card>
           </div>
@@ -310,7 +310,7 @@ export default function AssetManagement() {
                 <div key={lic.id} className="flex items-center gap-3">
                   <span className="text-sm w-48 truncate">{lic.productName}</span>
                   <div className="flex-1 bg-muted rounded-full h-3 overflow-hidden">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${(lic.seatsUsed / lic.seatsTotal) * 100}%`, backgroundColor: (lic.seatsUsed / lic.seatsTotal) > 0.9 ? "#dc2626" : (lic.seatsUsed / lic.seatsTotal) > 0.7 ? "#d4a843" : "#059669" }} />
+                    <div className="h-full rounded-full transition-all" style={{ width: `${(lic.seatsUsed / lic.seatsTotal) * 100}%`, backgroundColor: (lic.seatsUsed / lic.seatsTotal) > 0.9 ? "#dc2626" : (lic.seatsUsed / lic.seatsTotal) > 0.7 ? "#2D7FF9" : "#059669" }} />
                   </div>
                   <span className="text-xs text-muted-foreground w-20 text-right">{lic.seatsUsed}/{lic.seatsTotal} seats</span>
                 </div>
@@ -350,7 +350,7 @@ export default function AssetManagement() {
                     {isAdmin && (
                       <TableCell>
                         <div className="flex gap-1">
-                          <button onClick={() => setStickerAsset(a)} className="p-1 hover:text-[#d4a843]" title="Print sticker"><Tag className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setStickerAsset(a)} className="p-1 hover:text-[#2D7FF9]" title="Print sticker"><Tag className="w-3.5 h-3.5" /></button>
                           <button onClick={() => openEdit(a)} className="p-1 hover:text-blue-600" title="Edit"><Edit className="w-3.5 h-3.5" /></button>
                           <button onClick={() => { deleteAsset.mutate(a.id); toast({ title: "Asset deleted" }); }} className="p-1 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
@@ -527,7 +527,7 @@ export default function AssetManagement() {
                       ))}
                     </>
                   )}
-                  <div className="border-t mt-1"><SelectItem value="__others__" className="text-[#d4a843] font-medium">+ Others (not in vendor master)</SelectItem></div>
+                  <div className="border-t mt-1"><SelectItem value="__others__" className="text-[#2D7FF9] font-medium">+ Others (not in vendor master)</SelectItem></div>
                 </SelectContent>
               </Select>
               {formErrors.vendor && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.vendor}</p>}
@@ -630,7 +630,7 @@ export default function AssetManagement() {
 
           <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={createAsset.isPending || updateAsset.isPending} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2">
+            <Button onClick={handleSave} disabled={createAsset.isPending || updateAsset.isPending} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2">
               {(createAsset.isPending || updateAsset.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}
               {editingItem ? "Update Asset" : "Register Asset"}
             </Button>

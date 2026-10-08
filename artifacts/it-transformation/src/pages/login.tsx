@@ -100,30 +100,30 @@ export default function Login() {
 
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-md space-y-6 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-background bg-[radial-gradient(1200px_500px_at_50%_-10%,#fff,transparent)] dark:bg-none">
+      <div className="w-full max-w-[400px] space-y-5 px-4">
         {/* Logo / Header */}
         <div className="text-center space-y-2">
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex flex-col items-center justify-center gap-3">
             {appConfig.logoUrl ? (
-              <img src={appConfig.logoUrl} alt="Logo" className="h-14 w-14 object-contain rounded-xl shadow-md ring-2 ring-primary/20" />
+              <img src={appConfig.logoUrl} alt="Logo" className="h-14 w-14 object-contain rounded-[14px] bg-white p-1 shadow-[0_2px_8px_rgba(16,24,40,.14)]" />
             ) : (
               <Shield className="h-8 w-8 text-primary" />
             )}
-            <span className="text-[17px] font-bold text-foreground leading-tight">{appConfig.appName}</span>
+            <span className="text-[20px] font-semibold text-foreground leading-tight">{appConfig.appName}</span>
           </div>
-          <p className="text-sm text-muted-foreground">{appConfig.appTagline}</p>
+          <p className="text-[12.5px] text-muted-foreground">{appConfig.appTagline}</p>
         </div>
 
         {/* User Type Toggle */}
         {step === "credentials" && (
-          <div className="flex border border-border rounded-md overflow-hidden">
+          <div className="flex bg-muted rounded-[10px] p-[3px] gap-[3px]">
             <button
               onClick={() => setUserType("internal")}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-[8px] text-[12.5px] transition-colors ${
                 userType === "internal"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted"
+                  ? "bg-card text-foreground font-semibold shadow-sm"
+                  : "text-muted-foreground font-medium hover:text-foreground"
               }`}
             >
               <Building2 className="h-4 w-4" />
@@ -131,10 +131,10 @@ export default function Login() {
             </button>
             <button
               onClick={() => setUserType("external")}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-[8px] text-[12.5px] transition-colors ${
                 userType === "external"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted"
+                  ? "bg-card text-foreground font-semibold shadow-sm"
+                  : "text-muted-foreground font-medium hover:text-foreground"
               }`}
             >
               <User className="h-4 w-4" />
@@ -143,7 +143,7 @@ export default function Login() {
           </div>
         )}
 
-        <Card className="border-border">
+        <Card className="border-border rounded-[18px] shadow-lg">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg">
               {step === "mfa" ? "Two-Factor Authentication" : "Sign In"}

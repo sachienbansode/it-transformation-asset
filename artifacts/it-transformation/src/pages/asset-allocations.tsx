@@ -111,7 +111,7 @@ function AssetDropdown({ assets, selectedId, searchVal, onSearch, onSelect }: {
             : list.slice(0, 15).map((a: any) => (
               <button key={a.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors" onClick={() => onSelect(a)}>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-semibold text-[#b8922e] flex-shrink-0">{a.assetTag}</span>
+                  <span className="font-mono text-xs font-semibold text-[#1B63D6] flex-shrink-0">{a.assetTag}</span>
                   <span className="font-medium flex-1 truncate">{a.name}</span>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${a.status === "In Stock" ? "border-green-500/30 text-green-600 bg-green-50 dark:bg-green-900/20" : a.status === "Allocated" ? "border-blue-500/30 text-blue-600" : "border-border text-muted-foreground"}`}>{a.status}</span>
                 </div>
@@ -308,8 +308,8 @@ export default function AssetAllocations() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => { const enriched = allocations.map((a: any) => { const asset = assets.find((x: any) => x.id === a.assetId); return { ...a, assetTag: asset?.assetTag || "", assetName: asset?.name || "" }; }); exportToCsv(enriched, [{label:"Asset Tag",key:"assetTag"},{label:"Asset Name",key:"assetName"},{label:"Allocated To",key:"userName"},{label:"Employee Code",key:"employeeCode"},{label:"Designation",key:"designation"},{label:"Department",key:"department"},{label:"Start Date",key:"startDate"},{label:"End Date",key:"endDate"},{label:"Status",key:"status"},{label:"Notes",key:"notes"}], "allocations.csv"); }} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          <Button variant="outline" onClick={openBulk} className="gap-2 border-[#d4a843] text-[#b8922e] hover:bg-[#d4a843]/10"><ListChecks className="w-4 h-4" />Bulk Allocate</Button>
-          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Allocation</Button>
+          <Button variant="outline" onClick={openBulk} className="gap-2 border-[#2D7FF9] text-[#1B63D6] hover:bg-[#2D7FF9]/10"><ListChecks className="w-4 h-4" />Bulk Allocate</Button>
+          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Allocation</Button>
         </div>
       </div>
 
@@ -359,7 +359,7 @@ export default function AssetAllocations() {
                   return (
                     <TableRow key={a.id}>
                       <TableCell className="whitespace-nowrap">
-                        <span className="font-mono text-xs font-semibold text-[#b8922e]">{asset?.assetTag || `#${a.assetId}`}</span>
+                        <span className="font-mono text-xs font-semibold text-[#1B63D6]">{asset?.assetTag || `#${a.assetId}`}</span>
                         <span className="text-muted-foreground ml-1 text-xs">— {asset?.name || ""}</span>
                       </TableCell>
                       <TableCell className="font-medium whitespace-nowrap">{a.userName || "—"}</TableCell>
@@ -489,7 +489,7 @@ export default function AssetAllocations() {
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.assetId || !formData.userName || createAlloc.isPending || updateAlloc.isPending} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2">
+            <Button onClick={handleSave} disabled={!formData.assetId || !formData.userName || createAlloc.isPending || updateAlloc.isPending} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2">
               {(createAlloc.isPending || updateAlloc.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}
               {editingItem ? "Update" : "Create"}
             </Button>
@@ -502,7 +502,7 @@ export default function AssetAllocations() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ListChecks className="w-4 h-4 text-[#d4a843]" />
+              <ListChecks className="w-4 h-4 text-[#2D7FF9]" />
               Bulk Allocate Assets
             </DialogTitle>
           </DialogHeader>
@@ -528,8 +528,8 @@ export default function AssetAllocations() {
 
               {/* Auto-populated fields */}
               {bulkForm.employeeCode && (
-                <div className="flex items-center gap-3 col-span-2 px-3 py-2 rounded-lg bg-[#d4a843]/5 border border-[#d4a843]/20">
-                  <UserCheck className="w-4 h-4 text-[#d4a843] flex-shrink-0" />
+                <div className="flex items-center gap-3 col-span-2 px-3 py-2 rounded-lg bg-[#2D7FF9]/5 border border-[#2D7FF9]/20">
+                  <UserCheck className="w-4 h-4 text-[#2D7FF9] flex-shrink-0" />
                   <div className="flex-1 grid grid-cols-3 gap-3 text-sm">
                     <div><span className="text-[10px] text-muted-foreground uppercase">Emp Code</span><p className="font-mono font-medium">{bulkForm.employeeCode}</p></div>
                     <div><span className="text-[10px] text-muted-foreground uppercase">Designation</span><p className="font-medium">{bulkForm.designation || "—"}</p></div>
@@ -564,9 +564,9 @@ export default function AssetAllocations() {
                 <div className="max-h-[240px] overflow-y-auto divide-y">
                   {bulkFiltered.length === 0 && <div className="text-center py-6 text-sm text-muted-foreground">No in-stock assets found</div>}
                   {bulkFiltered.map((a: any) => (
-                    <div key={a.id} className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition ${bulkSelectedIds.includes(a.id) ? "bg-[#d4a843]/5" : ""}`}>
+                    <div key={a.id} className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition ${bulkSelectedIds.includes(a.id) ? "bg-[#2D7FF9]/5" : ""}`}>
                       <Checkbox checked={bulkSelectedIds.includes(a.id)} onCheckedChange={() => toggleAsset(a.id)} />
-                      <span className="font-mono text-xs font-semibold text-[#b8922e] w-[80px]">{a.assetTag}</span>
+                      <span className="font-mono text-xs font-semibold text-[#1B63D6] w-[80px]">{a.assetTag}</span>
                       <span className="text-sm flex-1 truncate">{a.name}</span>
                       <Badge variant="outline" className="text-[10px]">{a.type}</Badge>
                     </div>
@@ -577,7 +577,7 @@ export default function AssetAllocations() {
           </div>
           <div className="flex justify-end gap-2 mt-2 pt-3 border-t">
             <Button variant="outline" onClick={() => setIsBulkModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleBulkSave} disabled={!bulkSelectedIds.length || !bulkForm.userName.trim() || bulkAllocMutation.isPending} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2">
+            <Button onClick={handleBulkSave} disabled={!bulkSelectedIds.length || !bulkForm.userName.trim() || bulkAllocMutation.isPending} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2">
               {bulkAllocMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
               Allocate {bulkSelectedIds.length || ""} Assets
             </Button>

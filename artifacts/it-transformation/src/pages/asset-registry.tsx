@@ -111,7 +111,7 @@ function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => voi
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Tag className="w-4 h-4 text-[#d4a843]" />Asset Sticker Preview</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Tag className="w-4 h-4 text-[#2D7FF9]" />Asset Sticker Preview</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground">Preview below — print to a 85×54mm label (business card size).</p>
         <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 flex justify-center">
@@ -122,7 +122,7 @@ function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => voi
                   <div style={{ fontSize: "8px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.8px", color: "#1a1a1a" }}>ASHIKA GROUP</div>
                   <div style={{ fontSize: "7px", color: "#666" }}>IT Asset Management · NIYTRI</div>
                 </div>
-                <div style={{ width: "28px", height: "28px", backgroundColor: "#d4a843", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: "28px", height: "28px", backgroundColor: "#2D7FF9", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <div style={{ fontSize: "14px", color: "white", fontWeight: "bold" }}>A</div>
                 </div>
               </div>
@@ -145,7 +145,7 @@ function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => voi
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
-          <Button size="sm" className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2" onClick={handlePrint}>
+          <Button size="sm" className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2" onClick={handlePrint}>
             <Printer className="w-4 h-4" />Print Sticker
           </Button>
         </div>
@@ -304,7 +304,7 @@ export default function AssetRegistry() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(assets, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"purchaseCost"},{label:"Manufacturer",key:"manufacturer"},{label:"Model",key:"model"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], "asset-registry.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />Add Asset</Button>
+          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />Add Asset</Button>
         </div>
       </div>
 
@@ -360,7 +360,7 @@ export default function AssetRegistry() {
               )}
               {paged.map((a: any) => (
                 <TableRow key={a.id} className={a.status === "Retired" || a.status === "Disposed" ? "opacity-50" : ""}>
-                  <TableCell className="font-mono text-xs font-semibold text-[#b8922e]">{a.assetTag}</TableCell>
+                  <TableCell className="font-mono text-xs font-semibold text-[#1B63D6]">{a.assetTag}</TableCell>
                   <TableCell className="font-medium">{a.name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{a.type}</Badge></TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{a.serialNumber || "—"}</TableCell>
@@ -372,7 +372,7 @@ export default function AssetRegistry() {
                   <TableCell>
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted" title="View details"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
-                      <button onClick={() => setStickerAsset(a)} className="p-1.5 rounded hover:bg-muted" title="Print sticker"><Tag className="w-3.5 h-3.5 text-[#d4a843]" /></button>
+                      <button onClick={() => setStickerAsset(a)} className="p-1.5 rounded hover:bg-muted" title="Print sticker"><Tag className="w-3.5 h-3.5 text-[#2D7FF9]" /></button>
                       <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
                       {isAdmin && <button onClick={() => handleDelete(a.id, a.name)} className="p-1.5 rounded hover:bg-muted" title="Delete"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
@@ -390,7 +390,7 @@ export default function AssetRegistry() {
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <span className="font-mono text-[#d4a843]">{viewModal?.assetTag}</span>
+              <span className="font-mono text-[#2D7FF9]">{viewModal?.assetTag}</span>
               <span className="text-muted-foreground font-normal">— Asset Details</span>
             </DialogTitle>
           </DialogHeader>
@@ -398,7 +398,7 @@ export default function AssetRegistry() {
           <div className="flex gap-1 border-b mb-4 -mx-1 px-1">
             {(["details", "history"] as const).map(tab => (
               <button key={tab} onClick={() => setViewTab(tab)}
-                className={`px-4 py-2 text-sm font-medium capitalize transition border-b-2 -mb-px ${viewTab === tab ? "border-[#d4a843] text-[#b8922e]" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+                className={`px-4 py-2 text-sm font-medium capitalize transition border-b-2 -mb-px ${viewTab === tab ? "border-[#2D7FF9] text-[#1B63D6]" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
                 {tab}
               </button>
             ))}
@@ -438,7 +438,7 @@ export default function AssetRegistry() {
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setStickerAsset(viewModal); setViewModal(null); }}>
                   <Tag className="w-3.5 h-3.5" />Print Sticker
                 </Button>
-                <Button size="sm" className="gap-1.5 bg-[#d4a843] hover:bg-[#b8922e] text-white" onClick={() => { openEdit(viewModal); setViewModal(null); }}>
+                <Button size="sm" className="gap-1.5 bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" onClick={() => { openEdit(viewModal); setViewModal(null); }}>
                   <Edit className="w-3.5 h-3.5" />Edit Asset
                 </Button>
               </div>
@@ -541,7 +541,7 @@ export default function AssetRegistry() {
                     </>
                   )}
                   <div className="border-t mt-1">
-                    <SelectItem value="__others__" className="text-[#d4a843] font-semibold">+ Others (not in vendor master)</SelectItem>
+                    <SelectItem value="__others__" className="text-[#2D7FF9] font-semibold">+ Others (not in vendor master)</SelectItem>
                   </div>
                 </SelectContent>
               </Select>
@@ -650,7 +650,7 @@ export default function AssetRegistry() {
             <Button
               onClick={handleSave}
               disabled={createAsset.isPending || updateAsset.isPending || tagLoading}
-              className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"
+              className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"
             >
               {(createAsset.isPending || updateAsset.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}
               {editingItem ? "Update Asset" : "Register Asset"}

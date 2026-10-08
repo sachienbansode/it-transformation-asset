@@ -158,7 +158,7 @@ export default function ItsmApprovalConfig() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Shield className="w-6 h-6 text-[#d4a843]" />
+            <Shield className="w-6 h-6 text-[#2D7FF9]" />
             Approval Workflow Configuration
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -169,7 +169,7 @@ export default function ItsmApprovalConfig() {
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
           </Button>
-          <Button size="sm" className="bg-[#d4a843] hover:bg-[#b8922e] text-white" onClick={openAdd}>
+          <Button size="sm" className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" onClick={openAdd}>
             <Plus className="h-3.5 w-3.5 mr-1" /> Add Rule
           </Button>
         </div>
@@ -230,7 +230,7 @@ export default function ItsmApprovalConfig() {
                     <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
                       <Info className="w-4 h-4" />
                       No approval rules configured. Tickets of this type will be auto-approved.
-                      <Button variant="link" size="sm" className="h-auto p-0 text-xs text-[#d4a843]" onClick={() => { setForm({ ...EMPTY_FORM, ticketType }); setEditRule(null); setModalOpen(true); }}>
+                      <Button variant="link" size="sm" className="h-auto p-0 text-xs text-[#2D7FF9]" onClick={() => { setForm({ ...EMPTY_FORM, ticketType }); setEditRule(null); setModalOpen(true); }}>
                         Add first rule
                       </Button>
                     </div>
@@ -268,7 +268,7 @@ export default function ItsmApprovalConfig() {
                         </React.Fragment>
                       ))}
                       <div className="flex items-center px-1 pt-4">
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-full border border-dashed border-border hover:border-[#d4a843] hover:text-[#d4a843]"
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-full border border-dashed border-border hover:border-[#2D7FF9] hover:text-[#2D7FF9]"
                           onClick={() => { setForm({ ...EMPTY_FORM, ticketType, sequence: typeRules.length + 1, approverLevel: `Level ${typeRules.length + 1}` }); setEditRule(null); setModalOpen(true); }}>
                           <Plus className="w-3.5 h-3.5" />
                         </Button>
@@ -297,7 +297,7 @@ export default function ItsmApprovalConfig() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-[#d4a843]" />
+              <Shield className="w-4 h-4 text-[#2D7FF9]" />
               {editRule ? "Edit Approval Rule" : "Add Approval Rule"}
             </DialogTitle>
           </DialogHeader>
@@ -364,7 +364,7 @@ export default function ItsmApprovalConfig() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
             <Button
-              className="bg-[#d4a843] hover:bg-[#b8922e] text-white"
+              className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white"
               onClick={handleSave}
               disabled={createMut.isPending || updateMut.isPending}
             >

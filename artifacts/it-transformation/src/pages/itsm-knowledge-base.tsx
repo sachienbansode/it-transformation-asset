@@ -87,7 +87,7 @@ export default function ItsmKnowledgeBase() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(articles, [{label:"Title",key:"title"},{label:"Category",key:"category"},{label:"Type",key:"type"},{label:"Status",key:"status"},{label:"Tags",key:"tags"},{label:"Created By",key:"createdByName"},{label:"Views",key:"views"},{label:"Created At",key:"createdAt"}], "knowledge-base.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Article</Button>
+          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Article</Button>
         </div>
       </div>
 
@@ -167,7 +167,7 @@ export default function ItsmKnowledgeBase() {
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>
+            <Button onClick={handleSave} disabled={!formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
           </div>
         </DialogContent>
       </Dialog>

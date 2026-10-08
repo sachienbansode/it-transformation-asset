@@ -1,5 +1,5 @@
 -- IT Transformation Hub — 01 schema (tables, sequences, indexes, constraints)
--- Target DB: it_transformation_hub   Run as: root_admin (connected to it_transformation_hub)
+-- Target DB: it-hub   Run as: root_admin (connected to it-hub)
 --
 -- PostgreSQL database dump
 --

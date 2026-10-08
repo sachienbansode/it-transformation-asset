@@ -158,7 +158,7 @@ export default function MaintenanceRecords() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => { const enriched = records.map((r: any) => { const asset = assets.find((a: any) => a.id === r.assetId); return { ...r, assetTag: asset?.assetTag || "", assetName: asset?.name || "" }; }); exportToCsv(enriched, [{label:"Asset Tag",key:"assetTag"},{label:"Asset Name",key:"assetName"},{label:"Type",key:"type"},{label:"Description",key:"description"},{label:"Scheduled Date",key:"scheduledDate"},{label:"Completed Date",key:"completedDate"},{label:"Vendor",key:"vendorName"},{label:"Cost (₹)",key:"cost"},{label:"Status",key:"status"}], "maintenance-records.csv"); }} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Record</Button>
+          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Record</Button>
         </div>
       </div>
 
@@ -216,7 +216,7 @@ export default function MaintenanceRecords() {
               )}
               {paged.map((r: any) => (
                 <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs font-semibold text-[#b8922e]">{getAssetLabel(r.assetId)}</TableCell>
+                  <TableCell className="font-mono text-xs font-semibold text-[#1B63D6]">{getAssetLabel(r.assetId)}</TableCell>
                   <TableCell><Badge variant="outline" className={TYPE_BADGE[r.type] || ""}>{r.type}</Badge></TableCell>
                   <TableCell className="text-sm max-w-[200px] truncate" title={r.description}>{r.description || "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{r.scheduledDate || "—"}</TableCell>
@@ -243,7 +243,7 @@ export default function MaintenanceRecords() {
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Wrench className="w-4 h-4 text-[#d4a843]" />
+              <Wrench className="w-4 h-4 text-[#2D7FF9]" />
               {editingItem ? "Edit Maintenance Record" : "New Maintenance Record"}
             </DialogTitle>
           </DialogHeader>
@@ -321,7 +321,7 @@ export default function MaintenanceRecords() {
             <Button
               onClick={handleSave}
               disabled={createRecord.isPending || updateRecord.isPending}
-              className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"
+              className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"
             >
               {(createRecord.isPending || updateRecord.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}
               {editingItem ? "Update Record" : "Create Record"}

@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useLocation } from "wouter";
 
-const COLORS = ["#d4a843", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
-const STATUS_COLORS: Record<string, string> = { "In Stock": "#2563eb", "Allocated": "#059669", "In Use": "#0f766e", "Under Maintenance": "#d4a843", "Retired": "#9ca3af", "Disposed": "#dc2626" };
+const COLORS = ["#2D7FF9", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
+const STATUS_COLORS: Record<string, string> = { "In Stock": "#2563eb", "Allocated": "#059669", "In Use": "#0f766e", "Under Maintenance": "#2D7FF9", "Retired": "#9ca3af", "Disposed": "#dc2626" };
 
 function daysUntil(dateStr: string): number {
   return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
@@ -104,7 +104,7 @@ export default function AssetDashboard() {
         <StatCard icon={Wrench} label="Maintenance" value={maintenanceAssets} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" sub={`${pendingMaintenance} pending`} />
         <StatCard icon={Archive} label="Retired / Disposed" value={retiredAssets} iconBg="bg-gray-100 dark:bg-gray-900/30" iconColor="text-gray-500" borderColor="border-l-gray-400" />
         <StatCard icon={Package} label="Active Vendors" value={vendors.filter((v: any) => v.status === "Active").length} iconBg="bg-violet-100 dark:bg-violet-900/30" iconColor="text-violet-600" borderColor="border-l-violet-500" />
-        <StatCard icon={DollarSign} label="Total Value" value={`₹${(totalValue / 100000).toFixed(1)}L`} iconBg="bg-[#d4a843]/20" iconColor="text-[#d4a843]" borderColor="border-l-[#d4a843]" />
+        <StatCard icon={DollarSign} label="Total Value" value={`₹${(totalValue / 100000).toFixed(1)}L`} iconBg="bg-[#2D7FF9]/20" iconColor="text-[#2D7FF9]" borderColor="border-l-[#2D7FF9]" />
       </div>
 
       {/* ── Alert Banner Area ──────────────────────────────────────────────── */}
@@ -218,7 +218,7 @@ export default function AssetDashboard() {
                 <XAxis type="number" fontSize={11} />
                 <YAxis type="category" dataKey="name" fontSize={10} width={80} />
                 <Tooltip />
-                <Bar dataKey="value" fill="#d4a843" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="value" fill="#2D7FF9" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -246,7 +246,7 @@ export default function AssetDashboard() {
           <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">License Utilization</CardTitle></CardHeader>
           <CardContent>
             <div className="flex items-center gap-4 mb-4">
-              <div className="text-3xl font-bold text-[#d4a843]">{licenseUtil}%</div>
+              <div className="text-3xl font-bold text-[#2D7FF9]">{licenseUtil}%</div>
               <div className="text-xs text-muted-foreground">
                 {usedSeats} of {totalSeats} total seats used<br />
                 across {licenses.length} licenses
@@ -265,7 +265,7 @@ export default function AssetDashboard() {
                       </span>
                     </div>
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: isOver ? "#dc2626" : pct > 90 ? "#dc2626" : pct > 70 ? "#d4a843" : "#059669" }} />
+                      <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: isOver ? "#dc2626" : pct > 90 ? "#dc2626" : pct > 70 ? "#2D7FF9" : "#059669" }} />
                     </div>
                   </div>
                 );
@@ -290,7 +290,7 @@ export default function AssetDashboard() {
                   return (
                     <div key={a.id}>
                       <div className="flex justify-between text-xs mb-1">
-                        <span className="font-mono font-semibold text-[#b8922e]">{a.assetTag}</span>
+                        <span className="font-mono font-semibold text-[#1B63D6]">{a.assetTag}</span>
                         <span className="text-muted-foreground truncate max-w-[40%] mx-2">{a.name}</span>
                         <span className={pct >= 100 ? "text-red-600 font-semibold" : "text-orange-600 font-semibold"}>{pct}% consumed</span>
                       </div>

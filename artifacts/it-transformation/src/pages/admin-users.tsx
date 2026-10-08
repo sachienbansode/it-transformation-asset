@@ -168,14 +168,14 @@ export default function AdminUsers() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Users className="w-6 h-6 text-[#d4a843]" />
+            <Users className="w-6 h-6 text-[#2D7FF9]" />
             User Master
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">Manage application users, roles, and access levels</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</Button>
-          <Button size="sm" onClick={openAdd} className="bg-[#d4a843] hover:bg-[#b8922e] text-white"><Plus className="h-3.5 w-3.5 mr-1" />Add User</Button>
+          <Button size="sm" onClick={openAdd} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white"><Plus className="h-3.5 w-3.5 mr-1" />Add User</Button>
         </div>
       </div>
 
@@ -263,7 +263,7 @@ export default function AdminUsers() {
                     <tr key={u.id} className="border-t border-border hover:bg-muted/20">
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-[#d4a843]/20 border border-[#d4a843]/30 flex items-center justify-center text-[10px] font-bold text-[#b8922e] flex-shrink-0">
+                          <div className="w-7 h-7 rounded-full bg-[#2D7FF9]/20 border border-[#2D7FF9]/30 flex items-center justify-center text-[10px] font-bold text-[#1B63D6] flex-shrink-0">
                             {initials(u.name)}
                           </div>
                           <div className="min-w-0">
@@ -321,7 +321,7 @@ export default function AdminUsers() {
                       <span key={`e-${idx}`} className="px-1 text-xs text-muted-foreground">…</span>
                     ) : (
                       <Button key={p} variant={p === userPage ? "default" : "outline"} size="sm"
-                        className={`h-7 w-7 p-0 text-xs ${p === userPage ? "bg-[#d4a843] hover:bg-[#b8922e] text-white border-[#d4a843]" : ""}`}
+                        className={`h-7 w-7 p-0 text-xs ${p === userPage ? "bg-[#2D7FF9] hover:bg-[#1B63D6] text-white border-[#2D7FF9]" : ""}`}
                         onClick={() => setUserPage(p as number)}>{p}</Button>
                     )
                   )}
@@ -410,7 +410,7 @@ export default function AdminUsers() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editUser ? "Update User" : "Create User"}</Button>
+            <Button onClick={handleSave} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editUser ? "Update User" : "Create User"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

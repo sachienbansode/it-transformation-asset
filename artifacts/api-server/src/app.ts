@@ -10,6 +10,7 @@ import { logger } from "./lib/logger";
 
 export async function createApp(): Promise<Express> {
   const app: Express = express();
+  app.set("trust proxy", 1); // behind nginx: lets the secure session cookie be set over HTTPS
 
   app.use(
     pinoHttp({

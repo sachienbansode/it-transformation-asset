@@ -26,7 +26,7 @@ function exportToCsv(rows: any[], cols: { label: string; key: string }[], filena
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const TICKET_TYPES = ["Incident", "Problem", "Change Request", "Service Request"];
-const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#d4a843", Low: "#2563eb" };
+const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#2D7FF9", Low: "#2563eb" };
 const TYPE_ICON: Record<string, any> = { Incident: AlertTriangle, Problem: Bug, "Change Request": GitBranch, "Service Request": Headphones };
 const TYPE_COLOR: Record<string, string> = {
   Incident: "border-red-500/30 text-red-600 bg-red-50 dark:bg-red-400/10",
@@ -102,7 +102,7 @@ export default function ItsmSlaPolicies() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(slas, [{label:"Name",key:"name"},{label:"Ticket Type",key:"ticketType"},{label:"Priority",key:"priority"},{label:"Response Time (hrs)",key:"responseTimeHrs"},{label:"Resolution Time (hrs)",key:"resolutionTimeHrs"},{label:"Escalation (hrs)",key:"escalationHrs"},{label:"Active",key:"isActive"}], "sla-policies.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New SLA Policy</Button>
+          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New SLA Policy</Button>
         </div>
       </div>
 
@@ -113,7 +113,7 @@ export default function ItsmSlaPolicies() {
             <button
               key={type}
               onClick={() => { setActiveType(type); setPage(1); setSearch(""); setFilterPriority(""); }}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeType === type ? "border-[#d4a843] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"}`}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeType === type ? "border-[#2D7FF9] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"}`}
             >
               <Icon className="w-4 h-4" />
               {type}
@@ -210,7 +210,7 @@ export default function ItsmSlaPolicies() {
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.name} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>
+            <Button onClick={handleSave} disabled={!formData.name} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -86,20 +86,19 @@ function NavItem({
       <div
         title={collapsed ? label : undefined}
         className={cn(
-          "group flex items-center gap-2.5 rounded-md text-[12px] font-medium transition-all duration-150 cursor-pointer",
-          collapsed ? "px-2.5 py-2 justify-center" : "px-2.5 py-1.5",
+          "group relative flex items-center gap-3 rounded-[9px] text-[13px] font-medium transition-colors duration-150 cursor-pointer my-0.5",
+          collapsed ? "px-2.5 py-2 justify-center" : "px-3 py-[7px]",
           active
-            ? "bg-sidebar-primary/20 text-sidebar-primary border border-sidebar-primary/25"
-            : "text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground border border-transparent"
+            ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold before:content-[''] before:absolute before:-left-1.5 before:top-2 before:bottom-2 before:w-[3px] before:rounded-r before:bg-sidebar-primary"
+            : "text-sidebar-foreground hover:bg-muted hover:text-foreground"
         )}
       >
         <Icon className={cn(
           "flex-shrink-0 transition-colors",
-          collapsed ? "w-4 h-4" : "w-3.5 h-3.5",
-          active ? "text-sidebar-primary" : "text-sidebar-foreground/40 group-hover:text-sidebar-foreground/70"
+          "w-[17px] h-[17px]",
+          active ? "text-sidebar-primary" : "text-muted-foreground group-hover:text-foreground"
         )} />
         {!collapsed && <span className="truncate leading-tight">{label}</span>}
-        {!collapsed && active && <ChevronRight className="w-3 h-3 ml-auto text-sidebar-primary/60 flex-shrink-0" />}
       </div>
     </Link>
   );
@@ -114,9 +113,9 @@ function SectionLabel({
   return (
     <button
       onClick={onToggle}
-      className="w-full flex items-center justify-between px-2.5 pt-2 pb-0.5 group/sec"
+      className="w-full flex items-center justify-between px-3 pt-4 pb-1.5 group/sec"
     >
-      <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-sidebar-foreground/30 select-none group-hover/sec:text-sidebar-foreground/50 transition-colors">
+      <span className="text-[10px] font-semibold uppercase tracking-[1.2px] text-muted-foreground/80 select-none group-hover/sec:text-foreground transition-colors">
         {children}
       </span>
       <ChevronDown className={cn(
@@ -210,14 +209,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* ─── Sidebar ─────────────────────────────────────── */}
       {!isHidden && (
         <aside className={cn(
-          "flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col shadow-md transition-all duration-200 h-screen sticky top-0",
-          isCollapsed ? "w-13" : "w-56"
+          "flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-all duration-200 h-screen sticky top-0",
+          isCollapsed ? "w-14" : "w-[238px]"
         )}>
 
           {/* Brand */}
           <div className={cn(
-            "h-12 flex items-center border-b border-sidebar-border/50 shrink-0 gap-2",
-            isCollapsed ? "px-1.5 justify-center" : "px-2.5"
+            "h-16 flex items-center shrink-0 gap-2.5",
+            isCollapsed ? "px-1.5 justify-center" : "px-3"
           )}>
             <button
               onClick={() => setSidebarState(isCollapsed ? "expanded" : "collapsed")}
@@ -233,14 +232,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {!isCollapsed && (
               <>
                 {appConfig.logoUrl ? (
-                  <img src={appConfig.logoUrl} alt="Logo" className="h-8 w-8 object-contain rounded-lg flex-shrink-0 shadow-md ring-1 ring-white/20" />
+                  <img src={appConfig.logoUrl} alt="Logo" className="h-[38px] w-[38px] object-contain rounded-[11px] bg-white p-[3px] flex-shrink-0 shadow-[0_1px_4px_rgba(16,24,40,.12)]" />
                 ) : (
-                  <div className="h-8 w-8 rounded-lg bg-sidebar-primary/30 border border-sidebar-primary/40 flex items-center justify-center flex-shrink-0 shadow-sm">
-                    <span className="text-sidebar-primary font-black text-[10px]">AD</span>
+                  <div className="h-[38px] w-[38px] rounded-[11px] bg-sidebar-primary flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <span className="text-white font-semibold text-[13px]">AD</span>
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-[8px] text-white/90 tracking-tight leading-tight break-words">
+                  <div className="font-semibold text-[13px] text-foreground leading-tight break-words">
                     {appConfig.appName}
                   </div>
                 </div>
@@ -256,7 +255,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 px-1.5 py-1.5 space-y-0.5 overflow-y-auto min-h-0">
+          <nav className="flex-1 px-3 py-1 overflow-y-auto min-h-0">
             {visibleDrishtiItems.length > 0 && (
               <>
                 <SectionLabel
@@ -372,22 +371,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </nav>
 
           {/* User footer */}
-          <div className="border-t border-sidebar-border/50 shrink-0">
+          <div className="border-t border-sidebar-border shrink-0 pt-2">
             {!isCollapsed ? (
               <div className="px-2 pb-2">
                 <div className="flex items-center gap-2">
-                  <div className="h-7 w-7 rounded-full bg-sidebar-primary/20 border border-sidebar-primary/30 flex items-center justify-center flex-shrink-0">
-                    <span className="text-[10px] text-sidebar-primary font-bold">{user?.name?.[0]?.toUpperCase()}</span>
+                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[#4D93FA] to-[#1B63D6] flex items-center justify-center flex-shrink-0">
+                    <span className="text-[12px] text-white font-semibold">{user?.name?.[0]?.toUpperCase()}</span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-semibold text-white/80 truncate">{user?.name}</div>
+                    <div className="text-[12.5px] font-semibold text-foreground truncate">{user?.name}</div>
                     <span className={`text-[9px] px-1 py-px rounded border leading-none ${
-                      user?.role === "admin" ? "border-yellow-500/40 text-yellow-400/90" : "border-white/20 text-white/40"
+                      user?.role === "admin" ? "border-primary/30 text-primary bg-accent" : "border-border text-muted-foreground"
                     }`}>{getRoleLabel(user?.role)}</span>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-white/40 hover:text-white hover:bg-sidebar-accent">
+                      <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted">
                         <ChevronDown className="h-3 w-3" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -411,10 +410,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <div className="flex justify-center pb-2">
                 <button
                   title={user?.name}
-                  className="h-7 w-7 rounded-full bg-sidebar-primary/20 border border-sidebar-primary/30 flex items-center justify-center"
+                  className="h-8 w-8 rounded-full bg-gradient-to-br from-[#4D93FA] to-[#1B63D6] flex items-center justify-center"
                   onClick={handleLogout}
                 >
-                  <span className="text-[10px] text-sidebar-primary font-bold">{user?.name?.[0]?.toUpperCase()}</span>
+                  <span className="text-[12px] text-white font-semibold">{user?.name?.[0]?.toUpperCase()}</span>
                 </button>
               </div>
             )}
@@ -426,7 +425,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Header */}
-        <header className="h-12 border-b border-border bg-card flex items-center justify-between px-4 shrink-0 gap-3 shadow-sm">
+        <header className="h-14 border-b border-border bg-card/85 backdrop-blur-md flex items-center justify-between px-6 shrink-0 gap-3 sticky top-0 z-10">
           <div className="flex items-center gap-2 min-w-0">
             {isHidden ? (
               <button
@@ -441,7 +440,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {currentPage && (
               <>
                 <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 hidden sm:block" />
-                <span className="text-sm font-semibold text-foreground truncate">{currentPage}</span>
+                <span className="text-[18px] font-semibold text-foreground truncate">{currentPage}</span>
               </>
             )}
           </div>
@@ -477,9 +476,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="flex items-center gap-1.5 h-8 px-2 border border-border">
-                  <div className="w-5 h-5 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center">
-                    <span className="text-[10px] text-primary font-bold">{user?.name?.[0]?.toUpperCase()}</span>
+                <Button variant="ghost" size="sm" className="flex items-center gap-2 h-9 pl-1 pr-3 border border-border rounded-full bg-card">
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#4D93FA] to-[#1B63D6] flex items-center justify-center">
+                    <span className="text-[11px] text-white font-semibold">{user?.name?.[0]?.toUpperCase()}</span>
                   </div>
                   <span className="text-sm font-medium max-w-20 truncate hidden sm:block">{user?.name?.split(" ")[0]}</span>
                   <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -502,7 +501,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background flex flex-col">
-          <div className="flex-1 p-5">
+          <div className="flex-1 px-6 pt-[22px] pb-10">
             {children}
           </div>
           <footer className="shrink-0 border-t border-border/40 px-5 py-2 text-center text-[10px] text-muted-foreground/60">

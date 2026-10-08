@@ -55,7 +55,7 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <Shield className="w-4 h-4 text-[#d4a843]" />
+        <Shield className="w-4 h-4 text-[#2D7FF9]" />
         <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Approval Workflow</h4>
         {allApproved && <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 bg-emerald-50 text-[10px]">All Approved</Badge>}
         {anyRejected && <Badge variant="outline" className="border-red-500/30 text-red-600 bg-red-50 text-[10px]">Rejected</Badge>}

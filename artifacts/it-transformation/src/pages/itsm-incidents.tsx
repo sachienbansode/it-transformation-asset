@@ -82,7 +82,7 @@ function AssigneeBadge({ name }: { name?: string }) {
   const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
   return (
     <span className="inline-flex items-center gap-2">
-      <span className="w-6 h-6 rounded-full bg-[#d4a843]/20 text-[#b8922e] text-[10px] font-bold flex items-center justify-center flex-shrink-0">{initials}</span>
+      <span className="w-6 h-6 rounded-full bg-[#2D7FF9]/20 text-[#1B63D6] text-[10px] font-bold flex items-center justify-center flex-shrink-0">{initials}</span>
       <span className="text-sm font-medium truncate max-w-[100px]">{name}</span>
     </span>
   );
@@ -92,7 +92,7 @@ function TicketNo({ no }: { no: string }) {
   const [prefix, ...rest] = no.split("-");
   return (
     <span className="inline-flex items-center gap-0.5 font-mono text-xs">
-      <span className="font-bold text-[#d4a843]">{prefix}</span>
+      <span className="font-bold text-[#2D7FF9]">{prefix}</span>
       <span className="text-muted-foreground">-{rest.join("-")}</span>
     </span>
   );
@@ -263,7 +263,7 @@ export default function ItsmIncidents() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => downloadReport("incidents", `incidents-report-${new Date().toISOString().slice(0,10)}.csv`)} className="gap-2 text-xs"><Download className="w-3.5 h-3.5" />Export Report</Button>
-          <Button onClick={openCreate} className="bg-[#d4a843] hover:bg-[#b8922e] text-white gap-2"><Plus className="w-4 h-4" />New Incident</Button>
+          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Incident</Button>
         </div>
       </div>
 
@@ -283,7 +283,7 @@ export default function ItsmIncidents() {
                 <button
                   key={c.category}
                   onClick={() => { setFilterCategory(c.category === filterCategory ? "" : c.category); setPage(1); }}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${filterCategory === c.category ? "bg-[#d4a843]/10 border-[#d4a843]/50 text-[#d4a843]" : "bg-muted/30 border-border hover:bg-muted/50"}`}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${filterCategory === c.category ? "bg-[#2D7FF9]/10 border-[#2D7FF9]/50 text-[#2D7FF9]" : "bg-muted/30 border-border hover:bg-muted/50"}`}
                 >
                   {c.category || "Uncategorized"}
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-background border">{c.count}</span>
@@ -315,14 +315,14 @@ export default function ItsmIncidents() {
           </div>
 
           {selectedIds.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-[#d4a843]/5 border-b border-[#d4a843]/20">
-              <span className="text-xs font-semibold text-[#b8922e]">{selectedIds.length} selected</span>
+            <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-[#2D7FF9]/5 border-b border-[#2D7FF9]/20">
+              <span className="text-xs font-semibold text-[#1B63D6]">{selectedIds.length} selected</span>
               <Select value={bulkStatus} onValueChange={setBulkStatus}>
                 <SelectTrigger className="h-7 text-xs w-[140px]"><SelectValue placeholder="Change Status" /></SelectTrigger>
                 <SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
               </Select>
               <Input placeholder="Assign to..." value={bulkAssignee} onChange={e => setBulkAssignee(e.target.value)} className="h-7 text-xs w-[160px]" />
-              <Button size="sm" onClick={applyBulkAction} disabled={bulkUpdate.isPending || (!bulkStatus && !bulkAssignee.trim())} className="h-7 text-xs bg-[#d4a843] hover:bg-[#b8922e] text-white">Apply</Button>
+              <Button size="sm" onClick={applyBulkAction} disabled={bulkUpdate.isPending || (!bulkStatus && !bulkAssignee.trim())} className="h-7 text-xs bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">Apply</Button>
               <Button size="sm" variant="ghost" onClick={() => { setSelectedIds([]); setBulkStatus(""); setBulkAssignee(""); }} className="h-7 text-xs text-muted-foreground">
                 <X className="w-3 h-3 mr-1" />Clear
               </Button>
@@ -368,7 +368,7 @@ export default function ItsmIncidents() {
               {paged.map((inc: any) => (
                 <TableRow
                   key={inc.id}
-                  className={`transition-colors ${selectedIds.includes(inc.id) ? "bg-[#d4a843]/5 dark:bg-[#d4a843]/5" : inc.priority === "Critical" && inc.status === "Open" ? "bg-red-50/40 dark:bg-red-900/5 hover:bg-red-50/60 dark:hover:bg-red-900/10" : "hover:bg-muted/30"}`}
+                  className={`transition-colors ${selectedIds.includes(inc.id) ? "bg-[#2D7FF9]/5 dark:bg-[#2D7FF9]/5" : inc.priority === "Critical" && inc.status === "Open" ? "bg-red-50/40 dark:bg-red-900/5 hover:bg-red-50/60 dark:hover:bg-red-900/10" : "hover:bg-muted/30"}`}
                 >
                   <TableCell className="py-3">
                     <Checkbox checked={selectedIds.includes(inc.id)} onCheckedChange={() => toggleSelect(inc.id)} />
@@ -496,7 +496,7 @@ export default function ItsmIncidents() {
           )}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.title} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>
+            <Button onClick={handleSave} disabled={!formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
           </div>
         </DialogContent>
       </Dialog>

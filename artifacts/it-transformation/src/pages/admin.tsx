@@ -609,7 +609,7 @@ function UsersTab() {
                       key={p}
                       variant={p === userPage ? "default" : "outline"}
                       size="sm"
-                      className={`h-7 w-7 p-0 text-xs ${p === userPage ? "bg-[#d4a843] hover:bg-[#b8922e] text-white border-[#d4a843]" : ""}`}
+                      className={`h-7 w-7 p-0 text-xs ${p === userPage ? "bg-[#2D7FF9] hover:bg-[#1B63D6] text-white border-[#2D7FF9]" : ""}`}
                       onClick={() => setUserPage(p as number)}
                     >
                       {p}
@@ -1243,7 +1243,7 @@ function AuditTrailTab() {
             <div key={log.id} className="hover:bg-muted/10 transition-colors">
               {/* Row 1: Meta info */}
               <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-1">
-                <span className="font-mono text-[10px] font-semibold text-[#b8922e] bg-[#d4a843]/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                <span className="font-mono text-[10px] font-semibold text-[#1B63D6] bg-[#2D7FF9]/10 px-1.5 py-0.5 rounded flex-shrink-0">
                   {auditRecordId(log.id)}
                 </span>
                 <span className="text-[11px] text-muted-foreground whitespace-nowrap">
@@ -1334,7 +1334,7 @@ const DASHBOARD_ROUTES = [
 ];
 
 const ACCESS_LEVELS = ["none", "read", "write", "admin"] as const;
-const LEVEL_COLORS: Record<string, string> = { none: "text-muted-foreground", read: "text-blue-600 dark:text-blue-400", write: "text-[#d4a843]", admin: "text-red-600 dark:text-red-400" };
+const LEVEL_COLORS: Record<string, string> = { none: "text-muted-foreground", read: "text-blue-600 dark:text-blue-400", write: "text-[#2D7FF9]", admin: "text-red-600 dark:text-red-400" };
 const LEVEL_BADGES: Record<string, string> = {
   none: "bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-300 dark:border-gray-600",
   read: "bg-blue-50 dark:bg-blue-400/10 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-600",
@@ -1518,7 +1518,7 @@ function RolesTab() {
     const hasAdmin = perms.some(p => p.accessLevel === "admin");
     const hasWrite = perms.some(p => p.accessLevel === "write");
     if (hasAdmin) return { label: `${perms.length} modules`, color: "text-red-500" };
-    if (hasWrite) return { label: `${perms.length} modules`, color: "text-[#d4a843]" };
+    if (hasWrite) return { label: `${perms.length} modules`, color: "text-[#2D7FF9]" };
     return { label: `${perms.length} modules`, color: "text-blue-500" };
   };
 
@@ -1602,7 +1602,7 @@ function RolesTab() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-semibold">{selectedRole.name} — Permissions Matrix</CardTitle>
-                    <Button size="sm" className="h-7 text-xs bg-[#d4a843] hover:bg-[#c49b3a] text-white" onClick={savePermissions} disabled={saving}>{saving ? "Saving…" : "Save Permissions"}</Button>
+                    <Button size="sm" className="h-7 text-xs bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" onClick={savePermissions} disabled={saving}>{saving ? "Saving…" : "Save Permissions"}</Button>
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -2008,7 +2008,7 @@ function ItsmConfigTab() {
           <p className="text-sm font-medium">ITSM Lookup Configuration</p>
           <p className="text-[11px] text-muted-foreground">All dropdown lists used in Incident, Problem, Change, and Service Request forms are managed here.</p>
         </div>
-        <Button onClick={handleSave} disabled={saving} className="bg-[#d4a843] hover:bg-[#c99b36] text-white shrink-0">
+        <Button onClick={handleSave} disabled={saving} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white shrink-0">
           {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
           {saving ? "Saving…" : "Save All Changes"}
         </Button>

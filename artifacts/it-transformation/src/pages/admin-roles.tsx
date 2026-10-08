@@ -43,7 +43,7 @@ const DASHBOARD_ROUTES = [
 ];
 
 const ACCESS_LEVELS = ["none", "read", "write", "admin"] as const;
-const LEVEL_COLORS: Record<string, string> = { none: "text-muted-foreground", read: "text-blue-600 dark:text-blue-400", write: "text-[#d4a843]", admin: "text-red-600 dark:text-red-400" };
+const LEVEL_COLORS: Record<string, string> = { none: "text-muted-foreground", read: "text-blue-600 dark:text-blue-400", write: "text-[#2D7FF9]", admin: "text-red-600 dark:text-red-400" };
 const LEVEL_BADGES: Record<string, string> = {
   none: "bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-300 dark:border-gray-600",
   read: "bg-blue-50 dark:bg-blue-400/10 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-600",
@@ -231,7 +231,7 @@ export default function AdminRoles() {
     const hasAdmin = perms.some(p => p.accessLevel === "admin");
     const hasWrite = perms.some(p => p.accessLevel === "write");
     if (hasAdmin) return { label: `${perms.length} modules`, color: "text-red-500" };
-    if (hasWrite) return { label: `${perms.length} modules`, color: "text-[#d4a843]" };
+    if (hasWrite) return { label: `${perms.length} modules`, color: "text-[#2D7FF9]" };
     return { label: `${perms.length} modules`, color: "text-blue-500" };
   };
 
@@ -240,12 +240,12 @@ export default function AdminRoles() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Shield className="w-6 h-6 text-[#d4a843]" />
+            <Shield className="w-6 h-6 text-[#2D7FF9]" />
             Roles &amp; Permissions
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">Control what each role can access across all {modules.length} modules</p>
         </div>
-        <Button size="sm" onClick={() => setNewRoleOpen(true)} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">
+        <Button size="sm" onClick={() => setNewRoleOpen(true)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">
           <Plus className="mr-1.5 h-3.5 w-3.5" />New Role
         </Button>
       </div>
@@ -316,7 +316,7 @@ export default function AdminRoles() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-semibold">{selectedRole.name} — Permissions Matrix</CardTitle>
-                    <Button size="sm" className="h-7 text-xs bg-[#d4a843] hover:bg-[#c49b3a] text-white" onClick={savePermissions} disabled={saving}>{saving ? "Saving…" : "Save Permissions"}</Button>
+                    <Button size="sm" className="h-7 text-xs bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" onClick={savePermissions} disabled={saving}>{saving ? "Saving…" : "Save Permissions"}</Button>
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -401,7 +401,7 @@ export default function AdminRoles() {
                   <div className="space-y-1.5">
                     <p className="text-[11px] text-muted-foreground font-medium">Add user to this role</p>
                     {selectedUserToAdd ? (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#d4a843]/40 bg-[#d4a843]/5">
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#2D7FF9]/40 bg-[#2D7FF9]/5">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{selectedUserToAdd.name}</p>
                           <p className="text-[10px] text-muted-foreground">{selectedUserToAdd.email}{selectedUserToAdd.department ? ` · ${selectedUserToAdd.department}` : ""}</p>
@@ -409,7 +409,7 @@ export default function AdminRoles() {
                         <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => { setSelectedUserToAdd(null); setUserSearchQ(""); }}>
                           <X className="h-3 w-3" />
                         </Button>
-                        <Button size="sm" className="h-7 bg-[#d4a843] hover:bg-[#b8922e] text-white flex-shrink-0" onClick={addUserToRole}>
+                        <Button size="sm" className="h-7 bg-[#2D7FF9] hover:bg-[#1B63D6] text-white flex-shrink-0" onClick={addUserToRole}>
                           <Plus className="mr-1 h-3 w-3" />Add
                         </Button>
                       </div>
@@ -541,7 +541,7 @@ export default function AdminRoles() {
           </div>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setNewRoleOpen(false)}>Cancel</Button>
-            <Button size="sm" onClick={createRole} disabled={!newRoleName.trim()} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">Create Role</Button>
+            <Button size="sm" onClick={createRole} disabled={!newRoleName.trim()} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">Create Role</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

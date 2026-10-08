@@ -19,7 +19,7 @@ import { apiFetch, API } from "@/lib/api";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 const PAGE_SIZE = 10;
-const COLORS = ["#dc2626", "#ea580c", "#d4a843", "#059669", "#2563eb", "#8b5cf6", "#0f766e"];
+const COLORS = ["#dc2626", "#ea580c", "#2D7FF9", "#059669", "#2563eb", "#8b5cf6", "#0f766e"];
 
 const PRIORITY_BADGE: Record<string, string> = {
   Critical: "border-red-500/50 text-red-700 bg-red-50 dark:bg-red-400/10",
@@ -178,7 +178,7 @@ export default function ITSM() {
               <h3 className="font-semibold mb-3">Incidents by Priority</h3>
               <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={priorityData}><XAxis dataKey="name" /><YAxis /><Tooltip /><Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {priorityData.map((_: any, i: number) => <Cell key={i} fill={i === 0 ? "#dc2626" : i === 1 ? "#ea580c" : i === 2 ? "#d4a843" : "#2563eb"} />)}
+                  {priorityData.map((_: any, i: number) => <Cell key={i} fill={i === 0 ? "#dc2626" : i === 1 ? "#ea580c" : i === 2 ? "#2D7FF9" : "#2563eb"} />)}
                 </Bar></BarChart>
               </ResponsiveContainer>
             </Card>
@@ -210,7 +210,7 @@ export default function ITSM() {
               <SelectTrigger className="w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent><SelectItem value="all">All Statuses</SelectItem>{["Open", "In Progress", "Resolved", "Closed"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
-            <Button onClick={() => openModal("incident")} className="bg-[#d4a843] hover:bg-[#b8922e] text-white"><Plus className="w-4 h-4 mr-2" />New Incident</Button>
+            <Button onClick={() => openModal("incident")} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white"><Plus className="w-4 h-4 mr-2" />New Incident</Button>
           </div>
           <Card>
             <Table>
@@ -237,7 +237,7 @@ export default function ITSM() {
         </TabsContent>
 
         <TabsContent value="problems" className="space-y-4">
-          <div className="flex justify-end"><Button onClick={() => openModal("problem")} className="bg-[#d4a843] hover:bg-[#b8922e] text-white"><Plus className="w-4 h-4 mr-2" />New Problem</Button></div>
+          <div className="flex justify-end"><Button onClick={() => openModal("problem")} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white"><Plus className="w-4 h-4 mr-2" />New Problem</Button></div>
           <Card>
             <Table>
               <TableHeader><TableRow>
@@ -261,7 +261,7 @@ export default function ITSM() {
         </TabsContent>
 
         <TabsContent value="changes" className="space-y-4">
-          <div className="flex justify-end"><Button onClick={() => openModal("change")} className="bg-[#d4a843] hover:bg-[#b8922e] text-white"><Plus className="w-4 h-4 mr-2" />New Change Request</Button></div>
+          <div className="flex justify-end"><Button onClick={() => openModal("change")} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white"><Plus className="w-4 h-4 mr-2" />New Change Request</Button></div>
           <Card>
             <Table>
               <TableHeader><TableRow>
@@ -286,7 +286,7 @@ export default function ITSM() {
         </TabsContent>
 
         <TabsContent value="kb" className="space-y-4">
-          <div className="flex justify-end"><Button onClick={() => openModal("kb")} className="bg-[#d4a843] hover:bg-[#b8922e] text-white"><Plus className="w-4 h-4 mr-2" />New Article</Button></div>
+          <div className="flex justify-end"><Button onClick={() => openModal("kb")} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white"><Plus className="w-4 h-4 mr-2" />New Article</Button></div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {kb.map((article: any) => (
               <Card key={article.id} className="p-4 hover:shadow-md transition-shadow">
@@ -401,7 +401,7 @@ export default function ITSM() {
           )}
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} className="bg-[#d4a843] hover:bg-[#b8922e] text-white">{editingItem ? "Update" : "Create"}</Button>
+            <Button onClick={handleSave} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
           </div>
         </DialogContent>
       </Dialog>
