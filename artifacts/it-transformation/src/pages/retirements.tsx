@@ -30,6 +30,7 @@ import { ImportExportMenu } from "@/components/import-export-menu";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 
@@ -227,8 +228,8 @@ export default function Retirements() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm("Are you sure you want to delete this retirement plan?")) {
+  const handleDelete = async (id: number) => {
+    if (await confirmDialog("Are you sure you want to delete this retirement plan?")) {
       deleteItem.mutate(
         { id },
         {
@@ -242,7 +243,7 @@ export default function Retirements() {
   };
 
   const handleDeleteDoc = async (docId: number) => {
-    if (!confirm("Delete this document?")) return;
+    if (!await confirmDialog("Delete this document?")) return;
     await apiFetch(`/retirements/documents/${docId}`, { method: "DELETE" });
     if (editingItem) refetchDocs();
     toast({ title: "Document deleted" });

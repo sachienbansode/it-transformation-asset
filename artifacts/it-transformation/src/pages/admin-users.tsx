@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Users, Plus, Pencil, Trash2, RefreshCw, Search, UserCheck, UserX, Shield, KeyRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
@@ -109,7 +110,7 @@ export default function AdminUsers() {
   };
 
   const handleDelete = async (u: AdminUser) => {
-    if (!confirm(`Delete user ${u.name}?`)) return;
+    if (!await confirmDialog(`Delete user ${u.name}?`)) return;
     try {
       await apiFetch(`/admin/users/${u.id}`, { method: "DELETE" });
       toast({ title: "User deleted" });

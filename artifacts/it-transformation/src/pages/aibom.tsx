@@ -26,6 +26,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
 import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 
@@ -106,8 +107,8 @@ export default function Aibom() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm("Delete this AI component?")) {
+  const handleDelete = async (id: number) => {
+    if (await confirmDialog("Delete this AI component?")) {
       deleteItem.mutate({ id }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListAibomEntriesQueryKey() });

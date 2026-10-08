@@ -19,6 +19,7 @@ import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useLocation } from "wouter";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"];
@@ -162,7 +163,7 @@ export default function ItsmProblems() {
   }
 
   async function handleDelete(id: number, no: string) {
-    if (!confirm(`Delete problem ${no}?`)) return;
+    if (!await confirmDialog(`Delete problem ${no}?`)) return;
     try { await deleteProblem.mutateAsync(id); toast({ title: "Problem deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }

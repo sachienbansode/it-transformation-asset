@@ -18,6 +18,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
@@ -179,7 +180,7 @@ export default function ItsmServiceRequests() {
   }
 
   async function handleDelete(id: number, no: string) {
-    if (!confirm(`Delete service request ${no}?`)) return;
+    if (!await confirmDialog(`Delete service request ${no}?`)) return;
     try { await deleteReq.mutateAsync(id); toast({ title: "Service request deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }

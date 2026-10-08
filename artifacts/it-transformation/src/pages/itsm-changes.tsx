@@ -18,6 +18,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 const CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
@@ -171,7 +172,7 @@ export default function ItsmChanges() {
   }
 
   async function handleDelete(id: number, no: string) {
-    if (!confirm(`Delete change request ${no}?`)) return;
+    if (!await confirmDialog(`Delete change request ${no}?`)) return;
     try { await deleteChange.mutateAsync(id); toast({ title: "Change request deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }

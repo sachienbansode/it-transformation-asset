@@ -2,6 +2,7 @@ import React from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { ConfirmDialogHost } from "@/components/confirm-dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { CurrencyProvider } from "@/contexts/currency-context";
@@ -160,6 +161,7 @@ function App() {
               <Router />
             </WouterRouter>
             <Toaster />
+            <ConfirmDialogHost />
           </TooltipProvider>
         </CurrencyProvider>
       </AuthProvider>

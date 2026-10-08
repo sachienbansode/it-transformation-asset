@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { ImportExportMenu } from "@/components/import-export-menu";
 import { StatCard } from "@/components/stat-card";
 import { formatDistanceToNow } from "date-fns";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 
@@ -309,8 +310,8 @@ export default function Checklist() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (!confirm("Delete this checklist item?")) return;
+  const handleDelete = async (id: number) => {
+    if (!await confirmDialog("Delete this checklist item?")) return;
     deleteItem.mutate({ id }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListChecklistItemsQueryKey() });

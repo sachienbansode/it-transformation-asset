@@ -15,6 +15,7 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -287,7 +288,7 @@ export default function AssetRegistry() {
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!confirm(`Delete asset "${name}"? This action cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete asset "${name}"? This action cannot be undone.`)) return;
     try {
       await deleteAsset.mutateAsync(id);
       toast({ title: "Asset deleted" });

@@ -14,6 +14,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Shield, Plus, Trash2, ChevronDown, ChevronUp, Minus, Search, X } from "lucide-react";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const DASHBOARD_ROUTES = [
   { value: "/", label: "Executive Dashboard" },
@@ -177,7 +178,7 @@ export default function AdminRoles() {
 
   const deleteRole = async (role: Role) => {
     if (role.isSystem) { toast({ title: "Cannot delete system role", variant: "destructive" }); return; }
-    if (!confirm(`Delete role "${role.name}"?`)) return;
+    if (!await confirmDialog(`Delete role "${role.name}"?`)) return;
     try {
       await apiFetch(`/roles/${role.id}`, { method: "DELETE" });
       toast({ title: "Role deleted" });

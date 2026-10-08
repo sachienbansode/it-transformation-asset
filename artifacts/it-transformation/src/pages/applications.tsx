@@ -22,6 +22,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
 import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 
@@ -146,8 +147,8 @@ export default function Applications() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm("Are you sure you want to delete this app?")) {
+  const handleDelete = async (id: number) => {
+    if (await confirmDialog("Are you sure you want to delete this app?")) {
       deleteItem.mutate({ id }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListApplicationsQueryKey() });

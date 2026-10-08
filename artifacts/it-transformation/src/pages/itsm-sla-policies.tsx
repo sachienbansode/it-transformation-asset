@@ -14,6 +14,7 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -87,7 +88,7 @@ export default function ItsmSlaPolicies() {
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!confirm(`Delete SLA policy "${name}"?`)) return;
+    if (!await confirmDialog(`Delete SLA policy "${name}"?`)) return;
     try { await deleteSla.mutateAsync(id); toast({ title: "SLA policy deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }

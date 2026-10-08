@@ -26,6 +26,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { ImportExportMenu } from "@/components/import-export-menu";
 import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 
@@ -92,8 +93,8 @@ export default function Sbom() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm("Delete this SBOM entry?")) {
+  const handleDelete = async (id: number) => {
+    if (await confirmDialog("Delete this SBOM entry?")) {
       deleteItem.mutate({ id }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListSbomEntriesQueryKey() });

@@ -28,6 +28,7 @@ import {
   ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info, Search, Paperclip, X, Sliders,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 type Tab = "settings" | "masters" | "business-units" | "audit" | "itsm-config";
 
@@ -449,7 +450,7 @@ function UsersTab() {
   };
 
   const handleDelete = async (u: AdminUser) => {
-    if (!confirm(`Delete user ${u.name}?`)) return;
+    if (!await confirmDialog(`Delete user ${u.name}?`)) return;
     try {
       await apiFetch(`/admin/users/${u.id}`, { method: "DELETE" });
       toast({ title: "User deleted" });
@@ -809,7 +810,7 @@ function MastersTab() {
   };
 
   const handleDelete = async (item: any) => {
-    if (!confirm(`Delete "${item.label}"?`)) return;
+    if (!await confirmDialog(`Delete "${item.label}"?`)) return;
     try {
       await apiFetch(`/masters/${item.id}`, { method: "DELETE" });
       toast({ title: "Deleted" });
@@ -1477,7 +1478,7 @@ function RolesTab() {
 
   const deleteRole = async (role: Role) => {
     if (role.isSystem) { toast({ title: "Cannot delete system role", variant: "destructive" }); return; }
-    if (!confirm(`Delete role "${role.name}"?`)) return;
+    if (!await confirmDialog(`Delete role "${role.name}"?`)) return;
     try {
       await apiFetch(`/roles/${role.id}`, { method: "DELETE" });
       toast({ title: "Role deleted" });

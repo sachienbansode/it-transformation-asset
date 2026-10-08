@@ -15,6 +15,7 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -73,7 +74,7 @@ export default function AssetVendors() {
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!confirm(`Delete vendor "${name}"?`)) return;
+    if (!await confirmDialog(`Delete vendor "${name}"?`)) return;
     try { await deleteVendor.mutateAsync(id); toast({ title: "Vendor deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }

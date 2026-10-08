@@ -19,6 +19,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
@@ -248,7 +249,7 @@ export default function ItsmIncidents() {
   }
 
   async function handleDelete(id: number, ticket: string) {
-    if (!confirm(`Delete incident ${ticket}?`)) return;
+    if (!await confirmDialog(`Delete incident ${ticket}?`)) return;
     try { await deleteInc.mutateAsync(id); toast({ title: "Incident deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }

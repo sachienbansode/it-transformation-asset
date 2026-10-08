@@ -14,6 +14,7 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -94,7 +95,7 @@ export default function AssetLicenses() {
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!confirm(`Delete license "${name}"?`)) return;
+    if (!await confirmDialog(`Delete license "${name}"?`)) return;
     try { await deleteLicense.mutateAsync(id); toast({ title: "License deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }

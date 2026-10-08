@@ -22,6 +22,7 @@ import {
   Pencil, Trash2, RefreshCw, AlertTriangle, Target, Archive,
   FolderOpen, RotateCcw, Info, Search, UserCheck,
 } from "lucide-react";
+import { confirmDialog } from "@/components/confirm-dialog";
 // ─── Role label helper ────────────────────────────────────────────────────────
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
@@ -959,7 +960,7 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,getDeptLa
   };
 
   const handleSubmitForReview=async()=>{
-    if(!confirm("Submit actuals for HR/Admin review? You can still update actuals after submission.")) return;
+    if(!await confirmDialog("Submit actuals for HR/Admin review? You can still update actuals after submission.")) return;
     setSubmitting(true);
     try{
       await apiFetch(`/kpi-sets/${set.id}/actuals/submit`,{method:"POST"});
@@ -970,7 +971,7 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,getDeptLa
   };
 
   const handleReview=async(decision:"Reviewed"|"RevisionNeeded")=>{
-    if(!confirm(decision==="Reviewed"?"Mark these actuals as Reviewed?":"Request revision from the employee?")) return;
+    if(!await confirmDialog(decision==="Reviewed"?"Mark these actuals as Reviewed?":"Request revision from the employee?")) return;
     setSubmitting(true);
     try{
       await apiFetch(`/kpi-sets/${set.id}/actuals/review`,{method:"POST",body:JSON.stringify({decision,comments:reviewComment||null,reviewedBy:userId})});
@@ -1153,12 +1154,12 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
   const getPerson=(s:KpiSet)=>persons.find(p=>p.id===s.personId);
   const getYear=(id:number)=>years.find(y=>y.id===id);
   const handleRecall=async(set:KpiSet)=>{
-    if(!confirm("Recall this submission and revert to Draft?")) return;
+    if(!await confirmDialog("Recall this submission and revert to Draft?")) return;
     try{await apiFetch(`/kpi-sets/${set.id}/recall`,{method:"POST"});toast({title:"Submission recalled"});onRefresh();}
     catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
   };
   const handleUnarchive=async(set:KpiSet)=>{
-    if(!confirm("Restore this KPI set to Draft status?")) return;
+    if(!await confirmDialog("Restore this KPI set to Draft status?")) return;
     try{await apiFetch(`/kpi-sets/${set.id}`,{method:"PATCH",body:JSON.stringify({status:"Draft"})});toast({title:"KPI set restored"});onRefresh();}
     catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
   };
@@ -1333,7 +1334,7 @@ export default function KpisPage(){
 
   const handleSubmit=async(set:KpiSet)=>{
     const person=getPerson(set);
-    if(!confirm(`Submit KPI set for ${person?.name} (${currentYear?.label}) for review? All KPIs will be set to pending individual approval.`)) return;
+    if(!await confirmDialog(`Submit KPI set for ${person?.name} (${currentYear?.label}) for review? All KPIs will be set to pending individual approval.`)) return;
     try{
       await apiFetch(`/kpi-sets/${set.id}/submit`,{method:"POST"});
       toast({title:"Submitted for review",description:"All KPIs are now pending individual approval."});
@@ -1342,7 +1343,7 @@ export default function KpisPage(){
   };
 
   const handleDelete=async(set:KpiSet)=>{
-    if(!confirm("Archive this KPI set?")) return;
+    if(!await confirmDialog("Archive this KPI set?")) return;
     try{await apiFetch(`/kpi-sets/${set.id}`,{method:"DELETE"});toast({title:"KPI set archived"});refresh();}
     catch(e:any){toast({title:"Error",description:e.message,variant:"destructive"});}
   };

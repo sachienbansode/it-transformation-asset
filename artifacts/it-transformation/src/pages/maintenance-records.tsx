@@ -15,6 +15,7 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -136,7 +137,7 @@ export default function MaintenanceRecords() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm("Delete this maintenance record?")) return;
+    if (!await confirmDialog("Delete this maintenance record?")) return;
     try {
       await deleteRecord.mutateAsync(id);
       toast({ title: "Record deleted" });

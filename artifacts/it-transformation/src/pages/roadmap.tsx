@@ -25,6 +25,7 @@ import { ImportExportMenu } from "@/components/import-export-menu";
 import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
+import { confirmDialog } from "@/components/confirm-dialog";
 
 interface UploadBatch {
   id: number; fileName: string | null; uploadedBy: string | null;
@@ -268,7 +269,7 @@ export default function Roadmap() {
   useEffect(() => { if (showAuditDialog) loadAuditLogs(); }, [showAuditDialog]);
 
   const handleRestoreBatch = async (batchId: number) => {
-    if (!confirm("Restore this upload? All current active initiatives will be archived and replaced by this batch.")) return;
+    if (!await confirmDialog("Restore this upload? All current active initiatives will be archived and replaced by this batch.")) return;
     setRestoringBatch(batchId);
     try {
       await apiFetch(`/roadmap/upload-history/${batchId}/restore`, { method: "POST" });
@@ -363,8 +364,8 @@ export default function Roadmap() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm("Delete this initiative?")) {
+  const handleDelete = async (id: number) => {
+    if (await confirmDialog("Delete this initiative?")) {
       deleteItem.mutate({ id }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListRoadmapItemsQueryKey() });
