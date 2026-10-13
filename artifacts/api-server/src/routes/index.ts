@@ -68,6 +68,18 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// Edit forms send back the whole record. Drop server-owned fields and turn ISO strings for
+// timestamp columns (…At) into Date objects, otherwise drizzle fails with "toISOString is not a function".
+router.use((req: Request, _res: Response, next: NextFunction) => {
+  if ((req.method === "PATCH" || req.method === "PUT") && req.body && typeof req.body === "object" && !Array.isArray(req.body)) {
+    for (const k of ["id", "createdAt", "updatedAt"]) delete req.body[k];
+    for (const [k, v] of Object.entries(req.body)) {
+      if (/At$/.test(k) && typeof v === "string") req.body[k] = v.trim() === "" ? null : new Date(v);
+    }
+  }
+  next();
+});
+
 router.use(dashboardRouter);
 router.use(checklistRouter);
 router.use(roadmapRouter);
