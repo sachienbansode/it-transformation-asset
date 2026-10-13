@@ -23,6 +23,7 @@ import notificationsRouter, { seedNotifications } from "./notifications";
 import checklistCommentsRouter from "./checklist-comments";
 import assetsRouter from "./assets";
 import assetLifecycleRouter from "./asset-lifecycle";
+import assetAuditsRouter from "./asset-audits";
 import itsmRouter from "./itsm";
 import { seedAssetAndItsmModules, seedExtendedItsmData } from "./seed-modules";
 import docsExportRouter from "./docs-export";
@@ -54,7 +55,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
       "/admin/", "/masters", "/roles", "/settings",
       "/business-units", "/audit-logs",
       "/assets", "/asset-vendors", "/asset-licenses", "/asset-allocations",
-      "/asset-transactions", "/maintenance-records", "/asset-categories",
+      "/asset-transactions", "/maintenance-records", "/asset-categories", "/asset-audits",
       "/incidents", "/problems", "/changes", "/sla-policies",
       "/knowledge-base", "/service-requests",
     ];
@@ -88,6 +89,7 @@ router.use(searchRouter);
 router.use(notificationsRouter);
 router.use(checklistCommentsRouter);
 router.use(assetLifecycleRouter);
+router.use(assetAuditsRouter);
 router.use(assetsRouter);
 router.use(itsmRouter);
 router.use(docsExportRouter);

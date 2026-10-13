@@ -32,6 +32,8 @@ import AssetHandovers from "@/pages/asset-handovers";
 import AssetEmployees from "@/pages/asset-employees";
 import MyAssets from "@/pages/my-assets";
 import AssetScan from "@/pages/asset-scan";
+import AssetAudits from "@/pages/asset-audits";
+import AssetAuditDetail from "@/pages/asset-audit-detail";
 import MaintenanceRecords from "@/pages/maintenance-records";
 import ItsmDashboard from "@/pages/itsm-dashboard";
 import ItsmIncidents from "@/pages/itsm-incidents";
@@ -135,6 +137,8 @@ function Router() {
               <Route path="/asset-employees" component={AssetEmployees} />
               <Route path="/my-assets" component={MyAssets} />
               <Route path="/a/:tag" component={AssetScan} />
+              <Route path="/asset-audits/:id" component={AssetAuditDetail} />
+              <Route path="/asset-audits" component={AssetAudits} />
               <Route path="/maintenance-records" component={MaintenanceRecords} />
               <Route path="/itsm" component={ItsmDashboard} />
               <Route path="/itsm-incidents" component={ItsmIncidents} />

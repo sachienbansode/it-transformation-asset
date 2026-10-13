@@ -8,7 +8,7 @@ import {
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
-  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop,
+  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop, ScanLine,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -55,6 +55,7 @@ const ASSET_ITEMS = [
   { href: "/asset-allocations", label: "Handovers", icon: Users, module: "asset_allocations" },
   { href: "/asset-employees", label: "Employee Assets", icon: UserCheck, module: "asset_allocations" },
   { href: "/maintenance-records", label: "Maintenance", icon: Wrench, module: "maintenance_records" },
+  { href: "/asset-audits", label: "Physical Audit", icon: ScanLine, module: "asset_registry" },
 ];
 
 const ITSM_ITEMS = [
@@ -134,9 +135,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
 
+  const isMobile = () => typeof window !== "undefined" && window.innerWidth < 860;
+  const [mobile, setMobile] = useState(isMobile());
   const [sidebar, setSidebar] = useState<SidebarState>(() => {
+    if (isMobile()) return "hidden"; // phones / tablets: sidebar is an overlay, closed by default
     try { return (localStorage.getItem(SIDEBAR_KEY) as SidebarState) || "expanded"; } catch { return "expanded"; }
   });
+  useEffect(() => {
+    const onResize = () => setMobile(isMobile());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  // close the overlay sidebar after navigating on a phone
+  useEffect(() => { if (mobile) setSidebar("hidden"); }, [location, mobile]);
   const [sectionsOpen, setSectionsOpen] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem(SECTIONS_KEY);
@@ -168,9 +179,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setSidebarState = useCallback((s: SidebarState) => {
-    setSidebar(s);
-    try { localStorage.setItem(SIDEBAR_KEY, s); } catch {}
-  }, []);
+    setSidebar(mobile && s === "collapsed" ? "hidden" : s);
+    if (!mobile) { try { localStorage.setItem(SIDEBAR_KEY, s); } catch {} }
+  }, [mobile]);
 
   const toggleSection = useCallback((key: string) => {
     setSectionsOpen(prev => {
@@ -211,6 +222,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {!isHidden && (
         <aside className={cn(
           "flex-shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-all duration-200 h-screen sticky top-0",
+          mobile && "fixed left-0 top-0 z-50 shadow-2xl",
           isCollapsed ? "w-14" : "w-[238px]"
         )}>
 
@@ -423,11 +435,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </aside>
       )}
 
+      {mobile && !isHidden && <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setSidebarState("hidden")} />}
+
       {/* ─── Main ─────────────────────────────────────────── */}
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Header */}
-        <header className="h-14 border-b border-border bg-card/85 backdrop-blur-md flex items-center justify-between px-6 shrink-0 gap-3 sticky top-0 z-10">
+        <header className="h-14 border-b border-border bg-card/85 backdrop-blur-md flex items-center justify-between px-3 sm:px-6 shrink-0 gap-3 sticky top-0 z-10">
           <div className="flex items-center gap-2 min-w-0">
             {isHidden ? (
               <button
@@ -504,7 +518,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background flex flex-col">
-          <div className="flex-1 px-6 pt-[22px] pb-10">
+          <div className="flex-1 px-3 sm:px-6 pt-4 sm:pt-[22px] pb-10">
             {children}
           </div>
           <footer className="shrink-0 border-t border-border/40 px-5 py-2 text-center text-[10px] text-muted-foreground/60">

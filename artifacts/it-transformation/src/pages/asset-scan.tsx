@@ -3,8 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
+import { useToast } from "@/hooks/use-toast";
 import { StatusPill, AckPill, LifecycleButtons, AssetTrail } from "@/components/asset-lifecycle";
 import { StickerDialog } from "@/components/asset-sticker";
 import { QrCode, AlertTriangle, ShieldCheck, ShieldAlert, Tag } from "lucide-react";
@@ -19,6 +21,16 @@ export default function AssetScan() {
   const [sticker, setSticker] = useState(false);
   const { data: a, isLoading, error, refetch } = useQuery({ queryKey: ["asset-by-tag", tag], queryFn: () => apiFetch<any>(`/assets/by-tag/${encodeURIComponent(tag)}`), retry: false });
   const canSee = isAdmin || canAccess("asset_registry");
+  const { data: audits = [], refetch: refetchAudits } = useQuery({ queryKey: ["audits-for-asset", a?.id], queryFn: () => apiFetch<any[]>(`/asset-audits/for-asset/${a.id}`), enabled: !!a?.id && isAdmin });
+  const { toast } = useToast();
+  const [verify, setVerify] = useState<{ auditId: number; where: string } | null>(null);
+  async function verifyInAudit(au: any, where: string) {
+    if (!where.trim()) { toast({ title: "Enter where the asset is", variant: "destructive" }); return; }
+    try {
+      const r: any = await apiFetch(`/asset-audits/${au.id}/scan`, { method: "POST", body: JSON.stringify({ code: a.assetTag, location: where.trim(), method: "QR scan (phone camera)" }) });
+      toast({ title: `${a.assetTag}: ${r.item.result}`, description: au.auditNo }); setVerify(null); refetchAudits();
+    } catch (e: any) { toast({ title: "Not recorded", description: e.message, variant: "destructive" }); }
+  }
 
   if (isLoading) return <div className="py-16 text-center text-muted-foreground">Looking up {tag}…</div>;
   if (error || !a) return (
@@ -60,6 +72,24 @@ export default function AssetScan() {
             <span>Handover <b className="text-foreground">{h.handoverNo}</b> · since {fmt(h.startDate)} · {h.allocationType}</span><AckPill status={h.ackStatus} />
           </div>}
           {a.configuration && <div className="text-sm"><span className="text-muted-foreground">Configuration: </span>{a.configuration}</div>}
+          {isAdmin && audits.length > 0 && <div className="rounded-[10px] border border-primary/30 bg-accent/50 p-3 space-y-2">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Audit in progress</div>
+            {audits.map((au: any) => (
+              <div key={au.id} className="flex items-center justify-between gap-2 text-sm">
+                <span><b className="text-foreground">{au.auditNo}</b> · {au.name}{au.itemResult ? ` · ${au.itemResult}` : " · not in scope"}</span>
+                {au.itemResult === "Pending" || !au.itemResult
+                  ? (verify?.auditId === au.id ? null : <Button size="sm" onClick={() => setVerify({ auditId: au.id, where: au.expectedLocation || a.location || "" })}>Verify here</Button>)
+                  : <span className="text-xs text-emerald-600 font-semibold">Recorded</span>}
+              </div>
+            ))}
+            {audits.filter((au: any) => verify?.auditId === au.id).map((au: any) => (
+              <div key={"v" + au.id} className="flex gap-2 items-center">
+                <Input value={verify!.where} onChange={e => setVerify({ auditId: au.id, where: e.target.value })} placeholder="Where is it right now? e.g. Worli 4th floor" />
+                <Button size="sm" onClick={() => verifyInAudit(au, verify!.where)}>Record</Button>
+                <Button size="sm" variant="outline" onClick={() => setVerify(null)}>Cancel</Button>
+              </div>
+            ))}
+          </div>}
           {isAdmin && a.isActive && <div className="rounded-[10px] border p-3 space-y-2">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Lifecycle</div>
             <LifecycleButtons asset={a} onDone={() => refetch()} />

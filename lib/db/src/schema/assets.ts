@@ -169,3 +169,50 @@ export type AssetLicense = typeof assetLicensesTable.$inferSelect;
 export type AssetAllocation = typeof assetAllocationsTable.$inferSelect;
 export type AssetTransaction = typeof assetTransactionsTable.$inferSelect;
 export type MaintenanceRecord = typeof maintenanceRecordsTable.$inferSelect;
+
+/* ─── Physical audit (stock verification) ─────────────────────────────── */
+
+export const assetAuditsTable = pgTable("asset_audits", {
+  id: serial("id").primaryKey(),
+  auditNo: text("audit_no"),
+  name: text("name").notNull(),
+  scopeLocations: text("scope_locations"),     // comma-separated; empty = all locations
+  scopeDepartments: text("scope_departments"), // comma-separated; empty = all
+  scopeTypes: text("scope_types"),             // comma-separated; empty = all
+  status: text("status").notNull().default("Planned"), // Planned | In Progress | Completed | Cancelled
+  dueDate: text("due_date"),
+  auditors: text("auditors"),
+  notes: text("notes"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  completedBy: text("completed_by"),
+  summary: jsonb("summary"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const assetAuditItemsTable = pgTable("asset_audit_items", {
+  id: serial("id").primaryKey(),
+  auditId: integer("audit_id").notNull(),
+  assetId: integer("asset_id"),
+  assetTag: text("asset_tag").notNull(),
+  assetName: text("asset_name"),
+  serialNumber: text("serial_number"),
+  expectedLocation: text("expected_location"),
+  expectedHolder: text("expected_holder"),
+  expectedStatus: text("expected_status"),
+  inScope: boolean("in_scope").notNull().default(true),
+  // Pending | Found | Location mismatch | Missing | Not in scope | Unknown tag
+  result: text("result").notNull().default("Pending"),
+  foundLocation: text("found_location"),
+  condition: text("condition"),
+  remarks: text("remarks"),
+  scannedAt: timestamp("scanned_at", { withTimezone: true }),
+  scannedBy: text("scanned_by"),
+  method: text("method"),   // QR scan | Manual
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type AssetAudit = typeof assetAuditsTable.$inferSelect;
+export type AssetAuditItem = typeof assetAuditItemsTable.$inferSelect;
