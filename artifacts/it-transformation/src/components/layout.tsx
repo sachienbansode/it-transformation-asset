@@ -8,7 +8,7 @@ import {
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
-  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench,
+  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -52,7 +52,8 @@ const ASSET_ITEMS = [
   { href: "/asset-registry", label: "Asset Registry", icon: HardDrive, module: "asset_registry" },
   { href: "/asset-vendors", label: "Vendors", icon: Building2, module: "asset_vendors" },
   { href: "/asset-licenses", label: "Licenses", icon: Shield, module: "asset_licenses" },
-  { href: "/asset-allocations", label: "Allocations", icon: Users, module: "asset_allocations" },
+  { href: "/asset-allocations", label: "Handovers", icon: Users, module: "asset_allocations" },
+  { href: "/asset-employees", label: "Employee Assets", icon: UserCheck, module: "asset_allocations" },
   { href: "/maintenance-records", label: "Maintenance", icon: Wrench, module: "maintenance_records" },
 ];
 
@@ -197,7 +198,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ASSET_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ITSM_ITEMS.find(i => location.startsWith(i.href))?.label
-    ?? (location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : "");
+    ?? (location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
 
   const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
   const isCollapsed = sidebar === "collapsed";
@@ -397,6 +398,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       </div>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => navigate("/profile")}><User className="h-4 w-4 mr-2" /> Profile</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate("/my-assets")}><Laptop className="h-4 w-4 mr-2" /> My Assets</DropdownMenuItem>
                       {isAdmin && <DropdownMenuItem onClick={() => navigate("/admin")}><Settings className="h-4 w-4 mr-2" /> Admin Panel</DropdownMenuItem>}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
@@ -491,6 +493,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate("/profile")}><User className="h-4 w-4 mr-2" /> Profile & Security</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/my-assets")}><Laptop className="h-4 w-4 mr-2" /> My Assets</DropdownMenuItem>
                 {isAdmin && <DropdownMenuItem onClick={() => navigate("/admin")}><Settings className="h-4 w-4 mr-2" /> Admin Panel</DropdownMenuItem>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive"><LogOut className="h-4 w-4 mr-2" /> Sign Out</DropdownMenuItem>

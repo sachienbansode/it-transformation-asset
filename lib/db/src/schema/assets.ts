@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean, numeric, date } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, numeric, date, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -54,6 +54,12 @@ export const assetsTable = pgTable("assets", {
   osVersion: text("os_version"),
   configuration: text("configuration"),
   notes: text("notes"),
+  ownerEmail: text("owner_email"),
+  ownerEmployeeCode: text("owner_employee_code"),
+  disposalDate: text("disposal_date"),
+  disposalMethod: text("disposal_method"),
+  disposalReference: text("disposal_reference"),
+  disposalValue: numeric("disposal_value", { precision: 12, scale: 2 }),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),
@@ -94,6 +100,25 @@ export const assetAllocationsTable = pgTable("asset_allocations", {
   endDate: text("end_date"),
   status: text("status").notNull().default("Active"),
   notes: text("notes"),
+  // Handover (issue) details
+  handoverNo: text("handover_no"),
+  email: text("email"),
+  allocationType: text("allocation_type").notNull().default("Permanent"),
+  expectedReturnDate: text("expected_return_date"),
+  issueCondition: text("issue_condition"),
+  accessories: text("accessories"),
+  issuedBy: text("issued_by"),
+  // Employee acknowledgement
+  ackStatus: text("ack_status").notNull().default("Pending"),
+  ackAt: timestamp("ack_at", { withTimezone: true }),
+  ackBy: text("ack_by"),
+  ackMethod: text("ack_method"),
+  // Return details
+  returnCondition: text("return_condition"),
+  returnAccessories: text("return_accessories"),
+  returnRemarks: text("return_remarks"),
+  receivedBy: text("received_by"),
+  returnedAt: timestamp("returned_at", { withTimezone: true }),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -108,6 +133,8 @@ export const assetTransactionsTable = pgTable("asset_transactions", {
   userId: integer("user_id"),
   userName: text("user_name"),
   notes: text("notes"),
+  comment: text("comment"),          // user's own comment / reason for the change
+  changes: jsonb("changes"),         // field-level diff: [{ field, label, from, to }]
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

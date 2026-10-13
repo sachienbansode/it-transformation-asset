@@ -17,6 +17,8 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { AssetRegisterUpload, downloadAssetTemplate, ASSET_TYPES, ASSET_STATUSES } from "@/components/asset-register-upload";
+import { StatusPill, LifecycleButtons, useLifecycleModel, AssetTrail } from "@/components/asset-lifecycle";
+import { StickerDialog } from "@/components/asset-sticker";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -26,134 +28,7 @@ function exportToCsv(rows: any[], cols: { label: string; key: string }[], filena
 }
 
 const PAGE_SIZE = 10;
-const STATUS_BADGE: Record<string, string> = {
-  "In Stock": "border-blue-500/30 text-blue-600 bg-blue-50 dark:bg-blue-400/10",
-  "Allocated": "border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10",
-  "In Use": "border-teal-500/30 text-teal-600 bg-teal-50 dark:bg-teal-400/10",
-  "Under Maintenance": "border-amber-500/30 text-amber-600 bg-amber-50 dark:bg-amber-400/10",
-  "Retired": "border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10",
-  "Disposed": "border-red-500/30 text-red-600 bg-red-50 dark:bg-red-400/10",
-};
 
-/* ─── Asset Transaction History ─────────────────────────────────────────── */
-function AssetHistory({ assetId, assetTag }: { assetId: number; assetTag: string }) {
-  const { data: txns = [], isLoading } = useQuery({
-    queryKey: ["asset-transactions", assetId],
-    queryFn: () => apiFetch<any[]>(`/asset-transactions?assetId=${assetId}`),
-    enabled: !!assetId,
-  });
-
-  const ACTION_COLORS: Record<string, string> = {
-    "Allocation": "bg-emerald-500",
-    "Bulk Allocation": "bg-emerald-600",
-    "Return": "bg-blue-500",
-    "Status Change": "bg-amber-500",
-    "Maintenance Started": "bg-orange-500",
-    "Maintenance Completed": "bg-teal-500",
-  };
-
-  if (isLoading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading history…</div>;
-  if (txns.length === 0) return (
-    <div className="py-10 text-center">
-      <div className="text-4xl mb-2">📋</div>
-      <div className="text-sm text-muted-foreground">No transaction history for {assetTag}</div>
-    </div>
-  );
-
-  return (
-    <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
-      {txns.map((t: any, i: number) => (
-        <div key={t.id} className="flex gap-3">
-          <div className="flex flex-col items-center">
-            <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${ACTION_COLORS[t.action] || "bg-gray-400"}`} />
-            {i < txns.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
-          </div>
-          <div className="pb-3 flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium">{t.action}</span>
-              <span className="text-[11px] text-muted-foreground shrink-0">{new Date(t.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>
-            </div>
-            {(t.oldStatus || t.newStatus) && (
-              <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
-                {t.oldStatus && <span className="px-1.5 py-0.5 rounded bg-muted">{t.oldStatus}</span>}
-                {t.oldStatus && t.newStatus && <span>→</span>}
-                {t.newStatus && <span className="px-1.5 py-0.5 rounded bg-muted font-medium">{t.newStatus}</span>}
-              </div>
-            )}
-            {t.userName && <div className="text-xs text-muted-foreground mt-0.5">by {t.userName}</div>}
-            {t.notes && <div className="text-xs text-muted-foreground mt-0.5 italic">{t.notes}</div>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ─── Sticker Print Dialog ───────────────────────────────────────────────── */
-function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => void }) {
-  const printRef = useRef<HTMLDivElement>(null);
-
-  function handlePrint() {
-    const content = printRef.current?.innerHTML || "";
-    const win = window.open("", "_blank", "width=420,height=320");
-    if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>Asset Sticker – ${asset.assetTag}</title><style>
-      @page { size: 85mm 54mm; margin: 0; }
-      * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
-      body { width: 85mm; height: 54mm; background: white; }
-    </style></head><body>${content}</body></html>`);
-    win.document.close();
-    win.onload = () => { win.focus(); win.print(); setTimeout(() => win.close(), 500); };
-  }
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Tag className="w-4 h-4 text-[#2D7FF9]" />Asset Sticker Preview</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">Preview below — print to a 85×54mm label (business card size).</p>
-        <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 flex justify-center">
-          <div ref={printRef}>
-            <div style={{ width: "320px", border: "1.5px solid #1a1a1a", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "5px", backgroundColor: "white", borderRadius: "4px", fontFamily: "Arial, sans-serif" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #ddd", paddingBottom: "5px", marginBottom: "3px" }}>
-                <div>
-                  <div style={{ fontSize: "8px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.8px", color: "#1a1a1a" }}>ASHIKA GROUP</div>
-                  <div style={{ fontSize: "7px", color: "#666" }}>IT Asset Management · NIYTRI</div>
-                </div>
-                <div style={{ width: "28px", height: "28px", backgroundColor: "#2D7FF9", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <div style={{ fontSize: "14px", color: "white", fontWeight: "bold" }}>A</div>
-                </div>
-              </div>
-              <div style={{ fontSize: "26px", fontWeight: "900", fontFamily: "Courier New, monospace", color: "#1a1a1a", letterSpacing: "1px", lineHeight: "1" }}>{asset.assetTag || "—"}</div>
-              <div style={{ fontSize: "11px", fontWeight: "600", color: "#222", marginTop: "1px" }}>{asset.name || "—"}</div>
-              <div style={{ display: "flex", gap: "12px", marginTop: "3px" }}>
-                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Type</div><div style={{ fontSize: "9px", fontWeight: "500" }}>{asset.type || "—"}</div></div>
-                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Serial No</div><div style={{ fontSize: "9px", fontWeight: "500", fontFamily: "Courier New, monospace" }}>{asset.serialNumber || "—"}</div></div>
-                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Dept</div><div style={{ fontSize: "9px", fontWeight: "500" }}>{asset.department || "—"}</div></div>
-              </div>
-              <div style={{ display: "flex", gap: "12px" }}>
-                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Location</div><div style={{ fontSize: "9px", fontWeight: "500" }}>{asset.location || "—"}</div></div>
-                <div><div style={{ fontSize: "6.5px", color: "#999", textTransform: "uppercase", letterSpacing: "0.3px" }}>Vendor</div><div style={{ fontSize: "9px", fontWeight: "500" }}>{asset.vendorName || "—"}</div></div>
-              </div>
-              <div style={{ borderTop: "0.5px solid #eee", paddingTop: "4px", fontSize: "6px", color: "#bbb", textAlign: "center", marginTop: "2px" }}>
-                Ashika Group · IT Department · {asset.purchaseDate ? `Purchased: ${asset.purchaseDate}` : new Date().getFullYear()}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
-          <Button size="sm" className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2" onClick={handlePrint}>
-            <Printer className="w-4 h-4" />Print Sticker
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* ─── Main Component ─────────────────────────────────────────────────────── */
 export default function AssetRegistry() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -166,7 +41,7 @@ export default function AssetRegistry() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewModal, setViewModal] = useState<any>(null);
   const [viewTab, setViewTab] = useState<"details" | "history">("details");
-  const [stickerAsset, setStickerAsset] = useState<any>(null);
+  const [stickerAssets, setStickerAssets] = useState<any[] | null>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
   const [tagLoading, setTagLoading] = useState(false);
@@ -175,6 +50,8 @@ export default function AssetRegistry() {
   const [purging, setPurging] = useState(false);
 
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => apiFetch<any[]>("/assets") });
+  const { data: lcModel } = useLifecycleModel();
+  const STATUS_FILTERS = lcModel?.states || ASSET_STATUSES;
   const { data: stats } = useQuery({ queryKey: ["assets-stats"], queryFn: () => apiFetch<any>("/assets/stats") });
   const { data: vendors = [] } = useQuery({ queryKey: ["asset-vendors"], queryFn: () => apiFetch<any[]>("/asset-vendors") });
 
@@ -241,6 +118,7 @@ export default function AssetRegistry() {
     if (!formData.type) errors.type = "Type is required";
     if (!formData.serialNumber?.trim()) errors.serialNumber = "Serial number is required";
     if (!formData.vendorSelect) errors.vendor = "Vendor is required";
+    if (editingItem && (formData.comment || "").trim().length < 3) errors.comment = "Please explain the change — it is recorded in the asset's history";
     if (formData.vendorSelect === "__others__" && !formData.vendorOthersName?.trim()) errors.vendor = "Vendor is required — please enter the vendor name below";
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -258,8 +136,8 @@ export default function AssetRegistry() {
       name: formData.name,
       type: formData.type,
       serialNumber: formData.serialNumber,
-      status: formData.status || "In Stock",
-      ownerName: formData.ownerName || null,
+      ...(editingItem ? {} : { status: formData.status || "In Stock" }),
+      comment: formData.comment?.trim() || null,
       department: formData.department || null,
       location: formData.location || null,
       purchaseDate: formData.purchaseDate || null,
@@ -323,6 +201,7 @@ export default function AssetRegistry() {
         <div className="flex flex-wrap gap-2 justify-end">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(assets, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"purchaseCost"},{label:"Manufacturer",key:"manufacturer"},{label:"Model",key:"model"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], "asset-registry.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
           {isAdmin && <Button variant="outline" size="sm" onClick={handlePurge} disabled={purging} className="gap-1.5 text-red-600 hover:text-red-700 border-red-500/30">{purging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eraser className="w-4 h-4" />}Clear All Data</Button>}
+          <Button variant="outline" size="sm" onClick={() => filtered.length && setStickerAssets(filtered)} disabled={!filtered.length} className="gap-1.5" title="QR stickers for the assets currently listed"><Tag className="w-4 h-4" />QR Stickers ({filtered.length})</Button>
           <Button variant="outline" size="sm" onClick={downloadAssetTemplate} className="gap-1.5"><FileSpreadsheet className="w-4 h-4" />Template</Button>
           <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5"><Upload className="w-4 h-4" />Upload Register</Button>
           <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />Add Asset</Button>
@@ -349,7 +228,7 @@ export default function AssetRegistry() {
             </Select>
             <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[160px]"><SelectValue placeholder="All Statuses" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Statuses</SelectItem>{ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              <SelectContent><SelectItem value="all">All Statuses</SelectItem>{STATUS_FILTERS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={filterDept} onValueChange={v => { setFilterDept(v === "all" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[160px]"><SelectValue placeholder="All Depts" /></SelectTrigger>
@@ -385,7 +264,7 @@ export default function AssetRegistry() {
                   <TableCell className="font-medium">{a.name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{a.type}</Badge></TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{a.serialNumber || "—"}</TableCell>
-                  <TableCell><Badge variant="outline" className={STATUS_BADGE[a.status] || ""}>{a.status}</Badge></TableCell>
+                  <TableCell><StatusPill status={a.status} /></TableCell>
                   <TableCell className="text-sm">{a.ownerName || "—"}</TableCell>
                   <TableCell className="text-sm">{a.department || "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{a.location || "—"}</TableCell>
@@ -393,7 +272,7 @@ export default function AssetRegistry() {
                   <TableCell>
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted" title="View details"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
-                      <button onClick={() => setStickerAsset(a)} className="p-1.5 rounded hover:bg-muted" title="Print sticker"><Tag className="w-3.5 h-3.5 text-[#2D7FF9]" /></button>
+                      <button onClick={() => setStickerAssets([a])} className="p-1.5 rounded hover:bg-muted" title="QR sticker"><Tag className="w-3.5 h-3.5 text-[#2D7FF9]" /></button>
                       <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
                       {isAdmin && <button onClick={() => handleDelete(a.id, a.name)} className="p-1.5 rounded hover:bg-muted" title="Delete"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
@@ -419,8 +298,8 @@ export default function AssetRegistry() {
           <div className="flex gap-1 border-b mb-4 -mx-1 px-1">
             {(["details", "history"] as const).map(tab => (
               <button key={tab} onClick={() => setViewTab(tab)}
-                className={`px-4 py-2 text-sm font-medium capitalize transition border-b-2 -mb-px ${viewTab === tab ? "border-[#2D7FF9] text-[#1B63D6]" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-                {tab}
+                className={`px-4 py-2 text-sm font-medium transition border-b-2 -mb-px ${viewTab === tab ? "border-[#2D7FF9] text-[#1B63D6]" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+                {tab === "history" ? "History & comments" : "Details"}
               </button>
             ))}
           </div>
@@ -430,7 +309,7 @@ export default function AssetRegistry() {
                 {([
                   ["Name", viewModal.name], ["Type", viewModal.type],
                   ["Serial Number", viewModal.serialNumber], ["Status", viewModal.status],
-                  ["Owner", viewModal.ownerName], ["Department", viewModal.department],
+                  ["Issued To", viewModal.ownerName ? `${viewModal.ownerName}${viewModal.ownerEmployeeCode ? ` (${viewModal.ownerEmployeeCode})` : ""}` : ""], ["Department", viewModal.department],
                   ["Location", viewModal.location], ["Purchase Date", viewModal.purchaseDate],
                   ["Cost", viewModal.cost ? `₹${Number(viewModal.cost).toLocaleString("en-IN")}` : "—"],
                   ["Vendor", viewModal.vendorName], ["Warranty Expiry", viewModal.warrantyExpiry],
@@ -455,9 +334,24 @@ export default function AssetRegistry() {
                   <div className="text-sm mt-0.5">{viewModal.notes}</div>
                 </div>
               )}
+              {viewModal.status === "Disposed" && (
+                <div className="rounded-[10px] border bg-muted/40 p-3 text-sm grid grid-cols-2 gap-2">
+                  <div><span className="text-muted-foreground">Disposed on:</span> {viewModal.disposalDate || "—"}</div>
+                  <div><span className="text-muted-foreground">Method:</span> {viewModal.disposalMethod || "—"}</div>
+                  <div><span className="text-muted-foreground">Certificate / ref:</span> {viewModal.disposalReference || "—"}</div>
+                  <div><span className="text-muted-foreground">Value realised:</span> {viewModal.disposalValue ? `₹${Number(viewModal.disposalValue).toLocaleString("en-IN")}` : "—"}</div>
+                </div>
+              )}
+              <div className="rounded-[10px] border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] uppercase text-muted-foreground font-semibold tracking-wide">Lifecycle</div>
+                  <StatusPill status={viewModal.status} />
+                </div>
+                {isAdmin ? <LifecycleButtons asset={viewModal} onDone={() => setViewModal(null)} /> : <p className="text-xs text-muted-foreground">Only IT administrators can change the asset's status.</p>}
+              </div>
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setStickerAsset(viewModal); setViewModal(null); }}>
-                  <Tag className="w-3.5 h-3.5" />Print Sticker
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setStickerAssets([viewModal]); setViewModal(null); }}>
+                  <Tag className="w-3.5 h-3.5" />QR Sticker
                 </Button>
                 <Button size="sm" className="gap-1.5 bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" onClick={() => { openEdit(viewModal); setViewModal(null); }}>
                   <Edit className="w-3.5 h-3.5" />Edit Asset
@@ -466,7 +360,7 @@ export default function AssetRegistry() {
             </div>
           )}
           {viewModal && viewTab === "history" && (
-            <AssetHistory assetId={viewModal.id} assetTag={viewModal.assetTag} />
+            <AssetTrail assetId={viewModal.id} assetTag={viewModal.assetTag} />
           )}
         </DialogContent>
       </Dialog>
@@ -584,19 +478,23 @@ export default function AssetRegistry() {
               )}
             </div>
 
-            {/* Status */}
+            {/* Status — set once at registration; afterwards it changes only through lifecycle actions */}
             <div>
-              <Label className="text-xs font-medium">Status</Label>
-              <Select value={formData.status || "In Stock"} onValueChange={v => setField("status", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-              </Select>
+              <Label className="text-xs font-medium">{editingItem ? "Status" : "Initial status"}</Label>
+              {editingItem ? (
+                <div className="h-9 flex items-center gap-2"><StatusPill status={editingItem.status} /><span className="text-[11px] text-muted-foreground">change via lifecycle actions</span></div>
+              ) : (
+                <Select value={formData.status || "In Stock"} onValueChange={v => setField("status", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{["In Stock", "In Use", "Under Maintenance", "Retired"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                </Select>
+              )}
             </div>
 
-            {/* Owner */}
+            {/* Holder — set by Issue / Return */}
             <div>
-              <Label className="text-xs font-medium">Owner / Assigned To</Label>
-              <Input value={formData.ownerName || ""} onChange={e => setField("ownerName", e.target.value)} placeholder="Employee name" />
+              <Label className="text-xs font-medium">Issued To</Label>
+              <div className="h-9 flex items-center text-sm text-muted-foreground">{editingItem?.ownerName || "Use Issue after saving to hand it to an employee"}</div>
             </div>
 
             {/* Department */}
@@ -666,6 +564,13 @@ export default function AssetRegistry() {
             </div>
           </div>
 
+          <div className="mt-3">
+            <Label className="text-xs font-medium">{editingItem ? "Comment — reason for this change *" : "Comment"}</Label>
+            <Textarea rows={2} value={formData.comment || ""} onChange={e => setField("comment", e.target.value)}
+              placeholder={editingItem ? "e.g. RAM upgraded to 32GB per SR-0042; moved to 5th floor" : "Optional note recorded in the asset's history"} />
+            {formErrors.comment && <p className="text-xs text-red-500 mt-1">{formErrors.comment}</p>}
+          </div>
+
           <div className="flex justify-end gap-2 mt-4 pt-3 border-t">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button
@@ -683,7 +588,7 @@ export default function AssetRegistry() {
       <AssetRegisterUpload open={uploadOpen} onClose={() => setUploadOpen(false)} />
 
       {/* Sticker Print */}
-      {stickerAsset && <StickerPrintDialog asset={stickerAsset} onClose={() => setStickerAsset(null)} />}
+      {stickerAssets && <StickerDialog assets={stickerAssets} onClose={() => setStickerAssets(null)} />}
     </div>
   );
 }

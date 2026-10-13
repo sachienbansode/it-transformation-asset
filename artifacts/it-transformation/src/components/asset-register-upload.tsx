@@ -11,15 +11,17 @@ import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2
 /* Single source of truth for the asset register file layout.
    Template download, upload parsing and the server-side import all use these columns. */
 export const ASSET_TYPES = ["Laptop", "Desktop", "Server", "Network Switch", "Firewall", "Access Point", "Printer", "Tablet", "Mobile", "Storage", "UPS", "Others"];
-export const ASSET_STATUSES = ["In Stock", "Allocated", "In Use", "Under Maintenance", "Retired", "Disposed"];
+export const ASSET_STATUSES = ["In Stock", "Allocated", "In Use", "Under Maintenance", "Retired"]; // statuses allowed on upload
 
 const COLUMNS: { header: string; key: string; required?: boolean; width: number; rule: string; sample: string[] }[] = [
   { header: "Asset Tag", key: "assetTag", width: 14, rule: "Optional. Leave blank to auto-generate (e.g. LAP-0001). Must be unique.", sample: ["SAMPLE-001", "SAMPLE-002", "SAMPLE-003"] },
   { header: "Asset Name", key: "name", required: true, width: 26, rule: "Required. Model / description.", sample: ["Dell Latitude 5540", "HP ProLiant DL380 Gen11", "Cisco Catalyst 9300 48P"] },
   { header: "Asset Type", key: "type", required: true, width: 16, rule: `Required. One of: ${ASSET_TYPES.join(", ")}`, sample: ["Laptop", "Server", "Network Switch"] },
   { header: "Serial Number", key: "serialNumber", required: true, width: 18, rule: "Required. Unique per asset type.", sample: ["DL5540-AB12C", "CZ2401XY7Q", "FOC2435L1KM"] },
-  { header: "Status", key: "status", width: 16, rule: `Optional (default In Stock). One of: ${ASSET_STATUSES.join(", ")}`, sample: ["Allocated", "In Use", "In Stock"] },
-  { header: "Assigned To", key: "ownerName", width: 20, rule: "Optional. Employee name.", sample: ["Rohan Mehta", "", ""] },
+  { header: "Status", key: "status", width: 16, rule: `Optional (default In Stock, or Allocated when Assigned To is filled). One of: ${ASSET_STATUSES.join(", ")}`, sample: ["Allocated", "In Use", "In Stock"] },
+  { header: "Assigned To", key: "ownerName", width: 20, rule: "Required when Status is Allocated (creates a handover pending the employee's acknowledgement). Leave blank otherwise.", sample: ["Rohan Mehta", "", ""] },
+  { header: "Employee Code", key: "ownerEmployeeCode", width: 14, rule: "Optional. For Allocated assets.", sample: ["EMP1042", "", ""] },
+  { header: "Employee Email", key: "ownerEmail", width: 26, rule: "Optional. For Allocated assets — links the asset to the employee's login so they can see and acknowledge it under My Assets.", sample: ["rohan.mehta@example.com", "", ""] },
   { header: "Department", key: "department", width: 18, rule: "Optional.", sample: ["Broking IT", "Infrastructure", "Network"] },
   { header: "Location", key: "location", width: 18, rule: "Optional. Office / DC / rack.", sample: ["Mumbai HO - 4th Floor", "Mumbai DC - Rack A3", "Mumbai DC - Rack B1"] },
   { header: "Purchase Date", key: "purchaseDate", width: 14, rule: "Optional. YYYY-MM-DD", sample: ["2025-04-15", "2024-11-02", "2025-01-20"] },
@@ -36,7 +38,7 @@ const COLUMNS: { header: string; key: string; required?: boolean; width: number;
 
 const norm = (s: string) => String(s).toLowerCase().replace(/\(.*?\)|\*/g, "").replace(/[^a-z0-9]/g, "");
 const HEADER_MAP: Record<string, string> = Object.fromEntries(COLUMNS.flatMap(c => [[norm(c.header), c.key], [norm(c.key), c.key]]));
-Object.assign(HEADER_MAP, { tag: "assetTag", name: "name", type: "type", serial: "serialNumber", serialno: "serialNumber", owner: "ownerName", ownername: "ownerName", cost: "cost", vendorname: "vendorName", ponumber: "purchaseOrderNo", pono: "purchaseOrderNo", warranty: "warrantyExpiry" });
+Object.assign(HEADER_MAP, { employeecode: "ownerEmployeeCode", empcode: "ownerEmployeeCode", employeeemail: "ownerEmail", email: "ownerEmail", tag: "assetTag", name: "name", type: "type", serial: "serialNumber", serialno: "serialNumber", owner: "ownerName", ownername: "ownerName", cost: "cost", vendorname: "vendorName", ponumber: "purchaseOrderNo", pono: "purchaseOrderNo", warranty: "warrantyExpiry" });
 
 function toIsoDate(v: any): string {
   if (v instanceof Date && !isNaN(v.getTime())) {
@@ -172,7 +174,7 @@ export function AssetRegisterUpload({ open, onClose }: { open: boolean; onClose:
               <FileSpreadsheet className="w-5 h-5 text-primary shrink-0" />
               <div className="text-sm min-w-0">
                 <div className="font-semibold text-foreground">Asset_Register_Template.xlsx</div>
-                <div className="text-xs text-muted-foreground">18 columns, 3 sample rows, instructions and allowed values</div>
+                <div className="text-xs text-muted-foreground">{COLUMNS.length} columns, 3 sample rows, instructions and allowed values</div>
               </div>
             </div>
             <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={downloadAssetTemplate}><Download className="w-4 h-4" />Template</Button>

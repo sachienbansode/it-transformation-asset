@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { db, assetsTable, assetCategoriesTable, assetVendorsTable, assetLicensesTable, assetAllocationsTable, assetTransactionsTable, maintenanceRecordsTable } from "@workspace/db";
+import { db, usersTable, assetsTable, assetCategoriesTable, assetVendorsTable, assetLicensesTable, assetAllocationsTable, assetTransactionsTable, maintenanceRecordsTable } from "@workspace/db";
 import { eq, desc, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
@@ -40,8 +40,35 @@ router.get("/assets/next-tag", requireAuth, async (req, res) => {
   } catch (e) { handleError(res, e); }
 });
 
+const CREATE_STATES = ["In Stock", "In Use", "Under Maintenance", "Retired"];
+
+// Fields shown in the change trail (label used in the History & comments tab)
+const TRACKED: Record<string, string> = {
+  assetTag: "Asset tag", name: "Name", type: "Type", serialNumber: "Serial number", department: "Department", location: "Location",
+  purchaseDate: "Purchase date", purchaseOrderNo: "PO number", cost: "Cost", vendorName: "Vendor", warrantyExpiry: "Warranty expiry",
+  ipAddress: "IP address", macAddress: "MAC address", osVersion: "OS version", configuration: "Configuration", notes: "Notes", categoryId: "Category",
+};
+const norm = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
+function diffAsset(oldA: any, newA: any) {
+  const out: { field: string; label: string; from: string | null; to: string | null }[] = [];
+  for (const [f, label] of Object.entries(TRACKED)) {
+    let a = norm(oldA[f]), b = norm(newA[f]);
+    if (f === "cost") { a = a === null ? null : Number(a).toFixed(2); b = b === null ? null : Number(b).toFixed(2); }
+    if (a !== b) out.push({ field: f, label, from: a, to: b });
+  }
+  return out;
+}
+const LIFECYCLE_FIELDS = ["status", "ownerId", "ownerName", "ownerEmail", "ownerEmployeeCode", "disposalDate", "disposalMethod", "disposalReference", "disposalValue"];
+
 router.post("/assets", requireAuth, async (req, res) => {
   try {
+    const status = req.body.status || "In Stock";
+    if (!CREATE_STATES.includes(status)) {
+      res.status(400).json({ error: `New assets start as ${CREATE_STATES.join(" / ")}. Register it In Stock, then use Issue to hand it to an employee.` });
+      return;
+    }
+    for (const f of LIFECYCLE_FIELDS) if (f !== "status") delete req.body[f];
+    req.body.status = status;
     const { type, serialNumber } = req.body;
     if (serialNumber && type) {
       const existing = await db.select({ id: assetsTable.id }).from(assetsTable)
@@ -53,7 +80,9 @@ router.post("/assets", requireAuth, async (req, res) => {
     }
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     const ctx = buildContext(req, "Asset Registry");
+    const comment = norm(req.body.comment); delete req.body.comment;
     const [item] = await db.insert(assetsTable).values({ ...req.body, createdBy: performedBy, updatedBy: performedBy }).returning();
+    await db.insert(assetTransactionsTable).values({ assetId: item.id, action: "Registered", newStatus: item.status, userName: performedBy, comment, notes: `Registered as ${item.status}` });
     await safeLog({ entityType: "asset", entityId: item.id, action: "create", performedBy, summary: `Created asset: ${item.name} (${item.assetTag})`, newValues: item, context: ctx });
     res.status(201).json(item);
   } catch (e) { handleError(res, e); }
@@ -64,6 +93,13 @@ router.patch("/assets/:id", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     const [old] = await db.select().from(assetsTable).where(eq(assetsTable.id, id));
     if (!old) { res.status(404).json({ error: "Asset not found" }); return; }
+    // Status and holder change only through the lifecycle actions (issue / return / transition)
+    for (const f of LIFECYCLE_FIELDS) delete req.body[f];
+    const comment = norm(req.body.comment); delete req.body.comment;
+    for (const f of ["id", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive"]) delete req.body[f];
+    const changes = diffAsset(old, { ...old, ...req.body });
+    if (!changes.length) { res.json(old); return; }
+    if (!comment || comment.length < 3) { res.status(400).json({ error: "Please add a comment explaining the change (reason / reference)." }); return; }
     const { type, serialNumber } = req.body;
     if (serialNumber && type) {
       const existing = await db.select({ id: assetsTable.id }).from(assetsTable)
@@ -76,10 +112,9 @@ router.patch("/assets/:id", requireAuth, async (req, res) => {
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     const ctx = buildContext(req, "Asset Registry");
     const [item] = await db.update(assetsTable).set({ ...req.body, updatedBy: performedBy, updatedAt: new Date() }).where(eq(assetsTable.id, id)).returning();
-    if (old.status !== item.status) {
-      await db.insert(assetTransactionsTable).values({ assetId: id, action: "Status Change", oldStatus: old.status, newStatus: item.status, userName: performedBy });
-    }
-    await safeLog({ entityType: "asset", entityId: id, action: "update", performedBy, summary: `Updated asset: ${item.name} (${item.assetTag})`, newValues: item, context: ctx });
+    await db.insert(assetTransactionsTable).values({ assetId: id, action: "Updated", userName: performedBy, comment, changes,
+      notes: changes.map(c => c.label).join(", ") + " changed" });
+    await safeLog({ entityType: "asset", entityId: id, action: "update", performedBy, summary: `Updated asset: ${item.name} (${item.assetTag}) — ${changes.map(c => `${c.label}: ${c.from ?? "—"} → ${c.to ?? "—"}`).join("; ")}${comment ? ` · "${comment}"` : ""}`, newValues: { changes, comment }, context: ctx });
     res.json(item);
   } catch (e) { handleError(res, e); }
 });
@@ -89,7 +124,9 @@ router.delete("/assets/:id", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     const [old] = await db.select().from(assetsTable).where(eq(assetsTable.id, id));
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+    if (old && ["Allocated"].includes(old.status)) { res.status(400).json({ error: `${old.assetTag} is issued to ${old.ownerName} — return it before deleting` }); return; }
     await db.update(assetsTable).set({ isActive: false }).where(eq(assetsTable.id, id));
+    await db.insert(assetTransactionsTable).values({ assetId: id, action: "Deleted", oldStatus: old?.status, userName: performedBy, comment: norm(req.query.reason as string) });
     await safeLog({ entityType: "asset", entityId: id, action: "delete", performedBy, summary: `Deleted asset: ${old?.name || id} (${old?.assetTag || ""})`, context: buildContext(req, "Asset Registry") });
     res.status(204).end();
   } catch (e) { handleError(res, e); }
@@ -105,12 +142,29 @@ router.get("/assets/stats", requireAuth, async (_req, res) => {
   } catch (e) { handleError(res, e); }
 });
 
+/* ─── COMMENTS on an asset (anyone with access can add; kept in the asset's trail) ─── */
+
+router.post("/asset-comments/:id", requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(String(req.params.id));
+    const comment = norm(req.body?.comment);
+    if (!comment) { res.status(400).json({ error: "Comment is empty" }); return; }
+    if (comment.length > 2000) { res.status(400).json({ error: "Comment is too long (max 2000 characters)" }); return; }
+    const [a] = await db.select({ id: assetsTable.id, assetTag: assetsTable.assetTag }).from(assetsTable).where(eq(assetsTable.id, id));
+    if (!a) { res.status(404).json({ error: "Asset not found" }); return; }
+    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+    const [t] = await db.insert(assetTransactionsTable).values({ assetId: id, action: "Comment", userName: performedBy, comment }).returning();
+    await safeLog({ entityType: "asset", entityId: id, action: "comment", performedBy, summary: `Comment on ${a.assetTag}: ${comment.slice(0, 120)}`, context: buildContext(req, "Asset Registry") });
+    res.status(201).json(t);
+  } catch (e) { handleError(res, e); }
+});
+
 /* ─── ASSET REGISTER IMPORT (Excel/CSV upload, validated, all-or-nothing) ─── */
 
 const IMPORT_TYPES = Object.keys(TYPE_PREFIX);
-const IMPORT_STATUSES = ["In Stock", "Allocated", "In Use", "Under Maintenance", "Retired", "Disposed"];
+const IMPORT_STATUSES = ["In Stock", "Allocated", "In Use", "Under Maintenance", "Retired"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const IMPORT_FIELDS = ["assetTag", "name", "type", "serialNumber", "status", "ownerName", "department", "location",
+const IMPORT_FIELDS = ["assetTag", "name", "type", "serialNumber", "status", "ownerName", "ownerEmployeeCode", "ownerEmail", "department", "location",
   "purchaseDate", "purchaseOrderNo", "cost", "vendorName", "warrantyExpiry", "ipAddress", "macAddress",
   "osVersion", "configuration", "notes"] as const;
 
@@ -151,7 +205,10 @@ router.post("/assets/import", requireAuth, async (req, res) => {
       if (r.status) {
         const s = IMPORT_STATUSES.find(x => x.toLowerCase() === r.status.toLowerCase());
         if (!s) err("Status", `"${r.status}" is not valid. Use one of: ${IMPORT_STATUSES.join(", ")}`); else r.status = s;
-      } else r.status = "In Stock";
+      } else r.status = r.ownerName ? "Allocated" : "In Stock";
+      if (r.status === "Allocated" && !r.ownerName) err("Assigned To", "Required when Status is Allocated");
+      if (r.status !== "Allocated" && (r.ownerName || r.ownerEmail || r.ownerEmployeeCode)) err("Assigned To", `Only Allocated assets can have an employee — set Status to Allocated or clear Assigned To`);
+      if (r.ownerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.ownerEmail)) err("Employee Email", `"${r.ownerEmail}" is not a valid email`);
       if (!r.vendorName) err("Vendor", "Required");
       for (const [f, label] of [["purchaseDate", "Purchase Date"], ["warrantyExpiry", "Warranty Expiry"]] as const) {
         if (r[f] && !DATE_RE.test(r[f])) err(label, `"${r[f]}" must be a date in YYYY-MM-DD format`);
@@ -196,9 +253,25 @@ router.post("/assets/import", requireAuth, async (req, res) => {
         }
       }
       const values = clean.map(({ tagGenerated, ...r }) => { const v = vendorByName.get(r.vendorName.toLowerCase())!; return { ...r, vendorId: v.id, vendorName: v.name, createdBy: performedBy, updatedBy: performedBy }; });
-      const out: { id: number; status: string }[] = [];
+      const out: { id: number; status: string; assetTag: string }[] = [];
       for (let i = 0; i < values.length; i += 500) {
-        out.push(...await tx.insert(assetsTable).values(values.slice(i, i + 500)).returning({ id: assetsTable.id, status: assetsTable.status }));
+        out.push(...await tx.insert(assetsTable).values(values.slice(i, i + 500)).returning({ id: assetsTable.id, status: assetsTable.status, assetTag: assetsTable.assetTag }));
+      }
+      // Assets uploaded as Allocated get an open handover record (acknowledgement pending)
+      const byTag = new Map(values.map(v => [v.assetTag, v]));
+      const users = await tx.select({ id: usersTable.id, email: usersTable.email }).from(usersTable);
+      const userByEmail = new Map(users.map(u => [u.email.toLowerCase(), u.id]));
+      const allocated = out.filter(a => a.status === "Allocated");
+      for (const a of allocated) {
+        const v: any = byTag.get(a.assetTag);
+        const userId = v.ownerEmail ? userByEmail.get(v.ownerEmail.toLowerCase()) ?? null : null;
+        const [al] = await tx.insert(assetAllocationsTable).values({
+          assetId: a.id, userId, userName: v.ownerName, email: v.ownerEmail, employeeCode: v.ownerEmployeeCode, department: v.department, location: v.location,
+          startDate: v.purchaseDate || new Date().toISOString().slice(0, 10), status: "Active", allocationType: "Permanent", issueCondition: "Good",
+          issuedBy: "Asset register upload", ackStatus: "Pending", notes: "Created from asset register upload", createdBy: performedBy,
+        }).returning({ id: assetAllocationsTable.id });
+        await tx.update(assetAllocationsTable).set({ handoverNo: `HO-${new Date().getFullYear()}-${String(al.id).padStart(5, "0")}` }).where(eq(assetAllocationsTable.id, al.id));
+        if (userId) await tx.update(assetsTable).set({ ownerId: userId }).where(eq(assetsTable.id, a.id));
       }
       for (let i = 0; i < out.length; i += 500) {
         await tx.insert(assetTransactionsTable).values(out.slice(i, i + 500).map(a => ({ assetId: a.id, action: "Imported", newStatus: a.status, userName: performedBy, notes: "Asset register upload" })));
@@ -357,62 +430,8 @@ router.get("/asset-allocations", requireAuth, async (_req, res) => {
   } catch (e) { handleError(res, e); }
 });
 
-router.post("/asset-allocations", requireAuth, async (req, res) => {
-  try {
-    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
-    const [item] = await db.insert(assetAllocationsTable).values({ ...req.body, createdBy: performedBy }).returning();
-    if (req.body.assetId) {
-      await db.update(assetsTable).set({ status: "Allocated", ownerName: req.body.userName, department: req.body.department }).where(eq(assetsTable.id, req.body.assetId));
-      await db.insert(assetTransactionsTable).values({ assetId: req.body.assetId, action: "Allocation", oldStatus: "In Stock", newStatus: "Allocated", userName: performedBy });
-    }
-    await safeLog({ entityType: "asset_allocation", entityId: item.id, action: "create", performedBy, summary: `Allocated asset #${req.body.assetId} to ${req.body.userName}`, newValues: item, context: buildContext(req, "Allocations") });
-    res.status(201).json(item);
-  } catch (e) { handleError(res, e); }
-});
-
-/* Bulk allocation — POST /asset-allocations/bulk */
-router.post("/asset-allocations/bulk", requireAuth, async (req, res) => {
-  try {
-    const { assetIds, userId, userName, employeeCode, designation, department, startDate, notes } = req.body as { assetIds: number[]; userId?: number; userName: string; employeeCode?: string; designation?: string; department?: string; startDate?: string; notes?: string };
-    if (!assetIds?.length || !userName) {
-      res.status(400).json({ error: "assetIds and userName are required" });
-      return;
-    }
-    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
-    const ctx = buildContext(req, "Allocations");
-    const results = [];
-    for (const assetId of assetIds) {
-      const [item] = await db.insert(assetAllocationsTable).values({ assetId, userId, userName, employeeCode, designation, department, startDate: startDate || new Date().toISOString().split("T")[0], status: "Active", notes, createdBy: performedBy }).returning();
-      await db.update(assetsTable).set({ status: "Allocated", ownerName: userName, department }).where(eq(assetsTable.id, assetId));
-      await db.insert(assetTransactionsTable).values({ assetId, action: "Bulk Allocation", oldStatus: "In Stock", newStatus: "Allocated", userName: performedBy, notes: `Bulk allocated to ${userName}` });
-      results.push(item);
-    }
-    await safeLog({ entityType: "asset_allocation", action: "bulk_create", performedBy, summary: `Bulk allocated ${assetIds.length} assets to ${userName}`, newValues: { assetIds, userName, department }, context: ctx });
-    res.status(201).json({ count: results.length, allocations: results });
-  } catch (e) { handleError(res, e); }
-});
-
-router.patch("/asset-allocations/:id", requireAuth, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
-    const [item] = await db.update(assetAllocationsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(assetAllocationsTable.id, id)).returning();
-    if (req.body.status === "Returned" && item.assetId) {
-      await db.update(assetsTable).set({ status: "In Stock", ownerName: null }).where(eq(assetsTable.id, item.assetId));
-      await db.insert(assetTransactionsTable).values({ assetId: item.assetId, action: "Return", oldStatus: "Allocated", newStatus: "In Stock", userName: performedBy });
-    }
-    await safeLog({ entityType: "asset_allocation", entityId: id, action: "update", performedBy, summary: `Updated allocation #${id}`, newValues: item, context: buildContext(req, "Allocations") });
-    res.json(item);
-  } catch (e) { handleError(res, e); }
-});
-
-router.delete("/asset-allocations/:id", requireAuth, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    await db.delete(assetAllocationsTable).where(eq(assetAllocationsTable.id, id));
-    res.status(204).end();
-  } catch (e) { handleError(res, e); }
-});
+// Issue / return / bulk issue / acknowledgement live in asset-lifecycle.ts so every
+// status change follows the lifecycle rules and creates a handover record.
 
 /* ─── TRANSACTIONS ───────────────────────────────────────────────────────── */
 
@@ -429,6 +448,27 @@ router.get("/asset-transactions", requireAuth, async (req, res) => {
 
 /* ─── MAINTENANCE RECORDS ────────────────────────────────────────────────── */
 
+// Starting maintenance keeps the employee assignment (a laptop can be in repair while still issued);
+// completing it puts the asset back in the state it was in before the repair.
+async function startMaintenance(assetId: number, performedBy: string, notes?: string | null) {
+  const [a] = await db.select().from(assetsTable).where(eq(assetsTable.id, assetId));
+  if (!a || ["Under Maintenance", "Retired", "Disposed", "Lost / Stolen"].includes(a.status)) return;
+  await db.update(assetsTable).set({ status: "Under Maintenance" }).where(eq(assetsTable.id, assetId));
+  await db.insert(assetTransactionsTable).values({ assetId, action: "Sent for Repair", oldStatus: a.status, newStatus: "Under Maintenance", userName: performedBy, notes: notes || null });
+}
+async function completeMaintenance(assetId: number, performedBy: string, notes?: string | null) {
+  const [a] = await db.select().from(assetsTable).where(eq(assetsTable.id, assetId));
+  if (!a || a.status !== "Under Maintenance") return;
+  const [last] = await db.select().from(assetTransactionsTable)
+    .where(sql`${assetTransactionsTable.assetId} = ${assetId} AND ${assetTransactionsTable.newStatus} = 'Under Maintenance'`)
+    .orderBy(desc(assetTransactionsTable.createdAt)).limit(1);
+  const [active] = await db.select({ id: assetAllocationsTable.id }).from(assetAllocationsTable)
+    .where(sql`${assetAllocationsTable.assetId} = ${assetId} AND ${assetAllocationsTable.status} = 'Active'`).limit(1);
+  const back = active ? "Allocated" : last?.oldStatus === "In Use" ? "In Use" : "In Stock";
+  await db.update(assetsTable).set({ status: back }).where(eq(assetsTable.id, assetId));
+  await db.insert(assetTransactionsTable).values({ assetId, action: "Repair Completed", oldStatus: "Under Maintenance", newStatus: back, userName: performedBy, notes: notes || null });
+}
+
 router.get("/maintenance-records", requireAuth, async (req, res) => {
   try {
     const assetId = req.query.assetId ? parseInt(req.query.assetId as string) : null;
@@ -444,10 +484,7 @@ router.post("/maintenance-records", requireAuth, async (req, res) => {
   try {
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     const [item] = await db.insert(maintenanceRecordsTable).values({ ...req.body, createdBy: performedBy }).returning();
-    if (req.body.assetId && req.body.status === "In Progress") {
-      await db.update(assetsTable).set({ status: "Under Maintenance" }).where(eq(assetsTable.id, req.body.assetId));
-      await db.insert(assetTransactionsTable).values({ assetId: req.body.assetId, action: "Maintenance Started", oldStatus: "In Use", newStatus: "Under Maintenance", userName: performedBy, notes: req.body.description });
-    }
+    if (req.body.assetId && req.body.status === "In Progress") await startMaintenance(Number(req.body.assetId), performedBy, req.body.description);
     await safeLog({ entityType: "maintenance", entityId: item.id, action: "create", performedBy, summary: `Created maintenance record for asset #${req.body.assetId}: ${req.body.description || req.body.type}`, newValues: item, context: buildContext(req, "Maintenance Records") });
     res.status(201).json(item);
   } catch (e) { handleError(res, e); }
@@ -459,10 +496,8 @@ router.patch("/maintenance-records/:id", requireAuth, async (req, res) => {
     const [old] = await db.select().from(maintenanceRecordsTable).where(eq(maintenanceRecordsTable.id, id));
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     const [item] = await db.update(maintenanceRecordsTable).set({ ...req.body, updatedAt: new Date() }).where(eq(maintenanceRecordsTable.id, id)).returning();
-    if (old?.status !== "Completed" && item.status === "Completed" && item.assetId) {
-      await db.update(assetsTable).set({ status: "In Use" }).where(eq(assetsTable.id, item.assetId));
-      await db.insert(assetTransactionsTable).values({ assetId: item.assetId, action: "Maintenance Completed", oldStatus: "Under Maintenance", newStatus: "In Use", userName: performedBy, notes: item.description || undefined });
-    }
+    if (old?.status !== "In Progress" && item.status === "In Progress" && item.assetId) await startMaintenance(item.assetId, performedBy, item.description);
+    if (old?.status !== "Completed" && item.status === "Completed" && item.assetId) await completeMaintenance(item.assetId, performedBy, item.description);
     await safeLog({ entityType: "maintenance", entityId: id, action: "update", performedBy, summary: `Updated maintenance record #${id}`, newValues: item, context: buildContext(req, "Maintenance Records") });
     res.json(item);
   } catch (e) { handleError(res, e); }

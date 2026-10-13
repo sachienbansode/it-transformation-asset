@@ -47,7 +47,10 @@ export default function Login() {
   });
 
   useEffect(() => {
-    if (user) navigate(user.defaultDashboard || "/");
+    if (!user) return;
+    let next: string | null = null;
+    try { next = sessionStorage.getItem("ashika-after-login"); sessionStorage.removeItem("ashika-after-login"); } catch { /* ignore */ }
+    navigate(next && next.startsWith("/") && !next.startsWith("//") ? next : (user.defaultDashboard || "/"));
   }, [user]);
 
   useEffect(() => {

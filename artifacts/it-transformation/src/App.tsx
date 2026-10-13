@@ -1,5 +1,5 @@
 import React from "react";
-import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { ConfirmDialogHost } from "@/components/confirm-dialog";
@@ -28,7 +28,10 @@ import AssetDashboard from "@/pages/asset-dashboard";
 import AssetRegistry from "@/pages/asset-registry";
 import AssetVendors from "@/pages/asset-vendors";
 import AssetLicenses from "@/pages/asset-licenses";
-import AssetAllocations from "@/pages/asset-allocations";
+import AssetHandovers from "@/pages/asset-handovers";
+import AssetEmployees from "@/pages/asset-employees";
+import MyAssets from "@/pages/my-assets";
+import AssetScan from "@/pages/asset-scan";
 import MaintenanceRecords from "@/pages/maintenance-records";
 import ItsmDashboard from "@/pages/itsm-dashboard";
 import ItsmIncidents from "@/pages/itsm-incidents";
@@ -39,6 +42,13 @@ import ItsmSlaPolicies from "@/pages/itsm-sla-policies";
 import ItsmServiceRequests from "@/pages/itsm-service-requests";
 import ItsmApprovalConfig from "@/pages/itsm-approval-config";
 import { Skeleton } from "@/components/ui/skeleton";
+
+// Remember where the user was going (e.g. a scanned asset QR link) so login can send them back there
+function LoginRedirect() {
+  const [location] = useLocation();
+  try { if (location && location !== "/" && location !== "/login") sessionStorage.setItem("ashika-after-login", location); } catch { /* ignore */ }
+  return <Redirect to="/login" />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -91,7 +101,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route>
         {!user ? (
-          <Redirect to="/login" />
+          <LoginRedirect />
         ) : (
           <Layout>
             <Switch>
@@ -121,7 +131,10 @@ function Router() {
               <Route path="/asset-registry" component={AssetRegistry} />
               <Route path="/asset-vendors" component={AssetVendors} />
               <Route path="/asset-licenses" component={AssetLicenses} />
-              <Route path="/asset-allocations" component={AssetAllocations} />
+              <Route path="/asset-allocations" component={AssetHandovers} />
+              <Route path="/asset-employees" component={AssetEmployees} />
+              <Route path="/my-assets" component={MyAssets} />
+              <Route path="/a/:tag" component={AssetScan} />
               <Route path="/maintenance-records" component={MaintenanceRecords} />
               <Route path="/itsm" component={ItsmDashboard} />
               <Route path="/itsm-incidents" component={ItsmIncidents} />
