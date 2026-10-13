@@ -66,6 +66,7 @@ export default function AssetVendors() {
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
 
   async function handleSave() {
+    if (!await confirmDialog(editingItem ? `Save changes to vendor "${formData.name || editingItem.name}"?` : `Create vendor "${formData.name || ""}"?`, { title: editingItem ? "Update vendor" : "Create vendor", confirmText: editingItem ? "Save changes" : "Create" })) return;
     try {
       if (editingItem) { await updateVendor.mutateAsync({ id: editingItem.id, ...formData }); toast({ title: "Vendor updated" }); }
       else { await createVendor.mutateAsync(formData); toast({ title: "Vendor created" }); }

@@ -267,6 +267,7 @@ export default function AssetAllocations() {
 
   async function handleSave() {
     if (!formData.assetId || !formData.userName) { toast({ title: "Asset and Assigned To are required", variant: "destructive" }); return; }
+    if (!await confirmDialog(editingItem ? `Save changes to this allocation for ${formData.userName}?` : `Allocate this asset to ${formData.userName}?`, { title: editingItem ? "Update allocation" : "Allocate asset", confirmText: editingItem ? "Save changes" : "Allocate" })) return;
     try {
       if (editingItem) { await updateAlloc.mutateAsync({ id: editingItem.id, ...formData }); toast({ title: "Allocation updated" }); }
       else { await createAlloc.mutateAsync(formData); toast({ title: "Allocation created" }); }
@@ -277,6 +278,7 @@ export default function AssetAllocations() {
   async function handleBulkSave() {
     if (!bulkSelectedIds.length) { toast({ title: "Select at least one asset", variant: "destructive" }); return; }
     if (!bulkForm.userName.trim()) { toast({ title: "Assigned To is required", variant: "destructive" }); return; }
+    if (!await confirmDialog(`Allocate ${bulkSelectedIds.length} asset(s) to ${bulkForm.userName}?`, { title: "Bulk allocate", confirmText: "Allocate" })) return;
     try {
       const result = await bulkAllocMutation.mutateAsync({ assetIds: bulkSelectedIds, ...bulkForm });
       toast({ title: `${result.count} assets allocated to ${bulkForm.userName}` });

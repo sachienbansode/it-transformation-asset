@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { db, assetsTable, assetCategoriesTable, assetVendorsTable, assetLicensesTable, assetAllocationsTable, assetTransactionsTable, maintenanceRecordsTable } from "@workspace/db";
 import { eq, desc, sql } from "drizzle-orm";
-import { requireAuth } from "./auth";
+import { requireAuth, requireAdmin } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
 
 const router = Router();
@@ -102,6 +102,124 @@ router.get("/assets/stats", requireAuth, async (_req, res) => {
     const byType = await db.select({ type: assetsTable.type, count: sql<number>`count(*)::int` }).from(assetsTable).where(eq(assetsTable.isActive, true)).groupBy(assetsTable.type);
     const totalCost = await db.select({ total: sql<string>`COALESCE(sum(cost), 0)` }).from(assetsTable).where(eq(assetsTable.isActive, true));
     res.json({ total: total[0]?.count || 0, byStatus, byType, totalCost: totalCost[0]?.total || "0" });
+  } catch (e) { handleError(res, e); }
+});
+
+/* ─── ASSET REGISTER IMPORT (Excel/CSV upload, validated, all-or-nothing) ─── */
+
+const IMPORT_TYPES = Object.keys(TYPE_PREFIX);
+const IMPORT_STATUSES = ["In Stock", "Allocated", "In Use", "Under Maintenance", "Retired", "Disposed"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const IMPORT_FIELDS = ["assetTag", "name", "type", "serialNumber", "status", "ownerName", "department", "location",
+  "purchaseDate", "purchaseOrderNo", "cost", "vendorName", "warrantyExpiry", "ipAddress", "macAddress",
+  "osVersion", "configuration", "notes"] as const;
+
+type ImportError = { row: number; field: string; message: string };
+
+router.post("/assets/import", requireAuth, async (req, res) => {
+  try {
+    const rows: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const dryRun = req.body?.dryRun !== false;
+    if (rows.length === 0) { res.status(400).json({ error: "The file has no asset rows." }); return; }
+    if (rows.length > 5000) { res.status(400).json({ error: "Maximum 5,000 rows per upload." }); return; }
+
+    const errors: ImportError[] = [];
+    const existing = await db.select({ assetTag: assetsTable.assetTag, type: assetsTable.type, serialNumber: assetsTable.serialNumber, isActive: assetsTable.isActive }).from(assetsTable);
+    const usedTags = new Set(existing.map(a => a.assetTag.toLowerCase()));
+    const usedSerials = new Set(existing.filter(a => a.isActive && a.serialNumber).map(a => `${a.type}|${a.serialNumber!.toLowerCase()}`));
+    const typeCounts: Record<string, number> = {};
+    for (const a of existing) typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
+
+    const clean: any[] = [];
+    rows.forEach((raw, i) => {
+      const rowNo = Number(raw?.__row) || i + 2; // Excel row number (header is row 1)
+      const r: any = {};
+      for (const f of IMPORT_FIELDS) {
+        const v = raw?.[f];
+        r[f] = v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim();
+      }
+      const err = (field: string, message: string) => errors.push({ row: rowNo, field, message });
+
+      if (r.assetTag && /^sample-/i.test(r.assetTag)) { err("Asset Tag", "Sample row from the template — delete it before uploading"); return; }
+      if (!r.name) err("Asset Name", "Required");
+      if (!r.type) err("Asset Type", "Required");
+      else {
+        const t = IMPORT_TYPES.find(x => x.toLowerCase() === r.type.toLowerCase());
+        if (!t) err("Asset Type", `"${r.type}" is not valid. Use one of: ${IMPORT_TYPES.join(", ")}`); else r.type = t;
+      }
+      if (!r.serialNumber) err("Serial Number", "Required");
+      if (r.status) {
+        const s = IMPORT_STATUSES.find(x => x.toLowerCase() === r.status.toLowerCase());
+        if (!s) err("Status", `"${r.status}" is not valid. Use one of: ${IMPORT_STATUSES.join(", ")}`); else r.status = s;
+      } else r.status = "In Stock";
+      if (!r.vendorName) err("Vendor", "Required");
+      for (const [f, label] of [["purchaseDate", "Purchase Date"], ["warrantyExpiry", "Warranty Expiry"]] as const) {
+        if (r[f] && !DATE_RE.test(r[f])) err(label, `"${r[f]}" must be a date in YYYY-MM-DD format`);
+      }
+      if (r.cost) {
+        const n = Number(String(r.cost).replace(/[,₹\s]/g, ""));
+        if (!Number.isFinite(n) || n < 0) err("Cost", `"${r.cost}" is not a valid amount`); else r.cost = n.toFixed(2);
+      }
+      if (r.assetTag) {
+        if (usedTags.has(r.assetTag.toLowerCase())) err("Asset Tag", `"${r.assetTag}" already exists`);
+        else usedTags.add(r.assetTag.toLowerCase());
+      }
+      if (r.type && r.serialNumber) {
+        const k = `${r.type}|${r.serialNumber.toLowerCase()}`;
+        if (usedSerials.has(k)) err("Serial Number", `"${r.serialNumber}" already exists for type ${r.type}`);
+        else usedSerials.add(k);
+      }
+      clean.push(r);
+    });
+
+    // Auto-generate missing asset tags per type (e.g. LAP-0001), skipping tags already in use
+    for (const r of clean) {
+      if (r.assetTag || !r.type) continue;
+      const prefix = TYPE_PREFIX[r.type] || "AST";
+      let n = typeCounts[r.type] || 0, tag = "";
+      do { n += 1; tag = `${prefix}-${String(n).padStart(4, "0")}`; } while (usedTags.has(tag.toLowerCase()));
+      typeCounts[r.type] = n; usedTags.add(tag.toLowerCase()); r.assetTag = tag; r.tagGenerated = true;
+    }
+
+    const summary = { total: rows.length, valid: rows.length - new Set(errors.map(e => e.row)).size, errors, generatedTags: clean.filter(r => r.tagGenerated).length };
+    if (dryRun || errors.length) { res.json({ ...summary, inserted: 0, dryRun: true, preview: clean.slice(0, 5) }); return; }
+
+    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+    const inserted = await db.transaction(async (tx) => {
+      const vendors = await tx.select({ id: assetVendorsTable.id, name: assetVendorsTable.name }).from(assetVendorsTable).where(eq(assetVendorsTable.isActive, true));
+      const vendorByName = new Map(vendors.map(v => [v.name.trim().toLowerCase(), { id: v.id, name: v.name }]));
+      for (const r of clean) {
+        const key = r.vendorName.toLowerCase();
+        if (!vendorByName.has(key)) {
+          const [v] = await tx.insert(assetVendorsTable).values({ name: r.vendorName, status: "Active", createdBy: performedBy, updatedBy: performedBy }).returning({ id: assetVendorsTable.id });
+          vendorByName.set(key, { id: v.id, name: r.vendorName });
+        }
+      }
+      const values = clean.map(({ tagGenerated, ...r }) => { const v = vendorByName.get(r.vendorName.toLowerCase())!; return { ...r, vendorId: v.id, vendorName: v.name, createdBy: performedBy, updatedBy: performedBy }; });
+      const out: { id: number; status: string }[] = [];
+      for (let i = 0; i < values.length; i += 500) {
+        out.push(...await tx.insert(assetsTable).values(values.slice(i, i + 500)).returning({ id: assetsTable.id, status: assetsTable.status }));
+      }
+      for (let i = 0; i < out.length; i += 500) {
+        await tx.insert(assetTransactionsTable).values(out.slice(i, i + 500).map(a => ({ assetId: a.id, action: "Imported", newStatus: a.status, userName: performedBy, notes: "Asset register upload" })));
+      }
+      return out.length;
+    });
+    await safeLog({ entityType: "asset", action: "import", performedBy, summary: `Imported ${inserted} assets from asset register upload`, context: buildContext(req, "Asset Registry") });
+    res.json({ ...summary, inserted, dryRun: false });
+  } catch (e) { handleError(res, e); }
+});
+
+/* ─── CLEAR ALL ASSET MODULE DATA (admin only) ───────────────────────────── */
+
+router.post("/assets/purge", requireAdmin, async (req, res) => {
+  try {
+    if (req.body?.confirm !== "DELETE ALL ASSET DATA") { res.status(400).json({ error: "Confirmation text missing" }); return; }
+    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(assetsTable);
+    await db.execute(sql`TRUNCATE TABLE asset_transactions, asset_allocations, maintenance_records, asset_licenses, assets, asset_vendors RESTART IDENTITY`);
+    await safeLog({ entityType: "asset", action: "purge", performedBy, summary: `Cleared all asset management data (${count} assets, plus vendors, licenses, allocations, maintenance and history)`, context: buildContext(req, "Asset Registry") });
+    res.json({ ok: true, assetsDeleted: count });
   } catch (e) { handleError(res, e); }
 });
 

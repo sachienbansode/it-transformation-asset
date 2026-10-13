@@ -10,12 +10,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Monitor, Box, Eye, Wrench, Archive, Tag, AlertCircle, Loader2, Printer, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Monitor, Box, Eye, Wrench, Archive, Tag, AlertCircle, Loader2, Printer, Download, Upload, FileSpreadsheet, Eraser } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { AssetRegisterUpload, downloadAssetTemplate, ASSET_TYPES, ASSET_STATUSES } from "@/components/asset-register-upload";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -33,8 +34,6 @@ const STATUS_BADGE: Record<string, string> = {
   "Retired": "border-gray-400/30 text-gray-500 bg-gray-50 dark:bg-gray-400/10",
   "Disposed": "border-red-500/30 text-red-600 bg-red-50 dark:bg-red-400/10",
 };
-const ASSET_TYPES = ["Laptop", "Desktop", "Server", "Network Switch", "Firewall", "Access Point", "Printer", "Tablet", "Mobile", "Storage", "UPS", "Others"];
-const ASSET_STATUSES = ["In Stock", "Allocated", "In Use", "Under Maintenance", "Retired", "Disposed"];
 
 /* ─── Asset Transaction History ─────────────────────────────────────────── */
 function AssetHistory({ assetId, assetTag }: { assetId: number; assetTag: string }) {
@@ -172,6 +171,8 @@ export default function AssetRegistry() {
   const [formData, setFormData] = useState<any>({});
   const [tagLoading, setTagLoading] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [purging, setPurging] = useState(false);
 
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => apiFetch<any[]>("/assets") });
   const { data: stats } = useQuery({ queryKey: ["assets-stats"], queryFn: () => apiFetch<any>("/assets/stats") });
@@ -247,6 +248,7 @@ export default function AssetRegistry() {
 
   async function handleSave() {
     if (!validateForm()) return;
+    if (!await confirmDialog(editingItem ? `Save changes to asset "${formData.name}" (${formData.assetTag || editingItem.assetTag})?` : `Register asset "${formData.name}"${formData.assetTag ? ` as ${formData.assetTag}` : ""}?`, { title: editingItem ? "Update asset" : "Register asset", confirmText: editingItem ? "Save changes" : "Register" })) return;
     const vendorId = formData.vendorSelect && formData.vendorSelect !== "__others__" ? parseInt(formData.vendorSelect) : undefined;
     const vendorObj = vendors.find((v: any) => v.id === vendorId);
     const vendorName = vendorId ? vendorObj?.name : formData.vendorOthersName?.trim();
@@ -287,6 +289,22 @@ export default function AssetRegistry() {
     }
   }
 
+  async function handlePurge() {
+    const first = await confirmDialog(
+      `Delete ALL asset management data?\n\nThis removes ${assets.length} asset(s) and every vendor, license, allocation, maintenance record and asset history entry. Asset categories are kept.\n\nThis cannot be undone — export the register first if you need a copy.`,
+      { title: "Clear all asset data", confirmText: "Continue", destructive: true });
+    if (!first) return;
+    const second = await confirmDialog("Last check: permanently delete all asset management data now?", { title: "Confirm permanent delete", confirmText: "Delete everything", destructive: true });
+    if (!second) return;
+    setPurging(true);
+    try {
+      const r = await apiFetch<any>("/assets/purge", { method: "POST", body: JSON.stringify({ confirm: "DELETE ALL ASSET DATA" }) });
+      queryClient.invalidateQueries();
+      toast({ title: "Asset data cleared", description: `${r.assetsDeleted} asset(s) and all related records deleted.` });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setPurging(false); }
+  }
+
   async function handleDelete(id: number, name: string) {
     if (!await confirmDialog(`Delete asset "${name}"? This action cannot be undone.`)) return;
     try {
@@ -302,8 +320,11 @@ export default function AssetRegistry() {
           <h1 className="text-2xl font-bold tracking-tight">Asset Registry</h1>
           <p className="text-sm text-muted-foreground">Manage all IT hardware and equipment — {user?.name}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 justify-end">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(assets, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"purchaseCost"},{label:"Manufacturer",key:"manufacturer"},{label:"Model",key:"model"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], "asset-registry.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
+          {isAdmin && <Button variant="outline" size="sm" onClick={handlePurge} disabled={purging} className="gap-1.5 text-red-600 hover:text-red-700 border-red-500/30">{purging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eraser className="w-4 h-4" />}Clear All Data</Button>}
+          <Button variant="outline" size="sm" onClick={downloadAssetTemplate} className="gap-1.5"><FileSpreadsheet className="w-4 h-4" />Template</Button>
+          <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5"><Upload className="w-4 h-4" />Upload Register</Button>
           <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />Add Asset</Button>
         </div>
       </div>
@@ -658,6 +679,8 @@ export default function AssetRegistry() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AssetRegisterUpload open={uploadOpen} onClose={() => setUploadOpen(false)} />
 
       {/* Sticker Print */}
       {stickerAsset && <StickerPrintDialog asset={stickerAsset} onClose={() => setStickerAsset(null)} />}

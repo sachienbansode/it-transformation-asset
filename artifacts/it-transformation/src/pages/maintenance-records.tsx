@@ -124,6 +124,7 @@ export default function MaintenanceRecords() {
 
   async function handleSave() {
     if (!validate()) return;
+    if (!await confirmDialog(editingItem ? "Save changes to this maintenance record?" : "Create this maintenance record?", { title: editingItem ? "Update maintenance" : "Schedule maintenance", confirmText: editingItem ? "Save changes" : "Create" })) return;
     try {
       if (editingItem) {
         await updateRecord.mutateAsync({ id: editingItem.id, ...formData });

@@ -87,6 +87,7 @@ export default function AssetLicenses() {
 
   async function handleSave() {
     if (!validate()) return;
+    if (!await confirmDialog(editingItem ? `Save changes to license "${formData.productName || editingItem.productName}"?` : `Create license "${formData.productName || ""}"?`, { title: editingItem ? "Update license" : "Create license", confirmText: editingItem ? "Save changes" : "Create" })) return;
     try {
       if (editingItem) { await updateLicense.mutateAsync({ id: editingItem.id, ...formData }); toast({ title: "License updated" }); }
       else { await createLicense.mutateAsync(formData); toast({ title: "License created" }); }

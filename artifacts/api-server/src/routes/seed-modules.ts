@@ -7,64 +7,69 @@ export async function seedAssetAndItsmModules() {
 
   if (assetCount > 0 && incidentCount > 0) return;
 
-  await db.insert(assetCategoriesTable).values([
-    { name: "Desktops", description: "Desktop computers and workstations" },
-    { name: "Laptops", description: "Portable computing devices" },
-    { name: "Servers", description: "Physical and virtual servers" },
-    { name: "Networking", description: "Routers, switches, firewalls" },
-    { name: "Printers", description: "Printers and MFDs" },
-    { name: "Mobile Devices", description: "Tablets and smartphones" },
-    { name: "Software", description: "Enterprise software licenses" },
-    { name: "Peripherals", description: "Monitors, keyboards, mice" },
-  ]);
+  // Demo asset data is only loaded when explicitly requested (SEED_DEMO_ASSETS=true),
+  // so clearing the asset register does not bring the sample assets back on restart.
+  if (assetCount === 0 && process.env.SEED_DEMO_ASSETS === "true") {
+    await db.insert(assetCategoriesTable).values([
+      { name: "Desktops", description: "Desktop computers and workstations" },
+      { name: "Laptops", description: "Portable computing devices" },
+      { name: "Servers", description: "Physical and virtual servers" },
+      { name: "Networking", description: "Routers, switches, firewalls" },
+      { name: "Printers", description: "Printers and MFDs" },
+      { name: "Mobile Devices", description: "Tablets and smartphones" },
+      { name: "Software", description: "Enterprise software licenses" },
+      { name: "Peripherals", description: "Monitors, keyboards, mice" },
+    ]);
 
-  await db.insert(assetVendorsTable).values([
-    { name: "Dell Technologies", contactPerson: "Rajesh Kumar", email: "rajesh@dell.com", phone: "+91 22 4567 8901", contractStart: "2024-01-01", contractEnd: "2026-12-31", rating: 4, status: "Active" },
-    { name: "HP Enterprise", contactPerson: "Priya Sharma", email: "priya@hpe.com", phone: "+91 22 4567 8902", contractStart: "2024-03-01", contractEnd: "2026-02-28", rating: 5, status: "Active" },
-    { name: "Cisco Systems", contactPerson: "Amit Patel", email: "amit@cisco.com", phone: "+91 22 4567 8903", contractStart: "2024-06-01", contractEnd: "2027-05-31", rating: 4, status: "Active" },
-    { name: "Microsoft India", contactPerson: "Neha Gupta", email: "neha@microsoft.com", phone: "+91 22 4567 8904", contractStart: "2024-01-01", contractEnd: "2025-12-31", rating: 5, status: "Active" },
-    { name: "Lenovo India", contactPerson: "Suresh Iyer", email: "suresh@lenovo.com", phone: "+91 22 4567 8905", contractStart: "2025-01-01", contractEnd: "2027-12-31", rating: 3, status: "Active" },
-  ]);
+    await db.insert(assetVendorsTable).values([
+      { name: "Dell Technologies", contactPerson: "Rajesh Kumar", email: "rajesh@dell.com", phone: "+91 22 4567 8901", contractStart: "2024-01-01", contractEnd: "2026-12-31", rating: 4, status: "Active" },
+      { name: "HP Enterprise", contactPerson: "Priya Sharma", email: "priya@hpe.com", phone: "+91 22 4567 8902", contractStart: "2024-03-01", contractEnd: "2026-02-28", rating: 5, status: "Active" },
+      { name: "Cisco Systems", contactPerson: "Amit Patel", email: "amit@cisco.com", phone: "+91 22 4567 8903", contractStart: "2024-06-01", contractEnd: "2027-05-31", rating: 4, status: "Active" },
+      { name: "Microsoft India", contactPerson: "Neha Gupta", email: "neha@microsoft.com", phone: "+91 22 4567 8904", contractStart: "2024-01-01", contractEnd: "2025-12-31", rating: 5, status: "Active" },
+      { name: "Lenovo India", contactPerson: "Suresh Iyer", email: "suresh@lenovo.com", phone: "+91 22 4567 8905", contractStart: "2025-01-01", contractEnd: "2027-12-31", rating: 3, status: "Active" },
+    ]);
 
-  await db.insert(assetsTable).values([
-    { assetTag: "AST-LAP-001", name: "Dell Latitude 5540", type: "Laptop", categoryId: 2, serialNumber: "DL5540-XK8J2", status: "Allocated", ownerName: "Vikram Shah", department: "Broking IT", location: "Mumbai HQ - 5th Floor", purchaseDate: "2024-03-15", cost: "89500.00", vendorName: "Dell Technologies", warrantyExpiry: "2027-03-14", osVersion: "Windows 11 Pro", configuration: "i7-1365U / 16GB / 512GB SSD" },
-    { assetTag: "AST-LAP-002", name: "HP EliteBook 860 G10", type: "Laptop", categoryId: 2, serialNumber: "HP860-MN4R7", status: "Allocated", ownerName: "Priyanka Mehta", department: "NBFC Operations", location: "Mumbai HQ - 3rd Floor", purchaseDate: "2024-05-20", cost: "112000.00", vendorName: "HP Enterprise", warrantyExpiry: "2027-05-19", osVersion: "Windows 11 Pro", configuration: "i7-1370P / 32GB / 1TB SSD" },
-    { assetTag: "AST-SRV-001", name: "Dell PowerEdge R760", type: "Server", categoryId: 3, serialNumber: "DPE760-QW3K9", status: "In Use", ownerName: "IT Infrastructure", department: "Technology", location: "Navi Mumbai DC - Rack A3", purchaseDate: "2024-01-10", cost: "850000.00", vendorName: "Dell Technologies", warrantyExpiry: "2029-01-09", configuration: "Xeon Gold 6448Y / 256GB / 8TB RAID" },
-    { assetTag: "AST-SRV-002", name: "HP ProLiant DL380 Gen11", type: "Server", categoryId: 3, serialNumber: "HPL380-RT5P2", status: "In Use", ownerName: "IT Infrastructure", department: "Technology", location: "Navi Mumbai DC - Rack B1", purchaseDate: "2024-02-15", cost: "720000.00", vendorName: "HP Enterprise", warrantyExpiry: "2029-02-14", configuration: "Xeon Silver 4416+ / 128GB / 4TB RAID" },
-    { assetTag: "AST-NET-001", name: "Cisco Catalyst 9300-48P", type: "Network Switch", categoryId: 4, serialNumber: "C9300-WQ7N3", status: "In Use", department: "Technology", location: "Mumbai HQ - Server Room", purchaseDate: "2024-04-01", cost: "345000.00", vendorName: "Cisco Systems", warrantyExpiry: "2029-03-31", configuration: "48-port PoE+ / 10G Uplinks" },
-    { assetTag: "AST-NET-002", name: "Cisco ASA 5525-X Firewall", type: "Firewall", categoryId: 4, serialNumber: "ASA5525-JP8M1", status: "In Use", department: "Technology", location: "Navi Mumbai DC", purchaseDate: "2024-01-15", cost: "485000.00", vendorName: "Cisco Systems", warrantyExpiry: "2027-01-14", configuration: "Next-Gen Firewall / IPS / VPN" },
-    { assetTag: "AST-DES-001", name: "Dell OptiPlex 7010", type: "Desktop", categoryId: 1, serialNumber: "DO7010-LK6H4", status: "Allocated", ownerName: "Rahul Desai", department: "Institutional Equities", location: "Mumbai HQ - 7th Floor", purchaseDate: "2024-06-10", cost: "65000.00", vendorName: "Dell Technologies", warrantyExpiry: "2027-06-09", configuration: "i5-13600 / 16GB / 256GB SSD" },
-    { assetTag: "AST-DES-002", name: "HP ProDesk 400 G9", type: "Desktop", categoryId: 1, serialNumber: "HPD400-BV2N8", status: "In Stock", department: "IT Stores", location: "Mumbai HQ - IT Store", purchaseDate: "2025-01-20", cost: "58000.00", vendorName: "HP Enterprise", warrantyExpiry: "2028-01-19", configuration: "i5-12500 / 8GB / 256GB SSD" },
-    { assetTag: "AST-PRN-001", name: "HP LaserJet Pro MFP M428fdw", type: "Printer", categoryId: 5, serialNumber: "HPM428-XR4W6", status: "In Use", department: "Admin", location: "Mumbai HQ - 4th Floor", purchaseDate: "2024-08-15", cost: "42000.00", vendorName: "HP Enterprise", warrantyExpiry: "2026-08-14" },
-    { assetTag: "AST-LAP-003", name: "Lenovo ThinkPad X1 Carbon Gen 11", type: "Laptop", categoryId: 2, serialNumber: "LNX1C-TP3J5", status: "Allocated", ownerName: "Anita Krishnan", department: "AIF", location: "Mumbai HQ - 6th Floor", purchaseDate: "2024-09-01", cost: "145000.00", vendorName: "Lenovo India", warrantyExpiry: "2027-08-31", osVersion: "Windows 11 Pro", configuration: "i7-1365U / 32GB / 1TB SSD" },
-    { assetTag: "AST-MOB-001", name: "Samsung Galaxy Tab S9 FE", type: "Tablet", categoryId: 6, serialNumber: "SGT9-KM5L2", status: "Allocated", ownerName: "Sunil Joshi", department: "Sales", location: "Mumbai HQ", purchaseDate: "2025-02-10", cost: "38000.00", warrantyExpiry: "2026-02-09" },
-    { assetTag: "AST-SRV-003", name: "Dell PowerEdge R650xs", type: "Server", categoryId: 3, serialNumber: "DPE650-NQ1R8", status: "Under Maintenance", department: "Technology", location: "DR Site - Pune", purchaseDate: "2023-06-15", cost: "620000.00", vendorName: "Dell Technologies", warrantyExpiry: "2026-06-14", configuration: "Xeon Silver 4314 / 128GB / 4TB RAID" },
-    { assetTag: "AST-LAP-004", name: "Dell Latitude 7440", type: "Laptop", categoryId: 2, serialNumber: "DL7440-PX9K7", status: "In Stock", department: "IT Stores", location: "Mumbai HQ - IT Store", purchaseDate: "2025-03-01", cost: "95000.00", vendorName: "Dell Technologies", warrantyExpiry: "2028-02-28", configuration: "i7-1365U / 16GB / 512GB SSD" },
-    { assetTag: "AST-NET-003", name: "Cisco Meraki MR46", type: "Access Point", categoryId: 4, serialNumber: "MR46-HN3V9", status: "In Use", department: "Technology", location: "Mumbai HQ - All Floors", purchaseDate: "2024-07-01", cost: "78000.00", vendorName: "Cisco Systems", warrantyExpiry: "2029-06-30", configuration: "Wi-Fi 6 / Cloud Managed" },
-    { assetTag: "AST-DES-003", name: "Dell OptiPlex 5000", type: "Desktop", categoryId: 1, serialNumber: "DO5000-FY8T3", status: "Retired", department: "Technology", location: "IT Disposal", purchaseDate: "2020-03-15", cost: "52000.00", vendorName: "Dell Technologies", notes: "End of life - scheduled for disposal" },
-  ]);
+    await db.insert(assetsTable).values([
+      { assetTag: "AST-LAP-001", name: "Dell Latitude 5540", type: "Laptop", categoryId: 2, serialNumber: "DL5540-XK8J2", status: "Allocated", ownerName: "Vikram Shah", department: "Broking IT", location: "Mumbai HQ - 5th Floor", purchaseDate: "2024-03-15", cost: "89500.00", vendorName: "Dell Technologies", warrantyExpiry: "2027-03-14", osVersion: "Windows 11 Pro", configuration: "i7-1365U / 16GB / 512GB SSD" },
+      { assetTag: "AST-LAP-002", name: "HP EliteBook 860 G10", type: "Laptop", categoryId: 2, serialNumber: "HP860-MN4R7", status: "Allocated", ownerName: "Priyanka Mehta", department: "NBFC Operations", location: "Mumbai HQ - 3rd Floor", purchaseDate: "2024-05-20", cost: "112000.00", vendorName: "HP Enterprise", warrantyExpiry: "2027-05-19", osVersion: "Windows 11 Pro", configuration: "i7-1370P / 32GB / 1TB SSD" },
+      { assetTag: "AST-SRV-001", name: "Dell PowerEdge R760", type: "Server", categoryId: 3, serialNumber: "DPE760-QW3K9", status: "In Use", ownerName: "IT Infrastructure", department: "Technology", location: "Navi Mumbai DC - Rack A3", purchaseDate: "2024-01-10", cost: "850000.00", vendorName: "Dell Technologies", warrantyExpiry: "2029-01-09", configuration: "Xeon Gold 6448Y / 256GB / 8TB RAID" },
+      { assetTag: "AST-SRV-002", name: "HP ProLiant DL380 Gen11", type: "Server", categoryId: 3, serialNumber: "HPL380-RT5P2", status: "In Use", ownerName: "IT Infrastructure", department: "Technology", location: "Navi Mumbai DC - Rack B1", purchaseDate: "2024-02-15", cost: "720000.00", vendorName: "HP Enterprise", warrantyExpiry: "2029-02-14", configuration: "Xeon Silver 4416+ / 128GB / 4TB RAID" },
+      { assetTag: "AST-NET-001", name: "Cisco Catalyst 9300-48P", type: "Network Switch", categoryId: 4, serialNumber: "C9300-WQ7N3", status: "In Use", department: "Technology", location: "Mumbai HQ - Server Room", purchaseDate: "2024-04-01", cost: "345000.00", vendorName: "Cisco Systems", warrantyExpiry: "2029-03-31", configuration: "48-port PoE+ / 10G Uplinks" },
+      { assetTag: "AST-NET-002", name: "Cisco ASA 5525-X Firewall", type: "Firewall", categoryId: 4, serialNumber: "ASA5525-JP8M1", status: "In Use", department: "Technology", location: "Navi Mumbai DC", purchaseDate: "2024-01-15", cost: "485000.00", vendorName: "Cisco Systems", warrantyExpiry: "2027-01-14", configuration: "Next-Gen Firewall / IPS / VPN" },
+      { assetTag: "AST-DES-001", name: "Dell OptiPlex 7010", type: "Desktop", categoryId: 1, serialNumber: "DO7010-LK6H4", status: "Allocated", ownerName: "Rahul Desai", department: "Institutional Equities", location: "Mumbai HQ - 7th Floor", purchaseDate: "2024-06-10", cost: "65000.00", vendorName: "Dell Technologies", warrantyExpiry: "2027-06-09", configuration: "i5-13600 / 16GB / 256GB SSD" },
+      { assetTag: "AST-DES-002", name: "HP ProDesk 400 G9", type: "Desktop", categoryId: 1, serialNumber: "HPD400-BV2N8", status: "In Stock", department: "IT Stores", location: "Mumbai HQ - IT Store", purchaseDate: "2025-01-20", cost: "58000.00", vendorName: "HP Enterprise", warrantyExpiry: "2028-01-19", configuration: "i5-12500 / 8GB / 256GB SSD" },
+      { assetTag: "AST-PRN-001", name: "HP LaserJet Pro MFP M428fdw", type: "Printer", categoryId: 5, serialNumber: "HPM428-XR4W6", status: "In Use", department: "Admin", location: "Mumbai HQ - 4th Floor", purchaseDate: "2024-08-15", cost: "42000.00", vendorName: "HP Enterprise", warrantyExpiry: "2026-08-14" },
+      { assetTag: "AST-LAP-003", name: "Lenovo ThinkPad X1 Carbon Gen 11", type: "Laptop", categoryId: 2, serialNumber: "LNX1C-TP3J5", status: "Allocated", ownerName: "Anita Krishnan", department: "AIF", location: "Mumbai HQ - 6th Floor", purchaseDate: "2024-09-01", cost: "145000.00", vendorName: "Lenovo India", warrantyExpiry: "2027-08-31", osVersion: "Windows 11 Pro", configuration: "i7-1365U / 32GB / 1TB SSD" },
+      { assetTag: "AST-MOB-001", name: "Samsung Galaxy Tab S9 FE", type: "Tablet", categoryId: 6, serialNumber: "SGT9-KM5L2", status: "Allocated", ownerName: "Sunil Joshi", department: "Sales", location: "Mumbai HQ", purchaseDate: "2025-02-10", cost: "38000.00", warrantyExpiry: "2026-02-09" },
+      { assetTag: "AST-SRV-003", name: "Dell PowerEdge R650xs", type: "Server", categoryId: 3, serialNumber: "DPE650-NQ1R8", status: "Under Maintenance", department: "Technology", location: "DR Site - Pune", purchaseDate: "2023-06-15", cost: "620000.00", vendorName: "Dell Technologies", warrantyExpiry: "2026-06-14", configuration: "Xeon Silver 4314 / 128GB / 4TB RAID" },
+      { assetTag: "AST-LAP-004", name: "Dell Latitude 7440", type: "Laptop", categoryId: 2, serialNumber: "DL7440-PX9K7", status: "In Stock", department: "IT Stores", location: "Mumbai HQ - IT Store", purchaseDate: "2025-03-01", cost: "95000.00", vendorName: "Dell Technologies", warrantyExpiry: "2028-02-28", configuration: "i7-1365U / 16GB / 512GB SSD" },
+      { assetTag: "AST-NET-003", name: "Cisco Meraki MR46", type: "Access Point", categoryId: 4, serialNumber: "MR46-HN3V9", status: "In Use", department: "Technology", location: "Mumbai HQ - All Floors", purchaseDate: "2024-07-01", cost: "78000.00", vendorName: "Cisco Systems", warrantyExpiry: "2029-06-30", configuration: "Wi-Fi 6 / Cloud Managed" },
+      { assetTag: "AST-DES-003", name: "Dell OptiPlex 5000", type: "Desktop", categoryId: 1, serialNumber: "DO5000-FY8T3", status: "Retired", department: "Technology", location: "IT Disposal", purchaseDate: "2020-03-15", cost: "52000.00", vendorName: "Dell Technologies", notes: "End of life - scheduled for disposal" },
+    ]);
 
-  await db.insert(assetLicensesTable).values([
-    { productName: "Microsoft 365 E3", vendorName: "Microsoft India", licenseType: "Subscription", expiryDate: "2026-03-31", seatsTotal: 500, seatsUsed: 423, cost: "1800000.00", status: "Active" },
-    { productName: "Windows Server 2022 DC", vendorName: "Microsoft India", licenseType: "Perpetual", seatsTotal: 20, seatsUsed: 14, cost: "450000.00", status: "Active" },
-    { productName: "VMware vSphere Enterprise Plus", vendorName: "VMware/Broadcom", licenseType: "Subscription", expiryDate: "2025-12-31", seatsTotal: 12, seatsUsed: 10, cost: "680000.00", status: "Active" },
-    { productName: "Symantec Endpoint Protection", vendorName: "Broadcom", licenseType: "Subscription", expiryDate: "2025-09-30", seatsTotal: 600, seatsUsed: 478, cost: "320000.00", status: "Active" },
-    { productName: "ServiceNow ITSM", vendorName: "ServiceNow", licenseType: "Subscription", expiryDate: "2026-06-30", seatsTotal: 50, seatsUsed: 35, cost: "950000.00", status: "Active" },
-    { productName: "Adobe Creative Cloud", vendorName: "Adobe", licenseType: "Subscription", expiryDate: "2025-08-15", seatsTotal: 15, seatsUsed: 12, cost: "180000.00", status: "Expiring Soon" },
-    { productName: "Oracle Database SE2", vendorName: "Oracle India", licenseType: "Perpetual", seatsTotal: 4, seatsUsed: 4, cost: "1200000.00", status: "Active" },
-    { productName: "Zoom Business", vendorName: "Zoom", licenseType: "Subscription", expiryDate: "2025-07-31", seatsTotal: 200, seatsUsed: 167, cost: "240000.00", status: "Active" },
-  ]);
+    await db.insert(assetLicensesTable).values([
+      { productName: "Microsoft 365 E3", vendorName: "Microsoft India", licenseType: "Subscription", expiryDate: "2026-03-31", seatsTotal: 500, seatsUsed: 423, cost: "1800000.00", status: "Active" },
+      { productName: "Windows Server 2022 DC", vendorName: "Microsoft India", licenseType: "Perpetual", seatsTotal: 20, seatsUsed: 14, cost: "450000.00", status: "Active" },
+      { productName: "VMware vSphere Enterprise Plus", vendorName: "VMware/Broadcom", licenseType: "Subscription", expiryDate: "2025-12-31", seatsTotal: 12, seatsUsed: 10, cost: "680000.00", status: "Active" },
+      { productName: "Symantec Endpoint Protection", vendorName: "Broadcom", licenseType: "Subscription", expiryDate: "2025-09-30", seatsTotal: 600, seatsUsed: 478, cost: "320000.00", status: "Active" },
+      { productName: "ServiceNow ITSM", vendorName: "ServiceNow", licenseType: "Subscription", expiryDate: "2026-06-30", seatsTotal: 50, seatsUsed: 35, cost: "950000.00", status: "Active" },
+      { productName: "Adobe Creative Cloud", vendorName: "Adobe", licenseType: "Subscription", expiryDate: "2025-08-15", seatsTotal: 15, seatsUsed: 12, cost: "180000.00", status: "Expiring Soon" },
+      { productName: "Oracle Database SE2", vendorName: "Oracle India", licenseType: "Perpetual", seatsTotal: 4, seatsUsed: 4, cost: "1200000.00", status: "Active" },
+      { productName: "Zoom Business", vendorName: "Zoom", licenseType: "Subscription", expiryDate: "2025-07-31", seatsTotal: 200, seatsUsed: 167, cost: "240000.00", status: "Active" },
+    ]);
 
-  await db.insert(assetAllocationsTable).values([
-    { assetId: 1, userName: "Vikram Shah", department: "Broking IT", startDate: "2024-03-20", status: "Active" },
-    { assetId: 2, userName: "Priyanka Mehta", department: "NBFC Operations", startDate: "2024-05-25", status: "Active" },
-    { assetId: 7, userName: "Rahul Desai", department: "Institutional Equities", startDate: "2024-06-15", status: "Active" },
-    { assetId: 10, userName: "Anita Krishnan", department: "AIF", startDate: "2024-09-05", status: "Active" },
-    { assetId: 11, userName: "Sunil Joshi", department: "Sales", startDate: "2025-02-15", status: "Active" },
-  ]);
+    await db.insert(assetAllocationsTable).values([
+      { assetId: 1, userName: "Vikram Shah", department: "Broking IT", startDate: "2024-03-20", status: "Active" },
+      { assetId: 2, userName: "Priyanka Mehta", department: "NBFC Operations", startDate: "2024-05-25", status: "Active" },
+      { assetId: 7, userName: "Rahul Desai", department: "Institutional Equities", startDate: "2024-06-15", status: "Active" },
+      { assetId: 10, userName: "Anita Krishnan", department: "AIF", startDate: "2024-09-05", status: "Active" },
+      { assetId: 11, userName: "Sunil Joshi", department: "Sales", startDate: "2025-02-15", status: "Active" },
+    ]);
+  }
 
   const [{ count: incCount }] = await db.select({ count: sql<number>`count(*)::int` }).from(itsmIncidentsTable);
-  if (incCount > 0) return;
+  // Demo ITSM tickets/SLA policies only when explicitly requested, so a cleared database stays empty.
+  if (incCount > 0 || process.env.SEED_DEMO_ITSM !== "true") return;
 
   await db.insert(itsmSlaPoliciesTable).values([
     { name: "Critical SLA", priority: "Critical", responseTimeHours: 1, resolutionTimeHours: 4, escalationEnabled: true },
@@ -122,6 +127,7 @@ export async function seedAssetAndItsmModules() {
 }
 
 export async function seedExtendedItsmData() {
+  if (process.env.SEED_DEMO_ITSM !== "true") return;
   const [{ count: incidentCount }] = await db.select({ count: sql<number>`count(*)::int` }).from(itsmIncidentsTable);
   if (incidentCount >= 35) return; // Already extended
 
