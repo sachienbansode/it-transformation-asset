@@ -47,13 +47,14 @@ const TRACKED: Record<string, string> = {
   assetTag: "Asset tag", name: "Name", type: "Type", serialNumber: "Serial number", department: "Department", location: "Location",
   purchaseDate: "Purchase date", purchaseOrderNo: "PO number", cost: "Cost", vendorName: "Vendor", warrantyExpiry: "Warranty expiry",
   ipAddress: "IP address", macAddress: "MAC address", osVersion: "OS version", configuration: "Configuration", notes: "Notes", categoryId: "Category",
+  invoiceNo: "Invoice number", warrantyStart: "Warranty start", depreciationMethod: "Depreciation method", usefulLifeYears: "Useful life (years)", salvageValue: "Residual value",
 };
 const norm = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
 function diffAsset(oldA: any, newA: any) {
   const out: { field: string; label: string; from: string | null; to: string | null }[] = [];
   for (const [f, label] of Object.entries(TRACKED)) {
     let a = norm(oldA[f]), b = norm(newA[f]);
-    if (f === "cost") { a = a === null ? null : Number(a).toFixed(2); b = b === null ? null : Number(b).toFixed(2); }
+    if (f === "cost" || f === "salvageValue" || f === "usefulLifeYears") { a = a === null ? null : Number(a).toFixed(2); b = b === null ? null : Number(b).toFixed(2); }
     if (a !== b) out.push({ field: f, label, from: a, to: b });
   }
   return out;
@@ -290,7 +291,7 @@ router.post("/assets/purge", requireAdmin, async (req, res) => {
     if (req.body?.confirm !== "DELETE ALL ASSET DATA") { res.status(400).json({ error: "Confirmation text missing" }); return; }
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(assetsTable);
-    await db.execute(sql`TRUNCATE TABLE asset_transactions, asset_allocations, maintenance_records, asset_licenses, assets, asset_vendors RESTART IDENTITY`);
+    await db.execute(sql`TRUNCATE TABLE asset_transactions, asset_allocations, maintenance_records, asset_license_assignments, asset_licenses, asset_contract_assets, asset_contracts, asset_audit_items, asset_audits, assets, asset_vendors RESTART IDENTITY`);
     await safeLog({ entityType: "asset", action: "purge", performedBy, summary: `Cleared all asset management data (${count} assets, plus vendors, licenses, allocations, maintenance and history)`, context: buildContext(req, "Asset Registry") });
     res.json({ ok: true, assetsDeleted: count });
   } catch (e) { handleError(res, e); }
@@ -371,55 +372,7 @@ router.delete("/asset-vendors/:id", requireAuth, async (req, res) => {
   } catch (e) { handleError(res, e); }
 });
 
-/* ─── LICENSES ───────────────────────────────────────────────────────────── */
-
-router.get("/asset-licenses", requireAuth, async (_req, res) => {
-  try {
-    const items = await db.select().from(assetLicensesTable).where(eq(assetLicensesTable.isActive, true)).orderBy(desc(assetLicensesTable.createdAt));
-    res.json(items);
-  } catch (e) { handleError(res, e); }
-});
-
-router.post("/asset-licenses", requireAuth, async (req, res) => {
-  try {
-    const { seatsUsed = 0, seatsTotal = 1 } = req.body;
-    if (Number(seatsUsed) > Number(seatsTotal)) {
-      res.status(400).json({ error: `Seats used (${seatsUsed}) cannot exceed total seats (${seatsTotal})` });
-      return;
-    }
-    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
-    const [item] = await db.insert(assetLicensesTable).values({ ...req.body, createdBy: performedBy }).returning();
-    await safeLog({ entityType: "asset_license", entityId: item.id, action: "create", performedBy, summary: `Created license: ${item.productName}`, newValues: item, context: buildContext(req, "Licenses") });
-    res.status(201).json(item);
-  } catch (e) { handleError(res, e); }
-});
-
-router.patch("/asset-licenses/:id", requireAuth, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const seatsUsed = req.body.seatsUsed !== undefined ? Number(req.body.seatsUsed) : undefined;
-    const seatsTotal = req.body.seatsTotal !== undefined ? Number(req.body.seatsTotal) : undefined;
-    if (seatsUsed !== undefined && seatsTotal !== undefined && seatsUsed > seatsTotal) {
-      res.status(400).json({ error: `Seats used (${seatsUsed}) cannot exceed total seats (${seatsTotal})` });
-      return;
-    }
-    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
-    const [item] = await db.update(assetLicensesTable).set({ ...req.body, updatedBy: performedBy, updatedAt: new Date() }).where(eq(assetLicensesTable.id, id)).returning();
-    await safeLog({ entityType: "asset_license", entityId: id, action: "update", performedBy, summary: `Updated license: ${item.productName}`, newValues: item, context: buildContext(req, "Licenses") });
-    res.json(item);
-  } catch (e) { handleError(res, e); }
-});
-
-router.delete("/asset-licenses/:id", requireAuth, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const [old] = await db.select().from(assetLicensesTable).where(eq(assetLicensesTable.id, id));
-    const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
-    await db.update(assetLicensesTable).set({ isActive: false }).where(eq(assetLicensesTable.id, id));
-    await safeLog({ entityType: "asset_license", entityId: id, action: "delete", performedBy, summary: `Deleted license: ${old?.productName || id}`, context: buildContext(req, "Licenses") });
-    res.status(204).end();
-  } catch (e) { handleError(res, e); }
-});
+/* Licenses: see asset-licenses.ts (assignments + compliance) */
 
 /* ─── ALLOCATIONS ────────────────────────────────────────────────────────── */
 

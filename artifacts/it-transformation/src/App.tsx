@@ -28,6 +28,8 @@ import AssetDashboard from "@/pages/asset-dashboard";
 import AssetRegistry from "@/pages/asset-registry";
 import AssetVendors from "@/pages/asset-vendors";
 import AssetLicenses from "@/pages/asset-licenses";
+import AssetContracts from "@/pages/asset-contracts";
+import AssetDepreciation from "@/pages/asset-depreciation";
 import AssetHandovers from "@/pages/asset-handovers";
 import AssetEmployees from "@/pages/asset-employees";
 import MyAssets from "@/pages/my-assets";
@@ -133,6 +135,8 @@ function Router() {
               <Route path="/asset-registry" component={AssetRegistry} />
               <Route path="/asset-vendors" component={AssetVendors} />
               <Route path="/asset-licenses" component={AssetLicenses} />
+              <Route path="/asset-contracts" component={AssetContracts} />
+              <Route path="/asset-depreciation" component={AssetDepreciation} />
               <Route path="/asset-allocations" component={AssetHandovers} />
               <Route path="/asset-employees" component={AssetEmployees} />
               <Route path="/my-assets" component={MyAssets} />

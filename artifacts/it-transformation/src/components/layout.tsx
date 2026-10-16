@@ -8,7 +8,7 @@ import {
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
-  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop, ScanLine,
+  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop, ScanLine, FileSignature, TrendingDown,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -52,6 +52,8 @@ const ASSET_ITEMS = [
   { href: "/asset-registry", label: "Asset Registry", icon: HardDrive, module: "asset_registry" },
   { href: "/asset-vendors", label: "Vendors", icon: Building2, module: "asset_vendors" },
   { href: "/asset-licenses", label: "Licenses", icon: Shield, module: "asset_licenses" },
+  { href: "/asset-contracts", label: "Contracts & AMC", icon: FileSignature, module: "asset_vendors" },
+  { href: "/asset-depreciation", label: "Depreciation", icon: TrendingDown, module: "asset_registry" },
   { href: "/asset-allocations", label: "Handovers", icon: Users, module: "asset_allocations" },
   { href: "/asset-employees", label: "Employee Assets", icon: UserCheck, module: "asset_allocations" },
   { href: "/maintenance-records", label: "Maintenance", icon: Wrench, module: "maintenance_records" },

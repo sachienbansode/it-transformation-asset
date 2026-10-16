@@ -40,7 +40,7 @@ const norm = (s: string) => String(s).toLowerCase().replace(/\(.*?\)|\*/g, "").r
 const HEADER_MAP: Record<string, string> = Object.fromEntries(COLUMNS.flatMap(c => [[norm(c.header), c.key], [norm(c.key), c.key]]));
 Object.assign(HEADER_MAP, { employeecode: "ownerEmployeeCode", empcode: "ownerEmployeeCode", employeeemail: "ownerEmail", email: "ownerEmail", tag: "assetTag", name: "name", type: "type", serial: "serialNumber", serialno: "serialNumber", owner: "ownerName", ownername: "ownerName", cost: "cost", vendorname: "vendorName", ponumber: "purchaseOrderNo", pono: "purchaseOrderNo", warranty: "warrantyExpiry" });
 
-function toIsoDate(v: any): string {
+export function toIsoDate(v: any): string {
   if (v instanceof Date && !isNaN(v.getTime())) {
     const d = new Date(v.getTime() - v.getTimezoneOffset() * 60000);
     return d.toISOString().slice(0, 10);

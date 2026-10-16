@@ -18,6 +18,7 @@ import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { AssetRegisterUpload, downloadAssetTemplate, ASSET_TYPES, ASSET_STATUSES } from "@/components/asset-register-upload";
 import { StatusPill, LifecycleButtons, useLifecycleModel, AssetTrail } from "@/components/asset-lifecycle";
+import { AssetCoveragePanel } from "@/components/asset-finance";
 import { StickerDialog } from "@/components/asset-sticker";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
@@ -40,7 +41,7 @@ export default function AssetRegistry() {
   const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewModal, setViewModal] = useState<any>(null);
-  const [viewTab, setViewTab] = useState<"details" | "history">("details");
+  const [viewTab, setViewTab] = useState<"details" | "finance" | "history">("details");
   const [stickerAssets, setStickerAssets] = useState<any[] | null>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
@@ -146,6 +147,11 @@ export default function AssetRegistry() {
       vendorId: vendorId || null,
       vendorName: vendorName || null,
       warrantyExpiry: formData.warrantyExpiry || null,
+      warrantyStart: formData.warrantyStart || null,
+      invoiceNo: formData.invoiceNo || null,
+      depreciationMethod: formData.depreciationMethod && formData.depreciationMethod !== "__rule__" ? formData.depreciationMethod : null,
+      usefulLifeYears: formData.usefulLifeYears || null,
+      salvageValue: formData.salvageValue || null,
       ipAddress: formData.ipAddress || null,
       macAddress: formData.macAddress || null,
       osVersion: formData.osVersion || null,
@@ -296,10 +302,10 @@ export default function AssetRegistry() {
           </DialogHeader>
           {/* Tab bar */}
           <div className="flex gap-1 border-b mb-4 -mx-1 px-1">
-            {(["details", "history"] as const).map(tab => (
+            {(["details", "finance", "history"] as const).map(tab => (
               <button key={tab} onClick={() => setViewTab(tab)}
                 className={`px-4 py-2 text-sm font-medium transition border-b-2 -mb-px ${viewTab === tab ? "border-[#2D7FF9] text-[#1B63D6]" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-                {tab === "history" ? "History & comments" : "Details"}
+                {tab === "history" ? "History & comments" : tab === "finance" ? "Warranty & finance" : "Details"}
               </button>
             ))}
           </div>
@@ -359,6 +365,7 @@ export default function AssetRegistry() {
               </div>
             </div>
           )}
+          {viewModal && viewTab === "finance" && <AssetCoveragePanel assetId={viewModal.id} />}
           {viewModal && viewTab === "history" && (
             <AssetTrail assetId={viewModal.id} assetTag={viewModal.assetTag} />
           )}
@@ -531,6 +538,41 @@ export default function AssetRegistry() {
             <div>
               <Label className="text-xs font-medium">Purchase Order No.</Label>
               <Input value={formData.purchaseOrderNo || ""} onChange={e => setField("purchaseOrderNo", e.target.value)} placeholder="PO-XXXX" />
+            </div>
+
+            {/* Invoice / warranty start */}
+            <div>
+              <Label className="text-xs font-medium">Invoice No.</Label>
+              <Input value={formData.invoiceNo || ""} onChange={e => setField("invoiceNo", e.target.value)} placeholder="Vendor invoice number" />
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Warranty Start</Label>
+              <Input type="date" value={formData.warrantyStart || ""} onChange={e => setField("warrantyStart", e.target.value)} />
+            </div>
+
+            {/* Depreciation overrides (blank = rule for the asset type) */}
+            <div className="col-span-2 rounded-[10px] border bg-muted/30 p-3 grid grid-cols-3 gap-3">
+              <div className="col-span-3 text-[11px] text-muted-foreground">Depreciation — leave blank to use the rule for this asset type (Depreciation → Rules).</div>
+              <div>
+                <Label className="text-xs font-medium">Method</Label>
+                <Select value={formData.depreciationMethod || "__rule__"} onValueChange={v => setField("depreciationMethod", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__rule__">As per rule</SelectItem>
+                    <SelectItem value="SLM">Straight line (SLM)</SelectItem>
+                    <SelectItem value="WDV">Written down value (WDV)</SelectItem>
+                    <SelectItem value="None">Not depreciated</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Useful life (yrs)</Label>
+                <Input type="number" min={0} step="0.5" value={formData.usefulLifeYears ?? ""} onChange={e => setField("usefulLifeYears", e.target.value)} placeholder="Rule" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Residual value (₹)</Label>
+                <Input type="number" min={0} value={formData.salvageValue ?? ""} onChange={e => setField("salvageValue", e.target.value)} placeholder="Rule %" />
+              </div>
             </div>
 
             {/* IP Address */}

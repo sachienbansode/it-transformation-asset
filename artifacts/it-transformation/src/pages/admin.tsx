@@ -735,6 +735,7 @@ const MASTER_MODULES = [
     { key: "asset_license_status", label: "Asset License Status" },
     { key: "asset_location", label: "Asset Location" },
     { key: "asset_os", label: "Operating System" },
+    { key: "asset_contract_type", label: "Contract Type" },
   ]},
   { module: "IT Service Management", items: [
     { key: "incident_priority", label: "Incident Priority" },

@@ -60,6 +60,11 @@ export const assetsTable = pgTable("assets", {
   disposalMethod: text("disposal_method"),
   disposalReference: text("disposal_reference"),
   disposalValue: numeric("disposal_value", { precision: 12, scale: 2 }),
+  invoiceNo: text("invoice_no"),
+  warrantyStart: text("warranty_start"),
+  depreciationMethod: text("depreciation_method"),          // null = rule for the asset type
+  usefulLifeYears: numeric("useful_life_years", { precision: 5, scale: 2 }),
+  salvageValue: numeric("salvage_value", { precision: 12, scale: 2 }),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),
@@ -80,6 +85,15 @@ export const assetLicensesTable = pgTable("asset_licenses", {
   cost: numeric("cost", { precision: 12, scale: 2 }),
   status: text("status").notNull().default("Active"),
   notes: text("notes"),
+  edition: text("edition"),
+  startDate: text("start_date"),
+  poNumber: text("po_number"),
+  billingCycle: text("billing_cycle"),
+  renewalCost: numeric("renewal_cost", { precision: 12, scale: 2 }),
+  autoRenew: boolean("auto_renew").notNull().default(false),
+  ownerName: text("owner_name"),
+  reminderDays: integer("reminder_days").notNull().default(30),
+  contractId: integer("contract_id"),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),
@@ -216,3 +230,73 @@ export const assetAuditItemsTable = pgTable("asset_audit_items", {
 
 export type AssetAudit = typeof assetAuditsTable.$inferSelect;
 export type AssetAuditItem = typeof assetAuditItemsTable.$inferSelect;
+
+/* ─── Depreciation rules, contracts / AMC, license assignments (migration 08) ─── */
+
+export const assetDepreciationRulesTable = pgTable("asset_depreciation_rules", {
+  id: serial("id").primaryKey(),
+  assetType: text("asset_type").notNull(),
+  method: text("method").notNull().default("SLM"),          // SLM | WDV | None
+  usefulLifeYears: numeric("useful_life_years", { precision: 5, scale: 2 }).notNull().default("3"),
+  salvagePct: numeric("salvage_pct", { precision: 5, scale: 2 }).notNull().default("5"),
+  notes: text("notes"),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const assetContractsTable = pgTable("asset_contracts", {
+  id: serial("id").primaryKey(),
+  contractNo: text("contract_no").notNull(),
+  title: text("title").notNull(),
+  contractType: text("contract_type").notNull().default("AMC"),
+  vendorId: integer("vendor_id"),
+  vendorName: text("vendor_name"),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  value: numeric("value", { precision: 14, scale: 2 }),
+  billingCycle: text("billing_cycle").default("Annual"),
+  coverage: text("coverage"),
+  slaTerms: text("sla_terms"),
+  renewalNoticeDays: integer("renewal_notice_days").notNull().default(30),
+  autoRenew: boolean("auto_renew").notNull().default(false),
+  poNumber: text("po_number"),
+  vendorContact: text("vendor_contact"),
+  vendorEmail: text("vendor_email"),
+  vendorPhone: text("vendor_phone"),
+  ownerName: text("owner_name"),
+  status: text("status").notNull().default("Active"),        // Draft | Active | Renewed | Terminated
+  renewedFromId: integer("renewed_from_id"),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: text("created_by"),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const assetContractAssetsTable = pgTable("asset_contract_assets", {
+  id: serial("id").primaryKey(),
+  contractId: integer("contract_id").notNull(),
+  assetId: integer("asset_id").notNull(),
+  addedBy: text("added_by"),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const assetLicenseAssignmentsTable = pgTable("asset_license_assignments", {
+  id: serial("id").primaryKey(),
+  licenseId: integer("license_id").notNull(),
+  assigneeType: text("assignee_type").notNull().default("User"), // User | Device
+  assetId: integer("asset_id"),
+  userId: integer("user_id"),
+  userName: text("user_name"),
+  userEmail: text("user_email"),
+  employeeCode: text("employee_code"),
+  department: text("department"),
+  status: text("status").notNull().default("Active"),            // Active | Revoked
+  assignedBy: text("assigned_by"),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedBy: text("revoked_by"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokeReason: text("revoke_reason"),
+  notes: text("notes"),
+});
