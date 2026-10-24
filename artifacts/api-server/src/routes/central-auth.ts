@@ -1,15 +1,29 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { eq, sql } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, userRolesTable } from "@workspace/db";
 import { centralConfig, newState, safeEqual, authorizeUrl, exchangeCode, introspect, toPerms, CentralSession } from "../lib/central-identity";
 import { logAudit } from "./audit-logs";
 
-/* Central Identity (Ashika API Portal) sign-in — see lib/central-identity.ts for the flow and configuration. */
+/*
+ * Central Identity (Ashika API Portal) sign-in — see lib/central-identity.ts for the flow and configuration.
+ * Agreed model: the Portal AUTHENTICATES (password+OTP / Microsoft 365, MFA); IT Hub AUTHORISES.
+ *  - The person must already exist in IT Hub (Admin › User Master, same email) — no auto-provisioning.
+ *  - They must have at least one IT Hub role mapped (or be an IT Hub Admin) — otherwise sign-in is refused.
+ *  - Access inside IT Hub comes only from the IT Hub roles; the Portal role is shown for information.
+ *  - The Portal is still asked (introspection) whether the person is active, so disabling them there locks them out here.
+ */
 
 const router = Router();
 const WRITE_RECHECK_MS = 15_000;      // writes re-validate at least this often
 const OUTAGE_GRACE_MS = 5 * 60_000;    // if the Portal is unreachable, keep a recently-validated session this long
 const STATE_TTL_MS = 10 * 60_000;
+
+/** A user may enter IT Hub only with an IT Hub role: Admin, or at least one role assigned in User Master. */
+export async function hasMappedRole(userId: number, role: string | null) {
+  if (role === "admin") return true;
+  const [r] = await db.select({ n: sql<number>`count(*)::int` }).from(userRolesTable).where(eq(userRolesTable.userId, userId));
+  return (r?.n || 0) > 0;
+}
 
 const safeNext = (n: unknown) => { const s = String(n || "/"); return s.startsWith("/") && !s.startsWith("//") && !s.startsWith("/api/") ? s : "/"; };
 const fail = (res: Response, code: string) => res.redirect(`/login?sso_error=${encodeURIComponent(code)}`);
@@ -48,28 +62,21 @@ router.get("/auth/central/callback", async (req, res) => {
     const t = await exchangeCode(code);
     const email = String(t.email || "").trim().toLowerCase();
     if (!email) return fail(res, "no_email");
-    const perms = toPerms(t);
-    const name = [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || email.split("@")[0];
-    let [user] = await db.select().from(usersTable).where(sql`lower(${usersTable.email}) = ${email}`);
-    if (!user) {
-      [user] = await db.insert(usersTable).values({
-        email, name, userType: "internal", role: "user", isActive: true, status: "active",
-        identitySource: "central", centralSub: String(t.sub ?? ""), centralRole: perms.role, lastLoginAt: new Date(),
-      }).returning();
-      await audit("provision", `Provisioned ${email} from Ashika Portal (role ${perms.role || "—"})`, email, user.id);
-    } else {
-      if (!user.isActive || user.status === "inactive") { await audit("login_denied", `${email}: disabled in IT Hub`, email, user.id); return fail(res, "account_disabled"); }
-      await db.update(usersTable).set({ identitySource: "central", centralSub: String(t.sub ?? ""), centralRole: perms.role, status: "active", lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
-    }
+    const portalRole = toPerms(t).role;
+    const [user] = await db.select().from(usersTable).where(sql`lower(${usersTable.email}) = ${email}`);
+    if (!user) { await audit("login_denied", `${email}: authenticated by Ashika Portal but not registered in IT Hub`, email); return fail(res, "not_registered"); }
+    if (!user.isActive || user.status === "inactive") { await audit("login_denied", `${email}: disabled in IT Hub`, email, user.id); return fail(res, "account_disabled"); }
+    if (!(await hasMappedRole(user.id, user.role))) { await audit("login_denied", `${email}: no IT Hub role mapped`, email, user.id); return fail(res, "no_role"); }
+    await db.update(usersTable).set({ identitySource: "central", centralSub: String(t.sub ?? ""), centralRole: portalRole, status: "active", lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
     const now = Date.now();
-    const central: CentralSession = { token: t.access_token, sub: String(t.sub ?? ""), email, perms, checkedAt: now, okAt: now, expiresAt: now + (Number(t.expires_in) || 28_800) * 1000 };
+    const central: CentralSession = { token: t.access_token, sub: String(t.sub ?? ""), email, portalRole, checkedAt: now, okAt: now, expiresAt: now + (Number(t.expires_in) || 28_800) * 1000 };
     const next = pending.next;
     await new Promise<void>((ok, ko) => req.session.regenerate(e => e ? ko(e) : ok()));
     req.session.userId = user.id;
     req.session.mfaVerified = true;           // MFA is enforced by the Portal / Entra
     (req.session as any).central = central;
     await new Promise<void>((ok, ko) => req.session.save(e => e ? ko(e) : ok()));
-    await audit("login", `${email} signed in via Ashika Portal (role ${perms.role || "—"}${perms.fullAccess ? ", full access" : ""})`, email, user.id);
+    await audit("login", `${email} signed in via Ashika Portal (IT Hub role mapping applied; Portal role ${portalRole || "—"})`, email, user.id);
     res.redirect(next);
   } catch (e: any) {
     console.error("Central SSO callback error:", e?.message || e);
@@ -94,8 +101,11 @@ export async function centralSessionGuard(req: Request, res: Response, next: Nex
   try {
     const j = await introspect(s.token);
     if (!j?.active) { await audit("session_revoked", `${s.email}: Portal reports the session inactive`, s.email, req.session.userId); return end("Your access was ended by the Ashika Portal. Please sign in again.", "central_inactive"); }
-    s.perms = toPerms(j); s.checkedAt = s.okAt = now;
-    db.update(usersTable).set({ centralRole: s.perms.role }).where(eq(usersTable.id, req.session.userId)).catch(() => {});
+    const [u] = await db.select({ isActive: usersTable.isActive, status: usersTable.status, role: usersTable.role }).from(usersTable).where(eq(usersTable.id, req.session.userId));
+    if (!u || !u.isActive || u.status === "inactive") return end("Your IT Hub account has been disabled. Please contact the IT administrator.", "central_disabled");
+    if (!(await hasMappedRole(req.session.userId, u.role))) return end("You no longer have a role in IT Hub. Please contact the IT administrator.", "central_no_role");
+    s.portalRole = toPerms(j).role; s.checkedAt = s.okAt = now;
+    db.update(usersTable).set({ centralRole: s.portalRole }).where(eq(usersTable.id, req.session.userId)).catch(() => {});
     return next();
   } catch (e: any) {
     if (now - s.okAt < OUTAGE_GRACE_MS) { s.checkedAt = now; console.warn("Central SSO introspection failed, within grace:", e?.message); return next(); }

@@ -18,12 +18,12 @@ import crypto from "node:crypto";
  *   CENTRAL_SSO_INTROSPECT_SECONDS=60    how often a session is re-validated against the Portal (writes: every 15 s)
  *   CENTRAL_SSO_BUTTON_LABEL=Sign in with Ashika Portal
  *
- * Permission model: the Portal role's { pages, access, full_access } are scoped to this app. Page keys = this
- * app's module keys (see MODULES in routes/roles.ts), e.g. "asset_registry". access[key] "edit" = write, else read.
+ * Model (agreed for IT Hub): the Portal authenticates; IT Hub authorises. Users must exist in IT Hub with a mapped
+ * IT Hub role, otherwise sign-in is refused. Portal permissions are not used for access inside IT Hub.
  */
 
 export type CentralPerms = { fullAccess: boolean; pages: string[]; access: Record<string, string>; piiView: boolean; actions: string[]; role: string | null };
-export type CentralSession = { token: string; sub: string; email: string; perms: CentralPerms; checkedAt: number; okAt: number; expiresAt: number };
+export type CentralSession = { token: string; sub: string; email: string; portalRole: string | null; checkedAt: number; okAt: number; expiresAt: number };
 
 const env = (k: string, d = "") => (process.env[k] ?? d).trim();
 export const centralConfig = () => ({

@@ -66,11 +66,13 @@ export default function Login() {
     const err = new URLSearchParams(window.location.search).get("sso_error");
     if (err) {
       const msg: Record<string, string> = {
-        access_denied: "Your Ashika Portal role does not include access to this application. Ask the Portal administrator to grant it.",
+        access_denied: "The Ashika Portal did not allow sign-in to IT Hub for your account. Please contact the IT administrator.",
         account_disabled: "Your account is disabled in this application. Please contact the IT administrator.",
+        not_registered: "You signed in to the Ashika Portal, but you are not registered in IT Hub. Please ask the IT administrator to add you.",
+        no_role: "You are registered in IT Hub but no role has been assigned to you yet. Please ask the IT administrator to assign one.",
         invalid_state: "The sign-in link expired or was opened in another browser. Please try again.",
         not_configured: "Ashika Portal sign-in is not configured on this server.",
-        session_ended: "Your session was ended by the Ashika Portal (access changed or expired). Please sign in again.",
+        session_ended: "Your session has ended (account or role changed, or it expired). Please sign in again.",
         portal_error: "The Ashika Portal could not complete the sign-in. Please try again.",
       };
       toast({ title: "Sign-in failed", description: msg[err] || "Sign-in could not be completed. Please try again.", variant: "destructive" });
@@ -193,7 +195,7 @@ export default function Login() {
                     <Button className="w-full h-11 gap-2 text-[14px]" onClick={startCentral}>
                       <Shield className="h-4 w-4" />{central!.buttonLabel || "Sign in with Ashika Portal"}
                     </Button>
-                    <p className="text-[11.5px] text-muted-foreground text-center">Staff: Microsoft 365. Partners: Portal password with OTP. Access is managed centrally in the Ashika Portal.</p>
+                    <p className="text-[11.5px] text-muted-foreground text-center">Staff: Microsoft 365. Partners: Portal password with OTP. Your IT Hub access is set by the IT Hub administrator.</p>
                     {central!.localLogin === "admin" && !showLocal && (
                       <button type="button" className="w-full text-[11.5px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline" onClick={() => setShowLocal(true)}>Administrator sign-in (break-glass)</button>
                     )}

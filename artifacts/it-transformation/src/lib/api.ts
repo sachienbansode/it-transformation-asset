@@ -18,7 +18,7 @@ export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> 
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    // Session ended centrally (user disabled / role removed / expired in the Ashika Portal): go back to sign-in
+    // Session ended (disabled in the Ashika Portal or IT Hub, IT Hub role removed, or expired): go back to sign-in
     if (res.status === 401 && /^central_/.test((err as any).code || "") && !window.location.pathname.startsWith("/login")) {
       try { sessionStorage.setItem("ashika-after-login", window.location.pathname + window.location.search); } catch { /* ignore */ }
       window.location.href = "/login?sso_error=session_ended";

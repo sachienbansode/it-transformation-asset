@@ -1,13 +1,12 @@
 import type { Request, Response, NextFunction } from "express";
 import { eq, inArray } from "drizzle-orm";
 import { db, usersTable, userRolesTable, rolePermissionsTable } from "@workspace/db";
-import { toEffective } from "./central-identity";
 import { MODULES } from "../routes/roles";
 
 /*
  * Module-level RBAC for the IT Asset Management API.
- *  - Who: local users → users.role ('admin' = everything) + role_permissions (none/read/write/admin, most permissive wins)
- *         central (Portal SSO) users → live Portal permissions held in the session (refreshed by introspection)
+ *  - Who: every user (password or Ashika Portal sign-in) → users.role ('admin' = everything) + IT Hub role_permissions
+ *         (none/read/write/admin, most permissive wins). The Portal only authenticates.
  *  - What: every asset API path maps to a module key (= Portal page key). GET needs read, writes need write.
  *  - Reference lists used by several screens (asset list, vendors, people) are readable with read access to ANY asset module.
  */
@@ -23,22 +22,17 @@ export async function getAccess(req: Request): Promise<Access | null> {
   if (cached) return cached;
   const userId = req.session.userId;
   if (!userId) return null;
-  const central = (req.session as any).central;
-  let access: Access;
-  if (central?.perms) {
-    access = { userId, isAdmin: !!central.perms.fullAccess, source: "central", perms: toEffective(central.perms, MODULE_KEYS) };
-  } else {
-    const [u] = await db.select({ role: usersTable.role, isActive: usersTable.isActive }).from(usersTable).where(eq(usersTable.id, userId));
-    if (!u || !u.isActive) return null;
-    const perms: Record<string, string> = {};
-    const links = await db.select({ roleId: userRolesTable.roleId }).from(userRolesTable).where(eq(userRolesTable.userId, userId));
-    if (links.length) {
-      for (const p of await db.select().from(rolePermissionsTable).where(inArray(rolePermissionsTable.roleId, links.map(l => l.roleId)))) {
-        if (LEVELS.indexOf(p.accessLevel) > LEVELS.indexOf(perms[p.module] || "none")) perms[p.module] = p.accessLevel;
-      }
+  // Local IT Hub roles decide access for everyone (password users and Ashika Portal sign-ins alike)
+  const [u] = await db.select({ role: usersTable.role, isActive: usersTable.isActive }).from(usersTable).where(eq(usersTable.id, userId));
+  if (!u || !u.isActive) return null;
+  const perms: Record<string, string> = {};
+  const links = await db.select({ roleId: userRolesTable.roleId }).from(userRolesTable).where(eq(userRolesTable.userId, userId));
+  if (links.length) {
+    for (const p of await db.select().from(rolePermissionsTable).where(inArray(rolePermissionsTable.roleId, links.map(l => l.roleId)))) {
+      if (LEVELS.indexOf(p.accessLevel) > LEVELS.indexOf(perms[p.module] || "none")) perms[p.module] = p.accessLevel;
     }
-    access = { userId, isAdmin: u.role === "admin", source: "local", perms };
   }
+  const access: Access = { userId, isAdmin: u.role === "admin", source: (req.session as any).central ? "central" : "local", perms };
   (req as any)._access = access;
   return access;
 }

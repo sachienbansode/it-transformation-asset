@@ -5,8 +5,7 @@ import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
 import QRCode from "qrcode";
 import { z } from "zod";
-import { centralConfig, toEffective } from "../lib/central-identity";
-import { MODULES } from "./roles";
+import { centralConfig } from "../lib/central-identity";
 
 declare module "express-session" {
   interface SessionData {
@@ -33,10 +32,8 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const central = (req.session as any).central;
   const [user] = await db.select({ role: usersTable.role, isActive: usersTable.isActive }).from(usersTable).where(eq(usersTable.id, req.session.userId));
-  const isAdmin = central ? !!central.perms?.fullAccess : user?.role === "admin";
-  if (!user || !user.isActive || !isAdmin) {
+  if (!user || !user.isActive || user.role !== "admin") {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
@@ -101,17 +98,10 @@ router.get("/auth/me", async (req, res): Promise<void> => {
       }
     }
   }
-  // Central identity (Ashika Portal): live, app-scoped Portal permissions replace the local role
-  const central = (req.session as any).central;
-  if (central?.perms) {
-    const role = central.perms.fullAccess ? "admin" : (user.role === "admin" ? "user" : user.role);
-    res.json({ ...user, role, effectivePermissions: toEffective(central.perms, MODULES.map(m => m.key)), defaultDashboard: central.perms.fullAccess ? "/" : defaultDashboard,
-      identitySource: "central", portalRole: central.perms.role, piiView: central.perms.piiView, mfaEnabled: true });
-    return;
-  }
   // Admin always gets /
   if (user.role === "admin") defaultDashboard = "/";
-  res.json({ ...user, effectivePermissions, defaultDashboard, identitySource: "local" });
+  const central = (req.session as any).central;
+  res.json({ ...user, effectivePermissions, defaultDashboard, identitySource: central ? "central" : "local", portalRole: central?.portalRole ?? null, ...(central ? { mfaEnabled: true } : {}) });
 });
 
 // POST /auth/login
