@@ -39,7 +39,7 @@ function exportCsv(rows: any[]) {
 export default function AssetHandovers() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { isAdmin } = useAuth();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_allocations", "write");
   const { data: rows = [], isLoading } = useQuery({ queryKey: ["asset-handovers"], queryFn: () => apiFetch<any[]>("/asset-handovers") });
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => apiFetch<any[]>("/assets") });
   const [tab, setTab] = useState<typeof TABS[number]["key"]>("active");

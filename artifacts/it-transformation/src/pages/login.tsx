@@ -40,6 +40,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [ssoConfig, setSsoConfig] = useState<{ enabled: boolean; configured: boolean } | null>(null);
   const [showDevCreds, setShowDevCreds] = useState(false);
+  const [central, setCentral] = useState<{ enabled: boolean; buttonLabel: string; localLogin: "admin" | "all" | "off" } | null>(null);
+  const [showLocal, setShowLocal] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig>({
     appName: "Ashika Drishti Transform",
     appTagline: "IT Transformation Planning Suite — Ashika Group",
@@ -60,7 +62,29 @@ export default function Login() {
     apiFetch<AppConfig>("/config")
       .then(setAppConfig)
       .catch(() => {});
+    apiFetch<any>("/auth/central/config").then(setCentral).catch(() => setCentral({ enabled: false, buttonLabel: "", localLogin: "all" }));
+    const err = new URLSearchParams(window.location.search).get("sso_error");
+    if (err) {
+      const msg: Record<string, string> = {
+        access_denied: "Your Ashika Portal role does not include access to this application. Ask the Portal administrator to grant it.",
+        account_disabled: "Your account is disabled in this application. Please contact the IT administrator.",
+        invalid_state: "The sign-in link expired or was opened in another browser. Please try again.",
+        not_configured: "Ashika Portal sign-in is not configured on this server.",
+        session_ended: "Your session was ended by the Ashika Portal (access changed or expired). Please sign in again.",
+        portal_error: "The Ashika Portal could not complete the sign-in. Please try again.",
+      };
+      toast({ title: "Sign-in failed", description: msg[err] || "Sign-in could not be completed. Please try again.", variant: "destructive" });
+      window.history.replaceState(null, "", "/login");
+    }
   }, []);
+
+  const startCentral = () => {
+    let next = "/";
+    try { next = sessionStorage.getItem("ashika-after-login") || "/"; sessionStorage.removeItem("ashika-after-login"); } catch { /* ignore */ }
+    window.location.href = `/api/auth/central/login?next=${encodeURIComponent(next)}`;
+  };
+  const centralOn = !!central?.enabled;
+  const passwordAllowed = !centralOn || central!.localLogin === "all" || (central!.localLogin === "admin" && showLocal);
 
   const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,7 +143,7 @@ export default function Login() {
         </div>
 
         {/* User Type Toggle */}
-        {step === "credentials" && (
+        {step === "credentials" && !centralOn && (
           <div className="flex bg-muted rounded-[10px] p-[3px] gap-[3px]">
             <button
               onClick={() => setUserType("internal")}
@@ -154,6 +178,8 @@ export default function Login() {
             <CardDescription>
               {step === "mfa"
                 ? "Enter the 6-digit code from your authenticator app"
+                : centralOn
+                ? "Single sign-on through the Ashika Portal"
                 : userType === "internal"
                 ? "Ashika Group internal users"
                 : "External partner / consultant access"}
@@ -162,8 +188,20 @@ export default function Login() {
           <CardContent className="space-y-4">
             {step === "credentials" ? (
               <>
+                {centralOn && (
+                  <div className="space-y-2">
+                    <Button className="w-full h-11 gap-2 text-[14px]" onClick={startCentral}>
+                      <Shield className="h-4 w-4" />{central!.buttonLabel || "Sign in with Ashika Portal"}
+                    </Button>
+                    <p className="text-[11.5px] text-muted-foreground text-center">Staff: Microsoft 365. Partners: Portal password with OTP. Access is managed centrally in the Ashika Portal.</p>
+                    {central!.localLogin === "admin" && !showLocal && (
+                      <button type="button" className="w-full text-[11.5px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline" onClick={() => setShowLocal(true)}>Administrator sign-in (break-glass)</button>
+                    )}
+                    {passwordAllowed && <div className="relative pt-1"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div><div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">{central!.localLogin === "admin" ? "local administrator" : "or sign in with password"}</span></div></div>}
+                  </div>
+                )}
                 {/* MS SSO for internal users */}
-                {userType === "internal" && ssoConfig?.enabled && (
+                {!centralOn && userType === "internal" && ssoConfig?.enabled && (
                   <>
                     <Button
                       variant="outline"
@@ -192,7 +230,7 @@ export default function Login() {
                   </>
                 )}
 
-                <form onSubmit={handleCredentials} className="space-y-4">
+                {passwordAllowed && <form onSubmit={handleCredentials} className="space-y-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="email">Email Address</Label>
                     <Input
@@ -220,7 +258,7 @@ export default function Login() {
                   <Button type="submit" className="w-full" disabled={loading}>
                     {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Signing in...</> : "Sign In"}
                   </Button>
-                </form>
+                </form>}
               </>
             ) : (
               <form onSubmit={handleMfa} className="space-y-4">

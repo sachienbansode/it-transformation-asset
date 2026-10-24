@@ -24,7 +24,7 @@ const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", {
 
 export default function AssetAudits() {
   const { data: audits = [], isLoading } = useQuery({ queryKey: ["asset-audits"], queryFn: () => apiFetch<any[]>("/asset-audits") });
-  const { isAdmin } = useAuth();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_audits", "write");
   const [planOpen, setPlanOpen] = useState(false);
   const active = audits.filter(a => a.status === "In Progress" || a.status === "Planned");
   const past = audits.filter(a => a.status === "Completed" || a.status === "Cancelled");

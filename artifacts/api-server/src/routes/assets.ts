@@ -30,14 +30,18 @@ const TYPE_PREFIX: Record<string, string> = {
   "Mobile": "MOB", "Storage": "STR", "UPS": "UPS", "Others": "AST",
 };
 
+/** Next free tag for a type (PREFIX-0001…), skipping tags already used — safe after deletions / imports. */
+async function nextTag(type: string) {
+  const prefix = TYPE_PREFIX[type] || "AST";
+  const rows = await db.select({ t: assetsTable.assetTag }).from(assetsTable).where(sql`asset_tag ILIKE ${prefix + "-%"}`);
+  const used = new Set(rows.map(r => r.t.toUpperCase()));
+  let n = rows.reduce((m, r) => { const k = Number(r.t.split("-").pop()); return Number.isFinite(k) && k > m ? k : m; }, 0) + 1;
+  while (used.has(`${prefix}-${String(n).padStart(4, "0")}`)) n++;
+  return { tag: `${prefix}-${String(n).padStart(4, "0")}`, prefix, count: rows.length };
+}
+
 router.get("/assets/next-tag", requireAuth, async (req, res) => {
-  try {
-    const type = (req.query.type as string) || "Others";
-    const prefix = TYPE_PREFIX[type] || "AST";
-    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(assetsTable).where(sql`type = ${type}`);
-    const next = (count || 0) + 1;
-    res.json({ tag: `${prefix}-${String(next).padStart(4, "0")}`, prefix, count: count || 0 });
-  } catch (e) { handleError(res, e); }
+  try { res.json(await nextTag((req.query.type as string) || "Others")); } catch (e) { handleError(res, e); }
 });
 
 const CREATE_STATES = ["In Stock", "In Use", "Under Maintenance", "Retired"];
@@ -70,6 +74,14 @@ router.post("/assets", requireAuth, async (req, res) => {
     }
     for (const f of LIFECYCLE_FIELDS) if (f !== "status") delete req.body[f];
     req.body.status = status;
+    for (const f of ["id", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive"]) delete req.body[f];
+    if (!norm(req.body.name)) { res.status(400).json({ error: "Asset name is required" }); return; }
+    if (!norm(req.body.type)) { res.status(400).json({ error: "Asset type is required" }); return; }
+    if (!norm(req.body.assetTag)) req.body.assetTag = (await nextTag(req.body.type)).tag;
+    else {
+      const [dupTag] = await db.select({ id: assetsTable.id }).from(assetsTable).where(sql`lower(asset_tag) = lower(${req.body.assetTag})`);
+      if (dupTag) { res.status(400).json({ error: `Asset tag "${req.body.assetTag}" already exists` }); return; }
+    }
     const { type, serialNumber } = req.body;
     if (serialNumber && type) {
       const existing = await db.select({ id: assetsTable.id }).from(assetsTable)

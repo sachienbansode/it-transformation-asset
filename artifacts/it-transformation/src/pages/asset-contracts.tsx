@@ -45,7 +45,7 @@ export default function AssetContracts() {
 /* ─── Contracts ─────────────────────────────────────────────────────────── */
 
 function ContractsTab() {
-  const { isAdmin } = useAuth();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_contracts", "write");
   const { data: rows = [], isLoading } = useQuery({ queryKey: ["asset-contracts"], queryFn: () => apiFetch<any[]>("/asset-contracts") });
   const [f, setF] = useState<"all" | "Active" | "Expiring" | "Expired" | "Upcoming" | "closed">("all");
   const [q, setQ] = useState(""); const [page, setPage] = useState(1);
@@ -194,7 +194,7 @@ function Fld({ label, error, span, children }: { label: string; error?: string; 
 }
 
 function ContractDetail({ id, onClose, onEdit }: { id: number; onClose: () => void; onEdit: (c: any) => void }) {
-  const qc = useQueryClient(); const { toast } = useToast(); const { isAdmin } = useAuth();
+  const qc = useQueryClient(); const { toast } = useToast(); const { canAccess } = useAuth(); const isAdmin = canAccess("asset_contracts", "write");
   const { data: c } = useQuery({ queryKey: ["asset-contract", id], queryFn: () => apiFetch<any>(`/asset-contracts/${id}`) });
   const [adding, setAdding] = useState<number[] | null>(null);
   const [renew, setRenew] = useState<any>(null);
@@ -293,7 +293,7 @@ function ContractDetail({ id, onClose, onEdit }: { id: number; onClose: () => vo
 /* ─── Warranty coverage ─────────────────────────────────────────────────── */
 
 function WarrantyTab() {
-  const { isAdmin } = useAuth();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_registry", "write");
   const { data, isLoading } = useQuery({ queryKey: ["asset-warranty"], queryFn: () => apiFetch<any>("/asset-warranty") });
   const [f, setF] = useState<"risk" | "expiring" | "expired" | "covered" | "unknown" | "all">("risk");
   const [q, setQ] = useState(""); const [page, setPage] = useState(1);

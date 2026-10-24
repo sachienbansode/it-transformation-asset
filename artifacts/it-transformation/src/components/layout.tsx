@@ -52,12 +52,12 @@ const ASSET_ITEMS = [
   { href: "/asset-registry", label: "Asset Registry", icon: HardDrive, module: "asset_registry" },
   { href: "/asset-vendors", label: "Vendors", icon: Building2, module: "asset_vendors" },
   { href: "/asset-licenses", label: "Licenses", icon: Shield, module: "asset_licenses" },
-  { href: "/asset-contracts", label: "Contracts & AMC", icon: FileSignature, module: "asset_vendors" },
-  { href: "/asset-depreciation", label: "Depreciation", icon: TrendingDown, module: "asset_registry" },
+  { href: "/asset-contracts", label: "Contracts & AMC", icon: FileSignature, module: "asset_contracts" },
+  { href: "/asset-depreciation", label: "Depreciation", icon: TrendingDown, module: "asset_depreciation" },
   { href: "/asset-allocations", label: "Handovers", icon: Users, module: "asset_allocations" },
   { href: "/asset-employees", label: "Employee Assets", icon: UserCheck, module: "asset_allocations" },
   { href: "/maintenance-records", label: "Maintenance", icon: Wrench, module: "maintenance_records" },
-  { href: "/asset-audits", label: "Physical Audit", icon: ScanLine, module: "asset_registry" },
+  { href: "/asset-audits", label: "Physical Audit", icon: ScanLine, module: "asset_audits" },
 ];
 
 const ITSM_ITEMS = [

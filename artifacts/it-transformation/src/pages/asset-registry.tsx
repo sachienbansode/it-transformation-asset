@@ -33,7 +33,8 @@ const PAGE_SIZE = 10;
 export default function AssetRegistry() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { isAdmin, user } = useAuth();
+  const { isAdmin: isSysAdmin, user, canAccess } = useAuth();
+  const isAdmin = canAccess("asset_registry", "write");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -206,11 +207,11 @@ export default function AssetRegistry() {
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(assets, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"purchaseCost"},{label:"Manufacturer",key:"manufacturer"},{label:"Model",key:"model"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], "asset-registry.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          {isAdmin && <Button variant="outline" size="sm" onClick={handlePurge} disabled={purging} className="gap-1.5 text-red-600 hover:text-red-700 border-red-500/30">{purging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eraser className="w-4 h-4" />}Clear All Data</Button>}
+          {isSysAdmin && <Button variant="outline" size="sm" onClick={handlePurge} disabled={purging} className="gap-1.5 text-red-600 hover:text-red-700 border-red-500/30">{purging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eraser className="w-4 h-4" />}Clear All Data</Button>}
           <Button variant="outline" size="sm" onClick={() => filtered.length && setStickerAssets(filtered)} disabled={!filtered.length} className="gap-1.5" title="QR stickers for the assets currently listed"><Tag className="w-4 h-4" />QR Stickers ({filtered.length})</Button>
           <Button variant="outline" size="sm" onClick={downloadAssetTemplate} className="gap-1.5"><FileSpreadsheet className="w-4 h-4" />Template</Button>
-          <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5"><Upload className="w-4 h-4" />Upload Register</Button>
-          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />Add Asset</Button>
+          {isAdmin && <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5"><Upload className="w-4 h-4" />Upload Register</Button>}
+          {isAdmin && <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />Add Asset</Button>}
         </div>
       </div>
 
@@ -279,7 +280,7 @@ export default function AssetRegistry() {
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted" title="View details"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
                       <button onClick={() => setStickerAssets([a])} className="p-1.5 rounded hover:bg-muted" title="QR sticker"><Tag className="w-3.5 h-3.5 text-[#2D7FF9]" /></button>
-                      <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
+                      {isAdmin && <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>}
                       {isAdmin && <button onClick={() => handleDelete(a.id, a.name)} className="p-1.5 rounded hover:bg-muted" title="Delete"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
                   </TableCell>
@@ -359,9 +360,9 @@ export default function AssetRegistry() {
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setStickerAssets([viewModal]); setViewModal(null); }}>
                   <Tag className="w-3.5 h-3.5" />QR Sticker
                 </Button>
-                <Button size="sm" className="gap-1.5 bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" onClick={() => { openEdit(viewModal); setViewModal(null); }}>
+                {isAdmin && <Button size="sm" className="gap-1.5 bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" onClick={() => { openEdit(viewModal); setViewModal(null); }}>
                   <Edit className="w-3.5 h-3.5" />Edit Asset
-                </Button>
+                </Button>}
               </div>
             </div>
           )}

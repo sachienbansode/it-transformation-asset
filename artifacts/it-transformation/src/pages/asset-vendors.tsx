@@ -29,7 +29,7 @@ const PAGE_SIZE = 10;
 export default function AssetVendors() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { isAdmin, user } = useAuth();
+  const { user, canAccess } = useAuth(); const isAdmin = canAccess("asset_vendors", "write");
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -89,7 +89,7 @@ export default function AssetVendors() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(vendors, [{label:"Vendor Name",key:"name"},{label:"Contact Person",key:"contactPerson"},{label:"Email",key:"email"},{label:"Phone",key:"phone"},{label:"Contract Start",key:"contractStart"},{label:"Contract End",key:"contractEnd"},{label:"Rating",key:"rating"},{label:"Status",key:"status"}], "vendors.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />Add Vendor</Button>
+          {isAdmin && <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />Add Vendor</Button>}
         </div>
       </div>
 
@@ -132,7 +132,7 @@ export default function AssetVendors() {
                   <TableCell>
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(v)} className="p-1.5 rounded hover:bg-muted" title="View"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
-                      <button onClick={() => openEdit(v)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
+                      {isAdmin && <button onClick={() => openEdit(v)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>}
                       {isAdmin && <button onClick={() => handleDelete(v.id, v.name)} className="p-1.5 rounded hover:bg-muted" title="Delete"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
                   </TableCell>

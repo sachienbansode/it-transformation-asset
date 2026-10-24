@@ -21,6 +21,9 @@ export const usersTable = pgTable("users", {
   status: text("status").notNull().default("active"),
   photoUrl: text("photo_url"),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  identitySource: text("identity_source").notNull().default("local"), // local | central (Ashika Portal SSO)
+  centralSub: text("central_sub"),
+  centralRole: text("central_role"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

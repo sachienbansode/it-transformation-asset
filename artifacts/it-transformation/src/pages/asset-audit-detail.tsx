@@ -32,7 +32,7 @@ export default function AssetAuditDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { isAdmin } = useAuth();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_audits", "write");
   const { data: a, isLoading } = useQuery({ queryKey: ["asset-audit", id], queryFn: () => apiFetch<any>(`/asset-audits/${id}`), refetchInterval: 15000 });
   const { data: opt } = useQuery({ queryKey: ["asset-audit-options"], queryFn: () => apiFetch<any>("/asset-audits/options") });
   const [tab, setTab] = useState<typeof TABS[number]>("Pending");

@@ -27,7 +27,7 @@ const refreshKeys = ["asset-licenses", "asset-license-compliance", "asset-licens
 export default function AssetLicenses() {
   const initial = new URLSearchParams(window.location.search).get("tab");
   const [tab, setTab] = useState<"licenses" | "compliance">(initial === "compliance" ? "compliance" : "licenses");
-  const { isAdmin } = useAuth();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_licenses", "write");
   const [edit, setEdit] = useState<any>(null);
   const [view, setView] = useState<number | null>(null);
   return (
@@ -122,7 +122,7 @@ function LicenseList({ onOpen }: { onOpen: (id: number) => void }) {
 }
 
 function Compliance({ onOpen }: { onOpen: (id: number) => void }) {
-  const qc = useQueryClient(); const { toast } = useToast(); const { isAdmin } = useAuth();
+  const qc = useQueryClient(); const { toast } = useToast(); const { canAccess } = useAuth(); const isAdmin = canAccess("asset_licenses", "write");
   const { data } = useQuery({ queryKey: ["asset-license-compliance"], queryFn: () => apiFetch<any>("/asset-license-compliance") });
   const [revoke, setRevoke] = useState<any>(null);
   const s = data?.summary || {};
@@ -279,7 +279,7 @@ function LicenseForm({ initial, onClose, onSaved }: { initial: any; onClose: () 
 }
 
 function LicenseDetail({ id, onClose, onEdit }: { id: number; onClose: () => void; onEdit: (l: any) => void }) {
-  const qc = useQueryClient(); const { toast } = useToast(); const { isAdmin } = useAuth();
+  const qc = useQueryClient(); const { toast } = useToast(); const { canAccess } = useAuth(); const isAdmin = canAccess("asset_licenses", "write");
   const { data: all = [] } = useQuery({ queryKey: ["asset-licenses"], queryFn: () => apiFetch<any[]>("/asset-licenses") });
   const { data: assigns = [] } = useQuery({ queryKey: ["asset-license-assignments", id], queryFn: () => apiFetch<any[]>(`/asset-licenses/${id}/assignments`) });
   const [mode, setMode] = useState<null | "user" | "device">(null);

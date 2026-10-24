@@ -31,9 +31,13 @@ import itsmRouter from "./itsm";
 import { seedAssetAndItsmModules, seedExtendedItsmData } from "./seed-modules";
 import docsExportRouter from "./docs-export";
 import { requireAuth, requireAdmin } from "./auth";
+import centralAuthRouter, { centralSessionGuard } from "./central-auth";
+import { assetRbac } from "../lib/rbac";
 
 const router: IRouter = Router();
 
+router.use(centralAuthRouter);
+router.use(centralSessionGuard);   // re-validates Ashika Portal sessions (live role / disabled user)
 router.use(authRouter);
 router.use(healthRouter);
 
@@ -51,15 +55,15 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   requireAuth(req, res, next);
 });
 
+// IT Asset Management: module-level RBAC (read / write per module; local roles or Ashika Portal permissions)
+router.use(assetRbac);
+
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
     // Only these paths require admin privileges for write operations
     const adminOnlyPrefixes = [
       "/admin/", "/masters", "/roles", "/settings",
       "/business-units", "/audit-logs",
-      "/assets", "/asset-vendors", "/asset-licenses", "/asset-allocations",
-      "/asset-transactions", "/maintenance-records", "/asset-categories", "/asset-audits",
-      "/asset-contracts", "/asset-depreciation", "/asset-license-assignments",
       "/incidents", "/problems", "/changes", "/sla-policies",
       "/knowledge-base", "/service-requests",
     ];

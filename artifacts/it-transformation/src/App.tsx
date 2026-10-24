@@ -66,6 +66,26 @@ const queryClient = new QueryClient({
   },
 });
 
+/* Page-level permission guard (local roles or Ashika Portal page keys). The API enforces the same rules. */
+function guard(module: string, Component: React.ComponentType) {
+  return function Guarded(props: any) {
+    const { canAccess } = useAuth();
+    if (!canAccess(module)) return (
+      <div className="max-w-md mx-auto mt-20 text-center space-y-2">
+        <div className="text-lg font-semibold">You don't have access to this page</div>
+        <p className="text-sm text-muted-foreground">Your role does not include this module. If you need it, ask your administrator to add it to your role in the Ashika Portal / role settings.</p>
+      </div>
+    );
+    return <Component {...props} />;
+  };
+}
+const G = {
+  dashboard: guard("assets", AssetDashboard), registry: guard("asset_registry", AssetRegistry), vendors: guard("asset_vendors", AssetVendors),
+  licenses: guard("asset_licenses", AssetLicenses), contracts: guard("asset_contracts", AssetContracts), depreciation: guard("asset_depreciation", AssetDepreciation),
+  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees),
+  audits: guard("asset_audits", AssetAudits), auditDetail: guard("asset_audits", AssetAuditDetail),
+};
+
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: React.ComponentType; adminOnly?: boolean }) {
   const { user, loading } = useAuth();
 
@@ -131,18 +151,18 @@ function Router() {
               <Route path="/sbom" component={Sbom} />
               <Route path="/reports" component={Reports} />
               <Route path="/kpis" component={Kpis} />
-              <Route path="/assets" component={AssetDashboard} />
-              <Route path="/asset-registry" component={AssetRegistry} />
-              <Route path="/asset-vendors" component={AssetVendors} />
-              <Route path="/asset-licenses" component={AssetLicenses} />
-              <Route path="/asset-contracts" component={AssetContracts} />
-              <Route path="/asset-depreciation" component={AssetDepreciation} />
-              <Route path="/asset-allocations" component={AssetHandovers} />
-              <Route path="/asset-employees" component={AssetEmployees} />
+              <Route path="/assets" component={G.dashboard} />
+              <Route path="/asset-registry" component={G.registry} />
+              <Route path="/asset-vendors" component={G.vendors} />
+              <Route path="/asset-licenses" component={G.licenses} />
+              <Route path="/asset-contracts" component={G.contracts} />
+              <Route path="/asset-depreciation" component={G.depreciation} />
+              <Route path="/asset-allocations" component={G.handovers} />
+              <Route path="/asset-employees" component={G.employees} />
               <Route path="/my-assets" component={MyAssets} />
               <Route path="/a/:tag" component={AssetScan} />
-              <Route path="/asset-audits/:id" component={AssetAuditDetail} />
-              <Route path="/asset-audits" component={AssetAudits} />
+              <Route path="/asset-audits/:id" component={G.auditDetail} />
+              <Route path="/asset-audits" component={G.audits} />
               <Route path="/maintenance-records" component={MaintenanceRecords} />
               <Route path="/itsm" component={ItsmDashboard} />
               <Route path="/itsm-incidents" component={ItsmIncidents} />

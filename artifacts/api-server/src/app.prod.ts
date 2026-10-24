@@ -60,7 +60,7 @@ export function createProdApp(): Express {
   // Serve the pre-built React frontend
   // __dirname is set by esbuild banner to the directory of this compiled file
   const distPath = path.resolve(__dirname, "../../it-transformation/dist/public");
-  app.use(express.static(distPath, { index: false }));
+  app.use(express.static(distPath, { index: false, redirect: false }));
   app.use(/(.*)/, (_req, res) => {
     res.sendFile(path.join(distPath, "index.html"));
   });

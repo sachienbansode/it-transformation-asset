@@ -20,7 +20,7 @@ export default function AssetDepreciation() {
   const initial = new URLSearchParams(window.location.search).get("tab");
   const [tab, setTab] = useState<"register" | "missing" | "rules">(initial === "missing" ? "missing" : initial === "rules" ? "rules" : "register");
   const [fy, setFy] = useState<number | null>(null);
-  const { isAdmin } = useAuth();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_registry", "write");
   const [upload, setUpload] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ["asset-depreciation", fy], queryFn: () => apiFetch<any>(`/asset-depreciation/register${fy ? `?fy=${fy}` : ""}`) });
 
@@ -125,7 +125,7 @@ function Register({ data, isLoading, fy, setFy }: { data: any; isLoading: boolea
 }
 
 function Missing({ data, onUpload }: { data: any; onUpload: () => void }) {
-  const { isAdmin } = useAuth(); const { toast } = useToast();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_registry", "write"); const { toast } = useToast();
   const [page, setPage] = useState(1);
   const rows: any[] = data?.missing || [];
   return (
@@ -158,7 +158,7 @@ function Missing({ data, onUpload }: { data: any; onUpload: () => void }) {
 }
 
 function Rules() {
-  const qc = useQueryClient(); const { toast } = useToast(); const { isAdmin } = useAuth();
+  const qc = useQueryClient(); const { toast } = useToast(); const { canAccess } = useAuth(); const isAdmin = canAccess("asset_depreciation", "write");
   const { data: rules = [] } = useQuery({ queryKey: ["asset-dep-rules"], queryFn: () => apiFetch<any[]>("/asset-depreciation/rules") });
   const [draft, setDraft] = useState<Record<number, any>>({});
   const [busy, setBusy] = useState<number | null>(null);

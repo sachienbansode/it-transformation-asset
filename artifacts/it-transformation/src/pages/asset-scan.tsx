@@ -17,11 +17,11 @@ const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", {
 // Opened by scanning an asset's QR sticker: /a/<asset tag>
 export default function AssetScan() {
   const { tag } = useParams<{ tag: string }>();
-  const { isAdmin, canAccess } = useAuth();
+  const { isAdmin: _sys, canAccess } = useAuth(); const isAdmin = canAccess("asset_registry", "write"); const canAudit = canAccess("asset_audits", "write");
   const [sticker, setSticker] = useState(false);
   const { data: a, isLoading, error, refetch } = useQuery({ queryKey: ["asset-by-tag", tag], queryFn: () => apiFetch<any>(`/assets/by-tag/${encodeURIComponent(tag)}`), retry: false });
   const canSee = isAdmin || canAccess("asset_registry");
-  const { data: audits = [], refetch: refetchAudits } = useQuery({ queryKey: ["audits-for-asset", a?.id], queryFn: () => apiFetch<any[]>(`/asset-audits/for-asset/${a.id}`), enabled: !!a?.id && isAdmin });
+  const { data: audits = [], refetch: refetchAudits } = useQuery({ queryKey: ["audits-for-asset", a?.id], queryFn: () => apiFetch<any[]>(`/asset-audits/for-asset/${a.id}`), enabled: !!a?.id && canAudit });
   const { toast } = useToast();
   const [verify, setVerify] = useState<{ auditId: number; where: string } | null>(null);
   async function verifyInAudit(au: any, where: string) {
@@ -72,7 +72,7 @@ export default function AssetScan() {
             <span>Handover <b className="text-foreground">{h.handoverNo}</b> · since {fmt(h.startDate)} · {h.allocationType}</span><AckPill status={h.ackStatus} />
           </div>}
           {a.configuration && <div className="text-sm"><span className="text-muted-foreground">Configuration: </span>{a.configuration}</div>}
-          {isAdmin && audits.length > 0 && <div className="rounded-[10px] border border-primary/30 bg-accent/50 p-3 space-y-2">
+          {canAudit && audits.length > 0 && <div className="rounded-[10px] border border-primary/30 bg-accent/50 p-3 space-y-2">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Audit in progress</div>
             {audits.map((au: any) => (
               <div key={au.id} className="flex items-center justify-between gap-2 text-sm">

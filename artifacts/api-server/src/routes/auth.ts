@@ -5,6 +5,8 @@ import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
 import QRCode from "qrcode";
 import { z } from "zod";
+import { centralConfig, toEffective } from "../lib/central-identity";
+import { MODULES } from "./roles";
 
 declare module "express-session" {
   interface SessionData {
@@ -31,8 +33,10 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const central = (req.session as any).central;
   const [user] = await db.select({ role: usersTable.role, isActive: usersTable.isActive }).from(usersTable).where(eq(usersTable.id, req.session.userId));
-  if (!user || !user.isActive || user.role !== "admin") {
+  const isAdmin = central ? !!central.perms?.fullAccess : user?.role === "admin";
+  if (!user || !user.isActive || !isAdmin) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
@@ -97,9 +101,17 @@ router.get("/auth/me", async (req, res): Promise<void> => {
       }
     }
   }
+  // Central identity (Ashika Portal): live, app-scoped Portal permissions replace the local role
+  const central = (req.session as any).central;
+  if (central?.perms) {
+    const role = central.perms.fullAccess ? "admin" : (user.role === "admin" ? "user" : user.role);
+    res.json({ ...user, role, effectivePermissions: toEffective(central.perms, MODULES.map(m => m.key)), defaultDashboard: central.perms.fullAccess ? "/" : defaultDashboard,
+      identitySource: "central", portalRole: central.perms.role, piiView: central.perms.piiView, mfaEnabled: true });
+    return;
+  }
   // Admin always gets /
   if (user.role === "admin") defaultDashboard = "/";
-  res.json({ ...user, effectivePermissions, defaultDashboard });
+  res.json({ ...user, effectivePermissions, defaultDashboard, identitySource: "local" });
 });
 
 // POST /auth/login
@@ -115,8 +127,14 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
+  // With Central Identity on, passwords here are only for break-glass local administrators (CENTRAL_SSO_LOCAL_LOGIN)
+  const cc = centralConfig();
+  if (cc.enabled && (cc.localLogin === "off" || (cc.localLogin === "admin" && user.role !== "admin"))) {
+    res.status(403).json({ error: "Please use 'Sign in with Ashika Portal'. Password sign-in here is reserved for IT administrators." });
+    return;
+  }
   if (!user.passwordHash) {
-    res.status(401).json({ error: "This account uses SSO. Please sign in with Microsoft." });
+    res.status(401).json({ error: cc.enabled ? "This account signs in through the Ashika Portal." : "This account uses SSO. Please sign in with Microsoft." });
     return;
   }
   const valid = await bcrypt.compare(body.data.password, user.passwordHash);
