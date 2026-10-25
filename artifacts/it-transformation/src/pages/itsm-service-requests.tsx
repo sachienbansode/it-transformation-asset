@@ -16,7 +16,7 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
-import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
+import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay, useCatalog } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
 
@@ -132,14 +132,18 @@ async function downloadReport(type: string, filename: string) {
 
 export default function ItsmServiceRequests() {
   const cfg = useItsmConfig();
-  const CATEGORIES = cfg["itsm.srCategories"];
   const URGENCIES = cfg["itsm.urgencyLevels"];
   const DEPARTMENTS = cfg["itsm.departments"];
+  const { data: catalog = [] } = useCatalog("request");
+  const CATEGORIES = useMemo(() => catalog.filter((c: any) => !c.subcategory).map((c: any) => c.category), [catalog]);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { isAdmin, user, canAccess } = useAuth();
   const canEdit = canAccess("itsm_requests", "write"); const canDelete = canAccess("itsm_requests", "admin");
+  const { data: myTeams = [] } = useMyTeams();
+  const isAgent = isAdmin || myTeams.length > 0;
+  const [view, setView] = useState("");
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -149,15 +153,15 @@ export default function ItsmServiceRequests() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
 
-  const { data: requests = [] } = useQuery({ queryKey: ["service-requests"], queryFn: () => apiFetch<any[]>("/service-requests") });
-
-  const createReq = useMutation({ mutationFn: (d: any) => apiFetch("/service-requests", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["service-requests"] }) });
-  const updateReq = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/service-requests/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["service-requests"] }) });
-  const deleteReq = useMutation({ mutationFn: ({ id, reason }: { id: number; reason: string }) => apiFetch(`/service-requests/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["service-requests"] }) });
+  const { data: requests = [] } = useQuery({ queryKey: ["service-requests", view], queryFn: () => apiFetch<any[]>(`/service-requests${view ? `?view=${view}` : ""}`) });
+  const invalidate = () => { ["service-requests", "my-approvals", "my-approvals-count"].forEach(k => queryClient.invalidateQueries({ queryKey: [k] })); };
+  const createReq = useMutation({ mutationFn: (d: any) => apiFetch("/service-requests", { method: "POST", body: JSON.stringify(d) }), onSuccess: invalidate });
+  const updateReq = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/service-requests/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: invalidate });
+  const deleteReq = useMutation({ mutationFn: ({ id, reason }: { id: number; reason: string }) => apiFetch(`/service-requests/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) }), onSuccess: invalidate });
 
   const filtered = useMemo(() => {
     let list = requests;
-    if (search) list = list.filter((r: any) => [r.requestNo, r.title, r.requestedBy, r.assignedTo].some(v => v?.toLowerCase().includes(search.toLowerCase())));
+    if (search) list = list.filter((r: any) => [r.requestNo, r.title, r.requestedBy, r.assignedTo, r.assignedGroup, r.subcategory].some(v => v?.toLowerCase().includes(search.toLowerCase())));
     if (filterCategory) list = list.filter((r: any) => r.category === filterCategory);
     if (filterStatus) list = list.filter((r: any) => r.status === filterStatus);
     return list;
@@ -165,19 +169,41 @@ export default function ItsmServiceRequests() {
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const openCount = requests.filter((r: any) => r.status === "Open").length;
+  const openCount = requests.filter((r: any) => ["Open", "Pending Approval", "Approved"].includes(r.status)).length;
   const inProgressCount = requests.filter((r: any) => r.status === "In Progress").length;
   const completedCount = requests.filter((r: any) => r.status === "Completed").length;
+  const overdue = requests.filter((r: any) => r.expectedClosureDate && !["Completed", "Cancelled", "Rejected"].includes(r.status) && new Date().toISOString().slice(0, 10) > r.expectedClosureDate).length;
 
-  function openCreate() { setEditingItem(null); setFormData({ status: "Open", priority: "Medium", category: "Other" }); setIsModalOpen(true); }
-  function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
+  const myTeamIds = myTeams.map(t => t.id);
+  const canWork = (r: any) => isAdmin || (r?.teamId && myTeamIds.includes(r.teamId));
+  const isMine = (r: any) => r?.requesterUserId === user?.id;
+
+  function openCreate() { setEditingItem(null); setFormData({ priority: "Medium" }); setIsModalOpen(true); }
+  function openEdit(item: any) { setEditingItem(item); setFormData({ ...item, _teamId: item.teamId, _reason: "" }); setIsModalOpen(true); }
 
   async function handleSave() {
     try {
-      if (editingItem) { await updateReq.mutateAsync({ id: editingItem.id, ...formData }); toast({ title: "Service request updated" }); }
-      else { await createReq.mutateAsync(formData); toast({ title: "Service request created" }); }
+      if (editingItem) {
+        const d: any = { title: formData.title, description: formData.description, urgency: formData.urgency, department: formData.department };
+        if (canWork(editingItem)) {
+          Object.assign(d, { priority: formData.priority, status: formData.status, assignedTo: formData.assignedTo ?? null, fulfillmentNotes: formData.fulfillmentNotes, category: formData.category, subcategory: formData.subcategory });
+          if (formData._teamId && formData._teamId !== editingItem.teamId) { d.teamId = formData._teamId; d.transferReason = formData._reason; }
+          else if (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)) d.transferReason = formData._reason || "Category corrected";
+          if (formData.reopenReason) d.reopenReason = formData.reopenReason;
+        }
+        await updateReq.mutateAsync({ id: editingItem.id, ...d }); toast({ title: `${editingItem.requestNo} updated` });
+      } else {
+        const r: any = await createReq.mutateAsync({ title: formData.title, description: formData.description, category: formData.category, subcategory: formData.subcategory, priority: formData.priority, urgency: formData.urgency, department: formData.department, assignedTo: formData.assignedTo || undefined, onBehalfOfUserId: formData.onBehalfOfUserId || undefined });
+        toast({ title: `${r.requestNo} raised`, description: `Assigned to ${r.assignedGroup} · expected closure ${fmtDay(r.expectedClosureDate)}` });
+      }
       setIsModalOpen(false);
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: "Could not save", description: e.message, variant: "destructive" }); }
+  }
+
+  async function cancelOwn(r: any) {
+    if (!await confirmDialog(`Cancel your request ${r.requestNo} — ${r.title}?`, { title: "Cancel request", confirmText: "Cancel request", destructive: true })) return;
+    try { await updateReq.mutateAsync({ id: r.id, status: "Cancelled" }); toast({ title: `${r.requestNo} cancelled` }); setIsModalOpen(false); }
+    catch (e: any) { toast({ title: "Could not cancel", description: e.message, variant: "destructive" }); }
   }
 
   async function handleDelete(id: number, no: string) {
@@ -187,93 +213,78 @@ export default function ItsmServiceRequests() {
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }
 
+  const DONE = ["Completed", "Cancelled", "Rejected"];
+  const route = useRoute("request", isModalOpen && !editingItem ? formData.category : (isModalOpen && editingItem && canWork(editingItem) && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)) ? formData.category : null), formData.subcategory);
+  const workMode = !!editingItem && canWork(editingItem);
+  const reqMode = !!editingItem && !workMode;
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Service Requests</h1>
-          <p className="text-sm text-muted-foreground">Manage IT service requests and fulfillment — {user?.name}</p>
+          <p className="text-sm text-muted-foreground">Raise a request by category — it goes to the mapped team automatically with an expected closure date.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => downloadReport("service-requests", `service-requests-report-${new Date().toISOString().slice(0,10)}.csv`)} className="gap-2 text-xs"><Download className="w-3.5 h-3.5" />Export Report</Button>
+          {isAgent && <Button variant="outline" size="sm" onClick={() => downloadReport("service-requests", `service-requests-report-${new Date().toISOString().slice(0,10)}.csv`)} className="gap-2 text-xs"><Download className="w-3.5 h-3.5" />Export Report</Button>}
           {canEdit && <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Request</Button>}
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard icon={Inbox} label="Open" value={openCount} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
+        <StatCard icon={Inbox} label="Open / awaiting" value={openCount} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
         <StatCard icon={Timer} label="In Progress" value={inProgressCount} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
         <StatCard icon={CheckCircle2} label="Completed" value={completedCount} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600" borderColor="border-l-emerald-500" />
-        <StatCard icon={Headphones} label="Total" value={requests.length} iconBg="bg-teal-100 dark:bg-teal-900/30" iconColor="text-teal-600" borderColor="border-l-teal-500" />
+        <StatCard icon={Headphones} label="Past expected closure" value={overdue} iconBg="bg-red-100 dark:bg-red-900/30" iconColor="text-red-600" borderColor="border-l-red-500" />
       </div>
 
       <Card>
         <CardContent className="p-0">
           <div className="flex flex-wrap gap-3 items-center p-4 border-b">
+            <ViewTabs value={view} onChange={v => { setView(v); setPage(1); }} showTeam={isAgent} />
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search requests..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" />
+              <Input placeholder="Search number, title, requester, team…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" />
             </div>
             <Select value={filterCategory} onValueChange={v => { setFilterCategory(v === "all" ? "" : v); setPage(1); }}>
-              <SelectTrigger className="w-[160px]"><SelectValue placeholder="All Categories" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Categories</SelectItem>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              <SelectTrigger className="w-[170px]"><SelectValue placeholder="All Categories" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Categories</SelectItem>{CATEGORIES.map((c: string) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Statuses" /></SelectTrigger>
               <SelectContent><SelectItem value="all">All Statuses</SelectItem>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
-            {(search || filterCategory || filterStatus) && (
-              <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setFilterCategory(""); setFilterStatus(""); setPage(1); }} className="text-xs text-muted-foreground">Clear filters</Button>
-            )}
           </div>
-
-          <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
-            Showing <span className="font-semibold text-foreground">{filtered.length}</span> of <span className="font-semibold text-foreground">{requests.length}</span> requests
-          </div>
-
+          <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">Showing <span className="font-semibold text-foreground">{filtered.length}</span> of <span className="font-semibold text-foreground">{requests.length}</span> requests</div>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[110px]">Request #</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Title</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[140px]">Category</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[110px]">Priority</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[140px]">Status</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Requested By</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Assigned To</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Created</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Updated</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[90px] text-center">Actions</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Request</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Raised by</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Priority</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Status</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">With</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Expected closure</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Time</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 text-center">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paged.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={10} className="text-center py-16 text-muted-foreground">
-                    <Headphones className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    <p className="font-medium">No service requests found</p>
-                    <p className="text-xs mt-1">Try adjusting your filters</p>
-                  </TableCell>
-                </TableRow>
-              )}
+              {paged.length === 0 && (<TableRow><TableCell colSpan={8} className="text-center py-16 text-muted-foreground"><Headphones className="w-8 h-8 mx-auto mb-2 opacity-30" /><p className="font-medium">No service requests here</p></TableCell></TableRow>)}
               {paged.map((r: any) => (
-                <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
-                  <TableCell className="py-3"><TicketNo no={r.requestNo} /></TableCell>
-                  <TableCell className="py-3">
-                    <div className="font-medium text-sm leading-tight max-w-[200px] truncate" title={r.title}>{r.title}</div>
-                    {r.department && <div className="text-[11px] text-muted-foreground mt-0.5">{r.department}</div>}
-                  </TableCell>
-                  <TableCell className="py-3"><CategoryBadge value={r.category} /></TableCell>
+                <TableRow key={r.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setViewModal(r)}>
+                  <TableCell className="py-3"><TicketNo no={r.requestNo} /><div className="font-medium text-sm leading-tight max-w-[240px] truncate" title={r.title}>{r.title}</div><div className="text-[11px] text-muted-foreground truncate max-w-[240px]">{[r.category, r.subcategory].filter(Boolean).join(" › ")}</div></TableCell>
+                  <TableCell className="py-3"><RaisedByCell name={r.requestedBy} createdBy={r.createdBy} at={r.createdAt} /></TableCell>
                   <TableCell className="py-3"><PriorityBadge value={r.priority} /></TableCell>
                   <TableCell className="py-3"><StatusBadge value={r.status} /></TableCell>
-                  <TableCell className="py-3"><AssigneeBadge name={r.requestedBy} /></TableCell>
-                  <TableCell className="py-3"><AssigneeBadge name={r.assignedTo} /></TableCell>
-                  <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(r.createdAt)}</TableCell>
-                  <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(r.updatedAt)}</TableCell>
-                  <TableCell className="py-3">
+                  <TableCell className="py-3"><WithCell team={r.assignedGroup} assignee={r.assignedTo} /></TableCell>
+                  <TableCell className="py-3"><ClosureCell date={r.expectedClosureDate} done={DONE.includes(r.status)} doneAt={r.completedAt || (DONE.includes(r.status) ? r.updatedAt : null)} /></TableCell>
+                  <TableCell className="py-3"><TimeCell createdAt={r.createdAt} endAt={DONE.includes(r.status) ? (r.completedAt || r.updatedAt) : null} firstResponseAt={r.firstResponseAt} /></TableCell>
+                  <TableCell className="py-3" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(r)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      {canEdit && <button onClick={() => openEdit(r)} title={["Completed","Cancelled"].includes(r.status) ? "Ticket is locked — cannot edit completed/cancelled requests" : "Edit"} disabled={["Completed","Cancelled"].includes(r.status)} className={`p-2 rounded-md transition-colors ${["Completed","Cancelled"].includes(r.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
+                      {canEdit && (canWork(r) || isMine(r)) && <button onClick={() => openEdit(r)} title={DONE.includes(r.status) ? "Closed — view only" : canWork(r) ? "Work on request" : "Edit my request"} disabled={DONE.includes(r.status) && !canWork(r)} className={`p-2 rounded-md transition-colors ${DONE.includes(r.status) && !canWork(r) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
                       {canDelete && <button onClick={() => handleDelete(r.id, r.requestNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
@@ -281,43 +292,27 @@ export default function ItsmServiceRequests() {
               ))}
             </TableBody>
           </Table>
-          <div className="px-4 pb-3">
-            <Pagination page={page} totalPages={totalPages} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
           </div>
+          <div className="px-4 pb-3"><Pagination page={page} totalPages={totalPages} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} /></div>
         </CardContent>
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <TicketNo no={viewModal?.requestNo || ""} />
-              <StatusBadge value={viewModal?.status || ""} />
-            </DialogTitle>
-          </DialogHeader>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle className="flex items-center gap-3"><TicketNo no={viewModal?.requestNo || ""} /><StatusBadge value={viewModal?.status || ""} /></DialogTitle></DialogHeader>
           {viewModal && (
             <div className="space-y-4">
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">{viewModal.description || "No description provided"}</p>
-              <div className="flex flex-wrap gap-2">
-                <CategoryBadge value={viewModal.category} />
-                <PriorityBadge value={viewModal.priority} />
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Requested By", viewModal.requestedBy], ["Department", viewModal.department], ["Urgency", viewModal.urgency], ["Due Date", viewModal.dueDate], ["Assigned To", viewModal.assignedTo], ["Assigned Group", viewModal.assignedGroup], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
-                  <div key={l as string} className="space-y-1">
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
-                    <div className="font-medium text-sm">{(v as string) || "—"}</div>
-                  </div>
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{viewModal.description || "No description provided"}</p>
+              <div className="flex flex-wrap gap-2"><CategoryBadge value={[viewModal.category, viewModal.subcategory].filter(Boolean).join(" › ") || "—"} /><PriorityBadge value={viewModal.priority} /></div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                {[["Raised by", viewModal.requestedBy], ["Raised on", formatDateTime(viewModal.createdAt)], ["Department", viewModal.department], ["Assigned group", viewModal.assignedGroup], ["Assigned to", viewModal.assignedTo || "Unassigned"], ["Expected closure", fmtDay(viewModal.expectedClosureDate)], ["First response", viewModal.firstResponseAt ? formatDateTime(viewModal.firstResponseAt) : "—"], ["Completed", viewModal.completedAt ? formatDateTime(viewModal.completedAt) : "—"], ["Urgency", viewModal.urgency]].map(([l, v]) => (
+                  <div key={l as string} className="space-y-1"><div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div><div className="font-medium text-sm">{(v as string) || "—"}</div></div>
                 ))}
               </div>
-              {viewModal.fulfillmentNotes && (
-                <div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200/50 dark:border-emerald-800/30 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-semibold mb-1">Fulfillment Notes</div>
-                  <div className="text-sm text-emerald-800 dark:text-emerald-300">{viewModal.fulfillmentNotes}</div>
-                </div>
-              )}
+              {viewModal.fulfillmentNotes && (<div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200/50 dark:border-emerald-800/30 p-3"><div className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-semibold mb-1">Fulfilment notes</div><div className="text-sm text-emerald-800 dark:text-emerald-300">{viewModal.fulfillmentNotes}</div></div>)}
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
+              <TicketHistory ticketId={viewModal.id} />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Service Request" ticketId={viewModal.id} readonly />
             </div>
@@ -326,35 +321,55 @@ export default function ItsmServiceRequests() {
       </Dialog>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editingItem ? `Edit ${editingItem.requestNo}` : "New Service Request"}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
-            <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
-            <div><Label>Category</Label><Select value={formData.category || "Other"} onValueChange={v => setFormData({ ...formData, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>{editingItem ? `${workMode ? "Work on" : "My request"} ${editingItem.requestNo}` : "New Service Request"}</DialogTitle></DialogHeader>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2"><Label>Title *</Label><Input disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="What do you need?" /></div>
+            <div className="sm:col-span-2"><Label>Description</Label><Textarea disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
+            <CategoryFields kind="request" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
+            {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
+            {editingItem && <div className="sm:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-3 rounded-[10px] border bg-muted/30 p-3 text-sm">
+              <div><div className="text-[11px] text-muted-foreground">Raised by</div><div className="font-medium">{editingItem.requestedBy}</div></div>
+              <div><div className="text-[11px] text-muted-foreground">Assigned group</div><div className="font-medium">{editingItem.assignedGroup || "—"}</div></div>
+              <div><div className="text-[11px] text-muted-foreground">Expected closure</div><div className="font-medium">{fmtDay(editingItem.expectedClosureDate)}</div></div>
+            </div>}
+            <div><Label>Priority</Label><Select disabled={reqMode} value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Urgency</Label><Select value={formData.urgency || "__none__"} onValueChange={v => setFormData({ ...formData, urgency: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select urgency" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{URGENCIES.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Requested By</Label><UserSearchCombobox value={formData.requestedBy || ""} onChange={v => setFormData({ ...formData, requestedBy: v })} placeholder="Search requester…" /></div>
             <div><Label>Department</Label><Select value={formData.department || "__none__"} onValueChange={v => setFormData({ ...formData, department: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Assigned To</Label><UserSearchCombobox value={formData.assignedTo || ""} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
-            <div><Label>Assigned Group</Label><GroupSelect value={formData.assignedGroup || ""} onChange={v => setFormData({ ...formData, assignedGroup: v })} /></div>
-            <div><Label>Due Date</Label><Input type="date" value={formData.dueDate || ""} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} /></div>
-            <div className="col-span-2"><Label>Fulfillment Notes</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} placeholder="Notes on fulfillment progress or completion…" /></div>
+            {!editingItem && (isAgent ? <div><Label>Raised for</Label><OnBehalfSelect value={formData.onBehalfOfUserId} onChange={id => setFormData({ ...formData, onBehalfOfUserId: id })} /></div>
+              : <div><Label>Raised by</Label><div className="h-10 flex items-center text-sm font-medium">{user?.name}</div></div>)}
+            {!editingItem && route.data?.ok && route.data.canAssign && <div><Label>Assign to (optional)</Label><TeamMemberSelect teamId={route.data.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>}
+            {!editingItem && route.data?.ok && !route.data.canAssign && <div className="text-[11px] text-muted-foreground self-end pb-2">{route.data.team} will pick it up and assign it.</div>}
+            {workMode && <>
+              <div><Label>Status</Label><Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+              <div><Label>Assign to (team member)</Label><TeamMemberSelect teamId={editingItem.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
+              <TransferFields currentTeamId={editingItem.teamId} teamId={formData._teamId} reason={formData._reason} onChange={(t, r) => setFormData({ ...formData, _teamId: t, _reason: r })} />
+              {DONE.includes(editingItem.status) && formData.status !== editingItem.status && !DONE.includes(formData.status) && <div className="sm:col-span-2"><Label>Reason to reopen *</Label><Input value={formData.reopenReason || ""} onChange={e => setFormData({ ...formData, reopenReason: e.target.value })} /></div>}
+              <div className="sm:col-span-2"><Label>Fulfilment notes {formData.status === "Completed" && "*"}</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} placeholder="What was done (required to complete)" /></div>
+            </>}
+            {reqMode && <div className="sm:col-span-2 text-xs text-muted-foreground">Only {editingItem.assignedGroup || "the assigned team"} can change the status or assign this request. You can update the details while it is open, or cancel it.</div>}
           </div>
-          {editingItem && (
-            <>
-              <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" /></div>
-              <hr className="border-border/40 mt-4" />
-              <div className="mt-2"><TicketAttachments ticketType="Service Request" ticketId={editingItem.id} /></div>
-            </>
-          )}
-          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
+          {editingItem && (<><div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" /></div><hr className="border-border/40 mt-4" /><div className="mt-2"><TicketAttachments ticketType="Service Request" ticketId={editingItem.id} /></div></>)}
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-between gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
+            <div>{reqMode && !DONE.includes(editingItem.status) && editingItem.status !== "In Progress" && <Button variant="outline" className="text-red-600" onClick={() => cancelOwn(editingItem)}>Cancel my request</Button>}</div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setIsModalOpen(false)}>Close</Button>
+              <Button onClick={handleSave} disabled={!formData.title || (reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)) || (!editingItem && !route.data?.ok) || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Save" : "Raise request"}</Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/** Ticket history (status, assignment, transfers, approvals) — newest first. */
+function TicketHistory({ ticketId }: { ticketId: number }) {
+  const { data = [] } = useQuery<any[]>({ queryKey: ["ticket-history", "service_request", ticketId], queryFn: () => apiFetch(`/ticket-history?ticketId=${ticketId}&ticketType=service_request`) });
+  if (!data.length) return null;
+  return (
+    <div><div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">History</div>
+      <ol className="space-y-1.5 border-l pl-3">{data.map((h: any) => <li key={h.id} className="text-xs"><span className="text-muted-foreground">{formatDateTime(h.createdAt)} · {String(h.updatedBy || "").replace(/ <.*>$/, "")}</span><div>{h.notes}</div></li>)}</ol>
     </div>
   );
 }

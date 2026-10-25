@@ -71,6 +71,7 @@ const ITSM_ITEMS = [
   { href: "/itsm-requests", label: "Service Requests", icon: Clock, module: "itsm_requests" },
   { href: "/itsm-my-approvals", label: "My Approvals", icon: CheckSquare, module: "itsm_my_approvals" },
   { href: "/itsm-approval", label: "Approval Workflow", icon: GitMerge, module: "itsm_approval" },
+  { href: "/itsm-setup", label: "ITSM Setup", icon: Wrench, module: "itsm_setup" },
 ];
 
 const ADMIN_ITEMS = [

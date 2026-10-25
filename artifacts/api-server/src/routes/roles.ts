@@ -29,6 +29,7 @@ export const MODULES = [
   { key: "itsm_sla", label: "SLA Policies", group: "IT Service Management" },
   { key: "itsm_requests", label: "Service Requests", group: "IT Service Management" },
   { key: "itsm_approval", label: "Approval Workflow", group: "IT Service Management" },
+  { key: "itsm_setup", label: "ITSM Setup (teams & categories)", group: "IT Service Management" },
   { key: "kpis", label: "KPI Management", group: "KPI & Reporting" },
   { key: "kpi_dashboard", label: "KPI Dashboard", group: "KPI & Reporting" },
   { key: "reports", label: "PPT Reports", group: "KPI & Reporting" },

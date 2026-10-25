@@ -30,6 +30,7 @@ import assetLicensesRouter from "./asset-licenses";
 import assetDashboardRouter from "./asset-dashboard";
 import dataArchiveRouter from "./data-archive";
 import itsmRouter from "./itsm";
+import itsmSetupRouter from "./itsm-setup";
 import { seedAssetAndItsmModules, seedExtendedItsmData } from "./seed-modules";
 import docsExportRouter from "./docs-export";
 import { requireAuth, requireAdmin } from "./auth";
@@ -117,6 +118,7 @@ router.use(assetLicensesRouter);
 router.use(assetDashboardRouter);
 router.use(dataArchiveRouter);
 router.use(assetsRouter);
+router.use(itsmSetupRouter);
 router.use(itsmRouter);
 router.use(docsExportRouter);
 

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, serial, timestamp, integer, boolean, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, numeric, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -25,6 +25,10 @@ export const itsmIncidentsTable = pgTable("itsm_incidents", {
   slaBreachAt: timestamp("sla_breach_at", { withTimezone: true }),
   problemId: integer("problem_id"),
   resolutionNotes: text("resolution_notes"),
+  teamId: integer("team_id"),
+  requesterUserId: integer("requester_user_id"),
+  expectedClosureDate: date("expected_closure_date", { mode: "string" }),
+  firstResponseAt: timestamp("first_response_at", { withTimezone: true }),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   closedAt: timestamp("closed_at", { withTimezone: true }),
   isActive: boolean("is_active").notNull().default(true),
@@ -141,6 +145,11 @@ export const itsmServiceRequestsTable = pgTable("itsm_service_requests", {
   department: text("department"),
   dueDate: text("due_date"),
   fulfillmentNotes: text("fulfillment_notes"),
+  subcategory: text("subcategory"),
+  teamId: integer("team_id"),
+  requesterUserId: integer("requester_user_id"),
+  expectedClosureDate: date("expected_closure_date", { mode: "string" }),
+  firstResponseAt: timestamp("first_response_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
@@ -213,3 +222,32 @@ export type ItsmKnowledgeBase = typeof itsmKnowledgeBaseTable.$inferSelect;
 export type ItsmServiceRequest = typeof itsmServiceRequestsTable.$inferSelect;
 export type ItsmApprovalMatrix = typeof itsmApprovalMatrixTable.$inferSelect;
 export type ItsmApproval = typeof itsmApprovalsTable.$inferSelect;
+
+/* Assignment groups with members, and the category / sub-category catalog that routes tickets to them. */
+export const itsmTeamsTable = pgTable("itsm_teams", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  email: text("email"),
+  leadUserId: integer("lead_user_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const itsmTeamMembersTable = pgTable("itsm_team_members", {
+  teamId: integer("team_id").notNull(),
+  userId: integer("user_id").notNull(),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const itsmCatalogTable = pgTable("itsm_catalog", {
+  id: serial("id").primaryKey(),
+  ticketType: text("ticket_type").notNull(),
+  category: text("category").notNull(),
+  subcategory: text("subcategory"),
+  teamId: integer("team_id"),
+  resolutionDays: integer("resolution_days"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

@@ -47,6 +47,7 @@ import ItsmSlaPolicies from "@/pages/itsm-sla-policies";
 import ItsmServiceRequests from "@/pages/itsm-service-requests";
 import ItsmApprovalConfig from "@/pages/itsm-approval-config";
 import ItsmMyApprovals from "@/pages/itsm-my-approvals";
+import ItsmSetup from "@/pages/itsm-setup";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Remember where the user was going (e.g. a scanned asset QR link) so login can send them back there
@@ -175,6 +176,7 @@ function Router() {
               <Route path="/itsm-requests" component={ItsmServiceRequests} />
               <Route path="/itsm-approval" component={ItsmApprovalConfig} />
               <Route path="/itsm-my-approvals" component={ItsmMyApprovals} />
+              <Route path="/itsm-setup" component={ItsmSetup} />
               <Route path="/profile" component={Profile} />
               <Route path="/admin/users">
                 {user.role === "admin" ? <AdminUsers /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}

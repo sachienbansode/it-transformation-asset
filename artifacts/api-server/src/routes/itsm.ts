@@ -4,6 +4,7 @@ import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { getAccess, can } from "../lib/rbac";
+import { route, RoutingError, isMember, teamIdsOf, teamByName, teamById, userByName, emailsOfTeam } from "../lib/itsm-routing";
 import { z } from "zod";
 
 /*
@@ -35,9 +36,10 @@ function cachedGet(path: string, handler: () => Promise<any>) {
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 const fail = (res: Response, code: number, error: string) => { res.status(code).json({ error }); };
 const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: Request, res: Response) => {
-  try { await fn(req, res); } catch (e: any) { if (!res.headersSent) fail(res, e?.status || 500, e?.message || String(e)); }
+  try { await fn(req, res); } catch (e: any) { if (!res.headersSent) fail(res, e instanceof RoutingError ? 400 : e?.status || 500, e?.message || String(e)); }
 };
 class Bad extends Error { status = 400; }
+class Forbidden extends Error { status = 403; }
 const s = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
 
 export async function actor(req: Request) {
@@ -48,7 +50,7 @@ export async function actor(req: Request) {
 const audit = (p: Parameters<typeof logAudit>[0]) => logAudit(p).catch(() => { /* non-fatal */ });
 
 /** Server-owned fields are never taken from the browser. */
-const SERVER_OWNED = ["id", "ticketNo", "problemNo", "changeNo", "requestNo", "slaBreachAt", "slaId", "resolvedAt", "closedAt", "completedAt", "isActive",
+const SERVER_OWNED = ["expectedClosureDate", "requesterUserId", "firstResponseAt", "dueDate", "id", "ticketNo", "problemNo", "changeNo", "requestNo", "slaBreachAt", "slaId", "resolvedAt", "closedAt", "completedAt", "isActive",
   "createdBy", "updatedBy", "createdAt", "updatedAt", "approvalStatus", "approvedBy", "views", "authorName", "slaStatus"];
 function clean(body: any, extra: string[] = []) {
   const out: any = {};
@@ -248,10 +250,32 @@ const ENTITY: Record<Kind, string> = { incident: "itsm_incident", problem: "itsm
 
 async function createTicket(kind: Kind, req: Request, res: Response) {
   const who = await actor(req);
-  const body = parse(SCHEMAS[kind].create, clean(req.body, ["status"]));
-  if (body.assignedTo !== undefined || body.assignedGroup !== undefined) await validateAssignment(body.assignedTo, body.assignedGroup);
+  const body: any = parse(SCHEMAS[kind].create, clean(req.body, ["status", "onBehalfOfUserId", "teamId"]));
   const createdAt = new Date();
   const values: any = { ...body, createdBy: who.label, updatedBy: who.label, createdAt, updatedAt: createdAt };
+  let notifyAssignee: string | null = null;
+  if (ROUTED.includes(kind)) {
+    // Category / sub-category decide the team and the expected closure date (T+n business days)
+    const rt = await route(kind, body.category, body.subcategory, createdAt);
+    const a = await getAccess(req);
+    const myTeams = await teamIdsOf(who.userId);
+    let requester = { id: who.userId, name: who.name, email: who.email };
+    const onBehalf = Number(req.body?.onBehalfOfUserId) || null;
+    if (onBehalf && onBehalf !== who.userId) {
+      if (!a?.isAdmin && !myTeams.length) throw new Forbidden("Only service desk team members can raise a ticket on behalf of someone else");
+      const [u] = await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable).where(and(eq(usersTable.id, onBehalf), eq(usersTable.isActive, true)));
+      if (!u) throw new Bad("The person you are raising this for is not an active user");
+      requester = u;
+    }
+    Object.assign(values, { category: rt.category, subcategory: rt.subcategory, teamId: rt.team.id, assignedGroup: rt.team.name, expectedClosureDate: rt.expectedClosureDate, requesterUserId: requester.id });
+    if (kind === "request") values.requestedBy = requester.name; else { values.reportedBy = requester.name; values.reporterEmail = requester.email; }
+    if (s(body.assignedTo)) {
+      if (!a?.isAdmin && !myTeams.includes(rt.team.id)) throw new Forbidden(`Only members of ${rt.team.name} can assign this ticket to a person`);
+      const u = await userByName(String(body.assignedTo));
+      if (!u || !await isMember(u.id, rt.team.id)) throw new Bad(`${body.assignedTo} is not a member of ${rt.team.name}`);
+      values.assignedTo = u.name; values.firstResponseAt = createdAt; notifyAssignee = u.email;
+    } else values.assignedTo = null;
+  } else if (body.assignedTo !== undefined || body.assignedGroup !== undefined) await validateAssignment(body.assignedTo, body.assignedGroup);
   if (kind === "incident") { values.status = "Open"; values.reportedBy ||= who.name; values.slaBreachAt = await computeSlaBreachAt("Incident", values.priority, createdAt); }
   if (kind === "request") { values.status = "Open"; values.requestedBy ||= who.name; }
   if (kind === "problem") values.status = "Open";
@@ -274,7 +298,8 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
     [out] = await db.update(itsmIncidentsTable).set({ status: "Escalated" }).where(eq(itsmIncidentsTable.id, item.id)).returning();
     await history(kind, item.id, "System", "Auto-escalated: Critical / S1 incident needs immediate attention", "Open", "Escalated");
   }
-  await audit({ entityType: ENTITY[kind], entityId: item.id, action: "create", performedBy: who.label, summary: `Created ${TYPE_NAME[kind]} ${item[key]}: ${item.title}`, newValues: out });
+  await audit({ entityType: ENTITY[kind], entityId: item.id, action: "create", performedBy: who.label, summary: `Created ${TYPE_NAME[kind]} ${item[key]}: ${item.title}${item.assignedGroup ? ` → ${item.assignedGroup}` : ""}`, newValues: out });
+  if (ROUTED.includes(kind)) { void notifyTicket(kind, out, "created"); if (notifyAssignee) void notifyTicket(kind, out, "assigned"); }
   res.status(201).json(out);
 }
 
@@ -286,11 +311,54 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if (!old) return fail(res, 404, "Ticket not found");
   const who = await actor(req);
   const reopenReason = s(req.body?.reopenReason);
-  const body: any = parse(SCHEMAS[kind].patch, clean(req.body, ["reopenReason", "updatedBy"]));
+  const body: any = parse(SCHEMAS[kind].patch, clean(req.body, ["reopenReason", "updatedBy", "transferReason", "onBehalfOfUserId"]));
+  const transferReason = s(req.body?.transferReason);
+  const extra: any = {};
+  let events: ("assigned" | "transferred")[] = [];
+  if (ROUTED.includes(kind)) {
+    const a = await getAccess(req);
+    const member = await isMember(who.userId, old.teamId);
+    const isRequester = old.requesterUserId === who.userId || old.createdBy === who.label;
+    const OPS = ["status", "assignedTo", "assignedGroup", "teamId", "priority", "severity", "resolutionNotes", "fulfillmentNotes", "category", "subcategory", "problemId", "urgency", "impactLevel", "source"];
+    const touched = OPS.filter(k => body[k] !== undefined && String(body[k] ?? "") !== String(old[k] ?? ""));
+    if (!a?.isAdmin && !member) {
+      const cancelOwn = kind === "request" && isRequester && touched.length === 1 && touched[0] === "status" && body.status === "Cancelled" && !DONE.request.includes(old.status);
+      if (touched.length && !cancelOwn) throw new Forbidden(`Only members of ${old.assignedGroup || "the assigned team"} can change ${touched.join(", ")}${isRequester && kind === "request" ? " (you can cancel your own request)" : ""}`);
+      if (!isRequester) throw new Forbidden(`Only the requester or members of ${old.assignedGroup || "the assigned team"} can edit this ticket`);
+      if (!["Open", "Pending Approval"].includes(old.status) && !touched.length) throw new Forbidden("The request is already being worked on — add details through the assigned team");
+    }
+    // Category change re-routes the ticket
+    let newTeamId: number | null = body.teamId ? Number(body.teamId) : null;
+    if (!newTeamId && body.assignedGroup !== undefined && (body.assignedGroup || null) !== (old.assignedGroup || null)) {
+      const t = await teamByName(body.assignedGroup); if (!t) throw new Bad(`"${body.assignedGroup}" is not an active team`); newTeamId = t.id;
+    }
+    if ((body.category !== undefined && body.category !== old.category) || (body.subcategory !== undefined && (body.subcategory || null) !== (old.subcategory || null))) {
+      const rt = await route(kind, body.category ?? old.category, body.subcategory !== undefined ? body.subcategory : old.subcategory, new Date(old.createdAt));
+      body.category = rt.category; body.subcategory = rt.subcategory;
+      if (!newTeamId && rt.team.id !== old.teamId) newTeamId = rt.team.id;
+    }
+    delete body.teamId; delete body.assignedGroup;
+    let teamId = old.teamId;
+    if (newTeamId && newTeamId !== old.teamId) {
+      const t = await teamById(newTeamId); if (!t || !t.isActive) throw new Bad("Choose an active team");
+      if (!transferReason || transferReason.length < 5) throw new Bad(`Give a reason for passing the ticket to ${t.name} (transferReason)`);
+      extra.teamId = t.id; extra.assignedGroup = t.name; teamId = t.id; events.push("transferred");
+      if (old.assignedTo && body.assignedTo === undefined) { const u = await userByName(old.assignedTo); if (!u || !await isMember(u.id, t.id)) extra.assignedTo = null; }
+    }
+    if (body.assignedTo !== undefined && (body.assignedTo || null) !== (old.assignedTo || null)) {
+      if (body.assignedTo) {
+        const u = await userByName(String(body.assignedTo));
+        if (!u || !await isMember(u.id, teamId)) throw new Bad(`${body.assignedTo} is not a member of ${extra.assignedGroup || old.assignedGroup || "the team"}`);
+        body.assignedTo = u.name; events.push("assigned");
+      } else body.assignedTo = null;
+    }
+    if (!old.firstResponseAt && (a?.isAdmin || member) && (events.includes("assigned") || (body.status && body.status !== old.status && body.status !== "Cancelled"))) extra.firstResponseAt = new Date();
+  } else {
+    const newWho = body.assignedTo !== undefined && (body.assignedTo || null) !== (old.assignedTo || null) ? body.assignedTo : null;
+    const newTeam = body.assignedGroup !== undefined && (body.assignedGroup || null) !== (old.assignedGroup || null) ? body.assignedGroup : null;
+    if (newWho || newTeam) await validateAssignment(newWho, newTeam);
+  }
   const to = body.status ?? old.status;
-  const newWho = body.assignedTo !== undefined && (body.assignedTo || null) !== (old.assignedTo || null) ? body.assignedTo : null;
-  const newTeam = body.assignedGroup !== undefined && (body.assignedGroup || null) !== (old.assignedGroup || null) ? body.assignedGroup : null;
-  if (newWho || newTeam) await validateAssignment(newWho, newTeam);
   if (to !== old.status) {
     if (REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(to)) {
       if (!reopenReason || reopenReason.length < 5) throw new Bad(`${old.status} ticket — give a reason to reopen it (reopenReason)`);
@@ -300,7 +368,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     if (kind === "change" && ["Scheduled", "In Progress", "Completed"].includes(to) && old.approvalStatus !== "Approved") throw new Bad("Change request must be approved before it is scheduled or implemented");
     await assertApproved(kind, id, to);
   }
-  const updates: any = { ...body, updatedBy: who.label, updatedAt: new Date() };
+  const updates: any = { ...body, ...extra, updatedBy: who.label, updatedAt: new Date() };
   if (kind === "incident" && to === "Resolved" && old.status !== "Resolved") updates.resolvedAt = new Date();
   if (kind === "incident" && to === "Closed" && !old.closedAt) updates.closedAt = new Date();
   if (kind === "request" && to === "Completed" && !old.completedAt) updates.completedAt = new Date();
@@ -312,7 +380,8 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if ((old.assignedGroup || null) !== (item.assignedGroup || null)) await history(kind, id, who.label, `Passed to team ${item.assignedGroup || "(none)"} from ${old.assignedGroup || "(none)"}${s(req.body?.transferReason) ? ` — ${s(req.body.transferReason)}` : ""}`);
   if ((old.assignedTo || null) !== (item.assignedTo || null)) await history(kind, id, who.label, item.assignedTo ? `Assigned to ${item.assignedTo}${old.assignedTo ? ` (was ${old.assignedTo})` : ""}` : `Unassigned (was ${old.assignedTo})`);
   if (old.priority && item.priority && old.priority !== item.priority) await history(kind, id, who.label, `Priority ${old.priority} → ${item.priority}`);
-  const changed = Object.keys(body).filter(k => String(old[k] ?? "") !== String(item[k] ?? ""));
+  for (const ev of events) void notifyTicket(kind, item, ev, transferReason);
+  const changed = [...Object.keys(body), ...Object.keys(extra)].filter(k => String(old[k] ?? "") !== String(item[k] ?? ""));
   if (changed.length) await audit({ entityType: ENTITY[kind], entityId: id, action: "update", performedBy: who.label, summary: `Updated ${old[NO[kind][3]]}: ${changed.join(", ")}`, newValues: { changed: Object.fromEntries(changed.map(k => [k, { from: old[k], to: item[k] }])) } });
   res.json(kind === "incident" ? { ...item, slaStatus: computeSlaStatus(item.slaBreachAt, item.status) } : item);
 }
@@ -347,17 +416,43 @@ async function bulkUpdate(kind: Kind, req: Request, res: Response) {
 /** Assignee must be an active person in User Master; team must be one of the configured IT groups. */
 async function validateAssignment(assignedTo: unknown, assignedGroup: unknown) {
   const who = s(assignedTo), team = s(assignedGroup);
-  if (team) {
-    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, "itsm.itGroups"));
-    let v: any = row ? row.value : ITSM_CONFIG_DEFAULTS["itsm.itGroups"];
-    for (let i = 0; i < 3 && typeof v === "string"; i++) { try { v = JSON.parse(v); } catch { break; } }
-    const groups: string[] = Array.isArray(v) ? v : [];
-    if (!groups.some(g => g.toLowerCase() === team.toLowerCase())) throw new Bad(`Team "${team}" is not one of the IT groups (Settings › ITSM › IT groups)`);
-  }
+  if (team && !await teamByName(team)) throw new Bad(`Team "${team}" is not an active ITSM team (ITSM Setup › Teams)`);
   if (who) {
     const [u] = await db.select({ id: usersTable.id }).from(usersTable).where(and(sql`(lower(${usersTable.name}) = lower(${who}) OR lower(${usersTable.email}) = lower(${who}))`, eq(usersTable.isActive, true)));
     if (!u) throw new Bad(`Assignee "${who}" is not an active user in User Master`);
   }
+}
+
+const ROUTED: Kind[] = ["incident", "request"];
+
+/** Who sees which tickets: admins, Full-access holders and team members see all; everyone else sees what they raised. */
+async function visibleRows(req: Request, kind: Kind, rows: any[]) {
+  const a = await getAccess(req); if (!a) return [];
+  const me = await actor(req);
+  const myTeams = await teamIdsOf(a.userId);
+  const seeAll = a.isAdmin || a.perms[MODULE_OF[kind]] === "admin" || myTeams.length > 0;
+  const mine = (r: any) => r.requesterUserId === a.userId || r.createdBy === me.label;
+  let out = seeAll ? rows : rows.filter(mine);
+  const view = String(req.query.view || "");
+  if (view === "mine") out = out.filter(mine);
+  if (view === "assigned") out = out.filter(r => (r.assignedTo || "").toLowerCase() === me.name.toLowerCase());
+  if (view === "team") out = out.filter(r => r.teamId && myTeams.includes(r.teamId));
+  return out;
+}
+
+/** Emails for routed tickets: new ticket → team; assignment → assignee; transfer → new team. Never throws. */
+async function notifyTicket(kind: Kind, t: any, event: "created" | "assigned" | "transferred", reason?: string | null) {
+  try {
+    const { sendDirect, notify, htmlTable } = await import("../lib/mailer");
+    const no = t[NO[kind][3]], type = TYPE_NAME[kind];
+    const rows: [string, unknown][] = [["Ticket", no], ["Title", t.title], ["Category", [t.category, t.subcategory].filter(Boolean).join(" › ")], ["Priority", t.priority], ["Raised by", t.requestedBy || t.reportedBy || t.createdBy], ["Team", t.assignedGroup], ["Assigned to", t.assignedTo || "—"], ["Expected closure", t.expectedClosureDate || "—"]];
+    let to: string[] = [], subject = "", intro = "";
+    if (event === "assigned") { const u = t.assignedTo ? await userByName(t.assignedTo) : null; to = u?.email ? [u.email] : []; subject = `${no} assigned to you — ${t.title}`; intro = `${type} <b>${no}</b> has been assigned to you.`; }
+    else { to = t.teamId ? await emailsOfTeam(t.teamId) : []; subject = event === "created" ? `New ${type.toLowerCase()} ${no} in ${t.assignedGroup} queue — ${t.title}` : `${no} passed to ${t.assignedGroup} — ${t.title}`; intro = event === "created" ? `A new ${type.toLowerCase()} is in the <b>${t.assignedGroup}</b> queue.` : `${type} <b>${no}</b> was passed to <b>${t.assignedGroup}</b>${reason ? `: ${reason}` : ""}.`; }
+    const html = `<p>${intro}</p>${htmlTable(rows)}<p>Open it in IT Hub › ITSM.</p><p>Regards,</p>`;
+    await sendDirect("itsm_assignment", to, subject, html);
+    if (event !== "assigned") void notify("itsm_tickets", { subject, html });
+  } catch (e) { console.error("notifyTicket failed", e); }
 }
 
 /* ─── PEOPLE (assignee / reporter pickers) ───────────────────────────────── */
@@ -373,6 +468,7 @@ router.get("/incidents", wrap(async (req, res) => {
   const problemId = req.query.problemId ? parseInt(req.query.problemId as string) : null;
   let rows = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(desc(itsmIncidentsTable.createdAt));
   if (problemId) rows = rows.filter(r => r.problemId === problemId);
+  rows = await visibleRows(req, "incident", rows);
   res.json(rows.map(r => ({ ...r, slaStatus: computeSlaStatus(r.slaBreachAt, r.status) })));
 }));
 router.get("/incidents/stats", cachedGet("/incidents/stats", async () => {
@@ -411,7 +507,10 @@ router.patch("/changes/:id", wrap((req, res) => updateTicket("change", req, res)
 router.delete("/changes/:id", wrap((req, res) => deleteTicket("change", req, res)));
 
 /* ─── SERVICE REQUESTS ───────────────────────────────────────────────────── */
-router.get("/service-requests", cachedGet("/service-requests", () => db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.isActive, true)).orderBy(desc(itsmServiceRequestsTable.createdAt))));
+router.get("/service-requests", wrap(async (req, res) => {
+  const rows = await db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.isActive, true)).orderBy(desc(itsmServiceRequestsTable.createdAt));
+  res.json(await visibleRows(req, "request", rows));
+}));
 router.post("/service-requests/bulk-update", wrap((req, res) => bulkUpdate("request", req, res)));
 router.post("/service-requests", wrap((req, res) => createTicket("request", req, res)));
 router.patch("/service-requests/:id", wrap((req, res) => updateTicket("request", req, res)));

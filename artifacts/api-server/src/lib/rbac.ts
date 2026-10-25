@@ -55,6 +55,8 @@ const RULES: [RegExp, string | null][] = [
   [/^\/knowledge-base(\/|$)/, "itsm_kb"],
   [/^\/sla-policies(\/|$)/, "itsm_sla"],
   [/^\/approval-matrix(\/|$)/, "itsm_approval"],
+  [/^\/(itsm-teams|itsm-catalog)(\/|$)/, "itsm_setup"],
+  [/^\/(itsm-route|itsm-my-teams)$/, null],
   [/^\/(itsm-metrics|itsm-report)$/, "itsm_dashboard"],
   [/^\/(approvals|my-approvals|ticket-history|itsm-attachments|itsm-config|itsm-settings|itsm-people)(\/|$)/, null], // checked in the route
   [/^\/asset-(contracts|warranty)(\/|$)/, "asset_contracts"],
@@ -73,8 +75,8 @@ const RULES: [RegExp, string | null][] = [
 // Shared reference data: readable by anyone with read on any asset module
 const SHARED_READ = [/^\/assets$/, /^\/asset-vendors$/, /^\/asset-people$/, /^\/assets\/\d+\/coverage$/];
 // ITSM reference lists used across ITSM screens (link to problem, SLA badges, KB search): readable with read on any ITSM module
-export const ITSM_MODULES = ["itsm_dashboard", "itsm_incidents", "itsm_problems", "itsm_changes", "itsm_kb", "itsm_sla", "itsm_requests", "itsm_approval"];
-const ITSM_SHARED_READ = [/^\/problems$/, /^\/sla-policies$/, /^\/knowledge-base$/, /^\/approval-matrix$/];
+export const ITSM_MODULES = ["itsm_dashboard", "itsm_incidents", "itsm_problems", "itsm_changes", "itsm_kb", "itsm_sla", "itsm_requests", "itsm_approval", "itsm_setup"];
+const ITSM_SHARED_READ = [/^\/problems$/, /^\/sla-policies$/, /^\/knowledge-base$/, /^\/approval-matrix$/, /^\/itsm-teams$/, /^\/itsm-catalog$/, /^\/itsm-teams\/\d+\/members$/];
 
 export function moduleFor(path: string): { matched: boolean; module: string | null } {
   for (const [re, m] of RULES) if (re.test(path)) return { matched: true, module: m };
