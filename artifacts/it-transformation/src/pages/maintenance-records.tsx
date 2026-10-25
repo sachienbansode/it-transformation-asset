@@ -317,7 +317,7 @@ export default function MaintenanceRecords() {
               <Textarea value={formData.notes || ""} onChange={e => setField("notes", e.target.value)} rows={2} placeholder="Any additional notes…" />
             </div>
           </div>
-          <div className="flex justify-end gap-2 mt-4 pt-3 border-t">
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button
               onClick={handleSave}

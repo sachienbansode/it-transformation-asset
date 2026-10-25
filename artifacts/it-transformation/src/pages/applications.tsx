@@ -402,7 +402,7 @@ export default function Applications() {
               <Label className="cursor-pointer">{formData.isActive !== false ? "Active" : "Inactive"}</Label>
             </div>
           </div>
-          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={createItem.isPending || updateItem.isPending}>
               {editingItem ? "Update" : "Create"}

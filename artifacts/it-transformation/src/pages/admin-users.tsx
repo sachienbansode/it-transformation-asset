@@ -349,11 +349,11 @@ export default function AdminUsers() {
 
       {/* Add / Edit Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-5xl">
           <DialogHeader>
             <DialogTitle>{editUser ? "Edit User" : "Add New User"}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
             <div className="space-y-1.5">
               <Label>Full Name <span className="text-red-500">*</span></Label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Ramesh Kumar" />
@@ -361,7 +361,7 @@ export default function AdminUsers() {
             <div className="space-y-1.5">
               <Label>Login Email <span className="text-red-500">*</span></Label>
               <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="user@company.com" />
-              <p className="text-[11px] text-muted-foreground">Used to sign in (Ashika Portal / Microsoft 365 email must match).</p>
+              <p className="text-[11px] text-muted-foreground">Must match the Ashika Portal / M365 email.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Employee Code <span className="text-red-500">*</span></Label>
@@ -369,7 +369,7 @@ export default function AdminUsers() {
               {!editUser && form.employeeCode && users.some(u => u.employeeCode?.toLowerCase() === form.employeeCode.toLowerCase()) && (
                 <p className="text-[11px] text-red-500">⚠ Employee code already in use</p>
               )}
-              <p className="text-[11px] text-muted-foreground">Links this person to the assets issued to them. For external associates use their partner / vendor staff code.</p>
+              <p className="text-[11px] text-muted-foreground">Assets are mapped to this code. Externals: vendor staff code.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Designation <span className="text-red-500">*</span></Label>
@@ -406,7 +406,7 @@ export default function AdminUsers() {
                   <SelectItem value="external">External</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-muted-foreground">External = consultants / partner staff who may hold company assets.</p>
+              <p className="text-[11px] text-muted-foreground">External = consultants / partner staff.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Account Status</Label>
@@ -419,9 +419,14 @@ export default function AdminUsers() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Access roles <span className="text-muted-foreground text-xs">(module access — e.g. IT Asset Admin; Ashika Portal users need at least one, or base role Admin)</span></Label>
-              <div className="flex flex-wrap gap-1.5 rounded-[10px] border p-2 max-h-32 overflow-y-auto">
+            <div className="space-y-1.5">
+              <Label>Password {editUser && <span className="text-muted-foreground text-xs">(blank = keep current)</span>}</Label>
+              <Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={editUser ? "••••••••" : "Set password"} />
+            </div>
+            <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Access roles <span className="text-muted-foreground text-xs">(Portal users need one, or base role Admin)</span></Label>
+              <div className="flex flex-wrap gap-1.5 rounded-[10px] border p-2 max-h-40 overflow-y-auto">
                 {accessRoles.map(r => {
                   const on = roleIds.includes(r.id);
                   return (
@@ -431,6 +436,9 @@ export default function AdminUsers() {
                 })}
                 {!accessRoles.length && <span className="text-xs text-muted-foreground">No roles defined — Admin › Roles & Permissions.</span>}
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Effective access</Label>
               {(() => {
                 const LV = ["none", "read", "write", "admin"];
                 const eff: Record<string, string> = {};
@@ -454,9 +462,6 @@ export default function AdminUsers() {
                 );
               })()}
             </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Password {editUser && <span className="text-muted-foreground text-xs">(leave blank to keep current)</span>}</Label>
-              <Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={editUser ? "••••••••" : "Set password"} />
             </div>
           </div>
           <DialogFooter>

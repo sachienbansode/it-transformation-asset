@@ -753,7 +753,7 @@ function CategoryGroupedKpiDialog({open,set,person,year,isAdmin,userId,getDeptLa
     finally{setSubmittingFinal(false);}
   };
   const contentClass=isFullscreen
-    ?"fixed inset-0 z-50 max-w-none w-screen h-screen rounded-none flex flex-col overflow-hidden bg-background translate-x-0 translate-y-0 border-0"
+    ?"fixed inset-0 z-50 max-w-none max-h-none w-screen h-screen rounded-none flex flex-col overflow-hidden bg-background translate-x-0 translate-y-0 border-0"
     :"sm:max-w-[1200px] max-h-[92vh] flex flex-col overflow-hidden";
   return(
     <Dialog open={open} onOpenChange={onClose}>
@@ -984,7 +984,7 @@ function PerformanceCaptureDialog({open,set,person,year,isAdmin,userId,getDeptLa
   const allItems=items||[];
   const displayItems=allItems.filter(i=>i.approvalStatus==="Approved");
   const contentClass=isFullscreen
-    ?"fixed inset-0 z-50 max-w-none w-screen h-screen rounded-none flex flex-col overflow-hidden bg-background translate-x-0 translate-y-0 border-0"
+    ?"fixed inset-0 z-50 max-w-none max-h-none w-screen h-screen rounded-none flex flex-col overflow-hidden bg-background translate-x-0 translate-y-0 border-0"
     :"sm:max-w-[1300px] max-h-[92vh] flex flex-col overflow-hidden";
 
   return(

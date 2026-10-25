@@ -165,7 +165,7 @@ export default function ItsmKnowledgeBase() {
             <div><Label>Tags</Label><Input value={formData.tags || ""} onChange={e => setFormData({ ...formData, tags: e.target.value })} placeholder="Comma-separated" /></div>
             <div className="col-span-2"><Label>Content *</Label><Textarea value={formData.content || ""} onChange={e => setFormData({ ...formData, content: e.target.value })} rows={10} /></div>
           </div>
-          <div className="flex justify-end gap-2 mt-4">
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
           </div>

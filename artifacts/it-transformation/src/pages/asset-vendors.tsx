@@ -177,7 +177,7 @@ export default function AssetVendors() {
             <div><Label>Rating (1-5)</Label><Input type="number" min="1" max="5" value={formData.rating || 3} onChange={e => setFormData({ ...formData, rating: parseInt(e.target.value) })} /></div>
             <div className="col-span-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={e => setFormData({ ...formData, notes: e.target.value })} rows={2} /></div>
           </div>
-          <div className="flex justify-end gap-2 mt-4">
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.name} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
           </div>

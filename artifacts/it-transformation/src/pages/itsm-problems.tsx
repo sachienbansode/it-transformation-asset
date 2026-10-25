@@ -357,7 +357,7 @@ export default function ItsmProblems() {
               <div className="mt-2"><TicketAttachments ticketType="Problem" ticketId={editingItem.id} /></div>
             </>
           )}
-          <div className="flex justify-end gap-2 mt-4">
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
           </div>

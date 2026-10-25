@@ -615,7 +615,7 @@ export default function AssetRegistry() {
             {formErrors.comment && <p className="text-xs text-red-500 mt-1">{formErrors.comment}</p>}
           </div>
 
-          <div className="flex justify-end gap-2 mt-4 pt-3 border-t">
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button
               onClick={handleSave}

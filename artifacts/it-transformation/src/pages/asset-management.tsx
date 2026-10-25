@@ -628,7 +628,7 @@ export default function AssetManagement() {
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={createAsset.isPending || updateAsset.isPending} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2">
               {(createAsset.isPending || updateAsset.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}

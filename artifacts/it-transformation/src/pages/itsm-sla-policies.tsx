@@ -208,7 +208,7 @@ export default function ItsmSlaPolicies() {
             <div><Label>Active</Label><Select value={formData.isActive !== false ? "true" : "false"} onValueChange={v => setFormData({ ...formData, isActive: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Active</SelectItem><SelectItem value="false">Inactive</SelectItem></SelectContent></Select></div>
             <div className="col-span-2"><Label>Escalation Policy</Label><Input value={formData.escalationPolicy || ""} onChange={e => setFormData({ ...formData, escalationPolicy: e.target.value })} placeholder="Describe escalation procedure" /></div>
           </div>
-          <div className="flex justify-end gap-2 mt-4">
+          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={!formData.name} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
           </div>
