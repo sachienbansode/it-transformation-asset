@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, serial, timestamp, integer, boolean, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -155,6 +156,8 @@ export const itsmApprovalMatrixTable = pgTable("itsm_approval_matrix", {
   approverRole: text("approver_role").notNull(),
   approverLevel: text("approver_level").notNull(),
   sequence: integer("sequence").notNull().default(1),
+  approverRoleId: integer("approver_role_id"),
+  approverUserIds: integer("approver_user_ids").array().notNull().default(sql`'{}'::integer[]`),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -169,6 +172,11 @@ export const itsmApprovalsTable = pgTable("itsm_approvals", {
   status: text("status").notNull().default("Pending"),
   notes: text("notes"),
   actionAt: timestamp("action_at", { withTimezone: true }),
+  approverRoleId: integer("approver_role_id"),
+  approverUserIds: integer("approver_user_ids").array().notNull().default(sql`'{}'::integer[]`),
+  actedByUserId: integer("acted_by_user_id"),
+  adminOverride: boolean("admin_override").notNull().default(false),
+  requestedAt: timestamp("requested_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

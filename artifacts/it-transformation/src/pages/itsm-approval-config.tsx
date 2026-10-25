@@ -21,6 +21,8 @@ interface MatrixRule {
   approverRole: string;
   approverLevel: string;
   sequence: number;
+  approverRoleId?: number | null;
+  approverUserIds?: number[];
   isActive: boolean;
   createdAt: string;
 }
@@ -76,7 +78,8 @@ const TYPE_BG: Record<string, string> = {
   "Service Request": "border-teal-500/20 bg-teal-50/40 dark:bg-teal-900/10",
 };
 
-const EMPTY_FORM = { ticketType: "Incident", condition: "All", approverRole: "", approverLevel: "L1", sequence: 1 };
+const EMPTY_FORM: { ticketType: string; condition: string; approverRole: string; approverLevel: string; sequence: number; mode: "role" | "users"; approverRoleId: number | null; approverUserIds: number[] } =
+  { ticketType: "Incident", condition: "All", approverRole: "", approverLevel: "L1", sequence: 1, mode: "role", approverRoleId: null, approverUserIds: [] };
 
 export default function ItsmApprovalConfig() {
   const { toast } = useToast();
@@ -87,6 +90,9 @@ export default function ItsmApprovalConfig() {
   const [deleteConfirm, setDeleteConfirm] = useState<MatrixRule | null>(null);
   const [filterType, setFilterType] = useState<string>("All");
 
+  const { data: itRoles = [] } = useQuery<any[]>({ queryKey: ["roles"], queryFn: () => apiFetch("/roles") });
+  const { data: people = [] } = useQuery<any[]>({ queryKey: ["users-for-combobox"], queryFn: () => apiFetch("/itsm-people") });
+  const [pick, setPick] = useState("");
   const { data: rules = [], isLoading, refetch } = useQuery<MatrixRule[]>({
     queryKey: ["approval-matrix"],
     queryFn: () => apiFetch("/approval-matrix"),
@@ -124,19 +130,22 @@ export default function ItsmApprovalConfig() {
       approverRole: r.approverRole,
       approverLevel: r.approverLevel,
       sequence: r.sequence,
+      mode: r.approverUserIds && r.approverUserIds.length && !r.approverRoleId ? "users" : "role",
+      approverRoleId: r.approverRoleId ?? null,
+      approverUserIds: r.approverUserIds || [],
     });
     setModalOpen(true);
   };
 
   const handleSave = () => {
-    if (!form.approverRole.trim()) {
-      toast({ title: "Approver role is required", variant: "destructive" }); return;
-    }
+    if (form.mode === "role" && !form.approverRoleId) { toast({ title: "Choose the IT Hub role whose members approve", variant: "destructive" }); return; }
+    if (form.mode === "users" && !form.approverUserIds.length) { toast({ title: "Add at least one approver", variant: "destructive" }); return; }
     if (!form.approverLevel.trim()) {
       toast({ title: "Approver level is required", variant: "destructive" }); return;
     }
     const conditionVal = form.condition.trim() || "All";
-    const body = { ...form, condition: conditionVal };
+    const body = { ticketType: form.ticketType, approverLevel: form.approverLevel, sequence: form.sequence, condition: conditionVal,
+      approverRoleId: form.mode === "role" ? form.approverRoleId : null, approverUserIds: form.mode === "users" ? form.approverUserIds : [] };
     if (editRule) {
       updateMut.mutate({ id: editRule.id, ...body });
     } else {
@@ -269,7 +278,7 @@ export default function ItsmApprovalConfig() {
                       ))}
                       <div className="flex items-center px-1 pt-4">
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-full border border-dashed border-border hover:border-[#2D7FF9] hover:text-[#2D7FF9]"
-                          onClick={() => { setForm({ ...EMPTY_FORM, ticketType, sequence: typeRules.length + 1, approverLevel: `Level ${typeRules.length + 1}` }); setEditRule(null); setModalOpen(true); }}>
+                          onClick={() => { setForm({ ...EMPTY_FORM, ticketType, sequence: typeRules.length + 1, approverLevel: `L${typeRules.length + 1}` }); setEditRule(null); setModalOpen(true); }}>
                           <Plus className="w-3.5 h-3.5" />
                         </Button>
                       </div>
@@ -288,6 +297,7 @@ export default function ItsmApprovalConfig() {
           <div className="text-xs text-muted-foreground space-y-1">
             <p><strong>How it works:</strong> When a ticket is created, the system looks up matching rules from this matrix and generates approval records in sequence order.</p>
             <p><strong>Condition:</strong> Filters when a rule applies (e.g. "Priority: High" only triggers for high-priority tickets). Leave blank / "All" to always apply.</p>
+            <p><strong>Approvers:</strong> each level is decided by members of an IT Hub role or by named people. They are emailed and see it in ITSM › My Approvals. Levels go in order; a rejection ends the flow. Rule changes apply to new tickets.</p>
             <p><strong>Sequence:</strong> Controls the order approvals flow. Sequence 1 is first, higher numbers come after. All pending levels must be approved before the ticket can proceed.</p>
           </div>
         </CardContent>
@@ -351,14 +361,35 @@ export default function ItsmApprovalConfig() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Approver Role *</Label>
-              <Select value={form.approverRole} onValueChange={v => setForm(f => ({ ...f, approverRole: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select role…" /></SelectTrigger>
-                <SelectContent>
-                  {APPROVER_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">The role that must approve at this level.</p>
+              <Label>Who approves at this level? *</Label>
+              <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">
+                {([["role", "Members of an IT Hub role"], ["users", "Named people"]] as const).map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setForm(f => ({ ...f, mode: k }))} className={`px-3 py-1.5 rounded-[8px] text-[12.5px] ${form.mode === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground"}`}>{l}</button>
+                ))}
+              </div>
+              {form.mode === "role" ? (
+                <>
+                  <Select value={form.approverRoleId ? String(form.approverRoleId) : ""} onValueChange={v => setForm(f => ({ ...f, approverRoleId: Number(v) }))}>
+                    <SelectTrigger><SelectValue placeholder="Select IT Hub role…" /></SelectTrigger>
+                    <SelectContent>{itRoles.map((r: any) => <SelectItem key={r.id} value={String(r.id)}>{r.name}{r.userCount !== undefined ? ` (${r.userCount} users)` : ""}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">Anyone holding this role (Admin › Roles & Permissions, assigned in User Master) can decide. Create a role such as "Change Advisory Board" first.</p>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+                    {form.approverUserIds.map(id => { const u = people.find((p: any) => p.id === id); return (
+                      <span key={id} className="inline-flex items-center gap-1 rounded-full border bg-card px-2 py-0.5 text-xs">{u?.name || `#${id}`}
+                        <button type="button" className="text-muted-foreground hover:text-red-600" onClick={() => setForm(f => ({ ...f, approverUserIds: f.approverUserIds.filter(x => x !== id) }))}>×</button></span>); })}
+                    {!form.approverUserIds.length && <span className="text-xs text-muted-foreground">No one added yet</span>}
+                  </div>
+                  <Select value={pick} onValueChange={v => { setPick(""); const n = Number(v); setForm(f => f.approverUserIds.includes(n) ? f : ({ ...f, approverUserIds: [...f.approverUserIds, n] })); }}>
+                    <SelectTrigger><SelectValue placeholder="Add a person…" /></SelectTrigger>
+                    <SelectContent>{people.filter((p: any) => !form.approverUserIds.includes(p.id)).map((p: any) => <SelectItem key={p.id} value={String(p.id)}>{p.name} — {p.email}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">Any one of these people can decide this level.</p>
+                </>
+              )}
             </div>
           </div>
           <DialogFooter>

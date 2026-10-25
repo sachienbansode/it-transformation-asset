@@ -131,29 +131,92 @@ async function computeSlaBreachCount() {
 
 /* ─── Approvals: created from the matrix, actioned in order, outcome applied to the ticket ─── */
 
-function ruleMatches(cond: string | null, t: { priority?: string | null; severity?: string | null; type?: string | null; riskLevel?: string | null }) {
+type TicketFacts = { priority?: string | null; severity?: string | null; type?: string | null; riskLevel?: string | null; category?: string | null };
+function ruleMatches(cond: string | null, t: TicketFacts) {
   if (!cond || cond === "All") return true;
   const [k, v] = [cond.slice(0, cond.indexOf(":")), cond.slice(cond.indexOf(":") + 1)];
   const vals = v.split(",").map(x => x.trim().toLowerCase());
-  const val = (k === "Priority" ? t.priority : k === "Severity" ? t.severity : k === "Type" ? t.type : k === "Risk" ? t.riskLevel : null) || "";
+  const val = (k === "Priority" ? t.priority : k === "Severity" ? t.severity : k === "Type" ? t.type : k === "Risk" ? t.riskLevel : k === "Category" ? t.category : null) || "";
   return vals.includes(val.toLowerCase());
 }
 
-/** Returns the number of approvals still pending (0 = nothing to approve). */
-async function createApprovalRecords(kind: string, ticketId: number, t: { priority?: string | null; severity?: string | null; type?: string | null; riskLevel?: string | null }, by: string) {
+/** Returns the number of approvals still pending (0 = nothing to approve). Emails the first level's approvers. */
+async function createApprovalRecords(kind: string, ticketId: number, t: TicketFacts, by: string) {
   const ticketType = TYPE_NAME[kind];
   const rules = (await db.select().from(itsmApprovalMatrixTable)
     .where(and(eq(itsmApprovalMatrixTable.ticketType, ticketType), eq(itsmApprovalMatrixTable.isActive, true)))
     .orderBy(itsmApprovalMatrixTable.sequence)).filter(r => ruleMatches(r.condition, t));
   if (!rules.length) return 0;
   const auto = (t.priority === "Low" && kind !== "change") || (kind === "change" && t.type === "Standard");
-  await db.insert(itsmApprovalsTable).values(rules.map(r => ({
+  await db.insert(itsmApprovalsTable).values(rules.map((r, i) => ({
     ticketId, ticketType, approverLevel: r.approverLevel, approverRole: r.approverRole,
+    approverRoleId: r.approverRoleId ?? null, approverUserIds: r.approverUserIds || [],
     status: auto ? "Auto-Approved" : "Pending", approverName: auto ? "System (auto-approval)" : null, actionAt: auto ? new Date() : null,
+    requestedAt: auto || i === 0 ? new Date() : null,
     notes: auto ? (kind === "change" ? "Standard (pre-approved) change" : "Low priority — auto-approved") : null,
   })));
   await history(kind, ticketId, auto ? "System" : by, auto ? `Approval not needed: ${kind === "change" ? "standard (pre-approved) change" : "low priority"}` : `Waiting for approval: ${rules.map(r => `${r.approverLevel} ${r.approverRole}`).join(" → ")}`, null, auto ? "Auto-Approved" : "Pending Approval");
+  if (!auto) void emailNextApprovers(kind as Kind, ticketId);
   return auto ? 0 : rules.length;
+}
+
+/* ─── Approvers: who may decide a step ───────────────────────────────────── */
+
+/** People who can decide this step: named users, members of the IT Hub role, or (unlinked legacy rule) Full access on the module. */
+async function approversOf(ap: { approverUserIds?: number[] | null; approverRoleId?: number | null; ticketType: string }) {
+  const ids = new Set<number>(ap.approverUserIds || []);
+  if (ap.approverRoleId) for (const r of rowsOf(await db.execute(sql`SELECT user_id FROM user_roles WHERE role_id = ${ap.approverRoleId}`))) ids.add(r.user_id);
+  if (!ids.size && !ap.approverRoleId) {
+    const mod = MODULE_OF[ap.ticketType];
+    for (const r of rowsOf(await db.execute(sql`SELECT DISTINCT ur.user_id FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id WHERE rp.module = ${mod} AND rp.access_level = 'admin'`))) ids.add(r.user_id);
+  }
+  if (!ids.size) return [];
+  return db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable).where(and(inArray(usersTable.id, [...ids]), eq(usersTable.isActive, true)));
+}
+const rowsOf = (r: any) => (r.rows ?? r) as any[];
+
+/** Can the signed-in user decide this step? Base-role Admin may override (recorded as such). */
+async function canDecide(req: Request, ap: any): Promise<{ ok: boolean; override: boolean }> {
+  const a = await getAccess(req);
+  if (!a) return { ok: false, override: false };
+  const list = await approversOf(ap);
+  if (list.some(u => u.id === a.userId)) return { ok: true, override: false };
+  if (a.isAdmin) return { ok: true, override: true };
+  return { ok: false, override: false };
+}
+
+const appUrl = () => { try { return process.env.APP_URL || (process.env.CENTRAL_SSO_REDIRECT_URI ? new URL(process.env.CENTRAL_SSO_REDIRECT_URI).origin : ""); } catch { return ""; } };
+const PAGE_OF: Record<string, string> = { incident: "/itsm-incidents", problem: "/itsm-problems", change: "/itsm-changes", request: "/itsm-requests" };
+const emailOf = (label?: string | null) => (label || "").match(/<([^>]+)>/)?.[1] || null;
+
+async function ticketBrief(kind: Kind, id: number) {
+  const [t]: any[] = await db.select().from(TABLE[kind]).where(eq(TABLE[kind].id, id));
+  return t ? { t, no: t[NO[kind][3]], requester: kind === "request" ? t.requestedBy : kind === "change" ? t.requestedBy : t.reportedBy || null } : null;
+}
+
+async function emailNextApprovers(kind: Kind, ticketId: number) {
+  try {
+    const { sendDirect, notify, htmlTable } = await import("../lib/mailer");
+    const st = await approvalState(kind, ticketId);
+    if (!st.next) return;
+    const b = await ticketBrief(kind, ticketId); if (!b) return;
+    const people = await approversOf(st.next);
+    const html = `<p>A ${TYPE_NAME[kind].toLowerCase()} is waiting for your approval (${st.next.approverLevel} — ${st.next.approverRole}).</p>${htmlTable([["Ticket", b.no], ["Title", b.t.title], ["Priority", b.t.priority || b.t.riskLevel || "—"], ["Raised by", b.requester || b.t.createdBy || "—"], ["Raised on", new Date(b.t.createdAt).toLocaleString("en-IN")], ["Level", `${st.next.approverLevel} of ${st.rows.length}`]])}<p>Approve or reject it in <b>IT Hub › ITSM › My Approvals</b>${appUrl() ? ` (${appUrl()}/itsm-my-approvals)` : ""}.</p><p>Regards,</p>`;
+    await sendDirect("itsm_approval_request", people.map(p => p.email).filter(Boolean) as string[], `Approval needed: ${b.no} — ${b.t.title}`, html);
+    void notify("itsm_approvals", { subject: `Approval requested: ${b.no} (${st.next.approverLevel} ${st.next.approverRole})`, html });
+  } catch (e) { console.error("emailNextApprovers failed", e); }
+}
+
+async function emailDecision(kind: Kind, ticketId: number, outcome: string, by: string, notes: string | null) {
+  try {
+    const { sendDirect, notify, htmlTable } = await import("../lib/mailer");
+    const b = await ticketBrief(kind, ticketId); if (!b) return;
+    const to = [emailOf(b.t.createdBy)].filter(Boolean) as string[];
+    if (b.requester) { const [u] = await db.select({ email: usersTable.email }).from(usersTable).where(sql`lower(${usersTable.name}) = lower(${b.requester})`); if (u?.email) to.push(u.email); }
+    const html = `<p>Your ${TYPE_NAME[kind].toLowerCase()} <b>${b.no}</b> was <b>${outcome.toLowerCase()}</b>.</p>${htmlTable([["Title", b.t.title], ["Decision", outcome], ["Last decision by", by], ["Notes", notes || "—"]])}<p>${outcome === "Approved" ? "Work on it can now start." : "It will not proceed. Raise a new request if needed."}</p><p>Regards,</p>`;
+    await sendDirect("itsm_approval_decision", [...new Set(to)], `${b.no} ${outcome.toLowerCase()} — ${b.t.title}`, html);
+    void notify("itsm_approvals", { subject: `${b.no} ${outcome.toLowerCase()}`, html });
+  } catch (e) { console.error("emailDecision failed", e); }
 }
 
 async function approvalState(kind: string, ticketId: number) {
@@ -488,15 +551,35 @@ router.get("/approval-matrix", async (req, res) => {
 const matrixSchema = z.object({
   ticketType: z.enum(["Incident", "Problem", "Change Request", "Service Request"], { errorMap: () => ({ message: "Ticket type must be Incident, Problem, Change Request or Service Request" }) }),
   approverLevel: z.string().trim().regex(/^L\d+$/, "Level must be L1, L2, …"),
-  approverRole: z.string().trim().min(2, "Approver role is required"),
-  condition: z.string().trim().regex(/^(All|(Priority|Severity|Type|Risk):[^:]+)$/, "Condition must be All, Priority:…, Severity:…, Type:… or Risk:…").default("All"),
+  condition: z.string().trim().regex(/^(All|(Priority|Severity|Type|Risk|Category):[^:]+)$/, "Condition must be All, Priority:…, Severity:…, Type:…, Risk:… or Category:…").default("All"),
   sequence: z.coerce.number().int().min(1).default(1),
-}).passthrough();
+  approverRoleId: z.coerce.number().int().positive().nullable().optional(),
+  approverUserIds: z.array(z.coerce.number().int().positive()).optional().default([]),
+}).passthrough().refine(v => !!v.approverRoleId || (v.approverUserIds && v.approverUserIds.length > 0), { message: "Choose who approves: an IT Hub role or named people" });
+
+/** Resolve the approver link and a readable label ("Change Manager" role / "Named: A, B"). */
+async function approverLink(v: any) {
+  let label = "";
+  if (v.approverRoleId) {
+    const r = rowsOf(await db.execute(sql`SELECT name FROM roles WHERE id = ${v.approverRoleId}`))[0];
+    if (!r) throw new Bad("That IT Hub role no longer exists");
+    label = r.name;
+  }
+  const ids: number[] = [...new Set<number>(v.approverUserIds || [])];
+  if (ids.length) {
+    const us = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(and(inArray(usersTable.id, ids), eq(usersTable.isActive, true)));
+    if (us.length !== ids.length) throw new Bad("One of the named approvers is not an active user");
+    label = label ? `${label} + ${us.map(u => u.name).join(", ")}` : us.map(u => u.name).join(", ");
+  }
+  return { approverRoleId: v.approverRoleId || null, approverUserIds: ids, approverRole: label };
+}
+
 router.post("/approval-matrix", wrap(async (req, res) => {
   const v: any = parse(matrixSchema, clean(req.body));
+  const link = await approverLink(v);
   const who = await actor(req);
-  const [item] = await db.insert(itsmApprovalMatrixTable).values({ ticketType: v.ticketType, approverLevel: v.approverLevel, approverRole: v.approverRole, condition: v.condition, sequence: v.sequence, isActive: true }).returning();
-  await audit({ entityType: "itsm_approval_rule", entityId: item.id, action: "create", performedBy: who.label, summary: `Approval rule ${item.ticketType} ${item.approverLevel} ${item.approverRole} (${item.condition})` });
+  const [item] = await db.insert(itsmApprovalMatrixTable).values({ ticketType: v.ticketType, approverLevel: v.approverLevel, condition: v.condition, sequence: v.sequence, isActive: true, ...link }).returning();
+  await audit({ entityType: "itsm_approval_rule", entityId: item.id, action: "create", performedBy: who.label, summary: `Approval rule ${item.ticketType} ${item.approverLevel}: ${item.approverRole} (${item.condition})` });
   res.status(201).json(item);
 }));
 router.patch("/approval-matrix/:id", wrap(async (req, res) => {
@@ -504,9 +587,10 @@ router.patch("/approval-matrix/:id", wrap(async (req, res) => {
   const [old] = await db.select().from(itsmApprovalMatrixTable).where(eq(itsmApprovalMatrixTable.id, id));
   if (!old) return fail(res, 404, "Rule not found");
   const v: any = parse(matrixSchema, { ...old, ...clean(req.body) });
+  const link = await approverLink(v);
   const who = await actor(req);
-  const [item] = await db.update(itsmApprovalMatrixTable).set({ ticketType: v.ticketType, approverLevel: v.approverLevel, approverRole: v.approverRole, condition: v.condition, sequence: v.sequence }).where(eq(itsmApprovalMatrixTable.id, id)).returning();
-  await audit({ entityType: "itsm_approval_rule", entityId: id, action: "update", performedBy: who.label, summary: `Approval rule ${item.ticketType} ${item.approverLevel} ${item.approverRole} (${item.condition})` });
+  const [item] = await db.update(itsmApprovalMatrixTable).set({ ticketType: v.ticketType, approverLevel: v.approverLevel, condition: v.condition, sequence: v.sequence, ...link }).where(eq(itsmApprovalMatrixTable.id, id)).returning();
+  await audit({ entityType: "itsm_approval_rule", entityId: id, action: "update", performedBy: who.label, summary: `Approval rule ${item.ticketType} ${item.approverLevel}: ${item.approverRole} (${item.condition}) — applies to new tickets` });
   res.json(item);
 }));
 router.delete("/approval-matrix/:id", wrap(async (req, res) => {
@@ -523,14 +607,48 @@ router.get("/approvals/:ticketType/:ticketId", wrap(async (req, res) => {
   if (!kind) return fail(res, 400, "Unknown ticket type");
   if (!await allowed(req, kind, "read")) return fail(res, 403, "No access to these tickets");
   const a = await approvalState(kind, parseInt(String(req.params.ticketId)));
-  res.json(a.rows.map(r => ({ ...r, isNext: a.next?.id === r.id })));
+  const out = [];
+  for (const r of a.rows) {
+    const people = r.status === "Pending" ? await approversOf(r) : [];
+    const d = r.status === "Pending" && a.next?.id === r.id && !a.rejected ? await canDecide(req, r) : { ok: false, override: false };
+    out.push({ ...r, isNext: a.next?.id === r.id, approvers: people.map(p => p.name), canAct: d.ok, asOverride: d.override });
+  }
+  res.json(out);
 }));
 
+/** My Approvals inbox: steps that are next in line and that I can decide. */
+async function myInbox(req: Request) {
+  const a = await getAccess(req);
+  if (!a) return [];
+  const me = await actor(req);
+  const pend = await db.select().from(itsmApprovalsTable).where(eq(itsmApprovalsTable.status, "Pending")).orderBy(itsmApprovalsTable.createdAt);
+  const roleIds = new Set(rowsOf(await db.execute(sql`SELECT role_id FROM user_roles WHERE user_id = ${a.userId}`)).map(r => r.role_id));
+  const fullOn = new Set(Object.entries(a.perms).filter(([, l]) => l === "admin").map(([m]) => m));
+  const byTicket = new Map<string, typeof pend>();
+  for (const p of pend) { const k = `${p.ticketType}|${p.ticketId}`; byTicket.set(k, [...(byTicket.get(k) || []), p]); }
+  const out: any[] = [];
+  for (const [, list] of byTicket) {
+    const kind = KIND_OF[list[0].ticketType]; if (!kind) continue;
+    const st = await approvalState(kind, list[0].ticketId);
+    if (!st.next || st.rejected) continue;
+    const n: any = st.next;
+    const mine = (n.approverUserIds || []).includes(a.userId) || (n.approverRoleId && roleIds.has(n.approverRoleId)) || (!n.approverRoleId && !(n.approverUserIds || []).length && fullOn.has(MODULE_OF[n.ticketType]));
+    if (!mine && !(a.isAdmin && req.query.all === "1")) continue;
+    const b = await ticketBrief(kind, n.ticketId); if (!b || !b.t.isActive) continue;
+    if (b.t.createdBy === me.label) continue; // you cannot approve what you raised
+    out.push({ approvalId: n.id, ticketType: n.ticketType, kind, ticketId: n.ticketId, ticketNo: b.no, title: b.t.title, priority: b.t.priority || b.t.riskLevel || null, changeType: b.t.type || null,
+      status: b.t.status, raisedBy: b.requester || b.t.createdBy, raisedAt: b.t.createdAt, level: n.approverLevel, role: n.approverRole, levelOf: `${st.rows.findIndex(r => r.id === n.id) + 1} of ${st.rows.length}`,
+      waitingSince: n.requestedAt || n.createdAt, previous: st.rows.filter(r => r.status === "Approved").map(r => `${r.approverLevel} ${r.approverName}`), mine: !!mine, page: PAGE_OF[kind] });
+  }
+  return out.sort((x, y) => new Date(x.waitingSince).getTime() - new Date(y.waitingSince).getTime());
+}
+router.get("/my-approvals", wrap(async (req, res) => { res.json(await myInbox(req)); }));
+router.get("/my-approvals/count", wrap(async (req, res) => { res.json({ count: (await myInbox(req)).length }); }));
+
 /**
- * Approve / reject one level. Levels go in order (L1, L2…); a rejection ends the flow. When the last level is
- * approved the ticket is approved (change → Approved and can be scheduled; request → Approved and can be fulfilled).
- * Phase 1: approvers are base-role Admins or holders of Full access to the ticket's module. (Phase 2 links each level
- * to named approvers / roles.)
+ * Approve / reject one level. Levels go in order (L1, L2…); a rejection ends the flow. Only the step's approvers
+ * (named users or members of its IT Hub role) can decide; base-role Admin can override (recorded). When the last
+ * level approves, the ticket is approved; requester and next approvers are emailed.
  */
 router.post("/approvals/:id/action", wrap(async (req, res) => {
   const id = parseInt(String(req.params.id));
@@ -541,30 +659,36 @@ router.post("/approvals/:id/action", wrap(async (req, res) => {
   const [ap] = await db.select().from(itsmApprovalsTable).where(eq(itsmApprovalsTable.id, id));
   if (!ap) return fail(res, 404, "Approval step not found");
   const kind = KIND_OF[ap.ticketType];
-  if (!await allowed(req, kind, "admin")) return fail(res, 403, `Only an approver (Full access to ${ap.ticketType}s) can approve or reject`);
   const st = await approvalState(kind, ap.ticketId);
   if (ap.status !== "Pending") return fail(res, 400, `This level is already ${ap.status.toLowerCase()}`);
   if (st.rejected) return fail(res, 400, `Already rejected at ${st.rejected.approverLevel} — the approval flow has ended`);
   if (st.next && st.next.id !== ap.id) return fail(res, 400, `${st.next.approverLevel} (${st.next.approverRole}) must decide first`);
+  const d = await canDecide(req, ap);
+  if (!d.ok) return fail(res, 403, `Only the ${ap.approverLevel} approvers (${ap.approverRole}) can decide this step`);
   const who = await actor(req);
   const [t]: any[] = await db.select().from(TABLE[kind]).where(eq(TABLE[kind].id, ap.ticketId));
   if (!t || !t.isActive) return fail(res, 404, "Ticket not found");
-  if (t.createdBy === who.label && !(await getAccess(req))?.isAdmin) return fail(res, 403, "You raised this ticket — a different person must approve it");
-  const [updated] = await db.update(itsmApprovalsTable).set({ status: action, notes, approverName: who.label, actionAt: new Date() }).where(and(eq(itsmApprovalsTable.id, id), eq(itsmApprovalsTable.status, "Pending"))).returning();
+  if (t.createdBy === who.label) return fail(res, 403, "You raised this ticket — a different person must approve it");
+  const [updated] = await db.update(itsmApprovalsTable).set({ status: action, notes: d.override ? `[Admin override] ${notes || ""}`.trim() : notes, approverName: who.label, actedByUserId: who.userId, adminOverride: d.override, actionAt: new Date() })
+    .where(and(eq(itsmApprovalsTable.id, id), eq(itsmApprovalsTable.status, "Pending"))).returning();
   if (!updated) return fail(res, 409, "Someone else decided this step just now — refresh");
-  await history(kind, ap.ticketId, who.label, `${ap.approverLevel} (${ap.approverRole}) ${action.toLowerCase()} by ${who.name}${notes ? `: ${notes}` : ""}`, "Pending", action);
+  await history(kind, ap.ticketId, who.label, `${ap.approverLevel} (${ap.approverRole}) ${action.toLowerCase()} by ${who.name}${d.override ? " — admin override" : ""}${notes ? `: ${notes}` : ""}`, "Pending", action);
   const after = await approvalState(kind, ap.ticketId);
   const no = t[NO[kind][3]];
   if (after.state === "Rejected" || after.state === "Approved") {
-    const approvers = after.rows.filter(r => r.status === "Approved").map(r => `${r.approverLevel} ${r.approverName}`).join("; ");
+    const approvers = after.rows.filter(r => r.status === "Approved").map(r => `${r.approverLevel} ${(r.approverName || "").replace(/ <.*>$/, "")}`).join("; ");
     const set: any = { updatedBy: who.label, updatedAt: new Date() };
     if (kind === "change") { set.approvalStatus = after.state; set.approvedBy = after.state === "Approved" ? approvers : null; if (["Draft", "Open", "Pending Approval"].includes(t.status)) set.status = after.state; }
     if (kind === "request" && ["Open", "Pending Approval"].includes(t.status)) set.status = after.state;
     if ((kind === "problem" || kind === "incident") && t.status === "Pending Approval") set.status = after.state === "Approved" ? (kind === "problem" ? "Under Investigation" : "In Progress") : t.status;
     const [nt]: any[] = await db.update(TABLE[kind]).set(set).where(eq(TABLE[kind].id, ap.ticketId)).returning();
     await history(kind, ap.ticketId, who.label, after.state === "Approved" ? `Fully approved (${approvers})` : `Approval flow ended — rejected at ${after.rejected!.approverLevel}`, t.status, nt.status);
+    void emailDecision(kind, ap.ticketId, after.state, who.name, notes);
+  } else if (after.next) {
+    await db.update(itsmApprovalsTable).set({ requestedAt: new Date() }).where(eq(itsmApprovalsTable.id, after.next.id));
+    void emailNextApprovers(kind, ap.ticketId);
   }
-  await audit({ entityType: "itsm_approval", entityId: id, action: action.toLowerCase(), performedBy: who.label, summary: `${no}: ${ap.approverLevel} ${ap.approverRole} ${action.toLowerCase()}${notes ? ` — ${notes}` : ""}${after.state !== "Pending" ? ` · ticket ${after.state.toLowerCase()}` : ""}` });
+  await audit({ entityType: "itsm_approval", entityId: id, action: action.toLowerCase(), performedBy: who.label, summary: `${no}: ${ap.approverLevel} ${ap.approverRole} ${action.toLowerCase()}${d.override ? " (admin override)" : ""}${notes ? ` — ${notes}` : ""}${after.state !== "Pending" ? ` · ticket ${after.state.toLowerCase()}` : ""}` });
   res.json({ ...updated, ticketApproval: after.state });
 }));
 

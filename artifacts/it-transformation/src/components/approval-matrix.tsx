@@ -25,8 +25,7 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user, canAccess } = useAuth();
-  const MOD: Record<string, string> = { "Incident": "itsm_incidents", "Problem": "itsm_problems", "Change Request": "itsm_changes", "Service Request": "itsm_requests" };
-  const canApprove = canAccess(MOD[ticketType] || "", "admin");
+
   const [actionNotes, setActionNotes] = useState<Record<number, string>>({});
 
   const { data: approvals = [], isLoading } = useQuery({
@@ -42,7 +41,7 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
         body: JSON.stringify({ action, notes }),
       }),
     onSuccess: (r: any) => {
-      ["approvals", "changes", "changes-stats", "service-requests", "problems", "incidents"].forEach(k => queryClient.invalidateQueries({ queryKey: [k] }));
+      ["approvals", "changes", "changes-stats", "service-requests", "problems", "incidents", "my-approvals", "my-approvals-count"].forEach(k => queryClient.invalidateQueries({ queryKey: [k] }));
       toast({ title: r?.ticketApproval === "Approved" ? "Fully approved — the ticket can now proceed" : r?.ticketApproval === "Rejected" ? "Rejected — the approval flow has ended" : "Approval recorded — passed to the next level" });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -81,9 +80,13 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
                 {a.actionAt && <p className="text-[10px] text-muted-foreground">{new Date(a.actionAt).toLocaleDateString()}</p>}
                 {a.notes && <p className="text-[10px] text-muted-foreground mt-1 italic">"{a.notes}"</p>}
 
+                {a.status === "Pending" && a.approvers?.length > 0 && <p className="text-[10px] text-muted-foreground mt-0.5">Approvers: {a.approvers.slice(0, 4).join(", ")}{a.approvers.length > 4 ? ` +${a.approvers.length - 4}` : ""}</p>}
+                {a.status === "Pending" && !a.approvers?.length && <p className="text-[10px] text-red-600 mt-0.5">No approver assigned — fix the rule in Approval Workflow</p>}
                 {a.status === "Pending" && !a.isNext && <p className="text-[10px] text-muted-foreground mt-1">Waiting for the previous level</p>}
-                {!readonly && a.status === "Pending" && a.isNext && !anyRejected && canApprove && (
+                {a.adminOverride && <p className="text-[10px] text-amber-700 mt-0.5">Admin override</p>}
+                {!readonly && a.status === "Pending" && a.isNext && !anyRejected && a.canAct && (
                   <div className="mt-2 space-y-1.5">
+                    {a.asOverride && <p className="text-[10px] text-amber-700">You are not an approver for this level — deciding will be recorded as an admin override.</p>}
                     <Input
                       className="h-7 text-xs"
                       placeholder="Notes (required to reject)"

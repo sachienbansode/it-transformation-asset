@@ -56,7 +56,7 @@ const RULES: [RegExp, string | null][] = [
   [/^\/sla-policies(\/|$)/, "itsm_sla"],
   [/^\/approval-matrix(\/|$)/, "itsm_approval"],
   [/^\/(itsm-metrics|itsm-report)$/, "itsm_dashboard"],
-  [/^\/(approvals|ticket-history|itsm-attachments|itsm-config|itsm-settings|itsm-people)(\/|$)/, null], // checked in the route
+  [/^\/(approvals|my-approvals|ticket-history|itsm-attachments|itsm-config|itsm-settings|itsm-people)(\/|$)/, null], // checked in the route
   [/^\/asset-(contracts|warranty)(\/|$)/, "asset_contracts"],
   [/^\/asset-depreciation(\/|$)/, "asset_depreciation"],
   [/^\/assets\/finance-update$/, null],      // Asset Registry OR Depreciation edit access — checked in the route

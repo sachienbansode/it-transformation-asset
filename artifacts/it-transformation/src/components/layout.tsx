@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
 import { useCurrency } from "@/contexts/currency-context";
 import { useTheme } from "@/contexts/theme-context";
@@ -68,6 +69,7 @@ const ITSM_ITEMS = [
   { href: "/itsm-kb", label: "Knowledge Base", icon: BookOpen, module: "itsm_kb" },
   { href: "/itsm-sla", label: "SLA Policies", icon: Shield, module: "itsm_sla" },
   { href: "/itsm-requests", label: "Service Requests", icon: Clock, module: "itsm_requests" },
+  { href: "/itsm-my-approvals", label: "My Approvals", icon: CheckSquare, module: "itsm_my_approvals" },
   { href: "/itsm-approval", label: "Approval Workflow", icon: GitMerge, module: "itsm_approval" },
 ];
 
@@ -82,9 +84,9 @@ const ADMIN_ITEMS = [
 ];
 
 function NavItem({
-  href, label, icon: Icon, active, collapsed,
+  href, label, icon: Icon, active, collapsed, badge,
 }: {
-  href: string; label: string; icon: React.ElementType; active: boolean; collapsed: boolean;
+  href: string; label: string; icon: React.ElementType; active: boolean; collapsed: boolean; badge?: number;
 }) {
   return (
     <Link href={href}>
@@ -104,6 +106,7 @@ function NavItem({
           active ? "text-sidebar-primary" : "text-muted-foreground group-hover:text-foreground"
         )} />
         {!collapsed && <span className="truncate leading-tight">{label}</span>}
+        {!!badge && <span className={cn("ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold grid place-items-center", collapsed && "absolute -top-1 -right-1 ml-0")}>{badge > 99 ? "99+" : badge}</span>}
       </div>
     </Link>
   );
@@ -205,7 +208,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
   const visibleKpiItems = KPI_ITEMS.filter(item => canAccess(item.module));
   const visibleAssetItems = ASSET_ITEMS.filter(item => canAccess(item.module));
-  const visibleItsmItems = ITSM_ITEMS.filter(item => canAccess(item.module));
+  const { data: myApprovals } = useQuery({ queryKey: ["my-approvals-count"], queryFn: () => apiFetch<{ count: number }>("/my-approvals/count"), refetchInterval: 120_000, enabled: !!user });
+  const anyItsm = ITSM_ITEMS.some(i => i.module.startsWith("itsm_") && i.module !== "itsm_my_approvals" && canAccess(i.module));
+  const visibleItsmItems = ITSM_ITEMS.filter(item => item.module === "itsm_my_approvals" ? (anyItsm || (myApprovals?.count || 0) > 0) : canAccess(item.module));
 
   // Longest matching href wins (so "/itsm-incidents" is not shown as "/itsm" ITSM Dashboard)
   const best = (items: { href: string; label: string }[]) => items.filter(i => i.href === "/" ? location === "/" : (location === i.href || location.startsWith(i.href + "/") || location.startsWith(i.href + "?"))).sort((a, b) => b.href.length - a.href.length)[0]?.label;
@@ -353,8 +358,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     href={item.href}
                     label={item.label}
                     icon={item.icon}
-                    active={location.startsWith(item.href)}
+                    active={location === item.href || location.startsWith(item.href + "/")}
                     collapsed={isCollapsed}
+                    badge={item.module === "itsm_my_approvals" ? myApprovals?.count : undefined}
                   />
                 ))}
               </>
