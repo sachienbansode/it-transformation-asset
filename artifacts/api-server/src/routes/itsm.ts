@@ -451,22 +451,18 @@ router.get("/itsm-metrics", requireAuth, async (_req, res) => {
     else aging["30d+"]++;
   }
 
-  // SLA compliance
+  // SLA compliance — only incidents that carry an SLA target (none when no SLA policy applies)
   let slaTotal = 0, slaBreachedCount = 0;
   for (const inc of incidents) {
-    if (inc.status === "Closed" || inc.status === "Resolved") {
-      slaTotal++;
-      if (inc.slaBreachAt && new Date(inc.resolvedAt || inc.closedAt || new Date()).getTime() > new Date(inc.slaBreachAt).getTime()) {
-        slaBreachedCount++;
-      }
-    } else if (inc.status !== "Resolved" && inc.status !== "Closed") {
-      slaTotal++;
-      if (inc.slaBreachAt && now > new Date(inc.slaBreachAt).getTime()) slaBreachedCount++;
-    }
+    if (!inc.slaBreachAt) continue;
+    slaTotal++;
+    const done = inc.status === "Closed" || inc.status === "Resolved";
+    const at = done ? new Date(inc.resolvedAt || inc.closedAt || inc.updatedAt || new Date()).getTime() : now;
+    if (at > new Date(inc.slaBreachAt).getTime()) slaBreachedCount++;
   }
   const slaCompliance = slaTotal > 0 ? Math.round(((slaTotal - slaBreachedCount) / slaTotal) * 100) : null;
 
-  res.json({ mttr: mttr ? Math.round(mttr * 10) / 10 : null, slaCompliance, aging, totalOpen: open.length, openProblems: problems.filter(p => p.status !== "Closed").length, pendingChanges: changes.filter(c => c.approvalStatus === "Pending").length });
+  res.json({ mttr: mttr ? Math.round(mttr * 10) / 10 : null, slaCompliance, slaMeasured: slaTotal, slaBreached: slaBreachedCount, slaPolicies: slas.length, aging, totalOpen: open.length, openProblems: problems.filter(p => p.status !== "Closed").length, pendingChanges: changes.filter(c => c.approvalStatus === "Pending").length });
 });
 
 router.get("/approval-matrix", requireAuth, async (req, res) => {

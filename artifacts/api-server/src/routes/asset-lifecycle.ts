@@ -355,7 +355,8 @@ router.post("/asset-allocations/:id/acknowledge", requireAuth, async (req, res) 
 async function myFilter(req: Request) {
   const userId = (req.session as any)?.userId as number;
   const [me] = await db.select({ email: usersTable.email, code: usersTable.employeeCode }).from(usersTable).where(eq(usersTable.id, userId));
-  return sql`(${assetAllocationsTable.userId} = ${userId} OR lower(${assetAllocationsTable.email}) = lower(${me?.email ?? ""}) OR (${me?.code ?? null}::text IS NOT NULL AND lower(${assetAllocationsTable.employeeCode}) = lower(${me?.code ?? ""})))`;
+  // Strictly the signed-in person's own handovers — no role (not even admin) widens this
+  return sql`(${assetAllocationsTable.userId} = ${userId} OR (${me?.email ?? null}::text IS NOT NULL AND lower(${assetAllocationsTable.email}) = lower(${me?.email ?? ""})) OR (${me?.code ?? null}::text IS NOT NULL AND lower(${assetAllocationsTable.employeeCode}) = lower(${me?.code ?? ""})))`;
 }
 
 // Every signed-in user can see what is issued to them (no asset-module permission needed)

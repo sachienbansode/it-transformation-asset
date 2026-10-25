@@ -54,7 +54,7 @@ export function workbook(sheets: { name: string; rows: Record<string, any>[]; no
     const cols = Object.keys(rows[0]);
     ws["!cols"] = cols.map(c => ({ wch: Math.min(48, Math.max(10, c.length + 2, ...rows.slice(0, 200).map(r => String(r[c] ?? "").length + 1))) }));
     ws["!autofilter"] = { ref: ws["!ref"]! };
-    XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+    XLSX.utils.book_append_sheet(wb, ws, s.name.replace(/^table:/, "").replace(/[:\\/?*\[\]]/g, " ").slice(0, 31));
   }
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
@@ -99,7 +99,7 @@ export async function batchWorkbook(id: number) {
       ...ASSET_TABLES.filter(t => t !== "assets").map(t => ({ name: t.replace(/^asset_/, "").slice(0, 31), rows: (s[`table:${t}`] || []).map(flatten), note: "No rows" }))];
   } else {
     const k = KIND_SHEETS[b.kind] || { sheets: Object.keys(s).map(x => [x, x]) as [string, string][] };
-    sheets = [...k.sheets.map(([name, sec]) => ({ name, rows: s[sec] || [], note: sec === "changes" ? "No changes" : "No rows" })), { name: "Batch Info", rows: info }];
+    sheets = [...k.sheets.map(([name, sec]) => ({ name, rows: (s[sec] || []).map(flatten), note: sec === "changes" ? "No changes" : "No rows" })), { name: "Batch Info", rows: info }];
   }
   const name = `${b.batch_no}_${(KIND_SHEETS[b.kind]?.label || b.kind).replace(/[^A-Za-z0-9]+/g, "_")}.xlsx`;
   return { buffer: workbook(sheets), name, batch: b };

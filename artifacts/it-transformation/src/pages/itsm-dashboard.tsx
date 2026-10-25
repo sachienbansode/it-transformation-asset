@@ -86,7 +86,8 @@ export default function ItsmDashboard() {
   const changePipeline = useMemo(() => {
     const byStatus: Record<string, number> = {};
     changes.forEach((c: any) => { byStatus[c.status] = (byStatus[c.status] || 0) + 1; });
-    return ["Draft", "Submitted", "Approved", "In Progress", "Completed", "Failed", "Rolled Back"].filter(s => byStatus[s]).map(s => ({
+    const order = ["Draft", "Submitted", "Under Review", "Approved", "Scheduled", "In Progress", "Completed", "Failed", "Rolled Back", "Rejected", "Cancelled"];
+    return [...order, ...Object.keys(byStatus).filter(s => !order.includes(s))].filter(s => byStatus[s]).map(s => ({
       name: s, value: byStatus[s] || 0, fill: CHANGE_STATUS_COLORS[s] || "#999"
     }));
   }, [changes]);
@@ -194,7 +195,7 @@ export default function ItsmDashboard() {
         <StatCard icon={Headphones} label="Open Requests" value={openSR} iconBg="bg-teal-100 dark:bg-teal-900/30" iconColor="text-teal-600" borderColor="border-l-teal-500" sub={`${serviceRequests.length} total`} />
         <StatCard icon={Shield} label="SLA Breached" value={slaBreachedCount} iconBg="bg-orange-100 dark:bg-orange-900/30" iconColor="text-orange-600" borderColor="border-l-orange-500" />
         <StatCard icon={BookOpen} label="KB Articles" value={kb.length} iconBg="bg-indigo-100 dark:bg-indigo-900/30" iconColor="text-indigo-600" borderColor="border-l-indigo-500" sub={`${kbViews} views`} />
-        <StatCard icon={Gauge} label="Total Tickets" value={totalTickets} iconBg="bg-gray-100 dark:bg-gray-900/30" iconColor="text-gray-600" borderColor="border-l-gray-400" sub={`${closedIncidents} closed`} />
+        <StatCard icon={Gauge} label="Total Tickets" value={totalTickets} iconBg="bg-gray-100 dark:bg-gray-900/30" iconColor="text-gray-600" borderColor="border-l-gray-400" sub={`${openIncidents + inProgressIncidents + activeProblems + openSR} open across all types`} />
       </div>
 
       {itsmMetrics && (
@@ -229,7 +230,7 @@ export default function ItsmDashboard() {
                   </div>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">Percentage of incidents resolved within SLA</p>
+              <p className="text-xs text-muted-foreground">{itsmMetrics.slaCompliance == null ? (itsmMetrics.slaPolicies ? "No incident carries an SLA target yet" : "No SLA policies defined — add them in SLA Policies") : `${itsmMetrics.slaMeasured - itsmMetrics.slaBreached} of ${itsmMetrics.slaMeasured} incidents within SLA`}</p>
               {itsmMetrics.slaCompliance != null && (
                 <div className="mt-2 h-1.5 w-full bg-muted rounded-full overflow-hidden">
                   <div className={`h-full rounded-full ${itsmMetrics.slaCompliance >= 90 ? "bg-emerald-500" : itsmMetrics.slaCompliance >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${itsmMetrics.slaCompliance}%` }} />
