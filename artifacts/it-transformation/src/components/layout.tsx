@@ -207,7 +207,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const visibleAssetItems = ASSET_ITEMS.filter(item => canAccess(item.module));
   const visibleItsmItems = ITSM_ITEMS.filter(item => canAccess(item.module));
 
+  // Longest matching href wins (so "/itsm-incidents" is not shown as "/itsm" ITSM Dashboard)
+  const best = (items: { href: string; label: string }[]) => items.filter(i => i.href === "/" ? location === "/" : (location === i.href || location.startsWith(i.href + "/") || location.startsWith(i.href + "?"))).sort((a, b) => b.href.length - a.href.length)[0]?.label;
   const currentPage =
+    best(ITSM_ITEMS) ?? best(ASSET_ITEMS) ?? best(KPI_ITEMS) ??
     DRISHTI_ITEMS.find(i => i.href === "/" ? location === "/" : location.startsWith(i.href))?.label
     ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ASSET_ITEMS.find(i => location.startsWith(i.href))?.label
@@ -281,7 +284,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 >
                   IT – Drishti
                 </SectionLabel>
-                {(isCollapsed || sectionsOpen.drishti) && visibleDrishtiItems.map(item => (
+                {(isCollapsed || (sectionsOpen.drishti ?? true)) && visibleDrishtiItems.map(item => (
                   <NavItem
                     key={item.href}
                     href={item.href}
@@ -302,7 +305,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 >
                   Performance
                 </SectionLabel>
-                {(isCollapsed || sectionsOpen.kpi) && visibleKpiItems.map(item => (
+                {(isCollapsed || (sectionsOpen.kpi ?? true)) && visibleKpiItems.map(item => (
                   <NavItem
                     key={item.href}
                     href={item.href}
@@ -323,7 +326,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 >
                   IT Assets
                 </SectionLabel>
-                {(isCollapsed || sectionsOpen.assets) && visibleAssetItems.map(item => (
+                {(isCollapsed || (sectionsOpen.assets ?? true)) && visibleAssetItems.map(item => (
                   <NavItem
                     key={item.href}
                     href={item.href}
@@ -344,7 +347,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 >
                   ITSM
                 </SectionLabel>
-                {(isCollapsed || sectionsOpen.itsm) && visibleItsmItems.map(item => (
+                {(isCollapsed || (sectionsOpen.itsm ?? true)) && visibleItsmItems.map(item => (
                   <NavItem
                     key={item.href}
                     href={item.href}
@@ -365,7 +368,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 >
                   Admin
                 </SectionLabel>
-                {(isCollapsed || sectionsOpen.admin) && (isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter(i => i.tab === "users")).map(item => (
+                {(isCollapsed || (sectionsOpen.admin ?? true)) && (isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter(i => i.tab === "users")).map(item => (
                   <NavItem
                     key={item.href + item.label}
                     href={item.href}
@@ -377,7 +380,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 ))}
               </>
             )}
-            {!isAdmin && !isHR && visibleDrishtiItems.length === 0 && visibleKpiItems.length === 0 && (
+            {!isAdmin && !isHR && visibleDrishtiItems.length === 0 && visibleKpiItems.length === 0 && visibleAssetItems.length === 0 && visibleItsmItems.length === 0 && (
               <div className="px-2.5 py-4 text-center">
                 <p className="text-[10px] text-sidebar-foreground/30 leading-relaxed">
                   No access configured.<br />Contact your administrator.

@@ -18,7 +18,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
-import { confirmDialog } from "@/components/confirm-dialog";
+import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 const CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
@@ -129,7 +129,8 @@ export default function ItsmChanges() {
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, canAccess } = useAuth();
+  const canEdit = canAccess("itsm_changes", "write"); const canDelete = canAccess("itsm_changes", "admin");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterApproval, setFilterApproval] = useState("");
@@ -144,7 +145,7 @@ export default function ItsmChanges() {
 
   const createChange = useMutation({ mutationFn: (d: any) => apiFetch("/changes", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["changes"] }); queryClient.invalidateQueries({ queryKey: ["changes-stats"] }); } });
   const updateChange = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/changes/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["changes"] }); queryClient.invalidateQueries({ queryKey: ["changes-stats"] }); } });
-  const deleteChange = useMutation({ mutationFn: (id: number) => apiFetch(`/changes/${id}`, { method: "DELETE" }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["changes"] }); queryClient.invalidateQueries({ queryKey: ["changes-stats"] }); } });
+  const deleteChange = useMutation({ mutationFn: ({ id, reason }: { id: number; reason: string }) => apiFetch(`/changes/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["changes"] }); queryClient.invalidateQueries({ queryKey: ["changes-stats"] }); } });
 
   const filtered = useMemo(() => {
     let list = changes;
@@ -172,8 +173,9 @@ export default function ItsmChanges() {
   }
 
   async function handleDelete(id: number, no: string) {
-    if (!await confirmDialog(`Delete change request ${no}?`)) return;
-    try { await deleteChange.mutateAsync(id); toast({ title: "Change request deleted" }); }
+    const reason = await reasonDialog(`Delete change request ${no}? It is removed from the lists but kept in the audit trail.`, { title: "Delete change request", confirmText: "Delete", destructive: true, label: "Reason for deleting" });
+    if (!reason) return;
+    try { await deleteChange.mutateAsync({ id, reason }); toast({ title: "Change request deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }
 
@@ -186,7 +188,7 @@ export default function ItsmChanges() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => downloadReport("changes", `changes-report-${new Date().toISOString().slice(0,10)}.csv`)} className="gap-2 text-xs"><Download className="w-3.5 h-3.5" />Export Report</Button>
-          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Change Request</Button>
+          {canEdit && <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Change Request</Button>}
         </div>
       </div>
 
@@ -265,8 +267,8 @@ export default function ItsmChanges() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(c)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      <button onClick={() => openEdit(c)} title={["Completed","Closed","Failed","Rolled Back"].includes(c.status) ? "Ticket is locked — cannot edit completed/closed changes" : "Edit"} disabled={["Completed","Closed","Failed","Rolled Back"].includes(c.status)} className={`p-2 rounded-md transition-colors ${["Completed","Closed","Failed","Rolled Back"].includes(c.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>
-                      {isAdmin && <button onClick={() => handleDelete(c.id, c.changeNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
+                      {canEdit && <button onClick={() => openEdit(c)} title={["Completed","Closed","Failed","Rolled Back"].includes(c.status) ? "Ticket is locked — cannot edit completed/closed changes" : "Edit"} disabled={["Completed","Closed","Failed","Rolled Back"].includes(c.status)} className={`p-2 rounded-md transition-colors ${["Completed","Closed","Failed","Rolled Back"].includes(c.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
+                      {canDelete && <button onClick={() => handleDelete(c.id, c.changeNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -346,9 +348,9 @@ export default function ItsmChanges() {
             <div><Label>Category</Label><Select value={formData.category || "__none__"} onValueChange={v => setFormData({ ...formData, category: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{CHANGE_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Risk Level</Label><Select value={formData.riskLevel || "Medium"} onValueChange={v => setFormData({ ...formData, riskLevel: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RISKS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Status</Label><Select value={formData.status || "Draft"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Approval Status</Label><Select value={formData.approvalStatus || "Pending"} onValueChange={v => setFormData({ ...formData, approvalStatus: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{APPROVAL_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Approval Status</Label><div className="h-10 flex items-center gap-2 text-sm"><ApprovalBadge value={formData.approvalStatus || "Pending"} /><span className="text-[11px] text-muted-foreground">set by the approval workflow</span></div></div>
             <div><Label>Requested By</Label><UserSearchCombobox value={formData.requestedBy || ""} onChange={v => setFormData({ ...formData, requestedBy: v })} placeholder="Search requester…" /></div>
-            <div><Label>Approved By</Label><UserSearchCombobox value={formData.approvedBy || ""} onChange={v => setFormData({ ...formData, approvedBy: v })} placeholder="Search approver…" /></div>
+            <div><Label>Approved By</Label><div className="min-h-10 flex items-center text-sm text-muted-foreground">{formData.approvedBy || "—"}</div></div>
             <div><Label>Implementation Date</Label><Input type="date" value={formData.implementationDate || ""} onChange={e => setFormData({ ...formData, implementationDate: e.target.value })} /></div>
             <div><Label>Backout Duration</Label><Input value={formData.backoutDuration || ""} onChange={e => setFormData({ ...formData, backoutDuration: e.target.value })} placeholder="e.g. 2 hours" /></div>
             <div className="col-span-2"><Label>Impact</Label><Input value={formData.impact || ""} onChange={e => setFormData({ ...formData, impact: e.target.value })} placeholder="Describe the impact of this change" /></div>

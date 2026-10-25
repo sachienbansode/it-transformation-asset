@@ -50,3 +50,6 @@ Thumbs.db
 
 # client data files (not for git)
 _imports/
+
+# ITSM attachments stored on the server (STORAGE_DRIVER=local)
+uploads/

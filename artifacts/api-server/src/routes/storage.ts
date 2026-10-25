@@ -1,4 +1,7 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import express, { Router, type IRouter, type Request, type Response } from "express";
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
 import { Readable } from "stream";
 import { z } from "zod/v4";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
@@ -19,6 +22,30 @@ const RequestUploadUrlResponse = z.object({
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
+/*
+ * Storage driver. On Replit the sidecar object storage is used; everywhere else (AWS server) files are kept on the
+ * server's disk under UPLOAD_DIR (default: <api-server>/uploads, outside git). Uploads still use the same two-step
+ * flow (request URL → PUT file), so the browser code is unchanged. Downloads require a signed-in user.
+ */
+const DRIVER = process.env.STORAGE_DRIVER || (process.env.REPL_ID ? "replit" : "local");
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads"));
+const MAX_UPLOAD = Number(process.env.UPLOAD_MAX_MB || 25) * 1024 * 1024;
+const ID_RE = /^[a-f0-9-]{36}$/;
+if (DRIVER === "local") { try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch { /* reported on first upload */ } }
+
+router.put("/storage/local-upload/:id", express.raw({ type: () => true, limit: MAX_UPLOAD }), (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  if (DRIVER !== "local" || !ID_RE.test(id)) { res.status(404).json({ error: "Not found" }); return; }
+  const metaFile = path.join(UPLOAD_DIR, `${id}.json`);
+  if (!fs.existsSync(metaFile)) { res.status(404).json({ error: "Upload URL expired — try again" }); return; }
+  const meta = JSON.parse(fs.readFileSync(metaFile, "utf8"));
+  if (meta.uploaded) { res.status(409).json({ error: "Already uploaded" }); return; }
+  const data: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? ""));
+  fs.writeFileSync(path.join(UPLOAD_DIR, id), data);
+  fs.writeFileSync(metaFile, JSON.stringify({ ...meta, uploaded: true, bytes: data.length, contentType: req.headers["content-type"] || meta.contentType }));
+  res.json({ ok: true });
+});
+
 /**
  * POST /storage/uploads/request-url
  *
@@ -35,6 +62,14 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
 
   try {
     const { name, size, contentType } = parsed.data;
+    if (size > MAX_UPLOAD) { res.status(400).json({ error: `File is larger than ${MAX_UPLOAD / 1024 / 1024} MB` }); return; }
+    if (DRIVER === "local") {
+      const id = crypto.randomUUID();
+      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+      fs.writeFileSync(path.join(UPLOAD_DIR, `${id}.json`), JSON.stringify({ name, size, contentType, by: (req.session as any)?.userId ?? null, at: new Date().toISOString() }));
+      res.json({ uploadURL: `${(process.env.BASE_PATH || "").replace(/\/$/, "")}/api/storage/local-upload/${id}`, objectPath: `/objects/uploads/${id}`, metadata: { name, size, contentType } });
+      return;
+    }
 
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
@@ -98,6 +133,16 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
     const objectPath = `/objects/${wildcardPath}`;
+    if (DRIVER === "local") {
+      const id = wildcardPath.split("/").pop() || "";
+      const file = path.join(UPLOAD_DIR, id), metaFile = path.join(UPLOAD_DIR, `${id}.json`);
+      if (!ID_RE.test(id) || !fs.existsSync(file)) { res.status(404).json({ error: "Object not found" }); return; }
+      const meta = fs.existsSync(metaFile) ? JSON.parse(fs.readFileSync(metaFile, "utf8")) : {};
+      res.setHeader("Content-Type", meta.contentType || "application/octet-stream");
+      if (meta.name) res.setHeader("Content-Disposition", `inline; filename="${String(meta.name).replace(/"/g, "")}"`);
+      fs.createReadStream(file).pipe(res);
+      return;
+    }
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 
     // --- Protected route example (uncomment when using replit-auth) ---

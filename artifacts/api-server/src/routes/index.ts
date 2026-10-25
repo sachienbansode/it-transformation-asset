@@ -66,8 +66,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
     const adminOnlyPrefixes = [
       "/admin/", "/masters", "/roles", "/user-roles", "/settings", "/data-archive", "/notification-rules",
       "/business-units", "/audit-logs",
-      "/incidents", "/problems", "/changes", "/sla-policies",
-      "/knowledge-base", "/service-requests",
+      // ITSM writes are governed by module permissions (lib/rbac.ts), not base role Admin
     ];
     const isAdminOnly = adminOnlyPrefixes.some(p =>
       req.path === p || req.path.startsWith(p + "/") || req.path.startsWith(p)

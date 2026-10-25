@@ -46,6 +46,17 @@ const RULES: [RegExp, string | null][] = [
   [/^\/assets\/by-tag\//, null],             // QR sticker look-up
   [/^\/asset-comments\//, "asset_registry"],
   [/^\/asset-dashboard(\/|$)/, "assets"],
+  // IT Service Management
+  [/^\/incidents(\/|$)/, "itsm_incidents"],
+  [/^\/problems(\/|$)/, "itsm_problems"],
+  [/^\/changes(\/|$)/, "itsm_changes"],
+  [/^\/service-requests(\/|$)/, "itsm_requests"],
+  [/^\/knowledge-base\/\d+\/view$/, null],
+  [/^\/knowledge-base(\/|$)/, "itsm_kb"],
+  [/^\/sla-policies(\/|$)/, "itsm_sla"],
+  [/^\/approval-matrix(\/|$)/, "itsm_approval"],
+  [/^\/(itsm-metrics|itsm-report)$/, "itsm_dashboard"],
+  [/^\/(approvals|ticket-history|itsm-attachments|itsm-config|itsm-settings|itsm-people)(\/|$)/, null], // checked in the route
   [/^\/asset-(contracts|warranty)(\/|$)/, "asset_contracts"],
   [/^\/asset-depreciation(\/|$)/, "asset_depreciation"],
   [/^\/assets\/finance-update$/, null],      // Asset Registry OR Depreciation edit access — checked in the route
@@ -61,6 +72,9 @@ const RULES: [RegExp, string | null][] = [
 ];
 // Shared reference data: readable by anyone with read on any asset module
 const SHARED_READ = [/^\/assets$/, /^\/asset-vendors$/, /^\/asset-people$/, /^\/assets\/\d+\/coverage$/];
+// ITSM reference lists used across ITSM screens (link to problem, SLA badges, KB search): readable with read on any ITSM module
+export const ITSM_MODULES = ["itsm_dashboard", "itsm_incidents", "itsm_problems", "itsm_changes", "itsm_kb", "itsm_sla", "itsm_requests", "itsm_approval"];
+const ITSM_SHARED_READ = [/^\/problems$/, /^\/sla-policies$/, /^\/knowledge-base$/, /^\/approval-matrix$/];
 
 export function moduleFor(path: string): { matched: boolean; module: string | null } {
   for (const [re, m] of RULES) if (re.test(path)) return { matched: true, module: m };
@@ -76,6 +90,7 @@ export async function assetRbac(req: Request, res: Response, next: NextFunction)
   const write = !["GET", "HEAD", "OPTIONS"].includes(req.method);
   if (can(a, module, write ? "write" : "read")) return next();
   if (!write && SHARED_READ.some(re => re.test(req.path)) && ASSET_MODULES.some(m => can(a, m, "read"))) return next();
+  if (!write && ITSM_SHARED_READ.some(re => re.test(req.path)) && ITSM_MODULES.some(m => can(a, m, "read"))) return next();
   const label = MODULES.find(m => m.key === module)?.label || module;
   res.status(403).json({ error: write ? `You have view-only access to ${label}. Ask your administrator for edit access.` : `You do not have access to ${label}.`, module, required: write ? "write" : "read" });
 }

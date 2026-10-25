@@ -31,7 +31,8 @@ const KB_STATUSES = ["Draft", "Published", "Archived"];
 export default function ItsmKnowledgeBase() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, canAccess } = useAuth();
+  const canEdit = canAccess("itsm_kb", "write"); const canDelete = canAccess("itsm_kb", "admin");
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -87,7 +88,7 @@ export default function ItsmKnowledgeBase() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(articles, [{label:"Title",key:"title"},{label:"Category",key:"category"},{label:"Type",key:"type"},{label:"Status",key:"status"},{label:"Tags",key:"tags"},{label:"Created By",key:"createdByName"},{label:"Views",key:"views"},{label:"Created At",key:"createdAt"}], "knowledge-base.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
-          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Article</Button>
+          {canEdit && <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Article</Button>}
         </div>
       </div>
 
@@ -123,8 +124,8 @@ export default function ItsmKnowledgeBase() {
                   <TableCell>
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
-                      <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
-                      {isAdmin && <button onClick={() => handleDelete(a.id, a.title)} className="p-1.5 rounded hover:bg-muted"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
+                      {canEdit && <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>}
+                      {canDelete && <button onClick={() => handleDelete(a.id, a.title)} className="p-1.5 rounded hover:bg-muted"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>

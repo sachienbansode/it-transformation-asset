@@ -24,7 +24,9 @@ interface ApprovalMatrixProps {
 export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: ApprovalMatrixProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { user, isAdmin } = useAuth();
+  const { user, canAccess } = useAuth();
+  const MOD: Record<string, string> = { "Incident": "itsm_incidents", "Problem": "itsm_problems", "Change Request": "itsm_changes", "Service Request": "itsm_requests" };
+  const canApprove = canAccess(MOD[ticketType] || "", "admin");
   const [actionNotes, setActionNotes] = useState<Record<number, string>>({});
 
   const { data: approvals = [], isLoading } = useQuery({
@@ -39,9 +41,9 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
         method: "POST",
         body: JSON.stringify({ action, notes }),
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["approvals", ticketType, ticketId] });
-      toast({ title: "Approval action recorded" });
+    onSuccess: (r: any) => {
+      ["approvals", "changes", "changes-stats", "service-requests", "problems", "incidents"].forEach(k => queryClient.invalidateQueries({ queryKey: [k] }));
+      toast({ title: r?.ticketApproval === "Approved" ? "Fully approved — the ticket can now proceed" : r?.ticketApproval === "Rejected" ? "Rejected — the approval flow has ended" : "Approval recorded — passed to the next level" });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -49,7 +51,7 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
   if (isLoading) return <div className="text-xs text-muted-foreground py-2">Loading approvals...</div>;
   if (approvals.length === 0) return null;
 
-  const allApproved = approvals.every((a: any) => a.status === "Approved");
+  const allApproved = approvals.every((a: any) => a.status === "Approved" || a.status === "Auto-Approved");
   const anyRejected = approvals.some((a: any) => a.status === "Rejected");
 
   return (
@@ -79,11 +81,12 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
                 {a.actionAt && <p className="text-[10px] text-muted-foreground">{new Date(a.actionAt).toLocaleDateString()}</p>}
                 {a.notes && <p className="text-[10px] text-muted-foreground mt-1 italic">"{a.notes}"</p>}
 
-                {!readonly && a.status === "Pending" && isAdmin && (
+                {a.status === "Pending" && !a.isNext && <p className="text-[10px] text-muted-foreground mt-1">Waiting for the previous level</p>}
+                {!readonly && a.status === "Pending" && a.isNext && !anyRejected && canApprove && (
                   <div className="mt-2 space-y-1.5">
                     <Input
                       className="h-7 text-xs"
-                      placeholder="Notes (optional)"
+                      placeholder="Notes (required to reject)"
                       value={actionNotes[a.id] || ""}
                       onChange={e => setActionNotes(p => ({ ...p, [a.id]: e.target.value }))}
                     />
@@ -101,7 +104,7 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
                         variant="destructive"
                         className="h-6 text-[10px]"
                         onClick={() => actionMut.mutate({ id: a.id, action: "Rejected", notes: actionNotes[a.id] })}
-                        disabled={actionMut.isPending}
+                        disabled={actionMut.isPending || (actionNotes[a.id] || "").trim().length < 5}
                       >
                         Reject
                       </Button>

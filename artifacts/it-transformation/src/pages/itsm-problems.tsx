@@ -19,7 +19,7 @@ import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useLocation } from "wouter";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
-import { confirmDialog } from "@/components/confirm-dialog";
+import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"];
@@ -119,7 +119,8 @@ export default function ItsmProblems() {
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, canAccess } = useAuth();
+  const canEdit = canAccess("itsm_problems", "write"); const canDelete = canAccess("itsm_problems", "admin");
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -135,7 +136,7 @@ export default function ItsmProblems() {
 
   const createProblem = useMutation({ mutationFn: (d: any) => apiFetch("/problems", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["problems"] }) });
   const updateProblem = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/problems/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["problems"] }) });
-  const deleteProblem = useMutation({ mutationFn: (id: number) => apiFetch(`/problems/${id}`, { method: "DELETE" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["problems"] }) });
+  const deleteProblem = useMutation({ mutationFn: ({ id, reason }: { id: number; reason: string }) => apiFetch(`/problems/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["problems"] }) });
 
   const filtered = useMemo(() => {
     let list = problems;
@@ -163,8 +164,9 @@ export default function ItsmProblems() {
   }
 
   async function handleDelete(id: number, no: string) {
-    if (!await confirmDialog(`Delete problem ${no}?`)) return;
-    try { await deleteProblem.mutateAsync(id); toast({ title: "Problem deleted" }); }
+    const reason = await reasonDialog(`Delete problem ${no}? It is removed from the lists but kept in the audit trail.`, { title: "Delete problem", confirmText: "Delete", destructive: true, label: "Reason for deleting" });
+    if (!reason) return;
+    try { await deleteProblem.mutateAsync({ id, reason }); toast({ title: "Problem deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }
 
@@ -177,7 +179,7 @@ export default function ItsmProblems() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => downloadReport("problems", `problems-report-${new Date().toISOString().slice(0,10)}.csv`)} className="gap-2 text-xs"><Download className="w-3.5 h-3.5" />Export Report</Button>
-          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Problem</Button>
+          {canEdit && <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Problem</Button>}
         </div>
       </div>
 
@@ -254,8 +256,8 @@ export default function ItsmProblems() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(p)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      <button onClick={() => openEdit(p)} title={["Resolved","Closed"].includes(p.status) ? "Ticket is locked — cannot edit resolved/closed" : "Edit"} disabled={["Resolved","Closed"].includes(p.status)} className={`p-2 rounded-md transition-colors ${["Resolved","Closed"].includes(p.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>
-                      {isAdmin && <button onClick={() => handleDelete(p.id, p.problemNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
+                      {canEdit && <button onClick={() => openEdit(p)} title={["Resolved","Closed"].includes(p.status) ? "Ticket is locked — cannot edit resolved/closed" : "Edit"} disabled={["Resolved","Closed"].includes(p.status)} className={`p-2 rounded-md transition-colors ${["Resolved","Closed"].includes(p.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
+                      {canDelete && <button onClick={() => handleDelete(p.id, p.problemNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>

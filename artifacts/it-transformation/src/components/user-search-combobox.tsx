@@ -22,7 +22,7 @@ export function UserSearchCombobox({ value, onChange, placeholder = "Search user
 
   const { data: users = [] } = useQuery<any[]>({
     queryKey: ["users-for-combobox"],
-    queryFn: () => apiFetch<any[]>("/users"),
+    queryFn: () => apiFetch<any[]>("/itsm-people"),
     staleTime: 120000,
   });
 

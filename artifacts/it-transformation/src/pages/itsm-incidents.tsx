@@ -19,7 +19,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
-import { confirmDialog } from "@/components/confirm-dialog";
+import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
@@ -165,7 +165,8 @@ export default function ItsmIncidents() {
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, canAccess } = useAuth();
+  const canEdit = canAccess("itsm_incidents", "write"); const canDelete = canAccess("itsm_incidents", "admin");
   const [search, setSearch] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -187,7 +188,7 @@ export default function ItsmIncidents() {
 
   const createInc = useMutation({ mutationFn: (data: any) => apiFetch("/incidents", { method: "POST", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
   const updateInc = useMutation({ mutationFn: ({ id, ...data }: any) => apiFetch(`/incidents/${id}`, { method: "PATCH", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
-  const deleteInc = useMutation({ mutationFn: (id: number) => apiFetch(`/incidents/${id}`, { method: "DELETE" }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
+  const deleteInc = useMutation({ mutationFn: ({ id, reason }: { id: number; reason: string }) => apiFetch(`/incidents/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
   const bulkUpdate = useMutation({
     mutationFn: (body: any) => apiFetch("/incidents/bulk-update", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); setSelectedIds([]); setBulkStatus(""); setBulkAssignee(""); setShowBulkBar(false); }
@@ -249,8 +250,9 @@ export default function ItsmIncidents() {
   }
 
   async function handleDelete(id: number, ticket: string) {
-    if (!await confirmDialog(`Delete incident ${ticket}?`)) return;
-    try { await deleteInc.mutateAsync(id); toast({ title: "Incident deleted" }); }
+    const reason = await reasonDialog(`Delete incident ${ticket}? It is removed from the lists but kept in the audit trail.`, { title: "Delete incident", confirmText: "Delete", destructive: true, label: "Reason for deleting" });
+    if (!reason) return;
+    try { await deleteInc.mutateAsync({ id, reason }); toast({ title: "Incident deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }
 
@@ -263,7 +265,7 @@ export default function ItsmIncidents() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => downloadReport("incidents", `incidents-report-${new Date().toISOString().slice(0,10)}.csv`)} className="gap-2 text-xs"><Download className="w-3.5 h-3.5" />Export Report</Button>
-          <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Incident</Button>
+          {canEdit && <Button onClick={openCreate} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white gap-2"><Plus className="w-4 h-4" />New Incident</Button>}
         </div>
       </div>
 
@@ -388,8 +390,8 @@ export default function ItsmIncidents() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(inc)} title="View details" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      <button onClick={() => openEdit(inc)} title={["Resolved","Closed"].includes(inc.status) ? "Ticket is locked — cannot edit resolved/closed" : "Edit incident"} disabled={["Resolved","Closed"].includes(inc.status)} className={`p-2 rounded-md transition-colors ${["Resolved","Closed"].includes(inc.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>
-                      {isAdmin && <button onClick={() => handleDelete(inc.id, inc.ticketNo)} title="Delete incident" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
+                      {canEdit && <button onClick={() => openEdit(inc)} title={["Resolved","Closed"].includes(inc.status) ? "Ticket is locked — cannot edit resolved/closed" : "Edit incident"} disabled={["Resolved","Closed"].includes(inc.status)} className={`p-2 rounded-md transition-colors ${["Resolved","Closed"].includes(inc.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
+                      {canDelete && <button onClick={() => handleDelete(inc.id, inc.ticketNo)} title="Delete incident" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>
