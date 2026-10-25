@@ -130,6 +130,14 @@ export const assetAllocationsTable = pgTable("asset_allocations", {
   ackAt: timestamp("ack_at", { withTimezone: true }),
   ackBy: text("ack_by"),
   ackMethod: text("ack_method"),
+  // Employee sent the handover back to IT instead of acknowledging (ackStatus = "Issue reported")
+  disputeReason: text("dispute_reason"),
+  disputeNote: text("dispute_note"),
+  disputedAt: timestamp("disputed_at", { withTimezone: true }),
+  disputeCount: integer("dispute_count").notNull().default(0),
+  disputeResolution: text("dispute_resolution"),
+  disputeResolvedBy: text("dispute_resolved_by"),
+  disputeResolvedAt: timestamp("dispute_resolved_at", { withTimezone: true }),
   // Return details
   returnCondition: text("return_condition"),
   returnAccessories: text("return_accessories"),

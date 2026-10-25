@@ -84,6 +84,16 @@ export async function notify(eventKey: string, msg: { subject: string; html: str
   }
 }
 
+/** Email specific people (e.g. the employee on a handover). Never throws — logged in email_outbox. */
+export async function sendDirect(eventKey: string, to: string[], subject: string, html: string) {
+  const list = to.map(x => x.trim().toLowerCase()).filter(a => EMAIL_RE.test(a));
+  const subj = `[IT Hub] ${subject}`, body = wrapHtml(html);
+  if (!list.length) return outbox(eventKey, "", subj, body, null, null, "Skipped", "No valid recipient");
+  if (!mailConfigured()) return outbox(eventKey, list.join(", "), subj, body, null, null, "Skipped", "Microsoft 365 mail is not configured on the server (MAIL_M365_*)");
+  try { await sendGraph(list, subj, body, []); return outbox(eventKey, list.join(", "), subj, body, null, null, "Sent", null); }
+  catch (e: any) { return outbox(eventKey, list.join(", "), subj, body, null, null, "Failed", String(e?.message || e).slice(0, 500)); }
+}
+
 export async function sendTest(to: string[]) {
   if (!mailConfigured()) throw new Error("Microsoft 365 mail is not configured on the server (MAIL_M365_TENANT_ID, MAIL_M365_CLIENT_ID, MAIL_M365_CLIENT_SECRET, MAIL_FROM).");
   const subject = "[IT Hub] Test email";

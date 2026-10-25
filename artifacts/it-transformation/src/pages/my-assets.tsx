@@ -9,8 +9,7 @@ import { Pagination } from "@/components/pagination";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
-import { confirmDialog } from "@/components/confirm-dialog";
-import { AckPill, printHandoverNote } from "@/components/asset-lifecycle";
+import { AckPill, printHandoverNote, ReviewHandoverDialog } from "@/components/asset-lifecycle";
 import { Laptop, Printer, CheckCircle2, AlertTriangle, Search, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +30,7 @@ export default function MyAssets() {
   const [q, setQ] = useState(""); const [page, setPage] = useState(1);
   const active = rows.filter(r => r.status === "Active");
   const past = rows.filter(r => r.status !== "Active");
-  const pending = active.filter(r => r.ackStatus !== "Acknowledged");
+  const pending = active.filter(r => r.ackStatus === "Pending");
   const today = new Date().toISOString().slice(0, 10);
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -39,17 +38,9 @@ export default function MyAssets() {
   }, [rows, view, q]);
   const pageRows = list.slice((page - 1) * PAGE, page * PAGE);
 
-  async function acknowledge(r: any) {
-    const ok = await confirmDialog(
-      `I confirm I have received ${r.assetTag} — ${r.assetName} (SN ${r.serialNumber})${r.accessories ? ` with: ${r.accessories}` : ""}, in ${String(r.issueCondition || "good").toLowerCase()} condition.\n\nI accept responsibility for it under the company's IT asset and acceptable-use policies, and will return it on exit or when IT asks.`,
-      { title: `Acknowledge handover ${r.handoverNo}`, confirmText: "I acknowledge" });
-    if (!ok) return;
-    try {
-      await apiFetch(`/my-assets/${r.id}/acknowledge`, { method: "POST", body: "{}" });
-      qc.invalidateQueries({ queryKey: ["my-assets"] }); qc.invalidateQueries({ queryKey: ["asset-handovers"] });
-      toast({ title: "Thank you — handover acknowledged", description: r.handoverNo });
-    } catch (e: any) { toast({ title: "Could not acknowledge", description: e.message, variant: "destructive" }); }
-  }
+  const [review, setReview] = useState<any>(null);
+  const refresh = () => { qc.invalidateQueries({ queryKey: ["my-assets"] }); qc.invalidateQueries({ queryKey: ["asset-handovers"] }); };
+  const withIt = active.filter(r => r.ackStatus === "Issue reported");
 
   const tab = (k: "current" | "past", label: string, n: number) => (
     <button onClick={() => { setView(k); setPage(1); }} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", view === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground")}>{label} <span className="text-[11px] text-muted-foreground">{n}</span></button>
@@ -59,7 +50,7 @@ export default function MyAssets() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">My Assets</h1>
-        <p className="text-sm text-muted-foreground">IT assets issued to you. Please acknowledge each handover; contact IT if anything here is wrong.</p>
+        <p className="text-sm text-muted-foreground">IT assets issued to you. Review each handover and acknowledge it — or report a problem (wrong asset, damage, missing accessories) to send it back to IT.</p>
       </div>
       {canAccess("asset_registry", "read") && (
         <div className="flex items-start gap-2 rounded-[10px] border bg-muted/40 px-4 py-2.5 text-sm text-muted-foreground">
@@ -69,6 +60,11 @@ export default function MyAssets() {
       {pending.length > 0 && (
         <div className="flex items-start gap-2 rounded-[10px] border border-amber-500/30 bg-amber-50 dark:bg-amber-400/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{pending.length} handover{pending.length > 1 ? "s are" : " is"} waiting for your acknowledgement.
+        </div>
+      )}
+      {withIt.length > 0 && (
+        <div className="flex items-start gap-2 rounded-[10px] border border-red-300/50 bg-red-50 dark:bg-red-400/10 px-4 py-3 text-sm text-red-800 dark:text-red-300">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{withIt.length} handover{withIt.length > 1 ? "s are" : " is"} with IT for review after you reported a problem. You'll be emailed when IT replies.
         </div>
       )}
       <Card><CardContent className="p-4 space-y-3">
@@ -88,13 +84,16 @@ export default function MyAssets() {
               {!isLoading && !list.length && <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground"><Laptop className="w-8 h-8 mx-auto mb-2 opacity-40" />{q ? "No match." : view === "current" ? "No IT assets are currently issued to you." : "Nothing returned yet."}</TableCell></TableRow>}
               {pageRows.map(r => (
                 <TableRow key={r.id}>
-                  <TableCell><div className="font-medium">{r.assetName}</div><div className="text-xs text-muted-foreground"><span className="font-mono text-primary font-semibold">{r.assetTag}</span> · SN {r.serialNumber}{r.assetType ? ` · ${r.assetType}` : ""}</div>{r.accessories && <div className="text-[11px] text-muted-foreground">With: {r.accessories}</div>}</TableCell>
+                  <TableCell><div className="font-medium">{r.assetName}</div><div className="text-xs text-muted-foreground"><span className="font-mono text-primary font-semibold">{r.assetTag}</span> · SN {r.serialNumber}{r.assetType ? ` · ${r.assetType}` : ""}</div>{r.accessories && <div className="text-[11px] text-muted-foreground">With: {r.accessories}</div>}
+                    {r.ackStatus === "Issue reported" && <div className="text-[11px] text-red-600 mt-0.5">You reported: {r.disputeReason} — {r.disputeNote}</div>}
+                    {r.ackStatus === "Pending" && r.disputeResolution && <div className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">IT replied: {r.disputeResolution}</div>}</TableCell>
                   <TableCell className="text-sm"><div className="font-mono text-xs">{r.handoverNo}</div><div className="text-[11px] text-muted-foreground">{r.allocationType}</div></TableCell>
                   <TableCell className="text-sm whitespace-nowrap">{view === "current" ? fmt(r.startDate) : `${fmt(r.startDate)} → ${fmt(r.endDate)}`}</TableCell>
                   {view === "current" && <TableCell className={cn("text-sm whitespace-nowrap", r.expectedReturnDate && r.expectedReturnDate < today && "text-red-600 font-semibold")}>{r.expectedReturnDate ? fmt(r.expectedReturnDate) : "—"}</TableCell>}
                   <TableCell>{view === "current" ? <AckPill status={r.ackStatus} /> : <span className="text-xs text-muted-foreground">{r.status}</span>}</TableCell>
                   <TableCell className="text-right"><div className="flex justify-end gap-1.5">
-                    {view === "current" && r.ackStatus !== "Acknowledged" && <Button size="sm" className="h-8 gap-1.5" onClick={() => acknowledge(r)}><CheckCircle2 className="w-3.5 h-3.5" />Acknowledge</Button>}
+                    {view === "current" && r.ackStatus === "Pending" && <Button size="sm" className="h-8 gap-1.5" onClick={() => setReview(r)}><CheckCircle2 className="w-3.5 h-3.5" />Review & acknowledge</Button>}
+                    {view === "current" && r.ackStatus === "Issue reported" && <span className="text-[11px] text-muted-foreground self-center mr-1">with IT since {fmt(r.disputedAt)}</span>}
                     {view === "current" && r.ackStatus === "Acknowledged" && <span className="text-[11px] text-muted-foreground self-center mr-1">on {fmt(r.ackAt)}</span>}
                     <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => printHandoverNote([r])}><Printer className="w-3.5 h-3.5" />Note</Button>
                   </div></TableCell>
@@ -103,6 +102,7 @@ export default function MyAssets() {
             </TableBody>
           </Table>
         </div>
+        {review && <ReviewHandoverDialog h={review} onClose={() => setReview(null)} onDone={refresh} />}
         <Pagination page={page} totalPages={Math.ceil(list.length / PAGE) || 1} totalItems={list.length} pageSize={PAGE} onPageChange={setPage} />
       </CardContent></Card>
     </div>

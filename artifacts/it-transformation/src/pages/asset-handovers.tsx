@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { StatCard } from "@/components/stat-card";
 import { apiFetch } from "@/lib/api";
-import { AckPill, IssueDialog, ReturnDialog, markAcknowledged, printHandoverNote, HolderTag } from "@/components/asset-lifecycle";
+import { AckPill, IssueDialog, ReturnDialog, markAcknowledged, printHandoverNote, HolderTag, ResolveIssueDialog } from "@/components/asset-lifecycle";
 import { BulkAssignDialog } from "@/components/bulk-assign";
 import { Search, UserPlus, Printer, Undo2, FileCheck2, ClipboardList, Clock, AlertTriangle, Download, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,7 @@ const PAGE_SIZE = 12;
 const TABS = [
   { key: "active", label: "Active" },
   { key: "pending", label: "Ack pending" },
+  { key: "issues", label: "Issues reported" },
   { key: "overdue", label: "Overdue returns" },
   { key: "closed", label: "Returned / closed" },
   { key: "all", label: "All" },
@@ -50,11 +51,13 @@ export default function AssetHandovers() {
   const [issueAssets, setIssueAssets] = useState<any[] | null>(null);
   const [returnAsset, setReturnAsset] = useState<any>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [resolve, setResolve] = useState<any>(null);
 
   const isOverdue = (r: any) => r.status === "Active" && r.expectedReturnDate && r.expectedReturnDate < todayIso();
   const counts = useMemo(() => ({
     active: rows.filter(r => r.status === "Active").length,
-    pending: rows.filter(r => r.status === "Active" && r.ackStatus !== "Acknowledged").length,
+    pending: rows.filter(r => r.status === "Active" && r.ackStatus === "Pending").length,
+    issues: rows.filter(r => r.status === "Active" && r.ackStatus === "Issue reported").length,
     overdue: rows.filter(isOverdue).length,
     closed: rows.filter(r => r.status !== "Active").length,
     all: rows.length,
@@ -63,7 +66,8 @@ export default function AssetHandovers() {
   const filtered = useMemo(() => {
     let l = rows;
     if (tab === "active") l = l.filter(r => r.status === "Active");
-    if (tab === "pending") l = l.filter(r => r.status === "Active" && r.ackStatus !== "Acknowledged");
+    if (tab === "pending") l = l.filter(r => r.status === "Active" && r.ackStatus === "Pending");
+    if (tab === "issues") l = l.filter(r => r.status === "Active" && r.ackStatus === "Issue reported");
     if (tab === "overdue") l = l.filter(isOverdue);
     if (tab === "closed") l = l.filter(r => r.status !== "Active");
     const t = q.trim().toLowerCase();
@@ -136,11 +140,15 @@ export default function AssetHandovers() {
                       : <>{fmt(r.endDate)}<div className="text-[11px] text-muted-foreground">{r.returnCondition || r.status}</div></>}
                   </TableCell>
                   <TableCell>{r.status === "Active" ? <AckPill status={r.ackStatus} /> : <span className="text-xs text-muted-foreground">{r.ackStatus === "Acknowledged" ? "Acknowledged" : "—"}</span>}
-                    {r.ackAt && <div className="text-[11px] text-muted-foreground mt-0.5">{r.ackMethod}</div>}</TableCell>
+                    {r.ackAt && <div className="text-[11px] text-muted-foreground mt-0.5">{r.ackMethod}</div>}
+                    {r.status === "Active" && r.ackStatus === "Issue reported" && <div className="text-[11px] text-red-600 mt-0.5 max-w-[220px]">{r.disputeReason}: {r.disputeNote}</div>}
+                    {r.status === "Active" && r.ackStatus === "Pending" && r.disputeResolution && <div className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">Re-review after: {r.disputeResolution}</div>}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button size="sm" variant="ghost" title="Print note" onClick={() => printHandoverNote([r], r.status === "Active" ? "issue" : "return")}><Printer className="w-4 h-4" /></Button>
-                      {isAdmin && r.status === "Active" && r.ackStatus !== "Acknowledged" &&
+                      {isAdmin && r.status === "Active" && r.ackStatus === "Issue reported" &&
+                        <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200" onClick={() => setResolve(r)}>Resolve issue</Button>}
+                      {isAdmin && r.status === "Active" && r.ackStatus === "Pending" &&
                         <Button size="sm" variant="ghost" title="Signed copy received" onClick={() => markAcknowledged(r, toast, refresh)}><FileCheck2 className="w-4 h-4 text-emerald-600" /></Button>}
                       {isAdmin && r.status === "Active" && assetOf(r) &&
                         <Button size="sm" variant="ghost" title="Return" onClick={() => setReturnAsset(assetOf(r))}><Undo2 className="w-4 h-4 text-primary" /></Button>}
@@ -157,6 +165,7 @@ export default function AssetHandovers() {
       {pickOpen && <PickAssets assets={assets.filter((a: any) => a.status === "In Stock")} onClose={() => setPickOpen(false)} onPick={sel => { setPickOpen(false); setIssueAssets(sel); }} />}
       {issueAssets && <IssueDialog assets={issueAssets} onClose={() => setIssueAssets(null)} onDone={refresh} />}
       {returnAsset && <ReturnDialog asset={returnAsset} onClose={() => setReturnAsset(null)} onDone={refresh} />}
+      {resolve && <ResolveIssueDialog h={resolve} onClose={() => setResolve(null)} onDone={refresh} onReturn={assetOf(resolve) ? () => setReturnAsset(assetOf(resolve)) : undefined} />}
       {bulkOpen && <BulkAssignDialog onClose={() => setBulkOpen(false)} onDone={refresh} />}
     </div>
   );

@@ -4,7 +4,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
 import { snapshotRegister, archiveAssetUpload } from "../lib/archive";
-import { notify, htmlTable } from "../lib/mailer";
+import { notify, htmlTable, sendDirect } from "../lib/mailer";
 import { getLock, assertOpenDate, loadCarries, LockError } from "../lib/finance-controls";
 import { resolveInput, accumulated } from "../lib/depreciation";
 import { loadRules } from "./asset-finance";
@@ -87,7 +87,7 @@ function canMove(from: string, to: string) {
 /* ─── Model (single source of truth for the UI) ──────────────────────────── */
 
 router.get("/asset-lifecycle/model", requireAuth, (_req, res) => {
-  res.json({ states: ASSET_STATES, transitions: LIFECYCLE, actions: ACTION_LABEL, disposalMethods: DISPOSAL_METHODS, conditions: CONDITIONS, allocationTypes: ALLOCATION_TYPES });
+  res.json({ states: ASSET_STATES, transitions: LIFECYCLE, actions: ACTION_LABEL, disposalMethods: DISPOSAL_METHODS, conditions: CONDITIONS, allocationTypes: ALLOCATION_TYPES, handoverIssues: HANDOVER_ISSUES });
 });
 
 /* ─── QR scan lookup ─────────────────────────────────────────────────────── */
@@ -326,7 +326,9 @@ const handoverCols = {
   issueCondition: assetAllocationsTable.issueCondition, accessories: assetAllocationsTable.accessories, issuedBy: assetAllocationsTable.issuedBy,
   ackStatus: assetAllocationsTable.ackStatus, ackAt: assetAllocationsTable.ackAt, ackBy: assetAllocationsTable.ackBy, ackMethod: assetAllocationsTable.ackMethod,
   returnCondition: assetAllocationsTable.returnCondition, returnAccessories: assetAllocationsTable.returnAccessories, returnRemarks: assetAllocationsTable.returnRemarks,
-  receivedBy: assetAllocationsTable.receivedBy, returnedAt: assetAllocationsTable.returnedAt, notes: assetAllocationsTable.notes, createdAt: assetAllocationsTable.createdAt,
+  receivedBy: assetAllocationsTable.receivedBy, returnedAt: assetAllocationsTable.returnedAt,
+  disputeReason: assetAllocationsTable.disputeReason, disputeNote: assetAllocationsTable.disputeNote, disputedAt: assetAllocationsTable.disputedAt, disputeCount: assetAllocationsTable.disputeCount,
+  disputeResolution: assetAllocationsTable.disputeResolution, disputeResolvedBy: assetAllocationsTable.disputeResolvedBy, disputeResolvedAt: assetAllocationsTable.disputeResolvedAt, notes: assetAllocationsTable.notes, createdAt: assetAllocationsTable.createdAt,
   assetTag: assetsTable.assetTag, assetName: assetsTable.name, assetType: assetsTable.type, serialNumber: assetsTable.serialNumber,
   configuration: assetsTable.configuration, assetStatus: assetsTable.status,
 };
@@ -344,6 +346,8 @@ router.post("/asset-allocations/:id/acknowledge", requireAuth, async (req, res) 
   try {
     const id = Number(req.params.id);
     const who = await actor(req);
+    const [cur] = await db.select({ ackStatus: assetAllocationsTable.ackStatus }).from(assetAllocationsTable).where(eq(assetAllocationsTable.id, id));
+    if (cur?.ackStatus === ISSUE) return fail(res, 400, "The employee reported a problem with this handover — resolve it first (Resolve issue).");
     const [al] = await db.update(assetAllocationsTable).set({ ackStatus: "Acknowledged", ackAt: new Date(), ackBy: who.name, ackMethod: s(req.body.method) || "Signed copy received" })
       .where(and(eq(assetAllocationsTable.id, id), eq(assetAllocationsTable.status, "Active"))).returning();
     if (!al) return fail(res, 404, "Active handover not found");
@@ -374,10 +378,55 @@ router.post("/my-assets/:id/acknowledge", requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const who = await actor(req);
     const [al] = await db.update(assetAllocationsTable).set({ ackStatus: "Acknowledged", ackAt: new Date(), ackBy: who.name, ackMethod: "Employee portal" })
-      .where(and(eq(assetAllocationsTable.id, id), eq(assetAllocationsTable.status, "Active"), await myFilter(req))).returning();
+      .where(and(eq(assetAllocationsTable.id, id), eq(assetAllocationsTable.status, "Active"), eq(assetAllocationsTable.ackStatus, "Pending"), await myFilter(req))).returning();
     if (!al) return fail(res, 404, "This handover is not assigned to you or is no longer active");
     await db.insert(assetTransactionsTable).values({ assetId: al.assetId, action: "Acknowledged", userName: who.performedBy, notes: `${al.handoverNo} · acknowledged by employee` });
     await safeLog({ entityType: "asset_allocation", entityId: id, action: "acknowledge", performedBy: who.performedBy, summary: `${who.name} acknowledged handover ${al.handoverNo}`, context: buildContext(req, "My Assets") });
+    res.json(al);
+  } catch (e) { handleError(res, e); }
+});
+
+/* ─── Employee sends a handover back to IT (wrong asset, damaged, missing accessories…) ─── */
+
+export const ISSUE = "Issue reported";
+export const HANDOVER_ISSUES = ["Wrong asset (tag / serial does not match)", "Damaged or faulty", "Accessories missing", "Not received", "Other"];
+
+router.post("/my-assets/:id/report-issue", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const reason = s(req.body.reason), note = s(req.body.note);
+    if (!reason || !HANDOVER_ISSUES.includes(reason)) return fail(res, 400, `Choose what is wrong (${HANDOVER_ISSUES.join(" / ")})`);
+    if (!note || note.length < 5) return fail(res, 400, "Describe the problem (at least 5 characters) so IT can fix it");
+    const who = await actor(req);
+    const [al] = await db.update(assetAllocationsTable).set({ ackStatus: ISSUE, disputeReason: reason, disputeNote: note, disputedAt: new Date(), disputeCount: sql`${assetAllocationsTable.disputeCount} + 1`, disputeResolution: null, disputeResolvedBy: null, disputeResolvedAt: null })
+      .where(and(eq(assetAllocationsTable.id, id), eq(assetAllocationsTable.status, "Active"), eq(assetAllocationsTable.ackStatus, "Pending"), await myFilter(req))).returning();
+    if (!al) return fail(res, 404, "This handover is not yours, is no longer active, or was already acknowledged / reported");
+    const [asset] = await db.select().from(assetsTable).where(eq(assetsTable.id, al.assetId));
+    await db.insert(assetTransactionsTable).values({ assetId: al.assetId, action: "Issue Reported", userName: who.performedBy, comment: note, notes: `${al.handoverNo} · ${reason}`,
+      changes: [{ field: "ackStatus", label: "Acknowledgement", from: "Pending", to: `Issue reported — ${reason}` }] });
+    await safeLog({ entityType: "asset_allocation", entityId: id, action: "report_issue", performedBy: who.performedBy, summary: `${who.name} sent handover ${al.handoverNo} back to IT: ${reason} — ${note}`, context: buildContext(req, "My Assets") });
+    void notify("asset_handover_issue", { subject: `${al.handoverNo} sent back by ${al.userName}: ${reason}`,
+      html: `<p><b>${al.userName}</b> did not acknowledge an issued asset and reported a problem. Resolve it in IT Hub › Handovers (tab "Issues reported").</p>${htmlTable([["Handover", al.handoverNo], ["Asset", `${asset?.assetTag} — ${asset?.name}`], ["Serial", asset?.serialNumber || "—"], ["Employee", `${al.userName} (${al.employeeCode || "—"})`], ["Problem", reason], ["Details", note], ["Times reported", al.disputeCount]])}` });
+    res.json(al);
+  } catch (e) { handleError(res, e); }
+});
+
+/** IT resolves the reported problem and sends the handover back to the employee to acknowledge again. */
+router.post("/asset-allocations/:id/resolve-issue", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const resolution = s(req.body.resolution);
+    if (!resolution || resolution.length < 5) return fail(res, 400, "Describe what was done (at least 5 characters) — the employee sees this");
+    const who = await actor(req);
+    const [al] = await db.update(assetAllocationsTable).set({ ackStatus: "Pending", disputeResolution: resolution, disputeResolvedBy: who.name, disputeResolvedAt: new Date() })
+      .where(and(eq(assetAllocationsTable.id, id), eq(assetAllocationsTable.status, "Active"), eq(assetAllocationsTable.ackStatus, ISSUE))).returning();
+    if (!al) return fail(res, 404, "No open issue on this handover");
+    const [asset] = await db.select().from(assetsTable).where(eq(assetsTable.id, al.assetId));
+    await db.insert(assetTransactionsTable).values({ assetId: al.assetId, action: "Issue Resolved", userName: who.performedBy, comment: resolution, notes: `${al.handoverNo} · sent back to ${al.userName} to acknowledge`,
+      changes: [{ field: "ackStatus", label: "Acknowledgement", from: `Issue reported — ${al.disputeReason}`, to: "Pending (re-review)" }] });
+    await safeLog({ entityType: "asset_allocation", entityId: id, action: "resolve_issue", performedBy: who.performedBy, summary: `Issue on ${al.handoverNo} resolved: ${resolution}`, context: buildContext(req, "Handovers") });
+    if (al.email) void sendDirect("asset_handover_issue_resolved", [al.email], `Your IT asset ${asset?.assetTag} — please review and acknowledge again`,
+      `<p>Dear ${al.userName},</p><p>IT has looked into the problem you reported on handover <b>${al.handoverNo}</b>.</p>${htmlTable([["Asset", `${asset?.assetTag} — ${asset?.name}`], ["Serial", asset?.serialNumber || "—"], ["You reported", `${al.disputeReason}: ${al.disputeNote}`], ["IT's resolution", resolution], ["Resolved by", who.name]])}<p>Please open <b>IT Hub › My Assets</b> and acknowledge the asset, or report the problem again if it is still not right.</p><p>Regards,</p>`);
     res.json(al);
   } catch (e) { handleError(res, e); }
 });

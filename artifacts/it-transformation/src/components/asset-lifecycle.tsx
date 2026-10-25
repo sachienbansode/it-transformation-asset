@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,12 +13,13 @@ import { cn } from "@/lib/utils";
 import { MasterField } from "@/components/master-field";
 import {
   UserPlus, Undo2, Wrench, Server, Archive, Trash2, AlertOctagon, PackageCheck, Loader2, Search,
-  ArrowRightLeft, Activity, PencilLine, ScanLine, ShieldCheck, MessageSquare, FileCheck2, ArrowRight, MapPin, Lock, Download,
+  ArrowRightLeft, Activity, PencilLine, ScanLine, ShieldCheck, MessageSquare, FileCheck2, ArrowRight, MapPin, Lock, Download, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 
 /* ─── Lifecycle model (served by the API so the rules live in one place) ─── */
 
 export type LifecycleModel = {
+  handoverIssues?: string[];
   states: string[];
   transitions: Record<string, string[]>;
   actions: Record<string, string>;
@@ -51,6 +52,7 @@ export function StatusPill({ status }: { status: string }) {
 
 export function AckPill({ status }: { status?: string | null }) {
   const ok = status === "Acknowledged";
+  if (status === "Issue reported") return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 dark:bg-red-400/10 dark:text-red-300">Issue reported</span>;
   return (
     <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold",
       ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300")}>
@@ -424,6 +426,85 @@ function DisposalValuePanel({ assetId, date, value, writeOff }: { assetId: numbe
           <div><div className="text-[11px] text-muted-foreground">{(data.disposal?.gainLoss ?? 0) >= 0 ? "Profit" : "Loss"}</div><div className={cn("font-bold tabular-nums", (data.disposal?.gainLoss ?? 0) >= 0 ? "text-emerald-600" : "text-red-600")}>{inr(Math.abs(data.disposal?.gainLoss ?? 0))}</div></div>
         </div>}
     </div>
+  );
+}
+
+/* ─── Employee review: acknowledge, or send back to IT with the problem ─── */
+
+export function ReviewHandoverDialog({ h, onClose, onDone }: { h: any; onClose: () => void; onDone?: () => void }) {
+  const { data: model } = useLifecycleModel();
+  const { toast } = useToast();
+  const [mode, setMode] = useState<"review" | "issue">("review");
+  const [reason, setReason] = useState(""); const [note, setNote] = useState(""); const [busy, setBusy] = useState(false);
+  const reasons = model?.handoverIssues || ["Wrong asset (tag / serial does not match)", "Damaged or faulty", "Accessories missing", "Not received", "Other"];
+  async function go(path: string, body: any, ok: string) {
+    setBusy(true);
+    try { await apiFetch(`/my-assets/${h.id}/${path}`, { method: "POST", body: JSON.stringify(body) }); toast({ title: ok, description: h.handoverNo }); onDone?.(); onClose(); }
+    catch (e: any) { toast({ title: "Could not submit", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
+  const row = (l: string, v: any) => <div><div className="text-[11px] text-muted-foreground">{l}</div><div className="text-sm font-medium">{v || "—"}</div></div>;
+  return (
+    <Dialog open onOpenChange={o => { if (!o && !busy) onClose(); }}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{mode === "review" ? `Review handover ${h.handoverNo}` : `Report a problem — ${h.handoverNo}`}</DialogTitle>
+          <DialogDescription>{mode === "review" ? "Check the asset in your hands against these details before acknowledging." : "The handover goes back to IT. You can acknowledge after IT fixes it."}</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 rounded-[10px] border bg-muted/30 p-3">
+          {row("Asset", `${h.assetTag} — ${h.assetName}`)}{row("Serial number", h.serialNumber)}{row("Type", h.assetType)}
+          {row("Condition at issue", h.issueCondition || "Good")}{row("Accessories", h.accessories)}{row("Issued", h.startDate)}
+        </div>
+        {h.disputeResolution && <div className="rounded-[10px] border border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 p-3 text-sm"><div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">IT's reply to your earlier report ({h.disputeReason})</div>{h.disputeResolution}<div className="text-[11px] text-muted-foreground">— {h.disputeResolvedBy}</div></div>}
+        {mode === "review" ? (
+          <p className="text-sm text-muted-foreground">By acknowledging, I confirm I have received this asset{h.accessories ? " with the accessories listed" : ""} in {String(h.issueCondition || "good").toLowerCase()} condition, accept responsibility for it under the company's IT asset and acceptable-use policies, and will return it on exit or when IT asks.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-1.5"><Label className={field}>What is wrong? *</Label>
+              <div className="flex flex-wrap gap-1.5">{reasons.map(r => <button key={r} type="button" onClick={() => setReason(r)} className={cn("px-2.5 py-1 rounded-full border text-xs", reason === r ? "bg-red-600 text-white border-red-600" : "bg-card hover:bg-accent")}>{r}</button>)}</div>
+            </div>
+            <div className="space-y-1.5"><Label className={field}>Details for IT *</Label><Textarea rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Serial on the laptop is 5CD1234, not H25CJP3; screen has a crack on the left corner" /></div>
+          </div>
+        )}
+        <DialogFooter className="sm:justify-between gap-2">
+          {mode === "review"
+            ? <Button variant="outline" className="gap-1.5 text-red-600 border-red-200" disabled={busy} onClick={() => setMode("issue")}><AlertTriangle className="w-4 h-4" />Report a problem</Button>
+            : <Button variant="ghost" disabled={busy} onClick={() => setMode("review")}>Back</Button>}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+            {mode === "review"
+              ? <Button className="gap-1.5" disabled={busy} onClick={() => go("acknowledge", {}, "Thank you — handover acknowledged")}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}I acknowledge</Button>
+              : <Button className="gap-1.5 bg-red-600 hover:bg-red-700" disabled={busy || !reason || note.trim().length < 5} onClick={() => go("report-issue", { reason, note: note.trim() }, "Sent back to IT for review")}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send back to IT</Button>}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** IT resolves a problem the employee reported and sends the handover back for acknowledgement. */
+export function ResolveIssueDialog({ h, onClose, onDone, onReturn }: { h: any; onClose: () => void; onDone?: () => void; onReturn?: () => void }) {
+  const { toast } = useToast(); const [text, setText] = useState(""); const [busy, setBusy] = useState(false);
+  async function submit() {
+    setBusy(true);
+    try { await apiFetch(`/asset-allocations/${h.id}/resolve-issue`, { method: "POST", body: JSON.stringify({ resolution: text.trim() }) }); toast({ title: "Sent back to the employee to acknowledge", description: h.handoverNo }); onDone?.(); onClose(); }
+    catch (e: any) { toast({ title: "Could not resolve", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
+  return (
+    <Dialog open onOpenChange={o => { if (!o && !busy) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Resolve issue — {h.handoverNo}</DialogTitle><DialogDescription>{h.assetTag} — {h.assetName} · {h.userName} ({h.employeeCode || "—"})</DialogDescription></DialogHeader>
+        <div className="rounded-[10px] border border-red-200 bg-red-50 dark:bg-red-500/10 p-3 text-sm">
+          <div className="text-[11px] font-semibold text-red-700 dark:text-red-300">{h.disputeReason}{h.disputeCount > 1 ? ` · reported ${h.disputeCount} times` : ""}</div>{h.disputeNote}
+        </div>
+        <p className="text-xs text-muted-foreground">Wrong asset? Use <b>Return</b> and issue the correct one instead. Otherwise fix the record or the asset, explain below, and the employee is asked to review and acknowledge again (and emailed).</p>
+        <div className="space-y-1.5"><Label className={field}>What was done *</Label><Textarea rows={3} value={text} onChange={e => setText(e.target.value)} placeholder="e.g. Serial corrected in the register; charger delivered to your desk" /></div>
+        <DialogFooter className="sm:justify-between gap-2">
+          {onReturn ? <Button variant="outline" disabled={busy} onClick={() => { onClose(); onReturn(); }}>Return asset instead</Button> : <span />}
+          <div className="flex gap-2"><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button disabled={busy || text.trim().length < 5} className="gap-1.5" onClick={submit}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send back for acknowledgement</Button></div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
