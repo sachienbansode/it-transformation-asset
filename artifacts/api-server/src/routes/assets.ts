@@ -3,6 +3,9 @@ import { db, usersTable, assetsTable, assetCategoriesTable, assetVendorsTable, a
 import { eq, desc, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
+import { snapshotRegister, archiveAssetUpload, ASSET_TABLES, createBatch, batchWorkbook, XLSX_TYPE } from "../lib/archive";
+import { missingMasters, ensureMasters } from "../lib/masters-auto";
+import { notify, htmlTable } from "../lib/mailer";
 
 const router = Router();
 
@@ -260,10 +263,16 @@ router.post("/assets/import", requireAuth, async (req, res) => {
     }
 
     const summary = { total: rows.length, valid: rows.length - new Set(errors.map(e => e.row)).size, errors, generatedTags: clean.filter(r => r.tagGenerated).length };
-    if (dryRun || errors.length) { res.json({ ...summary, inserted: 0, dryRun: true, preview: clean.slice(0, 5) }); return; }
+    const newMasters = { departments: await missingMasters("department", clean.map(r => r.department)), locations: await missingMasters("asset_location", clean.map(r => r.location)) };
+    if (dryRun || errors.length) { res.json({ ...summary, newMasters, inserted: 0, dryRun: true, preview: clean.slice(0, 5) }); return; }
 
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+    const before = await snapshotRegister();
     const inserted = await db.transaction(async (tx) => {
+      // Department / Location are drop-downs: map to the master value, adding new ones automatically
+      const dm = (await ensureMasters(tx, "department", clean.map(r => r.department))).map;
+      const lm = (await ensureMasters(tx, "asset_location", clean.map(r => r.location))).map;
+      for (const r of clean) { if (r.department) r.department = dm.get(r.department.toLowerCase()) || r.department; if (r.location) r.location = lm.get(r.location.toLowerCase()) || r.location; }
       const vendors = await tx.select({ id: assetVendorsTable.id, name: assetVendorsTable.name }).from(assetVendorsTable).where(eq(assetVendorsTable.isActive, true));
       const vendorByName = new Map(vendors.map(v => [v.name.trim().toLowerCase(), { id: v.id, name: v.name }]));
       for (const r of clean) {
@@ -298,7 +307,8 @@ router.post("/assets/import", requireAuth, async (req, res) => {
       return out.length;
     });
     await safeLog({ entityType: "asset", action: "import", performedBy, summary: `Imported ${inserted} assets from asset register upload`, context: buildContext(req, "Asset Registry") });
-    res.json({ ...summary, inserted, dryRun: false });
+    const archiveBatch = await archiveAssetUpload({ kind: "asset_register_upload", fileName: typeof req.body?.fileName === "string" ? req.body.fileName : null, uploaded: rows, before, by: performedBy, summary: { inserted, newDepartments: newMasters.departments.join(", "), newLocations: newMasters.locations.join(", ") } });
+    res.json({ ...summary, newMasters, inserted, dryRun: false, archiveBatch });
   } catch (e) { handleError(res, e); }
 });
 
@@ -308,10 +318,32 @@ router.post("/assets/purge", requireAdmin, async (req, res) => {
   try {
     if (req.body?.confirm !== "DELETE ALL ASSET DATA") { res.status(400).json({ error: "Confirmation text missing" }); return; }
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
-    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(assetsTable);
-    await db.execute(sql`TRUNCATE TABLE asset_transactions, asset_allocations, maintenance_records, asset_license_assignments, asset_licenses, asset_contract_assets, asset_contracts, asset_audit_items, asset_audits, assets, asset_vendors RESTART IDENTITY`);
-    await safeLog({ entityType: "asset", action: "purge", performedBy, summary: `Cleared all asset management data (${count} assets, plus vendors, licenses, allocations, maintenance and history)`, context: buildContext(req, "Asset Registry") });
-    res.json({ ok: true, assetsDeleted: count });
+    // No data loss: every asset table is copied into one archive batch first, in the same transaction as the clear
+    const register = await snapshotRegister();
+    const result = await db.transaction(async tx => {
+      const sections: Record<string, any[]> = { register };
+      const counts: Record<string, number> = {};
+      for (const t of ASSET_TABLES) {
+        const r: any = await tx.execute(sql.raw(`SELECT coalesce(json_agg(x ORDER BY x.id), '[]'::json) AS rows FROM public.${t} x`));
+        sections[`table:${t}`] = (r.rows ?? r)[0].rows; counts[t] = sections[`table:${t}`].length;
+      }
+      const r: any = await tx.execute(sql`INSERT INTO data_archive_batches (batch_no, kind, module, title, row_count, summary, created_by)
+        VALUES (${"TMP-" + Date.now()}, 'asset_clear', 'IT Asset Management', 'All asset data cleared (archived)', ${counts.assets || 0}, ${JSON.stringify(counts)}::jsonb, ${performedBy}) RETURNING id`);
+      const id = (r.rows ?? r)[0].id as number;
+      const batchNo = `ARC-${new Date().getFullYear()}-${String(id).padStart(5, "0")}`;
+      await tx.execute(sql`UPDATE data_archive_batches SET batch_no = ${batchNo} WHERE id = ${id}`);
+      for (const [section, payload] of Object.entries(sections))
+        await tx.execute(sql`INSERT INTO data_archive_items (batch_id, section, row_count, payload) VALUES (${id}, ${section}, ${payload.length}, ${JSON.stringify(payload)}::jsonb)`);
+      await tx.execute(sql.raw(`TRUNCATE TABLE ${ASSET_TABLES.map(t => "public." + t).join(", ")} RESTART IDENTITY`));
+      return { id, batchNo, counts };
+    });
+    await safeLog({ entityType: "asset", action: "purge", performedBy, summary: `Cleared all asset data — archived as ${result.batchNo} (${result.counts.assets} assets, ${result.counts.asset_transactions} history entries); restorable from Admin › Archive`, context: buildContext(req, "Asset Registry") });
+    batchWorkbook(result.id).then(({ buffer, name }) => notify("asset_clear", {
+      subject: `Asset data cleared — archived as ${result.batchNo} (${result.counts.assets} assets)`,
+      html: `<p>All IT asset data was cleared from the live register and kept in the archive. It can be restored from <b>Admin › Archive</b>.</p>${htmlTable([["Archive batch", result.batchNo], ["By", performedBy], ["Assets", result.counts.assets], ["Handovers", result.counts.asset_allocations], ["History entries", result.counts.asset_transactions], ["Licenses", result.counts.asset_licenses], ["Contracts", result.counts.asset_contracts]])}<p>Attached: archived register and every asset table.</p>`,
+      attachment: { name, content: buffer, contentType: XLSX_TYPE }, batchId: result.id,
+    })).catch(e => console.error("clear notify failed", e));
+    res.json({ ok: true, assetsDeleted: result.counts.assets, archiveBatch: result.batchNo });
   } catch (e) { handleError(res, e); }
 });
 
@@ -410,7 +442,7 @@ router.get("/asset-transactions", requireAuth, async (req, res) => {
   try {
     const assetId = req.query.assetId ? parseInt(req.query.assetId as string) : null;
     const q = assetId
-      ? db.select().from(assetTransactionsTable).where(eq(assetTransactionsTable.assetId, assetId)).orderBy(desc(assetTransactionsTable.createdAt))
+      ? db.select().from(assetTransactionsTable).where(eq(assetTransactionsTable.assetId, assetId)).orderBy(desc(assetTransactionsTable.createdAt), desc(assetTransactionsTable.id))
       : db.select().from(assetTransactionsTable).orderBy(desc(assetTransactionsTable.createdAt)).limit(100);
     const items = await q;
     res.json(items);

@@ -78,6 +78,7 @@ const ADMIN_ITEMS = [
   { href: "/admin?tab=masters", label: "Master Data", icon: Database, tab: "masters" },
   { href: "/admin?tab=business-units", label: "Business Units", icon: Building2, tab: "business-units" },
   { href: "/admin?tab=audit", label: "Audit Trail", icon: Clock, tab: "audit" },
+  { href: "/admin/archive", label: "Archive & Notifications", icon: Archive, tab: "archive" },
 ];
 
 function NavItem({

@@ -55,7 +55,8 @@ export default function AdminUsers() {
   });
   const [deptMasters, setDeptMasters] = useState<DeptMaster[]>([]);
   // Access roles (Roles & Permissions) — these decide what the person can open in IT Hub, e.g. IT Asset Admin
-  const [accessRoles, setAccessRoles] = useState<{ id: number; name: string; description?: string }[]>([]);
+  const [accessRoles, setAccessRoles] = useState<{ id: number; name: string; description?: string; permissions: { module: string; accessLevel: string }[] }[]>([]);
+  const [moduleLabels, setModuleLabels] = useState<Record<string, { label: string; group: string }>>({});
   const [roleIds, setRoleIds] = useState<number[]>([]);
 
   const load = async () => {
@@ -66,7 +67,8 @@ export default function AdminUsers() {
         apiFetch<DeptMaster[]>("/masters?category=department&active=true"),
         apiFetch<any[]>("/roles").catch(() => []),
       ]);
-      setAccessRoles(roles.map((r: any) => ({ id: r.id, name: r.name, description: r.description })).sort((a: any, b: any) => (b.name.startsWith("IT Asset") ? 1 : 0) - (a.name.startsWith("IT Asset") ? 1 : 0) || a.name.localeCompare(b.name)));
+      apiFetch<any[]>("/roles/modules").then(ms => setModuleLabels(Object.fromEntries(ms.map((m: any) => [m.key, { label: m.label, group: m.group }])))).catch(() => {});
+      setAccessRoles(roles.map((r: any) => ({ id: r.id, name: r.name, description: r.description, permissions: r.permissions || [] })).sort((a: any, b: any) => (b.name.startsWith("IT Asset") ? 1 : 0) - (a.name.startsWith("IT Asset") ? 1 : 0) || a.name.localeCompare(b.name)));
       setUsers(data);
       setDeptMasters(depts.sort((a, b) => a.sortOrder - b.sortOrder));
     } finally { setLoading(false); }
@@ -95,7 +97,8 @@ export default function AdminUsers() {
       if (editUser) {
         if (!form.employeeCode.trim()) { toast({ title: "Employee Code is required", description: "It links the person to their assets.", variant: "destructive" }); return; }
         if (users.some(u => u.id !== editUser.id && u.employeeCode?.toLowerCase() === form.employeeCode.trim().toLowerCase())) { toast({ title: "Employee Code already exists", description: "Employee codes must be unique.", variant: "destructive" }); return; }
-        const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) { toast({ title: "Enter a valid login email", variant: "destructive" }); return; }
+        const body: any = { name: form.name, email: form.email.trim().toLowerCase(), userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
         await apiFetch(`/admin/users/${editUser.id}`, { method: "PATCH", body: JSON.stringify(body) });
         await apiFetch(`/user-roles/${editUser.id}`, { method: "PUT", body: JSON.stringify({ roleIds }) });
@@ -355,12 +358,11 @@ export default function AdminUsers() {
               <Label>Full Name <span className="text-red-500">*</span></Label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Ramesh Kumar" />
             </div>
-            {!editUser && (
-              <div className="space-y-1.5">
-                <Label>Email <span className="text-red-500">*</span></Label>
-                <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="user@company.com" />
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label>Login Email <span className="text-red-500">*</span></Label>
+              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="user@company.com" />
+              <p className="text-[11px] text-muted-foreground">Used to sign in (Ashika Portal / Microsoft 365 email must match).</p>
+            </div>
             <div className="space-y-1.5">
               <Label>Employee Code <span className="text-red-500">*</span></Label>
               <Input value={form.employeeCode} onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value }))} placeholder="e.g. EMP001" />
@@ -423,12 +425,34 @@ export default function AdminUsers() {
                 {accessRoles.map(r => {
                   const on = roleIds.includes(r.id);
                   return (
-                    <button key={r.id} type="button" title={r.description || ""} onClick={() => setRoleIds(ids => on ? ids.filter(x => x !== r.id) : [...ids, r.id])}
+                    <button key={r.id} type="button" title={`${r.description || r.name}\n` + (r.permissions.filter(p => p.accessLevel !== "none").map(p => `• ${moduleLabels[p.module]?.label || p.module}: ${p.accessLevel === "read" ? "View" : p.accessLevel === "write" ? "Edit" : "Full"}`).join("\n") || "No module access")} onClick={() => setRoleIds(ids => on ? ids.filter(x => x !== r.id) : [...ids, r.id])}
                       className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${on ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground hover:bg-accent"}`}>{r.name}</button>
                   );
                 })}
                 {!accessRoles.length && <span className="text-xs text-muted-foreground">No roles defined — Admin › Roles & Permissions.</span>}
               </div>
+              {(() => {
+                const LV = ["none", "read", "write", "admin"];
+                const eff: Record<string, string> = {};
+                for (const r of accessRoles.filter(r => roleIds.includes(r.id))) for (const p of r.permissions) if (LV.indexOf(p.accessLevel) > LV.indexOf(eff[p.module] || "none")) eff[p.module] = p.accessLevel;
+                const items = Object.entries(eff).filter(([, l]) => l !== "none").sort((a, b) => (moduleLabels[a[0]]?.group || "").localeCompare(moduleLabels[b[0]]?.group || "") || a[0].localeCompare(b[0]));
+                if (form.role === "admin") return <p className="text-[11px] text-emerald-700 dark:text-emerald-400">Base role Admin = full access to every module; access roles are not needed.</p>;
+                if (!items.length) return <p className="text-[11px] text-muted-foreground">No module access selected — this person can only see My Assets.</p>;
+                const tag = (l: string) => l === "read" ? "View" : l === "write" ? "Edit" : "Full";
+                return (
+                  <div className="rounded-[10px] border bg-muted/30 p-2.5">
+                    <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">This person will be able to:</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      {items.map(([m, l]) => (
+                        <div key={m} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="truncate">{moduleLabels[m]?.label || m}</span>
+                          <span className={`px-1.5 py-[1px] rounded-full text-[10px] font-semibold ${l === "read" ? "bg-slate-100 text-slate-700 dark:bg-slate-400/10 dark:text-slate-300" : "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"}`}>{tag(l)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
             <div className="space-y-1.5 col-span-2">
               <Label>Password {editUser && <span className="text-muted-foreground text-xs">(leave blank to keep current)</span>}</Label>

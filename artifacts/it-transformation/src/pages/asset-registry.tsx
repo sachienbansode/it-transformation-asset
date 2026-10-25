@@ -19,6 +19,7 @@ import { confirmDialog } from "@/components/confirm-dialog";
 import { AssetRegisterUpload, downloadAssetTemplate, ASSET_TYPES, ASSET_STATUSES } from "@/components/asset-register-upload";
 import { StatusPill, LifecycleButtons, useLifecycleModel, AssetTrail } from "@/components/asset-lifecycle";
 import { AssetCoveragePanel } from "@/components/asset-finance";
+import { MasterField } from "@/components/master-field";
 import { StickerDialog } from "@/components/asset-sticker";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
@@ -176,16 +177,16 @@ export default function AssetRegistry() {
 
   async function handlePurge() {
     const first = await confirmDialog(
-      `Delete ALL asset management data?\n\nThis removes ${assets.length} asset(s) and every vendor, license, allocation, maintenance record and asset history entry. Asset categories are kept.\n\nThis cannot be undone — export the register first if you need a copy.`,
-      { title: "Clear all asset data", confirmText: "Continue", destructive: true });
+      `Clear ALL asset management data from the live register?\n\n${assets.length} asset(s) with every vendor, license, contract, handover, audit, maintenance record and history entry will be MOVED to the Archive as one batch — nothing is lost. Depreciation rules, categories and masters are kept.\n\nThe batch can be downloaded or restored from Admin › Archive, and the configured recipients are emailed the archived register.`,
+      { title: "Clear all asset data (archive)", confirmText: "Continue", destructive: true });
     if (!first) return;
-    const second = await confirmDialog("Last check: permanently delete all asset management data now?", { title: "Confirm permanent delete", confirmText: "Delete everything", destructive: true });
+    const second = await confirmDialog("Last check: move all asset data to the Archive and empty the live register now?", { title: "Confirm clear", confirmText: "Archive & clear", destructive: true });
     if (!second) return;
     setPurging(true);
     try {
       const r = await apiFetch<any>("/assets/purge", { method: "POST", body: JSON.stringify({ confirm: "DELETE ALL ASSET DATA" }) });
       queryClient.invalidateQueries();
-      toast({ title: "Asset data cleared", description: `${r.assetsDeleted} asset(s) and all related records deleted.` });
+      toast({ title: "Asset data archived and cleared", description: `${r.assetsDeleted} asset(s) moved to archive batch ${r.archiveBatch}. Restore from Admin › Archive if needed.` });
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setPurging(false); }
   }
@@ -508,13 +509,13 @@ export default function AssetRegistry() {
             {/* Department */}
             <div>
               <Label className="text-xs font-medium">Department</Label>
-              <Input value={formData.department || ""} onChange={e => setField("department", e.target.value)} />
+              <MasterField category="department" value={formData.department} onChange={v => setField("department", v)} placeholder="Select department" />
             </div>
 
             {/* Location */}
             <div>
               <Label className="text-xs font-medium">Location</Label>
-              <Input value={formData.location || ""} onChange={e => setField("location", e.target.value)} placeholder="e.g. Mumbai HQ — Floor 3, Rack A" />
+              <MasterField category="asset_location" value={formData.location} onChange={v => setField("location", v)} placeholder="Select location" />
             </div>
 
             {/* Purchase Date */}

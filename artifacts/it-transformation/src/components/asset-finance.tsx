@@ -229,10 +229,10 @@ export function FinanceUploadDialog({ open, onClose }: { open: boolean; onClose:
     if (!await confirmDialog(`Update ${result.toUpdate} asset(s) — ${result.fieldsChanged} field change(s) — from "${fileName}"?\n\nEach change is recorded in the asset's history.`, { title: "Apply finance data", confirmText: "Apply changes" })) return;
     setBusy(true);
     try {
-      const r = await apiFetch<FinResult>("/assets/finance-update", { method: "POST", body: JSON.stringify({ rows, dryRun: false }) });
+      const r = await apiFetch<FinResult>("/assets/finance-update", { method: "POST", body: JSON.stringify({ rows, dryRun: false, fileName }) });
       if (r.errors.length) { setResult(r); return; }
       ["assets", "asset-dashboard", "asset-depreciation", "asset-warranty", "asset-coverage"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
-      toast({ title: "Finance data updated", description: `${r.updated} assets updated.` });
+      toast({ title: "Finance data updated", description: `${r.updated} assets updated.${(r as any).archiveBatch ? ` Archived as ${(r as any).archiveBatch}.` : ""}` });
       close();
     } catch (err: any) { toast({ title: "Update failed", description: err.message, variant: "destructive" }); }
     finally { setBusy(false); }

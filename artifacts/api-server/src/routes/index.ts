@@ -27,6 +27,7 @@ import assetAuditsRouter from "./asset-audits";
 import assetFinanceRouter from "./asset-finance";
 import assetLicensesRouter from "./asset-licenses";
 import assetDashboardRouter from "./asset-dashboard";
+import dataArchiveRouter from "./data-archive";
 import itsmRouter from "./itsm";
 import { seedAssetAndItsmModules, seedExtendedItsmData } from "./seed-modules";
 import docsExportRouter from "./docs-export";
@@ -62,7 +63,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
     // Only these paths require admin privileges for write operations
     const adminOnlyPrefixes = [
-      "/admin/", "/masters", "/roles", "/user-roles", "/settings",
+      "/admin/", "/masters", "/roles", "/user-roles", "/settings", "/data-archive", "/notification-rules",
       "/business-units", "/audit-logs",
       "/incidents", "/problems", "/changes", "/sla-policies",
       "/knowledge-base", "/service-requests",
@@ -113,6 +114,7 @@ router.use(assetAuditsRouter);
 router.use(assetFinanceRouter);
 router.use(assetLicensesRouter);
 router.use(assetDashboardRouter);
+router.use(dataArchiveRouter);
 router.use(assetsRouter);
 router.use(itsmRouter);
 router.use(docsExportRouter);

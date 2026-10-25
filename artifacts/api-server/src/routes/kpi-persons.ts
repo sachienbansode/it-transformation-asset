@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { createBatch, diffRows, batchWorkbook, XLSX_TYPE } from "../lib/archive";
+import { notify, htmlTable } from "../lib/mailer";
 import { eq, desc, asc, and, ne, inArray } from "drizzle-orm";
 import {
   db, kpiPersonsTable, kpiSetsTable, kpiSetVersionsTable, kpiSetItemsTable, kpiYearsTable, auditLogsTable, usersTable,
@@ -389,6 +391,10 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
     isCurrent: true,
   }).returning();
 
+  const kpiView = (r: any) => ({ "S.No": r.sno ?? "", "KPI Name": r.kpiName, Category: r.category ?? "", "Weightage": r.weightage ?? "", Metric: r.metric ?? "", Unit: r.unit ?? "",
+    "Annual Target": r.annualTarget ?? "", "Q1 Target": r.q1Target ?? "", "Q2 Target": r.q2Target ?? "", "Q3 Target": r.q3Target ?? "", "Q4 Target": r.q4Target ?? "",
+    "Q1 Actual": r.q1Actual ?? "", "Q2 Actual": r.q2Actual ?? "", "Q3 Actual": r.q3Actual ?? "", "Q4 Actual": r.q4Actual ?? "", Owner: r.owner ?? "", Remarks: r.remarks ?? "" });
+  const oldKpis = (await db.select().from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, setId))).map(kpiView);
   await db.delete(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, setId));
 
   if (body.data.items.length > 0) {
@@ -427,6 +433,21 @@ router.post("/kpi-sets/:id/upload", async (req, res): Promise<void> => {
   await db.update(kpiSetsTable)
     .set({ currentVersionId: newVersion.id, status: "Draft", updatedAt: new Date() })
     .where(eq(kpiSetsTable.id, setId));
+
+  // Archive the upload (old set, new set, change summary) and email the configured recipients
+  try {
+    const newKpis = (await db.select().from(kpiSetItemsTable).where(eq(kpiSetItemsTable.setId, setId))).map(kpiView);
+    const changes = diffRows(oldKpis, newKpis, "KPI Name", "Category");
+    const [person] = await db.select({ name: kpiPersonsTable.name, email: kpiPersonsTable.email, department: kpiPersonsTable.department }).from(kpiPersonsTable).where(eq(kpiPersonsTable.id, set[0].personId));
+    const by = scope.email || "User";
+    const counts = { added: changes.filter(c => c.Change === "Added").length, changedKpis: new Set(changes.filter(c => c.Change === "Modified").map(c => c["KPI Name"])).size, removed: changes.filter(c => c.Change === "Removed").length };
+    const batch = await createBatch({ kind: "kpi_upload", module: "KPI", title: `KPI upload — ${person?.name || "set " + setId} v${nextVersion}`, fileName: body.data.fileName, rowCount: newKpis.length, by,
+      summary: { kpiSet: setId, person: person?.name, version: nextVersion, ...counts }, sections: { before: oldKpis, after: newKpis, changes } });
+    const { buffer, name } = await batchWorkbook(batch.id);
+    void notify("kpi_upload", { subject: `KPI upload: ${person?.name || "KPI set"} v${nextVersion} — ${counts.added} added, ${counts.changedKpis} changed, ${counts.removed} removed`,
+      html: `<p>A KPI set was uploaded.</p>${htmlTable([["Archive batch", batch.batchNo], ["Person", person?.name || "—"], ["Department", person?.department || "—"], ["Version", nextVersion], ["File", body.data.fileName], ["Uploaded by", by], ["KPIs", newKpis.length], ["Added / changed / removed", `${counts.added} / ${counts.changedKpis} / ${counts.removed}`]])}<p>Attached: Change Summary, New KPI Set, Old KPI Set.</p>`,
+      attachment: { name, content: buffer, contentType: XLSX_TYPE }, batchId: batch.id });
+  } catch (e) { console.error("KPI upload archive/notify failed:", e); }
 
   res.status(201).json({ version: newVersion, itemCount: body.data.items.length });
 });

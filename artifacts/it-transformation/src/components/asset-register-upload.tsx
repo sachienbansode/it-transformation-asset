@@ -84,7 +84,7 @@ export function downloadAssetTemplate() {
   XLSX.writeFile(wb, "Asset_Register_Template.xlsx");
 }
 
-type ImportResult = { total: number; valid: number; errors: { row: number; field: string; message: string }[]; generatedTags: number; inserted: number; dryRun: boolean };
+type ImportResult = { total: number; valid: number; errors: { row: number; field: string; message: string }[]; generatedTags: number; inserted: number; dryRun: boolean; newMasters?: { departments: string[]; locations: string[] }; archiveBatch?: string | null };
 
 async function parseFile(file: File): Promise<any[]> {
   const buf = await file.arrayBuffer();
@@ -130,7 +130,7 @@ export function AssetRegisterUpload({ open, onClose }: { open: boolean; onClose:
       const parsed = await parseFile(f);
       if (!parsed.length) throw new Error("No asset rows found in the file.");
       setRows(parsed);
-      const r = await apiFetch<ImportResult>("/assets/import", { method: "POST", body: JSON.stringify({ rows: parsed, dryRun: true }) });
+      const r = await apiFetch<ImportResult>("/assets/import", { method: "POST", body: JSON.stringify({ rows: parsed, dryRun: true, fileName: f.name }) });
       setResult(r);
     } catch (err: any) {
       toast({ title: "Could not read file", description: err.message, variant: "destructive" });
@@ -148,10 +148,11 @@ export function AssetRegisterUpload({ open, onClose }: { open: boolean; onClose:
     if (!ok) return;
     setBusy(true);
     try {
-      const r = await apiFetch<ImportResult>("/assets/import", { method: "POST", body: JSON.stringify({ rows, dryRun: false }) });
+      const r = await apiFetch<ImportResult>("/assets/import", { method: "POST", body: JSON.stringify({ rows, dryRun: false, fileName }) });
       if (r.errors?.length) { setResult(r); toast({ title: "Upload rejected", description: "Some rows failed validation — nothing was saved.", variant: "destructive" }); return; }
       ["assets", "assets-stats", "asset-vendors", "asset-transactions"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
-      toast({ title: "Asset register uploaded", description: `${r.inserted} assets imported.` });
+      ["masters", "masters-admin-all"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+      toast({ title: "Asset register uploaded", description: `${r.inserted} assets imported.${r.archiveBatch ? ` Archived as ${r.archiveBatch}; change summary emailed to the configured recipients.` : ""}` });
       close();
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
@@ -199,7 +200,10 @@ export function AssetRegisterUpload({ open, onClose }: { open: boolean; onClose:
               {result.errors.length === 0 ? (
                 <div className="flex items-start gap-2 rounded-[10px] border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-700 dark:text-emerald-400">
                   <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-                  <span>All rows passed validation.{result.generatedTags ? ` ${result.generatedTags} asset tag(s) will be auto-generated.` : ""}</span>
+                  <span>All rows passed validation.{result.generatedTags ? ` ${result.generatedTags} asset tag(s) will be auto-generated.` : ""}
+                    {!!result.newMasters?.departments.length && <><br />New departments added to Master Data: <b>{result.newMasters.departments.join(", ")}</b></>}
+                    {!!result.newMasters?.locations.length && <><br />New locations added to Master Data: <b>{result.newMasters.locations.join(", ")}</b></>}
+                    <br />A copy is kept in the Archive and the change summary is emailed.</span>
                 </div>
               ) : (
                 <div className="rounded-[10px] border border-red-500/30 overflow-hidden">

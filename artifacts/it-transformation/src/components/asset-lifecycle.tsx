@@ -10,8 +10,10 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { cn } from "@/lib/utils";
+import { MasterField } from "@/components/master-field";
 import {
   UserPlus, Undo2, Wrench, Server, Archive, Trash2, AlertOctagon, PackageCheck, Loader2, Search,
+  ArrowRightLeft, Activity, PencilLine, ScanLine, ShieldCheck, MessageSquare, FileCheck2, ArrowRight, MapPin, Lock, Download,
 } from "lucide-react";
 
 /* ─── Lifecycle model (served by the API so the rules live in one place) ─── */
@@ -252,7 +254,7 @@ export function IssueDialog({ assets, onClose, onDone }: { assets: any[]; onClos
               <SelectContent>{depts.map((d: any) => <SelectItem key={d.key} value={d.label}>{d.label}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div><Label className={field}>Location / seat</Label><Input value={f.location || ""} onChange={e => set("location", e.target.value)} placeholder={assets[0]?.location || "e.g. Mumbai HO – 4th floor"} /></div>
+          <div><Label className={field}>Location</Label><MasterField category="asset_location" value={f.location ?? assets[0]?.location} onChange={v => set("location", v)} placeholder="Select location" /></div>
           <div>
             <Label className={field}>Allocation type *</Label>
             <Select value={f.allocationType} onValueChange={v => set("allocationType", v)}>
@@ -457,21 +459,51 @@ ${isReturn ? `<p><b>Remarks:</b> ${esc(h.returnRemarks) || "—"}</p>` : `<b>Ter
 
 /* ─── History & comments trail ───────────────────────────────────────────── */
 
-const DOT: Record<string, string> = {
-  Registered: "bg-indigo-500", Imported: "bg-indigo-400", Updated: "bg-sky-500", Comment: "bg-slate-400",
-  Issued: "bg-emerald-500", Acknowledged: "bg-emerald-300", Returned: "bg-blue-500", "Returned to Store": "bg-blue-500",
-  "Sent for Repair": "bg-orange-500", "Repair Completed": "bg-teal-500", Deployed: "bg-teal-600", Retired: "bg-slate-500",
-  Disposed: "bg-zinc-600", "Reported Lost / Stolen": "bg-red-500", Found: "bg-blue-400", Deleted: "bg-red-600",
-};
 const who = (u?: string | null) => (u || "System").replace(/\s*<[^>]+>$/, "");
 
+/* History categories — each entry is placed in one, with its own icon and colour */
+type Cat = "movement" | "status" | "edit" | "audit" | "coverage" | "comment" | "ack";
+function catOf(t: any): Cat {
+  const a = String(t.action || "");
+  if (a === "Comment") return "comment";
+  if (a === "Acknowledged") return "ack";
+  if (a.startsWith("Audit")) return "audit";
+  if (a === "Contract" || a === "License") return "coverage";
+  if (a === "Issued" || a === "Returned" || a === "Returned to Store" || (Array.isArray(t.changes) && t.changes.some((c: any) => c.field === "holder" || c.field === "location"))) return "movement";
+  if (a === "Registered" || a === "Imported" || a === "Updated") return "edit";
+  return "status";
+}
+const CAT: Record<Cat, { label: string; icon: any; cls: string }> = {
+  movement: { label: "Movement", icon: ArrowRightLeft, cls: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/30" },
+  status:   { label: "Status",   icon: Activity,       cls: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/30" },
+  edit:     { label: "Change",   icon: PencilLine,     cls: "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-400/10 dark:text-sky-300 dark:ring-sky-400/30" },
+  audit:    { label: "Audit",    icon: ScanLine,       cls: "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-400/10 dark:text-violet-300 dark:ring-violet-400/30" },
+  coverage: { label: "Contract / license", icon: ShieldCheck, cls: "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-indigo-400/30" },
+  comment:  { label: "Comment",  icon: MessageSquare,  cls: "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-400/10 dark:text-slate-300 dark:ring-slate-400/30" },
+  ack:      { label: "Acknowledgement", icon: FileCheck2, cls: "bg-teal-50 text-teal-700 ring-teal-200 dark:bg-teal-400/10 dark:text-teal-300 dark:ring-teal-400/30" },
+};
+const FILTERS: { key: "all" | Cat | "changes"; label: string }[] = [
+  { key: "all", label: "All" }, { key: "movement", label: "Movements" }, { key: "status", label: "Status" }, { key: "changes", label: "Field changes" },
+  { key: "audit", label: "Audit" }, { key: "coverage", label: "Contracts / licenses" }, { key: "comment", label: "Comments" },
+];
+const dayLabel = (d: Date) => {
+  const t = new Date(); t.setHours(0, 0, 0, 0); const x = new Date(d); x.setHours(0, 0, 0, 0);
+  const diff = Math.round((t.getTime() - x.getTime()) / 86400000);
+  return diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+};
+
+/**
+ * Asset history — read-only, newest first. Every edit, movement (holder / location), status change, audit result,
+ * contract / license change and comment is listed with who and when. Entries can't be edited or deleted
+ * (enforced in the database); comments are added as new entries.
+ */
 export function AssetTrail({ assetId, assetTag }: { assetId: number; assetTag: string }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data: rows = [], isLoading } = useQuery({ queryKey: ["asset-transactions", assetId], queryFn: () => apiFetch<any[]>(`/asset-transactions?assetId=${assetId}`) });
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [filter, setFilter] = useState<"all" | "comments" | "changes">("all");
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
 
   async function add() {
     if (!text.trim()) return;
@@ -483,54 +515,97 @@ export function AssetTrail({ assetId, assetTag }: { assetId: number; assetTag: s
     finally { setBusy(false); }
   }
 
-  const list = rows.filter(t => filter === "all" || (filter === "comments" ? !!t.comment : (t.changes?.length || t.oldStatus || t.newStatus)));
+  const sorted = useMemo(() => [...rows].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || b.id - a.id), [rows]);
+  const counts = useMemo(() => { const c: Record<string, number> = { all: sorted.length, changes: sorted.filter(t => t.changes?.length).length }; for (const t of sorted) c[catOf(t)] = (c[catOf(t)] || 0) + 1; return c; }, [sorted]);
+  const list = sorted.filter(t => filter === "all" || (filter === "changes" ? t.changes?.length > 0 : catOf(t) === filter));
+  const groups: { day: string; items: any[] }[] = [];
+  for (const t of list) { const d = dayLabel(new Date(t.createdAt)); if (!groups.length || groups[groups.length - 1].day !== d) groups.push({ day: d, items: [] }); groups[groups.length - 1].items.push(t); }
+  const holders = sorted.filter(t => catOf(t) === "movement" && t.action === "Issued").length;
+
+  function exportCsv() {
+    const e = (v: any) => { const x = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(x) ? `"${x}"` : x; };
+    const lines = [["When", "Action", "Type", "By", "Status from", "Status to", "Field", "From", "To", "Comment", "Details"].join(",")];
+    for (const t of sorted) {
+      const base = [new Date(t.createdAt).toLocaleString("en-IN"), t.action, CAT[catOf(t)].label, who(t.userName), t.oldStatus, t.newStatus];
+      const ch = Array.isArray(t.changes) && t.changes.length ? t.changes : [null];
+      for (const c of ch) lines.push([...base, c?.label, c?.from, c?.to, t.comment, t.notes].map(e).join(","));
+    }
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob(["﻿" + lines.join("\n")], { type: "text/csv" })), download: `${assetTag}_history.csv` });
+    a.click(); URL.revokeObjectURL(a.href);
+  }
 
   return (
     <div className="space-y-3">
-      <div className="rounded-[10px] border p-2.5 space-y-2">
-        <Textarea rows={2} value={text} onChange={e => setText(e.target.value)} placeholder={`Add a comment on ${assetTag} — e.g. physical check done, user reported an issue, PO reference…`} />
-        <div className="flex items-center justify-between gap-2">
-          <div className="inline-flex bg-muted rounded-[8px] p-[2px] gap-[2px]">
-            {(["all", "changes", "comments"] as const).map(k => (
-              <button key={k} onClick={() => setFilter(k)} className={cn("px-2.5 py-1 rounded-[6px] text-[11.5px] capitalize", filter === k ? "bg-card text-foreground font-semibold shadow-sm" : "text-muted-foreground")}>{k}</button>
-            ))}
-          </div>
-          <Button size="sm" onClick={add} disabled={busy || !text.trim()}>{busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Add comment</Button>
-        </div>
+      <div className="flex items-center justify-between gap-2 rounded-[10px] bg-muted/50 px-3 py-2 text-xs">
+        <span className="flex items-center gap-1.5 text-muted-foreground"><Lock className="w-3.5 h-3.5" />Read-only history · {sorted.length} entries · {holders} handover{holders === 1 ? "" : "s"}{sorted.length ? ` · since ${new Date(sorted[sorted.length - 1].createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}` : ""}</span>
+        <button className="text-primary font-medium flex items-center gap-1" onClick={exportCsv}><Download className="w-3.5 h-3.5" />Export</button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {FILTERS.filter(f => f.key === "all" || counts[f.key]).map(f => (
+          <button key={f.key} onClick={() => setFilter(f.key)} className={cn("px-2.5 py-1 rounded-full text-[11.5px] border transition-colors", filter === f.key ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground hover:text-foreground")}>
+            {f.label} <span className="opacity-70">{counts[f.key] || 0}</span>
+          </button>
+        ))}
       </div>
       {isLoading && <div className="py-6 text-center text-sm text-muted-foreground">Loading…</div>}
-      {!isLoading && !list.length && <div className="py-6 text-center text-sm text-muted-foreground">Nothing recorded yet.</div>}
-      <div className="max-h-[360px] overflow-y-auto pr-1">
-        {list.map((t, i) => (
-          <div key={t.id} className="flex gap-3">
-            <div className="flex flex-col items-center">
-              <div className={cn("w-2.5 h-2.5 rounded-full mt-1.5 shrink-0", DOT[t.action] || "bg-gray-400")} />
-              {i < list.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
-            </div>
-            <div className="pb-4 flex-1 min-w-0">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-semibold text-foreground">{t.action}</span>
-                <span className="text-[11px] text-muted-foreground shrink-0">{new Date(t.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>
-              </div>
-              <div className="text-xs text-muted-foreground">by {who(t.userName)}</div>
-              {(t.oldStatus || t.newStatus) && t.oldStatus !== t.newStatus && (
-                <div className="flex items-center gap-1.5 mt-1">{t.oldStatus && <StatusPill status={t.oldStatus} />}{t.oldStatus && t.newStatus && <span className="text-muted-foreground">→</span>}{t.newStatus && <StatusPill status={t.newStatus} />}</div>
-              )}
-              {Array.isArray(t.changes) && t.changes.length > 0 && (
-                <div className="mt-1.5 rounded-[8px] border divide-y text-xs">
-                  {t.changes.map((c: any) => (
-                    <div key={c.field} className="grid grid-cols-[110px_1fr] gap-2 px-2 py-1">
-                      <span className="text-muted-foreground">{c.label}</span>
-                      <span className="break-words"><span className="line-through text-red-600/80">{c.from ?? "—"}</span> <span className="text-muted-foreground">→</span> <span className="text-emerald-700 dark:text-emerald-400 font-medium">{c.to ?? "—"}</span></span>
+      {!isLoading && !list.length && <div className="py-6 text-center text-sm text-muted-foreground">Nothing recorded{filter !== "all" ? " in this view" : " yet"}.</div>}
+      <div className="max-h-[420px] overflow-y-auto pr-1 space-y-3">
+        {groups.map(g => (
+          <div key={g.day}>
+            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{g.day}</div>
+            {g.items.map((t, i) => {
+              const c = CAT[catOf(t)]; const Icon = c.icon;
+              const moves = (t.changes || []).filter((x: any) => x.field === "holder" || x.field === "location");
+              const fields = (t.changes || []).filter((x: any) => x.field !== "holder" && x.field !== "location");
+              return (
+                <div key={t.id} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className={cn("w-7 h-7 rounded-full grid place-items-center ring-1 shrink-0", c.cls)}><Icon className="w-3.5 h-3.5" /></div>
+                    {i < g.items.length - 1 && <div className="w-px flex-1 bg-border my-1" />}
+                  </div>
+                  <div className="pb-3 flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-semibold text-foreground">{t.action}</span>
+                      <span className="text-[11px] text-muted-foreground shrink-0">{new Date(t.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
                     </div>
-                  ))}
+                    <div className="text-[11px] text-muted-foreground">{c.label} · by {who(t.userName)}</div>
+                    {(t.oldStatus || t.newStatus) && t.oldStatus !== t.newStatus && (
+                      <div className="flex items-center gap-1.5 mt-1.5">{t.oldStatus && <StatusPill status={t.oldStatus} />}{t.oldStatus && t.newStatus && <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />}{t.newStatus && <StatusPill status={t.newStatus} />}</div>
+                    )}
+                    {moves.map((m: any) => (
+                      <div key={m.field} className="mt-1.5 flex items-center gap-2 flex-wrap rounded-[8px] border border-emerald-200 dark:border-emerald-400/30 bg-emerald-50/50 dark:bg-emerald-400/5 px-2.5 py-1.5 text-xs">
+                        {m.field === "holder" ? <UserPlus className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-300" /> : <MapPin className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-300" />}
+                        <span className="text-muted-foreground">{m.label}</span>
+                        <span className="text-foreground">{m.from || "—"}</span><ArrowRight className="w-3 h-3 text-muted-foreground" /><span className="font-semibold text-foreground">{m.to || "—"}</span>
+                      </div>
+                    ))}
+                    {fields.length > 0 && (
+                      <div className="mt-1.5 rounded-[8px] border overflow-hidden text-xs">
+                        <div className="grid grid-cols-[120px_1fr_1fr] gap-2 px-2.5 py-1 bg-muted/60 text-[10.5px] uppercase tracking-wide text-muted-foreground"><span>Field</span><span>Before</span><span>After</span></div>
+                        {fields.map((x: any) => (
+                          <div key={x.field} className="grid grid-cols-[120px_1fr_1fr] gap-2 px-2.5 py-1 border-t">
+                            <span className="text-muted-foreground">{x.label}</span>
+                            <span className="break-words text-red-700/80 dark:text-red-400/80 line-through decoration-red-300">{x.from ?? "—"}</span>
+                            <span className="break-words text-emerald-700 dark:text-emerald-400 font-medium">{x.to ?? "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {t.comment && <div className="mt-1.5 rounded-[8px] bg-accent/60 border-l-2 border-primary px-2.5 py-1.5 text-sm text-foreground whitespace-pre-line">{t.comment}</div>}
+                    {t.notes && <div className="text-[11.5px] text-muted-foreground mt-1">{t.notes}</div>}
+                  </div>
                 </div>
-              )}
-              {t.comment && <div className="mt-1.5 rounded-[8px] bg-accent/60 border-l-2 border-primary px-2.5 py-1.5 text-sm text-foreground whitespace-pre-line">{t.comment}</div>}
-              {t.notes && !t.changes?.length && <div className="text-xs text-muted-foreground mt-1">{t.notes}</div>}
-            </div>
+              );
+            })}
           </div>
         ))}
+      </div>
+      <div className="rounded-[10px] border p-2.5 space-y-2">
+        <Textarea rows={2} value={text} onChange={e => setText(e.target.value)} placeholder={`Add a comment to ${assetTag}'s history — e.g. physical check done, user reported an issue, PO reference…`} />
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-muted-foreground">Comments become part of the history and can't be edited later.</span>
+          <Button size="sm" onClick={add} disabled={busy || !text.trim()}>{busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Add comment</Button>
+        </div>
       </div>
     </div>
   );

@@ -90,9 +90,9 @@ export function BulkAssignDialog({ onClose, onDone }: { onClose: () => void; onD
     if (!await confirmDialog(`Apply "${file}"?\n\n${res.issue} asset(s) will be issued and ${res.reassign} reassigned (returned from the current holder, then issued). ${res.unchanged} unchanged.\nEach creates a handover pending acknowledgement.`, { title: "Bulk assign assets", confirmText: "Apply" })) return;
     setBusy(true);
     try {
-      const r = await apiFetch<Result>("/asset-handovers/bulk-assign", { method: "POST", body: JSON.stringify({ rows, dryRun: false }) });
+      const r = await apiFetch<Result>("/asset-handovers/bulk-assign", { method: "POST", body: JSON.stringify({ rows, dryRun: false, fileName: file }) });
       if (r.errors.length) { setRes(r); return; }
-      toast({ title: "Assignments updated", description: `${r.applied} asset(s) issued / reassigned` }); onDone?.(); onClose();
+      toast({ title: "Assignments updated", description: `${r.applied} asset(s) issued / reassigned.${(r as any).archiveBatch ? ` Archived as ${(r as any).archiveBatch}.` : ""}` }); onDone?.(); onClose();
     } catch (err: any) { toast({ title: "Upload failed", description: err.message, variant: "destructive" }); }
     finally { setBusy(false); }
   }

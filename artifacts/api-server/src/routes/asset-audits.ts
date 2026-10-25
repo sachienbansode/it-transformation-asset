@@ -3,6 +3,7 @@ import { db, assetsTable, assetAuditsTable, assetAuditItemsTable, assetTransacti
 import { and, desc, eq, sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
+import { notify, htmlTable } from "../lib/mailer";
 
 /*
  * Physical asset audit (stock verification), ManageEngine-style:
@@ -226,6 +227,8 @@ router.post("/asset-audits/:id/complete", requireAuth, async (req, res) => {
     });
     await safeLog({ entityType: "asset_audit", entityId: id, action: "complete", performedBy: w.performedBy,
       summary: `Completed audit ${a.auditNo}: ${summary.verified}/${summary.expected} verified, ${summary["Missing"]} missing, ${summary["Location mismatch"]} location mismatches`, context: buildContext(req, "Physical Audit") });
+    void notify("asset_audit_completed", { subject: `Physical audit ${a.auditNo} completed — ${summary["Missing"]} missing, ${summary["Location mismatch"]} mismatches`,
+      html: `<p>Physical audit <b>${a.auditNo} — ${a.name}</b> was completed by ${w.name}.</p>${htmlTable([["Scope", a.scopeLocations || "All locations"], ["Expected", summary.expected], ["Verified", summary.verified], ["Missing", summary["Missing"]], ["Location mismatch", summary["Location mismatch"]], ["Extra (not in scope / unknown)", (summary["Not in scope"] || 0) + (summary["Unknown tag"] || 0)], ["Register locations updated", summary.locationsUpdated]])}` });
     res.json({ ok: true, summary });
   } catch (e) { handleError(res, e); }
 });

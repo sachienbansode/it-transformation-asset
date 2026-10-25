@@ -117,6 +117,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = z.object({
     name: z.string().optional(),
+    email: z.string().email().optional(),
     userType: z.enum(["internal", "external"]).optional(),
     role: z.enum(["admin", "user", "cxo", "kpi_employee", "hr"]).optional(),
     department: z.string().optional(),
@@ -130,6 +131,11 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const { password, ...rest } = body.data;
+  if (rest.email !== undefined) {
+    rest.email = rest.email.trim().toLowerCase();
+    const [clash] = await db.select({ id: usersTable.id }).from(usersTable).where(sql`lower(${usersTable.email}) = ${rest.email} AND ${usersTable.id} <> ${id}`);
+    if (clash) { res.status(400).json({ error: `Another user already uses ${rest.email}` }); return; }
+  }
   if (rest.employeeCode !== undefined) {
     rest.employeeCode = rest.employeeCode.trim();
     if (!rest.employeeCode) { res.status(400).json({ error: "Employee code cannot be blank — it links the user to their assets" }); return; }

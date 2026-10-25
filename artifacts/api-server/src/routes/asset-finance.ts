@@ -6,6 +6,8 @@ import {
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
+import { snapshotRegister, archiveAssetUpload } from "../lib/archive";
+import { notify, htmlTable } from "../lib/mailer";
 import { DATE_RE, DepRule, resolveInput, schedule, accumulated, registerLine, fyOf, fyLabel, fyStart, fyEnd, today } from "../lib/depreciation";
 
 /*
@@ -230,6 +232,8 @@ router.post("/asset-contracts/:id/renew", requireAuth, async (req, res) => {
       return { ...c2, carried: ids.length };
     });
     await safeLog({ entityType: "asset_contract", entityId: out.id, action: "renew", performedBy: u.performedBy, summary: `Renewed ${old.contractNo} as ${out.contractNo} (${out.carried} assets carried over)`, context: buildContext(req, "Contracts & AMC") });
+    void notify("asset_contract_renewed", { subject: `Contract renewed: ${old.contractNo} → ${out.contractNo} (${old.title})`,
+      html: `<p>A contract was renewed.</p>${htmlTable([["Contract", old.title], ["Type", old.contractType], ["Vendor", old.vendorName || "—"], ["Old", `${old.contractNo} · ${old.startDate} to ${old.endDate}`], ["New", `${out.contractNo} · ${out.startDate} to ${out.endDate}`], ["Value", out.value ?? "—"], ["Assets carried over", out.carried], ["By", u.performedBy]])}` });
     res.status(201).json(out);
   } catch (e) { handleError(res, e); }
 });
@@ -430,6 +434,7 @@ router.post("/assets/finance-update", requireAuth, async (req, res) => {
     if (dryRun || errors.length) { res.json({ ...summary, updated: 0, dryRun: true, preview: updates.slice(0, 8).map(u => ({ assetTag: u.asset.assetTag, changes: u.changes })) }); return; }
     const u = await who(req);
     const comment = s(req.body?.comment) || "Finance data upload";
+    const before = await snapshotRegister();
     await db.transaction(async tx => {
       for (const up of updates) {
         await tx.update(assetsTable).set({ ...up.set, updatedBy: u.performedBy, updatedAt: new Date() }).where(eq(assetsTable.id, up.asset.id));
@@ -437,7 +442,8 @@ router.post("/assets/finance-update", requireAuth, async (req, res) => {
       }
     });
     await safeLog({ entityType: "asset", action: "finance_update", performedBy: u.performedBy, summary: `Finance data upload: updated ${updates.length} assets (${summary.fieldsChanged} fields)`, context: buildContext(req, "Depreciation") });
-    res.json({ ...summary, updated: updates.length, dryRun: false });
+    const archiveBatch = await archiveAssetUpload({ kind: "asset_finance_upload", fileName: s(req.body?.fileName), uploaded: rows, before, by: u.performedBy, summary: { assetsUpdated: updates.length, fieldsChanged: summary.fieldsChanged } });
+    res.json({ ...summary, updated: updates.length, dryRun: false, archiveBatch });
   } catch (e) { handleError(res, e); }
 });
 

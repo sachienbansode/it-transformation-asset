@@ -20,6 +20,7 @@ import Sbom from "@/pages/sbom";
 import Login from "@/pages/login";
 import Admin from "@/pages/admin";
 import AdminUsers from "@/pages/admin-users";
+import AdminArchive from "@/pages/admin-archive";
 import AdminRoles from "@/pages/admin-roles";
 import Profile from "@/pages/profile";
 import Reports from "@/pages/reports";
@@ -175,6 +176,9 @@ function Router() {
               <Route path="/profile" component={Profile} />
               <Route path="/admin/users">
                 {user.role === "admin" ? <AdminUsers /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              </Route>
+              <Route path="/admin/archive">
+                {user.role === "admin" ? <AdminArchive /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>
               <Route path="/admin/roles">
                 {user.role === "admin" ? <AdminRoles /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}

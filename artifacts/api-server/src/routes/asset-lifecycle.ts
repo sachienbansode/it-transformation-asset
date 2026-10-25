@@ -3,6 +3,8 @@ import { db, assetsTable, assetAllocationsTable, assetTransactionsTable, usersTa
 import { and, desc, eq, sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
+import { snapshotRegister, archiveAssetUpload } from "../lib/archive";
+import { notify, htmlTable } from "../lib/mailer";
 
 /*
  * Asset lifecycle (ManageEngine-style asset states).
@@ -125,8 +127,14 @@ async function issueOne(tx: any, assetId: number, emp: Employee, h: any, who: { 
     ownerEmployeeCode: emp.employeeCode, department: emp.department ?? asset.department,
     location: emp.location ?? asset.location, updatedBy: who.performedBy, updatedAt: new Date(),
   }).where(eq(assetsTable.id, assetId));
+  const holder = (n?: string | null, c?: string | null) => n ? `${n}${c ? ` (${c})` : ""}` : null;
+  const moves = [
+    { field: "holder", label: "Holder", from: holder(asset.ownerName, asset.ownerEmployeeCode), to: `${emp.userName} (${emp.employeeCode}, ${emp.userType === "external" ? "External" : "Internal"})` },
+    ...((emp.location ?? asset.location) !== asset.location ? [{ field: "location", label: "Location", from: asset.location, to: emp.location ?? asset.location }] : []),
+    ...((emp.department ?? asset.department) !== asset.department ? [{ field: "department", label: "Department", from: asset.department, to: emp.department ?? asset.department }] : []),
+  ];
   await tx.insert(assetTransactionsTable).values({
-    assetId, action: "Issued", oldStatus: asset.status, newStatus: "Allocated", userName: who.performedBy, comment: s(h.notes),
+    assetId, action: "Issued", oldStatus: asset.status, newStatus: "Allocated", userName: who.performedBy, comment: s(h.notes), changes: moves,
     notes: `${handoverNo} · to ${emp.userName} (${emp.employeeCode}, ${emp.userType}) · ${s(h.allocationType) || "Permanent"} · condition ${s(h.condition) || "Good"}${s(h.accessories) ? ` · accessories: ${s(h.accessories)}` : ""}`,
   });
   return { ...al, handoverNo, assetTag: asset.assetTag };
@@ -211,6 +219,8 @@ router.post("/assets/:id/return", requireAuth, async (req, res) => {
       }).where(eq(assetsTable.id, id));
       await tx.insert(assetTransactionsTable).values({
         assetId: id, action: "Returned", oldStatus: asset.status, newStatus: next, userName: who.performedBy, comment: s(req.body.remarks),
+        changes: [{ field: "holder", label: "Holder", from: `${al?.userName ?? asset.ownerName ?? "—"}${(al?.employeeCode ?? asset.ownerEmployeeCode) ? ` (${al?.employeeCode ?? asset.ownerEmployeeCode})` : ""}`, to: `IT store (${next})` },
+          ...(s(req.body.location) && s(req.body.location) !== asset.location ? [{ field: "location", label: "Location", from: asset.location, to: s(req.body.location) }] : [])],
         notes: `${al?.handoverNo ?? ""} · from ${al?.userName ?? asset.ownerName ?? "employee"} · condition ${condition}${s(req.body.accessoriesReturned) ? ` · accessories: ${s(req.body.accessoriesReturned)}` : ""}${s(req.body.remarks) ? ` · ${s(req.body.remarks)}` : ""}`,
       });
     });
@@ -260,9 +270,13 @@ router.post("/assets/:id/transition", requireAuth, async (req, res) => {
         Object.assign(patch, { ownerId: null, ownerName: null, ownerEmail: null, ownerEmployeeCode: null });
       }
       await tx.update(assetsTable).set(patch).where(eq(assetsTable.id, id));
-      await tx.insert(assetTransactionsTable).values({ assetId: id, action, oldStatus: asset.status, newStatus: to, userName: who.performedBy, notes: detail || null, comment: reason });
+      const moved = (patch as any).location && (patch as any).location !== asset.location ? [{ field: "location", label: "Location", from: asset.location, to: (patch as any).location }] : [];
+      const disp = to === "Disposed" ? [{ field: "disposal", label: "Disposal", from: null, to: [(patch as any).disposalMethod, (patch as any).disposalReference, (patch as any).disposalValue ? `₹${(patch as any).disposalValue}` : null].filter(Boolean).join(" · ") }] : [];
+      await tx.insert(assetTransactionsTable).values({ assetId: id, action, oldStatus: asset.status, newStatus: to, userName: who.performedBy, notes: detail || null, comment: reason, changes: [...moved, ...disp].length ? [...moved, ...disp] : null });
     });
     await safeLog({ entityType: "asset", entityId: id, action: "transition", performedBy: who.performedBy, summary: `${asset.assetTag}: ${asset.status} → ${to}${reason ? ` (${reason})` : ""}`, context: buildContext(req, "Asset Lifecycle") });
+    if (to === "Disposed" || to === "Lost / Stolen") void notify("asset_disposed", { subject: `${asset.assetTag} ${to === "Disposed" ? "disposed" : "reported lost / stolen"} — ${asset.name}`,
+      html: `<p>An asset left the active register.</p>${htmlTable([["Asset", `${asset.assetTag} — ${asset.name}`], ["Serial", asset.serialNumber || "—"], ["Status", `${asset.status} → ${to}`], ["Last holder", asset.ownerName ? `${asset.ownerName} (${asset.ownerEmployeeCode || "—"})` : "—"], ["Reason", reason || "—"], ["Disposal method", s(req.body.disposalMethod) || "—"], ["Certificate / ref", s(req.body.disposalReference) || "—"], ["By", who.performedBy]])}` });
     res.json({ ok: true, status: to });
   } catch (e) { handleError(res, e); }
 });
@@ -379,6 +393,7 @@ router.post("/asset-handovers/bulk-assign", requireAuth, async (req, res) => {
       preview: plan.filter(p => p.action !== "Unchanged").slice(0, 12).map(p => ({ assetTag: p.asset.assetTag, action: p.action, from: p.from, to: `${p.emp.userName} (${p.emp.employeeCode}, ${p.emp.userType})` })) };
     if (dryRun || errors.length) return void res.json({ ...summary, applied: 0, dryRun: true });
     const who = await actor(req);
+    const before = await snapshotRegister();
     const done = await db.transaction(async tx => {
       let n = 0;
       for (const p of plan) {
@@ -387,7 +402,8 @@ router.post("/asset-handovers/bulk-assign", requireAuth, async (req, res) => {
           if (p.asset.status === "Allocated") {
             const [al] = await tx.select().from(assetAllocationsTable).where(and(eq(assetAllocationsTable.assetId, p.asset.id), eq(assetAllocationsTable.status, "Active")));
             if (al) await tx.update(assetAllocationsTable).set({ status: "Returned", endDate: today(), returnCondition: p.h.condition, returnRemarks: `Reassigned to ${p.emp.employeeCode} via upload`, receivedBy: who.name, returnedAt: new Date() }).where(eq(assetAllocationsTable.id, al.id));
-            await tx.insert(assetTransactionsTable).values({ assetId: p.asset.id, action: "Returned", oldStatus: "Allocated", newStatus: "In Stock", userName: who.performedBy, notes: `${al?.handoverNo ?? ""} · from ${p.from} · reassigned via upload` });
+            await tx.insert(assetTransactionsTable).values({ assetId: p.asset.id, action: "Returned", oldStatus: "Allocated", newStatus: "In Stock", userName: who.performedBy, notes: `${al?.handoverNo ?? ""} · from ${p.from} · reassigned via upload`,
+              changes: [{ field: "holder", label: "Holder", from: p.from ?? null, to: "IT store (reassignment)" }] });
           }
           await tx.update(assetsTable).set({ status: "In Stock", ownerId: null, ownerName: null, ownerEmail: null, ownerEmployeeCode: null }).where(eq(assetsTable.id, p.asset.id));
         }
@@ -396,7 +412,8 @@ router.post("/asset-handovers/bulk-assign", requireAuth, async (req, res) => {
       return n;
     });
     await safeLog({ entityType: "asset_allocation", action: "bulk_assign", performedBy: who.performedBy, summary: `Bulk assignment upload: ${summary.issue} issued, ${summary.reassign} reassigned`, context: buildContext(req, "Handovers") });
-    res.json({ ...summary, applied: done, dryRun: false });
+    const archiveBatch = await archiveAssetUpload({ kind: "asset_bulk_assign", fileName: s(req.body?.fileName), uploaded: rows, before, by: who.performedBy, summary: { issued: summary.issue, reassigned: summary.reassign, unchanged: summary.unchanged } });
+    res.json({ ...summary, applied: done, dryRun: false, archiveBatch });
   } catch (e) { handleError(res, e); }
 });
 
