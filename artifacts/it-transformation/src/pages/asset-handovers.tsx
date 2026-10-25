@@ -11,8 +11,9 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { StatCard } from "@/components/stat-card";
 import { apiFetch } from "@/lib/api";
-import { AckPill, IssueDialog, ReturnDialog, markAcknowledged, printHandoverNote } from "@/components/asset-lifecycle";
-import { Search, UserPlus, Printer, Undo2, FileCheck2, ClipboardList, Clock, AlertTriangle, Download } from "lucide-react";
+import { AckPill, IssueDialog, ReturnDialog, markAcknowledged, printHandoverNote, HolderTag } from "@/components/asset-lifecycle";
+import { BulkAssignDialog } from "@/components/bulk-assign";
+import { Search, UserPlus, Printer, Undo2, FileCheck2, ClipboardList, Clock, AlertTriangle, Download, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 12;
@@ -28,7 +29,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
 function exportCsv(rows: any[]) {
-  const cols: [string, string][] = [["Handover No", "handoverNo"], ["Asset Tag", "assetTag"], ["Asset", "assetName"], ["Serial", "serialNumber"], ["Employee", "userName"], ["Employee Code", "employeeCode"], ["Email", "email"],
+  const cols: [string, string][] = [["Handover No", "handoverNo"], ["Asset Tag", "assetTag"], ["Asset", "assetName"], ["Serial", "serialNumber"], ["Employee", "userName"], ["Employee Code", "employeeCode"], ["Internal / External", "holderType"], ["Email", "email"],
     ["Department", "department"], ["Type", "allocationType"], ["Issued", "startDate"], ["Expected Return", "expectedReturnDate"], ["Status", "status"], ["Acknowledgement", "ackStatus"], ["Returned", "endDate"], ["Return Condition", "returnCondition"]];
   const e = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
   const csv = [cols.map(c => c[0]).join(","), ...rows.map(r => cols.map(c => e(r[c[1]])).join(","))].join("\n");
@@ -48,6 +49,7 @@ export default function AssetHandovers() {
   const [pickOpen, setPickOpen] = useState(false);
   const [issueAssets, setIssueAssets] = useState<any[] | null>(null);
   const [returnAsset, setReturnAsset] = useState<any>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const isOverdue = (r: any) => r.status === "Active" && r.expectedReturnDate && r.expectedReturnDate < todayIso();
   const counts = useMemo(() => ({
@@ -82,6 +84,7 @@ export default function AssetHandovers() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportCsv(filtered)}><Download className="w-4 h-4" />Export CSV</Button>
+          {isAdmin && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setBulkOpen(true)}><Upload className="w-4 h-4" />Bulk assign (Excel)</Button>}
           {isAdmin && <Button className="gap-2" onClick={() => setPickOpen(true)}><UserPlus className="w-4 h-4" />Issue assets</Button>}
         </div>
       </div>
@@ -124,7 +127,7 @@ export default function AssetHandovers() {
                 <TableRow key={r.id}>
                   <TableCell><div className="font-mono text-xs text-primary font-semibold">{r.handoverNo}</div><div className="text-[11px] text-muted-foreground">{r.status}</div></TableCell>
                   <TableCell><div className="font-semibold text-foreground">{r.assetTag}</div><div className="text-xs text-muted-foreground">{r.assetName} · {r.serialNumber}</div></TableCell>
-                  <TableCell><div className="font-medium text-foreground">{r.userName}</div><div className="text-xs text-muted-foreground">{[r.employeeCode, r.department].filter(Boolean).join(" · ") || r.email || "—"}</div></TableCell>
+                  <TableCell><div className="font-medium text-foreground flex items-center gap-1.5">{r.userName}<HolderTag type={r.holderType} /></div><div className="text-xs text-muted-foreground"><span className="font-mono">{r.employeeCode || "—"}</span>{r.email ? ` · ${r.email}` : ""}</div></TableCell>
                   <TableCell className="text-sm">{r.allocationType}</TableCell>
                   <TableCell className="text-sm">{fmt(r.startDate)}<div className="text-[11px] text-muted-foreground">by {r.issuedBy || "—"}</div></TableCell>
                   <TableCell className="text-sm">
@@ -154,6 +157,7 @@ export default function AssetHandovers() {
       {pickOpen && <PickAssets assets={assets.filter((a: any) => a.status === "In Stock")} onClose={() => setPickOpen(false)} onPick={sel => { setPickOpen(false); setIssueAssets(sel); }} />}
       {issueAssets && <IssueDialog assets={issueAssets} onClose={() => setIssueAssets(null)} onDone={refresh} />}
       {returnAsset && <ReturnDialog asset={returnAsset} onClose={() => setReturnAsset(null)} onDone={refresh} />}
+      {bulkOpen && <BulkAssignDialog onClose={() => setBulkOpen(false)} onDone={refresh} />}
     </div>
   );
 }

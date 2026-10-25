@@ -117,6 +117,7 @@ export const assetAllocationsTable = pgTable("asset_allocations", {
   // Handover (issue) details
   handoverNo: text("handover_no"),
   email: text("email"),
+  holderType: text("holder_type"),        // internal | external (from User Master at issue time)
   allocationType: text("allocation_type").notNull().default("Permanent"),
   expectedReturnDate: text("expected_return_date"),
   issueCondition: text("issue_condition"),

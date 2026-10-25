@@ -62,7 +62,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
     // Only these paths require admin privileges for write operations
     const adminOnlyPrefixes = [
-      "/admin/", "/masters", "/roles", "/settings",
+      "/admin/", "/masters", "/roles", "/user-roles", "/settings",
       "/business-units", "/audit-logs",
       "/incidents", "/problems", "/changes", "/sla-policies",
       "/knowledge-base", "/service-requests",

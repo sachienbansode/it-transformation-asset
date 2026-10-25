@@ -54,14 +54,19 @@ export default function AdminUsers() {
     department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true,
   });
   const [deptMasters, setDeptMasters] = useState<DeptMaster[]>([]);
+  // Access roles (Roles & Permissions) — these decide what the person can open in IT Hub, e.g. IT Asset Admin
+  const [accessRoles, setAccessRoles] = useState<{ id: number; name: string; description?: string }[]>([]);
+  const [roleIds, setRoleIds] = useState<number[]>([]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [data, depts] = await Promise.all([
+      const [data, depts, roles] = await Promise.all([
         apiFetch<AdminUser[]>("/admin/users"),
         apiFetch<DeptMaster[]>("/masters?category=department&active=true"),
+        apiFetch<any[]>("/roles").catch(() => []),
       ]);
+      setAccessRoles(roles.map((r: any) => ({ id: r.id, name: r.name, description: r.description })).sort((a: any, b: any) => (b.name.startsWith("IT Asset") ? 1 : 0) - (a.name.startsWith("IT Asset") ? 1 : 0) || a.name.localeCompare(b.name)));
       setUsers(data);
       setDeptMasters(depts.sort((a, b) => a.sortOrder - b.sortOrder));
     } finally { setLoading(false); }
@@ -72,12 +77,15 @@ export default function AdminUsers() {
   const openAdd = () => {
     setEditUser(null);
     setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
+    setRoleIds([]);
     setModalOpen(true);
   };
 
   const openEdit = (u: AdminUser) => {
     setEditUser(u);
     setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", designation: u.designation || "", employeeCode: u.employeeCode || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive });
+    setRoleIds([]);
+    apiFetch<number[]>(`/user-roles/${u.id}`).then(setRoleIds).catch(() => {});
     setModalOpen(true);
   };
 
@@ -85,9 +93,12 @@ export default function AdminUsers() {
     if (!form.name.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
     try {
       if (editUser) {
+        if (!form.employeeCode.trim()) { toast({ title: "Employee Code is required", description: "It links the person to their assets.", variant: "destructive" }); return; }
+        if (users.some(u => u.id !== editUser.id && u.employeeCode?.toLowerCase() === form.employeeCode.trim().toLowerCase())) { toast({ title: "Employee Code already exists", description: "Employee codes must be unique.", variant: "destructive" }); return; }
         const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
         await apiFetch(`/admin/users/${editUser.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        await apiFetch(`/user-roles/${editUser.id}`, { method: "PUT", body: JSON.stringify({ roleIds }) });
         toast({ title: "User updated" });
       } else {
         if (!form.email.trim()) { toast({ title: "Email is required", variant: "destructive" }); return; }
@@ -99,7 +110,8 @@ export default function AdminUsers() {
         if (empCodeExists) { toast({ title: "Employee Code already exists", description: "Employee codes must be unique.", variant: "destructive" }); return; }
         const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
-        await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
+        const created: any = await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
+        if (roleIds.length && created?.id) await apiFetch(`/user-roles/${created.id}`, { method: "PUT", body: JSON.stringify({ roleIds }) });
         toast({ title: "User created" });
       }
       setModalOpen(false);
@@ -355,6 +367,7 @@ export default function AdminUsers() {
               {!editUser && form.employeeCode && users.some(u => u.employeeCode?.toLowerCase() === form.employeeCode.toLowerCase()) && (
                 <p className="text-[11px] text-red-500">⚠ Employee code already in use</p>
               )}
+              <p className="text-[11px] text-muted-foreground">Links this person to the assets issued to them. For external associates use their partner / vendor staff code.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Designation <span className="text-red-500">*</span></Label>
@@ -374,7 +387,7 @@ export default function AdminUsers() {
               <Input value={form.mobile} onChange={e => setForm(f => ({ ...f, mobile: e.target.value }))} placeholder="+91 99999 99999" />
             </div>
             <div className="space-y-1.5">
-              <Label>Role</Label>
+              <Label>Base role</Label>
               <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -391,6 +404,7 @@ export default function AdminUsers() {
                   <SelectItem value="external">External</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-[11px] text-muted-foreground">External = consultants / partner staff who may hold company assets.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Account Status</Label>
@@ -402,6 +416,19 @@ export default function AdminUsers() {
                   <SelectItem value="dormant">Dormant</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label>Access roles <span className="text-muted-foreground text-xs">(module access — e.g. IT Asset Admin; Ashika Portal users need at least one, or base role Admin)</span></Label>
+              <div className="flex flex-wrap gap-1.5 rounded-[10px] border p-2 max-h-32 overflow-y-auto">
+                {accessRoles.map(r => {
+                  const on = roleIds.includes(r.id);
+                  return (
+                    <button key={r.id} type="button" title={r.description || ""} onClick={() => setRoleIds(ids => on ? ids.filter(x => x !== r.id) : [...ids, r.id])}
+                      className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${on ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground hover:bg-accent"}`}>{r.name}</button>
+                  );
+                })}
+                {!accessRoles.length && <span className="text-xs text-muted-foreground">No roles defined — Admin › Roles & Permissions.</span>}
+              </div>
             </div>
             <div className="space-y-1.5 col-span-2">
               <Label>Password {editUser && <span className="text-muted-foreground text-xs">(leave blank to keep current)</span>}</Label>

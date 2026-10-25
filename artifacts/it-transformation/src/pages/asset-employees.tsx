@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { apiFetch } from "@/lib/api";
-import { AckPill, printHandoverNote } from "@/components/asset-lifecycle";
+import { AckPill, printHandoverNote, HolderTag } from "@/components/asset-lifecycle";
 import { Search, Users, Printer, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -50,8 +50,8 @@ export default function AssetEmployees() {
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#4D93FA] to-[#1B63D6] text-white grid place-items-center font-semibold text-sm shrink-0">{h.userName?.[0]?.toUpperCase()}</div>
                   <div className="min-w-0">
-                    <div className="font-semibold text-foreground truncate">{h.userName}</div>
-                    <div className="text-xs text-muted-foreground truncate">{[h.employeeCode, h.department, h.email].filter(Boolean).join(" · ") || "—"}</div>
+                    <div className="font-semibold text-foreground truncate flex items-center gap-1.5">{h.userName}<HolderTag type={h.userType} /></div>
+                    <div className="text-xs text-muted-foreground truncate"><span className="font-mono">{h.employeeCode || "no emp code"}</span>{[h.email, h.department].filter(Boolean).map(x => ` · ${x}`).join("")}</div>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-3 text-[11.5px]">
@@ -79,7 +79,7 @@ function HolderSheet({ holder, onClose }: { holder: any; onClose: () => void }) 
     <Sheet open onOpenChange={o => { if (!o) onClose(); }}>
       <SheetContent className="w-full sm:max-w-[520px] overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{holder.userName}</SheetTitle>
+          <SheetTitle className="flex items-center gap-2">{holder.userName}<HolderTag type={holder.userType} /></SheetTitle>
           <SheetDescription>{[holder.employeeCode, holder.designation, holder.department, holder.email].filter(Boolean).join(" · ")}</SheetDescription>
         </SheetHeader>
         <div className="mt-5 space-y-5">

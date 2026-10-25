@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, lt } from "drizzle-orm";
+import { eq, and, lt, sql } from "drizzle-orm";
 import { db, usersTable, settingsTable } from "@workspace/db";
 import { pool } from "@workspace/db";
 import { z } from "zod";
@@ -72,6 +72,13 @@ router.get("/admin/users", requireAdmin, async (_req, res): Promise<void> => {
   res.json(users);
 });
 
+/** Employee codes are unique (case-insensitive) — they map people to assets. Returns the clashing user, if any. */
+async function employeeCodeClash(code: string, exceptId: number | null) {
+  const [u] = await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable)
+    .where(sql`lower(${usersTable.employeeCode}) = lower(${code})${exceptId ? sql` AND ${usersTable.id} <> ${exceptId}` : sql``}`);
+  return u ? `${u.name} (${u.email})` : null;
+}
+
 router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
   const body = z.object({
     email: z.string().email(),
@@ -88,6 +95,12 @@ router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const { password, ...rest } = body.data;
+  rest.email = rest.email.trim().toLowerCase();
+  rest.employeeCode = rest.employeeCode.trim();
+  const clash = await employeeCodeClash(rest.employeeCode, null);
+  if (clash) { res.status(400).json({ error: `Employee code ${rest.employeeCode} is already used by ${clash}` }); return; }
+  const [emailClash] = await db.select({ id: usersTable.id }).from(usersTable).where(sql`lower(${usersTable.email}) = ${rest.email}`);
+  if (emailClash) { res.status(400).json({ error: `A user with email ${rest.email} already exists` }); return; }
   const passwordHash = password ? await bcrypt.hash(password, 12) : null;
   const [user] = await db.insert(usersTable).values({ ...rest, passwordHash }).returning({
     id: usersTable.id, email: usersTable.email, name: usersTable.name,
@@ -117,6 +130,12 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const { password, ...rest } = body.data;
+  if (rest.employeeCode !== undefined) {
+    rest.employeeCode = rest.employeeCode.trim();
+    if (!rest.employeeCode) { res.status(400).json({ error: "Employee code cannot be blank — it links the user to their assets" }); return; }
+    const clash = await employeeCodeClash(rest.employeeCode, id);
+    if (clash) { res.status(400).json({ error: `Employee code ${rest.employeeCode} is already used by ${clash}` }); return; }
+  }
   const update: Record<string, unknown> = { ...rest };
   // Keep isActive in sync with status
   if (rest.status === "active") {

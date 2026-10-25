@@ -64,7 +64,7 @@ export default function AssetRegistry() {
   const departments = [...new Set(assets.map((a: any) => a.department).filter(Boolean))];
   const filtered = useMemo(() => {
     let list = assets;
-    if (search) list = list.filter((a: any) => [a.name, a.assetTag, a.ownerName, a.serialNumber, a.department].some(v => v?.toLowerCase().includes(search.toLowerCase())));
+    if (search) list = list.filter((a: any) => [a.name, a.assetTag, a.ownerName, a.ownerEmployeeCode, a.ownerEmail, a.serialNumber, a.department].some(v => v?.toLowerCase().includes(search.toLowerCase())));
     if (filterType) list = list.filter((a: any) => a.type === filterType);
     if (filterStatus) list = list.filter((a: any) => a.status === filterStatus);
     if (filterDept) list = list.filter((a: any) => a.department === filterDept);
@@ -206,7 +206,7 @@ export default function AssetRegistry() {
           <p className="text-sm text-muted-foreground">Manage all IT hardware and equipment — {user?.name}</p>
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(assets, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"purchaseCost"},{label:"Manufacturer",key:"manufacturer"},{label:"Model",key:"model"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], "asset-registry.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(assets, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Employee Code",key:"ownerEmployeeCode"},{label:"Owner Email",key:"ownerEmail"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"cost"},{label:"Vendor",key:"vendorName"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], "asset-registry.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
           {isSysAdmin && <Button variant="outline" size="sm" onClick={handlePurge} disabled={purging} className="gap-1.5 text-red-600 hover:text-red-700 border-red-500/30">{purging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eraser className="w-4 h-4" />}Clear All Data</Button>}
           <Button variant="outline" size="sm" onClick={() => filtered.length && setStickerAssets(filtered)} disabled={!filtered.length} className="gap-1.5" title="QR stickers for the assets currently listed"><Tag className="w-4 h-4" />QR Stickers ({filtered.length})</Button>
           <Button variant="outline" size="sm" onClick={downloadAssetTemplate} className="gap-1.5"><FileSpreadsheet className="w-4 h-4" />Template</Button>
@@ -272,7 +272,7 @@ export default function AssetRegistry() {
                   <TableCell><Badge variant="outline" className="text-xs">{a.type}</Badge></TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{a.serialNumber || "—"}</TableCell>
                   <TableCell><StatusPill status={a.status} /></TableCell>
-                  <TableCell className="text-sm">{a.ownerName || "—"}</TableCell>
+                  <TableCell className="text-sm">{a.ownerName ? <><div>{a.ownerName}</div><div className="text-[11px] text-muted-foreground font-mono">{a.ownerEmployeeCode || ""}</div></> : "—"}</TableCell>
                   <TableCell className="text-sm">{a.department || "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{a.location || "—"}</TableCell>
                   <TableCell className="text-sm text-right">{a.cost ? `₹${Number(a.cost).toLocaleString("en-IN")}` : "—"}</TableCell>

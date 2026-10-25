@@ -129,49 +129,68 @@ const field = "text-xs font-medium";
 
 /* ─── Employee picker (system users, or free text for contractors) ────────── */
 
-type Person = { id?: number; name: string; email?: string; employeeCode?: string; department?: string; designation?: string };
+type Person = { id: number; name: string; email?: string; employeeCode: string; userType: "internal" | "external"; department?: string; designation?: string };
 
+/** Internal / External tag — from User Master */
+export function HolderTag({ type, className }: { type?: string | null; className?: string }) {
+  if (!type) return null;
+  const ext = type === "external";
+  return <span className={cn("inline-flex px-1.5 py-[1px] rounded-full text-[10px] font-semibold uppercase tracking-wide border", ext ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-400/10 dark:text-purple-300 dark:border-purple-400/30" : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-400/10 dark:text-blue-300 dark:border-blue-400/30", className)}>{ext ? "External" : "Internal"}</span>;
+}
+
+/**
+ * Pick the holder from User Master. Shown as "login email – EMP CODE" with an Internal / External tag; the backend
+ * links the asset by Employee Code. People without an employee code are listed but cannot be selected.
+ */
 export function EmployeePicker({ value, onChange }: { value: Person | null; onChange: (p: Person | null) => void }) {
   const { data: people = [] } = useQuery({ queryKey: ["asset-people"], queryFn: () => apiFetch<any[]>("/asset-people") });
   const [q, setQ] = useState("");
   const [focus, setFocus] = useState(false);
+  const [kind, setKind] = useState<"all" | "internal" | "external">("all");
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return (t ? people.filter(p => [p.name, p.email, p.employeeCode].some((v: string) => v?.toLowerCase().includes(t))) : people).slice(0, 8);
-  }, [people, q]);
+    return people.filter(p => (kind === "all" || p.userType === kind) && (!t || [p.name, p.email, p.employeeCode, p.department].some((v: string) => v?.toLowerCase().includes(t)))).slice(0, 30);
+  }, [people, q, kind]);
   if (value) {
     return (
       <div className="flex items-center justify-between gap-2 rounded-[10px] border px-3 py-2 bg-accent/40">
         <div className="min-w-0 text-sm">
-          <div className="font-semibold text-foreground truncate">{value.name}{value.employeeCode ? <span className="text-muted-foreground font-normal"> · {value.employeeCode}</span> : null}</div>
-          <div className="text-xs text-muted-foreground truncate">{[value.email, value.designation, value.department].filter(Boolean).join(" · ") || "Not a system user"}</div>
+          <div className="font-semibold text-foreground truncate flex items-center gap-2">{value.email} – <span className="font-mono">{value.employeeCode}</span><HolderTag type={value.userType} /></div>
+          <div className="text-xs text-muted-foreground truncate">{[value.name, value.designation, value.department].filter(Boolean).join(" · ")}</div>
         </div>
         <Button size="sm" variant="ghost" onClick={() => onChange(null)}>Change</Button>
       </div>
     );
   }
   return (
-    <div className="relative">
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-      <Input className="pl-9" placeholder="Search employee by name, email or code…" value={q}
-        onChange={e => setQ(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setTimeout(() => setFocus(false), 150)} />
-      {focus && (
-        <div className="absolute z-50 mt-1 w-full rounded-[10px] border bg-popover shadow-lg max-h-64 overflow-y-auto">
-          {list.map(p => (
-            <button key={p.id} type="button" className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
-              onMouseDown={() => onChange({ id: p.id, name: p.name, email: p.email, employeeCode: p.employeeCode, department: p.department, designation: p.designation })}>
-              <div className="font-medium text-foreground">{p.name} {p.employeeCode && <span className="text-muted-foreground font-normal">· {p.employeeCode}</span>}</div>
-              <div className="text-xs text-muted-foreground">{p.email}{p.designation ? ` · ${p.designation}` : ""}</div>
-            </button>
-          ))}
-          {q.trim() && (
-            <button type="button" className="w-full text-left px-3 py-2 hover:bg-accent text-sm border-t" onMouseDown={() => onChange({ name: q.trim() })}>
-              Use <b>"{q.trim()}"</b> (contractor / not a system user)
-            </button>
-          )}
-          {!list.length && !q.trim() && <div className="px-3 py-2 text-xs text-muted-foreground">No users found</div>}
-        </div>
-      )}
+    <div className="space-y-1.5">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input className="pl-9" placeholder="Search by name, login email or employee code…" value={q}
+          onChange={e => setQ(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setTimeout(() => setFocus(false), 150)} />
+        {focus && (
+          <div className="absolute z-50 mt-1 w-full rounded-[10px] border bg-popover shadow-lg max-h-72 overflow-y-auto">
+            <div className="flex gap-1 p-1.5 border-b sticky top-0 bg-popover">
+              {(["all", "internal", "external"] as const).map(k => (
+                <button key={k} type="button" onMouseDown={e => { e.preventDefault(); setKind(k); }}
+                  className={cn("px-2 py-0.5 rounded-full text-[11px] border", kind === k ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground")}>{k === "all" ? "All" : k === "internal" ? "Internal" : "External"}</button>
+              ))}
+            </div>
+            {list.map(p => (
+              <button key={p.id} type="button" disabled={!p.selectable} title={p.selectable ? "" : "No employee code in User Master"}
+                className="w-full text-left px-3 py-2 hover:bg-accent text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                onMouseDown={() => p.selectable && onChange({ id: p.id, name: p.name, email: p.email, employeeCode: p.employeeCode, userType: p.userType, department: p.department, designation: p.designation })}>
+                <div className="font-medium text-foreground flex items-center gap-2 flex-wrap">
+                  <span>{p.email} – <span className="font-mono">{p.employeeCode || "no emp code"}</span></span><HolderTag type={p.userType} />
+                </div>
+                <div className="text-xs text-muted-foreground">{[p.name, p.designation, p.department].filter(Boolean).join(" · ")}{!p.selectable && " — add an employee code in User Master to select"}</div>
+              </button>
+            ))}
+            {!list.length && <div className="px-3 py-3 text-xs text-muted-foreground">No one matches. Add the person (internal or external) in Admin › User Master first.</div>}
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground">People come from User Master. External associates are added there as External users.</p>
     </div>
   );
 }
@@ -194,13 +213,13 @@ export function IssueDialog({ assets, onClose, onDone }: { assets: any[]; onClos
     if (!person) { toast({ title: "Select the employee", variant: "destructive" }); return; }
     if (temp && !f.expectedReturnDate) { toast({ title: "Expected return date is required for temporary / loaner issues", variant: "destructive" }); return; }
     const body = {
-      userId: person.id, userName: person.name, email: person.email || f.email, employeeCode: person.employeeCode || f.employeeCode,
-      designation: person.designation || f.designation, department: f.department || deptLabel(person.department) || null, location: f.location,
+      userId: person.id, employeeCode: person.employeeCode,   // the server takes name / email / type from User Master
+      department: f.department || deptLabel(person.department) || null, location: f.location,
       allocationType: f.allocationType, expectedReturnDate: temp ? f.expectedReturnDate : null, condition: f.condition,
       accessories: f.accessories, startDate: f.startDate, notes: f.notes,
     };
     const what = assets.length === 1 ? `${assets[0].assetTag} — ${assets[0].name}` : `${assets.length} assets`;
-    if (!await confirmDialog(`Issue ${what} to ${person.name}?\n\nA handover note will be created and the employee will be asked to acknowledge it.`, { title: "Issue asset", confirmText: "Issue" })) return;
+    if (!await confirmDialog(`Issue ${what} to ${person.name} (${person.employeeCode}, ${person.userType === "external" ? "External" : "Internal"})?\n\nA handover note will be created and the employee will be asked to acknowledge it.`, { title: "Issue asset", confirmText: "Issue" })) return;
     setBusy(true);
     try {
       const r: any = assets.length === 1
@@ -226,10 +245,6 @@ export function IssueDialog({ assets, onClose, onDone }: { assets: any[]; onClos
         </DialogHeader>
         <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-2 gap-x-4 gap-y-3">
           <div className="col-span-2"><Label className={field}>Employee *</Label><EmployeePicker value={person} onChange={setPerson} /></div>
-          {person && !person.id && (<>
-            <div><Label className={field}>Employee code</Label><Input value={f.employeeCode || ""} onChange={e => set("employeeCode", e.target.value)} /></div>
-            <div><Label className={field}>Email</Label><Input type="email" value={f.email || ""} onChange={e => set("email", e.target.value)} /></div>
-          </>)}
           <div>
             <Label className={field}>Department</Label>
             <Select value={f.department || deptLabel(person?.department)} onValueChange={v => set("department", v)}>

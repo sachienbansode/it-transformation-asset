@@ -195,6 +195,9 @@ router.post("/assets/import", requireAuth, async (req, res) => {
     const usedTags = new Set(existing.map(a => a.assetTag.toLowerCase()));
     const usedSerials = new Set(existing.filter(a => a.isActive && a.serialNumber).map(a => `${a.type}|${a.serialNumber!.toLowerCase()}`));
     const typeCounts: Record<string, number> = {};
+    // Holders are identified by Employee Code from User Master (internal or external people)
+    const people = await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, code: usersTable.employeeCode, type: usersTable.userType, active: usersTable.isActive, department: usersTable.department }).from(usersTable);
+    const byCode = new Map(people.filter(p => p.code).map(p => [p.code!.trim().toLowerCase(), p]));
     for (const a of existing) typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
 
     const clean: any[] = [];
@@ -218,10 +221,15 @@ router.post("/assets/import", requireAuth, async (req, res) => {
       if (r.status) {
         const s = IMPORT_STATUSES.find(x => x.toLowerCase() === r.status.toLowerCase());
         if (!s) err("Status", `"${r.status}" is not valid. Use one of: ${IMPORT_STATUSES.join(", ")}`); else r.status = s;
-      } else r.status = r.ownerName ? "Allocated" : "In Stock";
-      if (r.status === "Allocated" && !r.ownerName) err("Assigned To", "Required when Status is Allocated");
-      if (r.status !== "Allocated" && (r.ownerName || r.ownerEmail || r.ownerEmployeeCode)) err("Assigned To", `Only Allocated assets can have an employee — set Status to Allocated or clear Assigned To`);
-      if (r.ownerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.ownerEmail)) err("Employee Email", `"${r.ownerEmail}" is not a valid email`);
+      } else r.status = r.ownerEmployeeCode ? "Allocated" : "In Stock";
+      if (r.status === "Allocated" && !r.ownerEmployeeCode) err("Employee Code", "Required when Status is Allocated (the person must exist in User Master)");
+      if (r.status !== "Allocated" && (r.ownerName || r.ownerEmail || r.ownerEmployeeCode)) err("Employee Code", `Only Allocated assets can have an employee — set Status to Allocated or clear Employee Code / Assigned To`);
+      if (r.status === "Allocated" && r.ownerEmployeeCode) {
+        const p = byCode.get(r.ownerEmployeeCode.toLowerCase());
+        if (!p) err("Employee Code", `"${r.ownerEmployeeCode}" is not in User Master — add the person (internal or external) first`);
+        else if (!p.active) err("Employee Code", `${r.ownerEmployeeCode} (${p.name}) is inactive in User Master`);
+        else { r.ownerEmployeeCode = p.code; r.ownerName = p.name; r.ownerEmail = p.email; r.ownerId = p.id; r.holderType = p.type === "external" ? "external" : "internal"; }
+      }
       if (!r.vendorName) err("Vendor", "Required");
       for (const [f, label] of [["purchaseDate", "Purchase Date"], ["warrantyExpiry", "Warranty Expiry"]] as const) {
         if (r[f] && !DATE_RE.test(r[f])) err(label, `"${r[f]}" must be a date in YYYY-MM-DD format`);
@@ -265,26 +273,24 @@ router.post("/assets/import", requireAuth, async (req, res) => {
           vendorByName.set(key, { id: v.id, name: r.vendorName });
         }
       }
-      const values = clean.map(({ tagGenerated, ...r }) => { const v = vendorByName.get(r.vendorName.toLowerCase())!; return { ...r, vendorId: v.id, vendorName: v.name, createdBy: performedBy, updatedBy: performedBy }; });
+      const values = clean.map(({ tagGenerated, holderType, ...r }) => { const v = vendorByName.get(r.vendorName.toLowerCase())!; return { ...r, vendorId: v.id, vendorName: v.name, createdBy: performedBy, updatedBy: performedBy }; });
       const out: { id: number; status: string; assetTag: string }[] = [];
       for (let i = 0; i < values.length; i += 500) {
         out.push(...await tx.insert(assetsTable).values(values.slice(i, i + 500)).returning({ id: assetsTable.id, status: assetsTable.status, assetTag: assetsTable.assetTag }));
       }
       // Assets uploaded as Allocated get an open handover record (acknowledgement pending)
       const byTag = new Map(values.map(v => [v.assetTag, v]));
-      const users = await tx.select({ id: usersTable.id, email: usersTable.email }).from(usersTable);
-      const userByEmail = new Map(users.map(u => [u.email.toLowerCase(), u.id]));
+      const typeByTag = new Map(clean.map(c => [c.assetTag, c.holderType]));
       const allocated = out.filter(a => a.status === "Allocated");
       for (const a of allocated) {
         const v: any = byTag.get(a.assetTag);
-        const userId = v.ownerEmail ? userByEmail.get(v.ownerEmail.toLowerCase()) ?? null : null;
+        const userId = v.ownerId ?? null;
         const [al] = await tx.insert(assetAllocationsTable).values({
-          assetId: a.id, userId, userName: v.ownerName, email: v.ownerEmail, employeeCode: v.ownerEmployeeCode, department: v.department, location: v.location,
+          assetId: a.id, userId, userName: v.ownerName, email: v.ownerEmail, employeeCode: v.ownerEmployeeCode, holderType: typeByTag.get(a.assetTag) ?? null, department: v.department, location: v.location,
           startDate: v.purchaseDate || new Date().toISOString().slice(0, 10), status: "Active", allocationType: "Permanent", issueCondition: "Good",
           issuedBy: "Asset register upload", ackStatus: "Pending", notes: "Created from asset register upload", createdBy: performedBy,
         }).returning({ id: assetAllocationsTable.id });
         await tx.update(assetAllocationsTable).set({ handoverNo: `HO-${new Date().getFullYear()}-${String(al.id).padStart(5, "0")}` }).where(eq(assetAllocationsTable.id, al.id));
-        if (userId) await tx.update(assetsTable).set({ ownerId: userId }).where(eq(assetsTable.id, a.id));
       }
       for (let i = 0; i < out.length; i += 500) {
         await tx.insert(assetTransactionsTable).values(out.slice(i, i + 500).map(a => ({ assetId: a.id, action: "Imported", newStatus: a.status, userName: performedBy, notes: "Asset register upload" })));

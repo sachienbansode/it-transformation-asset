@@ -91,26 +91,27 @@ router.get("/assets/by-tag/:tag", requireAuth, async (req, res) => {
 
 /* ─── People picker (all signed-in users can read; no admin needed) ──────── */
 
+// People who can hold assets = User Master (internal staff and external associates). Employee Code is the key.
 router.get("/asset-people", requireAuth, async (_req, res) => {
   try {
     const rows = await db.select({
-      id: usersTable.id, name: usersTable.name, email: usersTable.email, employeeCode: usersTable.employeeCode,
+      id: usersTable.id, name: usersTable.name, email: usersTable.email, employeeCode: usersTable.employeeCode, userType: usersTable.userType,
       department: usersTable.department, designation: usersTable.designation,
     }).from(usersTable).where(eq(usersTable.isActive, true)).orderBy(usersTable.name);
-    res.json(rows);
+    res.json(rows.map(r => ({ ...r, userType: r.userType === "external" ? "external" : "internal", selectable: !!(r.employeeCode && r.employeeCode.trim()) })));
   } catch (e) { handleError(res, e); }
 });
 
 /* ─── Issue (handover) ───────────────────────────────────────────────────── */
 
-type Employee = { userId?: number | null; userName: string; email?: string | null; employeeCode?: string | null; designation?: string | null; department?: string | null; location?: string | null };
+type Employee = { userId: number; userName: string; email: string | null; employeeCode: string; userType: string; designation?: string | null; department?: string | null; location?: string | null };
 
 async function issueOne(tx: any, assetId: number, emp: Employee, h: any, who: { performedBy: string; name: string }) {
   const [asset] = await tx.select().from(assetsTable).where(and(eq(assetsTable.id, assetId), eq(assetsTable.isActive, true)));
   if (!asset) throw new Error(`Asset #${assetId} not found`);
   if (!canMove(asset.status, "Allocated")) throw new Error(`${asset.assetTag} is "${asset.status}" — only assets In Stock can be issued`);
   const [al] = await tx.insert(assetAllocationsTable).values({
-    assetId, userId: emp.userId ?? null, userName: emp.userName, email: emp.email ?? null, employeeCode: emp.employeeCode ?? null,
+    assetId, userId: emp.userId, userName: emp.userName, email: emp.email ?? null, employeeCode: emp.employeeCode, holderType: emp.userType,
     designation: emp.designation ?? null, department: emp.department ?? null, location: emp.location ?? asset.location ?? null,
     startDate: s(h.startDate) || today(), status: "Active", notes: s(h.notes),
     allocationType: s(h.allocationType) || "Permanent", expectedReturnDate: s(h.expectedReturnDate),
@@ -120,32 +121,49 @@ async function issueOne(tx: any, assetId: number, emp: Employee, h: any, who: { 
   const handoverNo = `HO-${new Date().getFullYear()}-${String(al.id).padStart(5, "0")}`;
   await tx.update(assetAllocationsTable).set({ handoverNo }).where(eq(assetAllocationsTable.id, al.id));
   await tx.update(assetsTable).set({
-    status: "Allocated", ownerId: emp.userId ?? null, ownerName: emp.userName, ownerEmail: emp.email ?? null,
-    ownerEmployeeCode: emp.employeeCode ?? null, department: emp.department ?? asset.department,
+    status: "Allocated", ownerId: emp.userId, ownerName: emp.userName, ownerEmail: emp.email ?? null,
+    ownerEmployeeCode: emp.employeeCode, department: emp.department ?? asset.department,
     location: emp.location ?? asset.location, updatedBy: who.performedBy, updatedAt: new Date(),
   }).where(eq(assetsTable.id, assetId));
   await tx.insert(assetTransactionsTable).values({
     assetId, action: "Issued", oldStatus: asset.status, newStatus: "Allocated", userName: who.performedBy, comment: s(h.notes),
-    notes: `${handoverNo} · to ${emp.userName}${emp.employeeCode ? ` (${emp.employeeCode})` : ""} · ${s(h.allocationType) || "Permanent"} · condition ${s(h.condition) || "Good"}${s(h.accessories) ? ` · accessories: ${s(h.accessories)}` : ""}`,
+    notes: `${handoverNo} · to ${emp.userName} (${emp.employeeCode}, ${emp.userType}) · ${s(h.allocationType) || "Permanent"} · condition ${s(h.condition) || "Good"}${s(h.accessories) ? ` · accessories: ${s(h.accessories)}` : ""}`,
   });
   return { ...al, handoverNo, assetTag: asset.assetTag };
 }
 
-function readEmployee(body: any): Employee | string {
-  const userName = s(body.userName);
-  if (!userName) return "Employee name is required";
+/**
+ * Resolve the holder from User Master. The UI sends the selected user's id (and/or employee code); name, email,
+ * employee code and internal/external type always come from User Master, never from free text.
+ */
+export async function resolveHolder(q: { userId?: unknown; employeeCode?: unknown }): Promise<Employee | string> {
+  const id = Number(q.userId) || null, code = s(q.employeeCode);
+  if (!id && !code) return "Select the employee (from User Master)";
+  const [u] = await db.select().from(usersTable).where(id ? eq(usersTable.id, id) : sql`lower(${usersTable.employeeCode}) = lower(${code})`);
+  if (!u) return code ? `Employee code "${code}" is not in User Master — add the person (internal or external) first` : "Employee not found in User Master";
+  if (!u.isActive) return `${u.name} (${u.employeeCode || u.email}) is inactive in User Master`;
+  if (!u.employeeCode) return `${u.name} has no Employee Code in User Master — add it before issuing assets`;
+  if (code && u.employeeCode.toLowerCase() !== code.toLowerCase()) return `Employee code ${code} does not belong to ${u.name}`;
+  let department = u.department;
+  if (department) {   // User Master stores the department master key; handovers show its label
+    const r: any = await db.execute(sql`SELECT label FROM masters WHERE category = 'department' AND (key = ${department} OR lower(label) = lower(${department})) LIMIT 1`);
+    department = (r.rows ?? r)[0]?.label ?? department;
+  }
+  return { userId: u.id, userName: u.name, email: u.email, employeeCode: u.employeeCode, userType: u.userType === "external" ? "external" : "internal", designation: u.designation, department };
+}
+
+async function readEmployee(body: any): Promise<Employee | string> {
   if (s(body.allocationType) && !ALLOCATION_TYPES.includes(body.allocationType)) return `Allocation type must be one of ${ALLOCATION_TYPES.join(", ")}`;
   if (s(body.condition) && !CONDITIONS.includes(body.condition)) return `Condition must be one of ${CONDITIONS.join(", ")}`;
   if (s(body.allocationType) && body.allocationType !== "Permanent" && !s(body.expectedReturnDate)) return "Expected return date is required for temporary / loaner issues";
-  return {
-    userId: body.userId ? Number(body.userId) : null, userName, email: s(body.email), employeeCode: s(body.employeeCode),
-    designation: s(body.designation), department: s(body.department), location: s(body.location),
-  };
+  const emp = await resolveHolder(body);
+  if (typeof emp === "string") return emp;
+  return { ...emp, department: s(body.department) || emp.department, designation: s(body.designation) || emp.designation, location: s(body.location) };
 }
 
 router.post("/assets/:id/issue", requireAuth, async (req, res) => {
   try {
-    const emp = readEmployee(req.body);
+    const emp = await readEmployee(req.body);
     if (typeof emp === "string") return fail(res, 400, emp);
     const who = await actor(req);
     const result = await db.transaction(tx => issueOne(tx, Number(req.params.id), emp, req.body, who));
@@ -158,7 +176,7 @@ router.post("/assets/bulk-issue", requireAuth, async (req, res) => {
   try {
     const ids: number[] = Array.isArray(req.body.assetIds) ? req.body.assetIds.map(Number) : [];
     if (!ids.length) return fail(res, 400, "Select at least one asset");
-    const emp = readEmployee(req.body);
+    const emp = await readEmployee(req.body);
     if (typeof emp === "string") return fail(res, 400, emp);
     const who = await actor(req);
     const results = await db.transaction(async tx => { const out = []; for (const id of ids) out.push(await issueOne(tx, id, emp, req.body, who)); return out; });
@@ -254,7 +272,7 @@ router.post("/assets/:id/transition", requireAuth, async (req, res) => {
 const handoverCols = {
   id: assetAllocationsTable.id, handoverNo: assetAllocationsTable.handoverNo, assetId: assetAllocationsTable.assetId,
   userId: assetAllocationsTable.userId, userName: assetAllocationsTable.userName, email: assetAllocationsTable.email,
-  employeeCode: assetAllocationsTable.employeeCode, designation: assetAllocationsTable.designation, department: assetAllocationsTable.department,
+  employeeCode: assetAllocationsTable.employeeCode, holderType: assetAllocationsTable.holderType, designation: assetAllocationsTable.designation, department: assetAllocationsTable.department,
   location: assetAllocationsTable.location, startDate: assetAllocationsTable.startDate, endDate: assetAllocationsTable.endDate,
   status: assetAllocationsTable.status, allocationType: assetAllocationsTable.allocationType, expectedReturnDate: assetAllocationsTable.expectedReturnDate,
   issueCondition: assetAllocationsTable.issueCondition, accessories: assetAllocationsTable.accessories, issuedBy: assetAllocationsTable.issuedBy,
@@ -288,8 +306,8 @@ router.post("/asset-allocations/:id/acknowledge", requireAuth, async (req, res) 
 
 async function myFilter(req: Request) {
   const userId = (req.session as any)?.userId as number;
-  const [me] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId));
-  return sql`(${assetAllocationsTable.userId} = ${userId} OR lower(${assetAllocationsTable.email}) = lower(${me?.email ?? ""}))`;
+  const [me] = await db.select({ email: usersTable.email, code: usersTable.employeeCode }).from(usersTable).where(eq(usersTable.id, userId));
+  return sql`(${assetAllocationsTable.userId} = ${userId} OR lower(${assetAllocationsTable.email}) = lower(${me?.email ?? ""}) OR (${me?.code ?? null}::text IS NOT NULL AND lower(${assetAllocationsTable.employeeCode}) = lower(${me?.code ?? ""})))`;
 }
 
 // Every signed-in user can see what is issued to them (no asset-module permission needed)
@@ -315,18 +333,87 @@ router.post("/my-assets/:id/acknowledge", requireAuth, async (req, res) => {
   } catch (e) { handleError(res, e); }
 });
 
+/*
+ * Bulk (re)assignment by Excel: Asset Tag + Employee Code per row. Validated first (dry run), then applied in one
+ * transaction. An asset already held by someone else is returned from them and issued to the new holder; an asset
+ * already with the same employee code is left as is. Employees must exist in User Master (internal or external).
+ */
+router.post("/asset-handovers/bulk-assign", requireAuth, async (req, res) => {
+  try {
+    const rows: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const dryRun = req.body?.dryRun !== false;
+    if (!rows.length) return fail(res, 400, "The file has no rows.");
+    if (rows.length > 3000) return fail(res, 400, "Maximum 3,000 rows per upload.");
+    const errors: { row: number; field: string; message: string }[] = [];
+    const plan: { row: number; asset: any; emp: Employee; h: any; action: "Issue" | "Reassign" | "Unchanged"; from?: string }[] = [];
+    const seen = new Set<string>();
+    const people = new Map<string, Employee | string>();
+    for (const [i, raw] of rows.entries()) {
+      const row = Number(raw?.__row) || i + 2;
+      const err = (field: string, message: string) => { errors.push({ row, field, message }); };
+      const tag = s(raw.assetTag), code = s(raw.employeeCode);
+      if (!tag) { err("Asset Tag", "Required"); continue; }
+      if (!code) { err("Employee Code", "Required"); continue; }
+      if (seen.has(tag.toLowerCase())) { err("Asset Tag", `${tag} appears more than once`); continue; }
+      seen.add(tag.toLowerCase());
+      const [asset] = await db.select().from(assetsTable).where(and(sql`lower(${assetsTable.assetTag}) = lower(${tag})`, eq(assetsTable.isActive, true)));
+      if (!asset) { err("Asset Tag", `"${tag}" not found`); continue; }
+      if (!["In Stock", "In Use", "Allocated"].includes(asset.status)) { err("Asset Tag", `${tag} is "${asset.status}" — only In Stock, In Use or Allocated assets can be assigned`); continue; }
+      const key = code.toLowerCase();
+      if (!people.has(key)) people.set(key, await resolveHolder({ employeeCode: code }));
+      const emp = people.get(key)!;
+      if (typeof emp === "string") { err("Employee Code", emp); continue; }
+      const type = s(raw.allocationType) || "Permanent";
+      if (!ALLOCATION_TYPES.includes(type)) { err("Allocation Type", `Use one of: ${ALLOCATION_TYPES.join(", ")}`); continue; }
+      const cond = s(raw.condition) || "Good";
+      if (!CONDITIONS.includes(cond)) { err("Condition", `Use one of: ${CONDITIONS.join(", ")}`); continue; }
+      for (const f of ["startDate", "expectedReturnDate"]) if (s(raw[f]) && !/^\d{4}-\d{2}-\d{2}$/.test(raw[f])) err(f === "startDate" ? "Issue Date" : "Expected Return", `"${raw[f]}" must be YYYY-MM-DD`);
+      if (type !== "Permanent" && !s(raw.expectedReturnDate)) { err("Expected Return", "Required for temporary / loaner"); continue; }
+      const same = asset.status === "Allocated" && (asset.ownerEmployeeCode || "").toLowerCase() === emp.employeeCode.toLowerCase();
+      plan.push({ row, asset, emp: { ...emp, location: s(raw.location) }, action: same ? "Unchanged" : asset.status === "Allocated" ? "Reassign" : "Issue",
+        from: asset.status === "Allocated" ? `${asset.ownerName || "—"}${asset.ownerEmployeeCode ? ` (${asset.ownerEmployeeCode})` : ""}` : undefined,
+        h: { allocationType: type, condition: cond, startDate: s(raw.startDate), expectedReturnDate: s(raw.expectedReturnDate), accessories: s(raw.accessories), notes: s(raw.remarks) || "Bulk assignment upload" } });
+    }
+    const summary = { total: rows.length, issue: plan.filter(p => p.action === "Issue").length, reassign: plan.filter(p => p.action === "Reassign").length,
+      unchanged: plan.filter(p => p.action === "Unchanged").length, errors,
+      preview: plan.filter(p => p.action !== "Unchanged").slice(0, 12).map(p => ({ assetTag: p.asset.assetTag, action: p.action, from: p.from, to: `${p.emp.userName} (${p.emp.employeeCode}, ${p.emp.userType})` })) };
+    if (dryRun || errors.length) return void res.json({ ...summary, applied: 0, dryRun: true });
+    const who = await actor(req);
+    const done = await db.transaction(async tx => {
+      let n = 0;
+      for (const p of plan) {
+        if (p.action === "Unchanged") continue;
+        if (p.asset.status !== "In Stock") {
+          if (p.asset.status === "Allocated") {
+            const [al] = await tx.select().from(assetAllocationsTable).where(and(eq(assetAllocationsTable.assetId, p.asset.id), eq(assetAllocationsTable.status, "Active")));
+            if (al) await tx.update(assetAllocationsTable).set({ status: "Returned", endDate: today(), returnCondition: p.h.condition, returnRemarks: `Reassigned to ${p.emp.employeeCode} via upload`, receivedBy: who.name, returnedAt: new Date() }).where(eq(assetAllocationsTable.id, al.id));
+            await tx.insert(assetTransactionsTable).values({ assetId: p.asset.id, action: "Returned", oldStatus: "Allocated", newStatus: "In Stock", userName: who.performedBy, notes: `${al?.handoverNo ?? ""} · from ${p.from} · reassigned via upload` });
+          }
+          await tx.update(assetsTable).set({ status: "In Stock", ownerId: null, ownerName: null, ownerEmail: null, ownerEmployeeCode: null }).where(eq(assetsTable.id, p.asset.id));
+        }
+        await issueOne(tx, p.asset.id, p.emp, p.h, who); n++;
+      }
+      return n;
+    });
+    await safeLog({ entityType: "asset_allocation", action: "bulk_assign", performedBy: who.performedBy, summary: `Bulk assignment upload: ${summary.issue} issued, ${summary.reassign} reassigned`, context: buildContext(req, "Handovers") });
+    res.json({ ...summary, applied: done, dryRun: false });
+  } catch (e) { handleError(res, e); }
+});
+
 // Per-employee view: everyone who holds or has held an asset
 router.get("/asset-holders", requireAuth, async (_req, res) => {
   try {
     const rows = await db.execute(sql`
-      SELECT coalesce(lower(nullif(email,'')), lower(user_name)) AS key,
-             max(user_name) AS "userName", max(email) AS email, max(employee_code) AS "employeeCode",
-             max(department) AS department, max(designation) AS designation,
-             count(*) FILTER (WHERE status = 'Active')::int AS "activeCount",
-             count(*) FILTER (WHERE status = 'Active' AND ack_status <> 'Acknowledged')::int AS "pendingAck",
-             count(*) FILTER (WHERE status = 'Active' AND expected_return_date IS NOT NULL AND expected_return_date < to_char(now(), 'YYYY-MM-DD'))::int AS "overdue",
-             count(*)::int AS "totalCount", max(created_at) AS "lastIssued"
-      FROM asset_allocations GROUP BY 1 ORDER BY "activeCount" DESC, "userName"`);
+      SELECT coalesce(lower(nullif(a.employee_code,'')), lower(nullif(a.email,'')), lower(a.user_name)) AS key,
+             max(coalesce(u.name, a.user_name)) AS "userName", max(coalesce(u.email, a.email)) AS email, max(coalesce(u.employee_code, a.employee_code)) AS "employeeCode",
+             max(coalesce(u.user_type, a.holder_type)) AS "userType", bool_or(coalesce(u.is_active, true)) AS "userActive",
+             max(coalesce(a.department, u.department)) AS department, max(coalesce(a.designation, u.designation)) AS designation,
+             count(*) FILTER (WHERE a.status = 'Active')::int AS "activeCount",
+             count(*) FILTER (WHERE a.status = 'Active' AND a.ack_status <> 'Acknowledged')::int AS "pendingAck",
+             count(*) FILTER (WHERE a.status = 'Active' AND a.expected_return_date IS NOT NULL AND a.expected_return_date < to_char(now(), 'YYYY-MM-DD'))::int AS "overdue",
+             count(*)::int AS "totalCount", max(a.created_at) AS "lastIssued"
+      FROM asset_allocations a LEFT JOIN users u ON u.id = a.user_id OR (a.user_id IS NULL AND lower(u.employee_code) = lower(a.employee_code))
+      GROUP BY 1 ORDER BY "activeCount" DESC, "userName"`);
     res.json((rows as any).rows ?? rows);
   } catch (e) { handleError(res, e); }
 });
@@ -337,7 +424,7 @@ router.get("/asset-holders/assets", requireAuth, async (req, res) => {
     if (!key) return fail(res, 400, "key is required");
     const rows = await db.select(handoverCols).from(assetAllocationsTable)
       .leftJoin(assetsTable, eq(assetsTable.id, assetAllocationsTable.assetId))
-      .where(sql`coalesce(lower(nullif(${assetAllocationsTable.email},'')), lower(${assetAllocationsTable.userName})) = ${key}`)
+      .where(sql`coalesce(lower(nullif(${assetAllocationsTable.employeeCode},'')), lower(nullif(${assetAllocationsTable.email},'')), lower(${assetAllocationsTable.userName})) = ${key}`)
       .orderBy(desc(assetAllocationsTable.createdAt));
     res.json(rows);
   } catch (e) { handleError(res, e); }
