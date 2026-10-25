@@ -82,6 +82,7 @@ const KIND_SHEETS: Record<string, { label: string; sheets: [string, string][] }>
   asset_finance_upload: { label: "Purchase / cost / warranty upload", sheets: [["Change Summary", "changes"], ["New Asset Register", "after"], ["Old Asset Register", "before"], ["Uploaded Rows", "uploaded"]] },
   kpi_upload: { label: "KPI upload", sheets: [["Change Summary", "changes"], ["New KPI Set", "after"], ["Old KPI Set", "before"]] },
   asset_journal_export: { label: "Depreciation journal", sheets: [["Journal (Tally)", "journal"], ["Asset Depreciation", "detail"], ["Disposals", "disposals"]] },
+  itsm_catalog_upload: { label: "ITSM category upload", sheets: [["Change Summary", "changes"], ["New Catalog", "after"], ["Old Catalog", "before"], ["Uploaded Rows", "uploaded"]] },
   asset_fy_close: { label: "Financial year close", sheets: [["Fixed Asset Register", "register"], ["Summary by Type", "byType"], ["Disposals", "disposals"]] },
 };
 

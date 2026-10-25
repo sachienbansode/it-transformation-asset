@@ -5,6 +5,8 @@ import { z } from "zod";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { getAccess } from "../lib/rbac";
+import { createBatch, batchWorkbook, XLSX_TYPE } from "../lib/archive";
+import { notify, htmlTable } from "../lib/mailer";
 import { route, RoutingError, teamIdsOf, teamMembers, DEFAULT_DAYS, addBusinessDays, CATALOG_TYPE } from "../lib/itsm-routing";
 
 /*
@@ -162,6 +164,117 @@ router.patch("/itsm-catalog/:id", wrap(async (req, res) => {
   if (!old.subcategory && set.isActive === false) await db.update(itsmCatalogTable).set({ isActive: false, updatedBy: by, updatedAt: new Date() }).where(and(eq(itsmCatalogTable.ticketType, old.ticketType), sql`lower(${itsmCatalogTable.category}) = lower(${old.category})`));
   await audit({ entityType: "itsm_catalog", entityId: id, action: "update", performedBy: by, summary: `${r.ticketType} ${r.category}${r.subcategory ? ` › ${r.subcategory}` : ""}: team ${r.teamId ?? "inherit"}, days ${r.resolutionDays ?? "default"}${r.isActive ? "" : " (removed)"} — applies to new tickets` });
   res.json(r);
+}));
+
+
+/* ─── Excel upload: the whole catalog in one sheet ───────────────────────────
+ * Rows: Ticket Type | Category | Sub-category (blank = category row) | Assigned Group | Days to Close (blank = default) | Active (Yes/No).
+ * Listed rows are added or updated; Active = No removes (a category also removes its sub-categories). Rows not in the file are left alone.
+ * dryRun returns the plan and every error; apply runs in one transaction, then archives (before / after / changes) and emails.
+ */
+const TYPE_ALIASES: Record<string, string> = { "service request": "Service Request", sr: "Service Request", request: "Service Request", incident: "Incident", inc: "Incident" };
+async function catalogSnapshot() {
+  const teams = new Map((await db.select().from(itsmTeamsTable)).map(t => [t.id, t.name]));
+  const rows = await db.select().from(itsmCatalogTable).where(eq(itsmCatalogTable.isActive, true)).orderBy(asc(itsmCatalogTable.ticketType), asc(itsmCatalogTable.sortOrder), asc(itsmCatalogTable.category));
+  return rows.map(r => ({ "Ticket Type": r.ticketType, "Category": r.category, "Sub-category": r.subcategory ?? "", "Assigned Group": r.teamId ? teams.get(r.teamId) ?? "" : "", "Days to Close": r.resolutionDays ?? "" }));
+}
+const keyOf = (t: string, c: string, sub: string | null) => `${t}|${c.toLowerCase()}|${(sub ?? "").toLowerCase()}`;
+
+router.post("/itsm-catalog/import", wrap(async (req, res) => {
+  const input: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  const dryRun = req.body?.dryRun !== false;
+  if (!input.length) return fail(res, 400, "No rows in the file");
+  if (input.length > 2000) return fail(res, 400, "Too many rows (max 2000)");
+  const teams = await db.select().from(itsmTeamsTable);
+  const teamOf = (n: string) => teams.find(t => t.name.toLowerCase() === n.toLowerCase());
+  const all = await db.select().from(itsmCatalogTable);
+  const existing = new Map(all.map(r => [keyOf(r.ticketType, r.category, r.subcategory), r]));
+  const errors: { row: number; field: string; message: string }[] = [];
+  const err = (row: number, field: string, message: string) => errors.push({ row, field, message });
+  type P = { row: number; ticketType: string; category: string; subcategory: string | null; teamId: number | null; team: string | null; days: number | null; active: boolean; sortOrder: number };
+  const plan: P[] = []; const seen = new Map<string, number>();
+  input.forEach((r, i) => {
+    const row = Number(r.__row) || i + 2;
+    const tt = TYPE_ALIASES[String(r.ticketType ?? "").trim().toLowerCase()];
+    const category = String(r.category ?? "").trim().replace(/\s+/g, " ");
+    const subcategory = s(r.subcategory)?.replace(/\s+/g, " ") ?? null;
+    const teamName = s(r.team);
+    const daysRaw = s(r.days);
+    const activeRaw = (s(r.active) ?? "yes").toLowerCase();
+    if (!tt) err(row, "Ticket Type", `"${r.ticketType ?? ""}" — use Service Request or Incident`);
+    if (category.length < 2) err(row, "Category", "Category is required");
+    else if (category.length > 80) err(row, "Category", "Max 80 characters");
+    if (subcategory && subcategory.length > 80) err(row, "Sub-category", "Max 80 characters");
+    if (!["yes", "y", "no", "n", "true", "false", "1", "0", "active", "inactive"].includes(activeRaw)) err(row, "Active", `"${r.active}" — use Yes or No`);
+    const active = ["yes", "y", "true", "1", "active"].includes(activeRaw);
+    let teamId: number | null = null;
+    if (teamName) { const t = teamOf(teamName); if (!t) err(row, "Assigned Group", `"${teamName}" is not a team — use a name from the Teams sheet (add new teams in ITSM Setup › Teams first)`); else if (!t.isActive) err(row, "Assigned Group", `"${t.name}" is inactive`); else teamId = t.id; }
+    let days: number | null = null;
+    if (daysRaw) { const n = Number(daysRaw); if (!Number.isInteger(n) || n < 0 || n > 365) err(row, "Days to Close", `"${daysRaw}" — whole number 0–365, or blank for the default (T+${DEFAULT_DAYS})`); else days = n; }
+    if (active && !subcategory && !teamName) err(row, "Assigned Group", "A category row needs an Assigned Group");
+    if (!tt || category.length < 2) return;
+    const k = keyOf(tt, category, subcategory);
+    if (seen.has(k)) { err(row, "Category", `Duplicate of row ${seen.get(k)}`); return; }
+    seen.set(k, row);
+    plan.push({ row, ticketType: tt, category, subcategory, teamId, team: teamName ? teamOf(teamName)?.name ?? teamName : null, days, active, sortOrder: (i + 1) * 10 });
+  });
+  // hierarchy: an active sub-category needs its category active (in the file or already in the catalog)
+  const catActive = (tt: string, c: string) => { const f = plan.find(p => p.ticketType === tt && !p.subcategory && p.category.toLowerCase() === c.toLowerCase()); if (f) return f.active; const e = existing.get(keyOf(tt, c, null)); return !!e?.isActive; };
+  for (const p of plan) if (p.subcategory && p.active && !catActive(p.ticketType, p.category)) err(p.row, "Category", `Add the category "${p.category}" (${p.ticketType}) as its own row with a blank Sub-category, or keep it Active`);
+  // removing a category that live sub-categories in the file still use
+  for (const p of plan) if (!p.subcategory && !p.active && plan.some(q => q.active && q.subcategory && q.ticketType === p.ticketType && q.category.toLowerCase() === p.category.toLowerCase())) err(p.row, "Active", `"${p.category}" is set to No but has sub-categories set to Yes`);
+
+  const changes: Record<string, any>[] = [];
+  const teamName = (id: number | null) => (id ? teams.find(t => t.id === id)?.name ?? "" : "");
+  for (const p of plan) {
+    const e = existing.get(keyOf(p.ticketType, p.category, p.subcategory));
+    const label = { "Ticket Type": p.ticketType, "Category": p.category, "Sub-category": p.subcategory ?? "" };
+    if (!e || !e.isActive) { if (p.active) changes.push({ Change: "Added", ...label, "Assigned Group": p.team ?? (p.subcategory ? "same as category" : ""), "Days to Close": p.days ?? (p.subcategory ? "same as category" : `default (T+${DEFAULT_DAYS})`), Before: e ? "previously removed" : "" }); continue; }
+    if (!p.active) { changes.push({ Change: "Removed", ...label, "Assigned Group": teamName(e.teamId), "Days to Close": e.resolutionDays ?? "", Before: "" }); continue; }
+    const diffs: string[] = [];
+    if ((e.teamId ?? null) !== p.teamId) diffs.push(`group ${teamName(e.teamId) || "(inherit)"} → ${p.team ?? "(inherit)"}`);
+    if ((e.resolutionDays ?? null) !== p.days) diffs.push(`days ${e.resolutionDays ?? "default"} → ${p.days ?? "default"}`);
+    if (e.category !== p.category || (e.subcategory ?? null) !== p.subcategory) diffs.push("spelling");
+    if (diffs.length) changes.push({ Change: "Modified", ...label, "Assigned Group": p.team ?? "same as category", "Days to Close": p.days ?? "default", Before: diffs.join("; ") });
+  }
+  const counts = { added: changes.filter(c => c.Change === "Added").length, modified: changes.filter(c => c.Change === "Modified").length, removed: changes.filter(c => c.Change === "Removed").length };
+  const result = { total: input.length, ...counts, unchanged: plan.length - changes.length, errors, changes: changes.slice(0, 500) };
+  if (dryRun || errors.length || !changes.length) return res.json({ ...result, applied: false });
+
+  const by = await who(req);
+  const before = await catalogSnapshot();
+  await db.transaction(async tx => {
+    for (const p of plan) {
+      const e = existing.get(keyOf(p.ticketType, p.category, p.subcategory));
+      if (!e) { if (p.active) await tx.insert(itsmCatalogTable).values({ ticketType: p.ticketType, category: p.category, subcategory: p.subcategory, teamId: p.teamId, resolutionDays: p.days, sortOrder: p.sortOrder, updatedBy: by }); continue; }
+      if (!p.active) {
+        if (!e.isActive) continue;
+        await tx.update(itsmCatalogTable).set({ isActive: false, updatedBy: by, updatedAt: new Date() }).where(p.subcategory ? eq(itsmCatalogTable.id, e.id)
+          : and(eq(itsmCatalogTable.ticketType, p.ticketType), sql`lower(${itsmCatalogTable.category}) = lower(${p.category})`));
+        continue;
+      }
+      await tx.update(itsmCatalogTable).set({ category: p.category, subcategory: p.subcategory, teamId: p.teamId, resolutionDays: p.days, sortOrder: p.sortOrder, isActive: true, updatedBy: by, updatedAt: new Date() }).where(eq(itsmCatalogTable.id, e.id));
+    }
+    // keep category spelling consistent across its sub-categories
+    for (const p of plan.filter(x => !x.subcategory && x.active)) await tx.update(itsmCatalogTable).set({ category: p.category }).where(and(eq(itsmCatalogTable.ticketType, p.ticketType), sql`lower(${itsmCatalogTable.category}) = lower(${p.category})`));
+  });
+  const after = await catalogSnapshot();
+  const fileName = s(req.body?.fileName);
+  let batchNo: string | null = null;
+  try {
+    const batch = await createBatch({ kind: "itsm_catalog_upload", module: "ITSM", title: `ITSM category upload${fileName ? ` — ${fileName}` : ""}`, fileName, rowCount: input.length, by,
+      summary: { ...counts, catalogBefore: before.length, catalogAfter: after.length },
+      sections: { uploaded: input.map(({ __row, ...r }) => r), before, after, changes } });
+    batchNo = batch.batchNo;
+    const { buffer, name } = await batchWorkbook(batch.id);
+    void notify("itsm_catalog_upload", {
+      subject: `ITSM categories: ${counts.added} added, ${counts.modified} changed, ${counts.removed} removed${fileName ? ` (${fileName})` : ""}`,
+      html: `<p><b>ITSM category / sub-category upload</b> was applied. New tickets use the new routing; existing tickets are unchanged.</p>${htmlTable([["Archive batch", batch.batchNo], ["File", fileName || "—"], ["By", by], ["Rows in file", input.length], ["Added", counts.added], ["Changed", counts.modified], ["Removed", counts.removed], ["Catalog rows before → after", `${before.length} → ${after.length}`]])}<p>Attached: Change Summary, New Catalog, Old Catalog, Uploaded Rows.</p>`,
+      attachment: { name, content: buffer, contentType: XLSX_TYPE }, batchId: batch.id,
+    });
+  } catch (e) { console.error("catalog archive failed:", e); }
+  await audit({ entityType: "itsm_catalog", entityId: 0, action: "import", performedBy: by, summary: `Category upload${fileName ? ` ${fileName}` : ""}: ${counts.added} added, ${counts.modified} changed, ${counts.removed} removed${batchNo ? ` — archive ${batchNo}` : ""}` });
+  res.json({ ...result, applied: true, archiveBatch: batchNo });
 }));
 
 /* ─── Routing preview for the ticket form, and "my teams" ───────────────── */

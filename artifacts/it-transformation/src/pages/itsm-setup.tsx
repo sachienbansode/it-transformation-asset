@@ -10,8 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
-import { Users, Plus, Pencil, Save, Loader2, Trash2, FolderTree, Info, Crown } from "lucide-react";
+import { Users, Plus, Pencil, Save, Loader2, Trash2, FolderTree, Info, Crown, Upload, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CatalogUploadDialog, downloadCatalogSheet } from "@/components/itsm-catalog-upload";
 
 /* ITSM Setup — assignment groups (teams + members + lead) and the category / sub-category catalog that routes tickets. */
 
@@ -137,7 +138,7 @@ function Catalog() {
   const [type, setType] = useState<"Service Request" | "Incident">("Service Request");
   const { data: rows = [], isLoading } = useQuery<any[]>({ queryKey: ["itsm-catalog", "setup", type], queryFn: () => apiFetch(`/itsm-catalog?ticketType=${encodeURIComponent(type)}`) });
   const { data: teams = [] } = useQuery<any[]>({ queryKey: ["itsm-teams"], queryFn: () => apiFetch("/itsm-teams") });
-  const [draft, setDraft] = useState<Record<number, any>>({}); const [busy, setBusy] = useState<number | null>(null); const [add, setAdd] = useState<any>(null);
+  const [draft, setDraft] = useState<Record<number, any>>({}); const [busy, setBusy] = useState<number | null>(null); const [add, setAdd] = useState<any>(null); const [upload, setUpload] = useState(false);
   useEffect(() => { setDraft(Object.fromEntries(rows.map(r => [r.id, { teamId: r.teamId ?? null, resolutionDays: r.resolutionDays ?? "" }]))); }, [rows]);
   const groups = useMemo(() => rows.filter(r => !r.subcategory).map(c => ({ cat: c, subs: rows.filter(r => r.subcategory && r.category.toLowerCase() === c.category.toLowerCase()) })), [rows]);
   const refresh = () => ["itsm-catalog", "itsm-teams", "itsm-route"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
@@ -173,12 +174,17 @@ function Catalog() {
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">{(["Service Request", "Incident"] as const).map(t => <button key={t} onClick={() => setType(t)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", type === t ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{t}</button>)}</div>
-        {canEdit && <Button size="sm" className="gap-1.5" onClick={() => setAdd({ ticketType: type, category: "", subcategory: null, teamId: null, resolutionDays: "" })}><Plus className="w-4 h-4" />New category</Button>}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={async () => { try { const n = await downloadCatalogSheet(); toast({ title: `${n} rows downloaded` }); } catch (e: any) { toast({ title: "Download failed", description: e.message, variant: "destructive" }); } }}><Download className="w-4 h-4" />Download Excel</Button>
+          {canEdit && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setUpload(true)}><Upload className="w-4 h-4" />Upload Excel</Button>}
+          {canEdit && <Button size="sm" className="gap-1.5" onClick={() => setAdd({ ticketType: type, category: "", subcategory: null, teamId: null, resolutionDays: "" })}><Plus className="w-4 h-4" />New category</Button>}
+        </div>
       </div>
       <div className="flex items-start gap-2 text-xs text-muted-foreground"><Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />A new ticket goes to the team mapped to its sub-category (or its category). Expected closure date = raised date + the working days set here (Saturday and Sunday skipped); blank days = T+2. Changes apply to new tickets.</div>
       <div className="grid grid-cols-12 gap-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><div className="col-span-12 md:col-span-4">Category › Sub-category</div><div className="col-span-7 md:col-span-4">Assigned group</div><div className="col-span-3 md:col-span-2">Days to close</div></div>
       {isLoading && <div className="text-sm text-muted-foreground px-3">Loading…</div>}
       <div className="space-y-2">{groups.map(g => <div key={g.cat.id} className="rounded-[10px] border overflow-hidden divide-y">{renderRow(g.cat)}{g.subs.map(sr => renderRow(sr, true))}</div>)}</div>
+      <CatalogUploadDialog open={upload} onClose={() => setUpload(false)} />
       {add && <AddCatalog init={add} teams={teams} onClose={() => setAdd(null)} onDone={refresh} />}
     </CardContent></Card>
   );
