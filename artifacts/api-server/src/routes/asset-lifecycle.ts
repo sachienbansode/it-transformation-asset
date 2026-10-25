@@ -5,6 +5,9 @@ import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
 import { snapshotRegister, archiveAssetUpload } from "../lib/archive";
 import { notify, htmlTable } from "../lib/mailer";
+import { getLock, assertOpenDate, loadCarries, LockError } from "../lib/finance-controls";
+import { resolveInput, accumulated } from "../lib/depreciation";
+import { loadRules } from "./asset-finance";
 
 /*
  * Asset lifecycle (ManageEngine-style asset states).
@@ -41,7 +44,15 @@ export const ALLOCATION_TYPES = ["Permanent", "Temporary", "Loaner"];
 const router = Router();
 
 function fail(res: Response, status: number, error: string) { res.status(status).json({ error }); }
-function handleError(res: Response, e: unknown) { fail(res, 500, e instanceof Error ? e.message : String(e)); }
+function handleError(res: Response, e: unknown) { fail(res, e instanceof LockError ? 409 : 500, e instanceof Error ? e.message : String(e)); }
+
+/** Book value on the disposal / write-off date and the profit (loss) against the sale value. Null when cost / purchase date are missing. */
+async function disposalPL(asset: any, date: string, sale: number) {
+  const { input } = resolveInput({ ...asset, disposalDate: date }, await loadRules(), await loadCarries());
+  if (!input) return { bookValue: null as string | null, gainLoss: null as string | null };
+  const book = Math.round((input.cost - accumulated(input, date)) * 100) / 100;
+  return { bookValue: book.toFixed(2), gainLoss: (Math.round((sale - book) * 100) / 100).toFixed(2) };
+}
 async function safeLog(p: Parameters<typeof logAudit>[0]) { try { await logAudit(p); } catch { /* non-fatal */ } }
 const s = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
 const today = () => new Date().toISOString().slice(0, 10);
@@ -255,7 +266,28 @@ router.post("/assets/:id/transition", requireAuth, async (req, res) => {
       if (!s(req.body.disposalReference)) return fail(res, 400, "Disposal certificate / reference number is required");
       const val = s(req.body.disposalValue);
       if (val && !Number.isFinite(Number(val))) return fail(res, 400, "Disposal value must be a number");
-      Object.assign(patch, { disposalDate: s(req.body.disposalDate) || today(), disposalMethod: method, disposalReference: s(req.body.disposalReference), disposalValue: val ? Number(val).toFixed(2) : null });
+      if (val && Number(val) < 0) return fail(res, 400, "Disposal value cannot be negative");
+      const date = s(req.body.disposalDate) || today();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today()) return fail(res, 400, "Disposal date must be a valid date, not in the future");
+      if (asset.purchaseDate && date < asset.purchaseDate) return fail(res, 400, `Disposal date is before the purchase date (${asset.purchaseDate})`);
+      await assertOpenDate(date, "Disposal date");
+      const pl = await disposalPL(asset, date, val ? Number(val) : 0);
+      Object.assign(patch, { disposalDate: date, disposalMethod: method, disposalReference: s(req.body.disposalReference), disposalValue: val ? Number(val).toFixed(2) : null, disposalBookValue: pl.bookValue, disposalGainLoss: pl.gainLoss });
+    }
+    if (to === "Lost / Stolen") {
+      // Write-off: depreciation stops and the remaining book value is a loss (less any insurance claim recorded later)
+      const date = today();
+      await assertOpenDate(date, "Write-off date");
+      const pl = await disposalPL(asset, date, 0);
+      Object.assign(patch, { disposalDate: date, disposalMethod: "Write-off (lost / stolen)", disposalReference: reason, disposalValue: null, disposalBookValue: pl.bookValue, disposalGainLoss: pl.gainLoss });
+    }
+    if (asset.status === "Lost / Stolen" && to !== "Disposed" && to !== "Lost / Stolen") {
+      // Found again: reverse the write-off (only while its year is open)
+      if (asset.disposalDate) {
+        const lock = await getLock();
+        if (lock && asset.disposalDate <= lock.lockDate) return fail(res, 409, `The write-off on ${asset.disposalDate} is in ${lock.label}, which is closed — ask Finance to reopen the year, or register the found asset again.`);
+      }
+      Object.assign(patch, { disposalDate: null, disposalMethod: null, disposalReference: null, disposalValue: null, disposalBookValue: null, disposalGainLoss: null });
     }
     const who = await actor(req);
     patch.updatedBy = who.performedBy;
@@ -271,12 +303,14 @@ router.post("/assets/:id/transition", requireAuth, async (req, res) => {
       }
       await tx.update(assetsTable).set(patch).where(eq(assetsTable.id, id));
       const moved = (patch as any).location && (patch as any).location !== asset.location ? [{ field: "location", label: "Location", from: asset.location, to: (patch as any).location }] : [];
-      const disp = to === "Disposed" ? [{ field: "disposal", label: "Disposal", from: null, to: [(patch as any).disposalMethod, (patch as any).disposalReference, (patch as any).disposalValue ? `₹${(patch as any).disposalValue}` : null].filter(Boolean).join(" · ") }] : [];
+      const disp = to === "Disposed" || to === "Lost / Stolen" ? [{ field: "disposal", label: to === "Disposed" ? "Disposal" : "Write-off", from: null, to: [(patch as any).disposalMethod, to === "Disposed" ? (patch as any).disposalReference : null, (patch as any).disposalValue ? `sale ₹${(patch as any).disposalValue}` : null,
+        (patch as any).disposalBookValue !== null && (patch as any).disposalBookValue !== undefined ? `book value ₹${(patch as any).disposalBookValue}` : null,
+        (patch as any).disposalGainLoss !== null && (patch as any).disposalGainLoss !== undefined ? `${Number((patch as any).disposalGainLoss) >= 0 ? "profit" : "loss"} ₹${Math.abs(Number((patch as any).disposalGainLoss))}` : null].filter(Boolean).join(" · ") }] : [];
       await tx.insert(assetTransactionsTable).values({ assetId: id, action, oldStatus: asset.status, newStatus: to, userName: who.performedBy, notes: detail || null, comment: reason, changes: [...moved, ...disp].length ? [...moved, ...disp] : null });
     });
     await safeLog({ entityType: "asset", entityId: id, action: "transition", performedBy: who.performedBy, summary: `${asset.assetTag}: ${asset.status} → ${to}${reason ? ` (${reason})` : ""}`, context: buildContext(req, "Asset Lifecycle") });
     if (to === "Disposed" || to === "Lost / Stolen") void notify("asset_disposed", { subject: `${asset.assetTag} ${to === "Disposed" ? "disposed" : "reported lost / stolen"} — ${asset.name}`,
-      html: `<p>An asset left the active register.</p>${htmlTable([["Asset", `${asset.assetTag} — ${asset.name}`], ["Serial", asset.serialNumber || "—"], ["Status", `${asset.status} → ${to}`], ["Last holder", asset.ownerName ? `${asset.ownerName} (${asset.ownerEmployeeCode || "—"})` : "—"], ["Reason", reason || "—"], ["Disposal method", s(req.body.disposalMethod) || "—"], ["Certificate / ref", s(req.body.disposalReference) || "—"], ["By", who.performedBy]])}` });
+      html: `<p>An asset left the active register.</p>${htmlTable([["Asset", `${asset.assetTag} — ${asset.name}`], ["Serial", asset.serialNumber || "—"], ["Status", `${asset.status} → ${to}`], ["Last holder", asset.ownerName ? `${asset.ownerName} (${asset.ownerEmployeeCode || "—"})` : "—"], ["Reason", reason || "—"], ["Disposal method", (patch as any).disposalMethod || "—"], ["Certificate / ref", s(req.body.disposalReference) || "—"], ["Book value", (patch as any).disposalBookValue != null ? `₹${(patch as any).disposalBookValue}` : "—"], ["Sale value", (patch as any).disposalValue ? `₹${(patch as any).disposalValue}` : "—"], ["Profit / (loss)", (patch as any).disposalGainLoss != null ? `₹${(patch as any).disposalGainLoss}` : "—"], ["By", who.performedBy]])}` });
     res.json({ ok: true, status: to });
   } catch (e) { handleError(res, e); }
 });

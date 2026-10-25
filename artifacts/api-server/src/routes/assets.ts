@@ -7,11 +7,13 @@ import { snapshotRegister, archiveAssetUpload, ASSET_TABLES, createBatch, batchW
 import { missingMasters, ensureMasters } from "../lib/masters-auto";
 import { notify, htmlTable } from "../lib/mailer";
 
+import { getLock, createRequest, pendingFor, notifyRequest, assertOpenDate, LockError } from "../lib/finance-controls";
+
 const router = Router();
 
 function handleError(res: Response, e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
-  res.status(500).json({ error: msg });
+  res.status(e instanceof LockError ? 409 : 500).json({ error: msg });
 }
 
 async function safeLog(params: Parameters<typeof logAudit>[0]) {
@@ -66,6 +68,7 @@ function diffAsset(oldA: any, newA: any) {
   }
   return out;
 }
+const FINANCE_FIELDS = ["cost", "purchaseDate", "depreciationMethod", "usefulLifeYears", "salvageValue"];
 const LIFECYCLE_FIELDS = ["status", "ownerId", "ownerName", "ownerEmail", "ownerEmployeeCode", "disposalDate", "disposalMethod", "disposalReference", "disposalValue"];
 
 router.post("/assets", requireAuth, async (req, res) => {
@@ -94,6 +97,7 @@ router.post("/assets", requireAuth, async (req, res) => {
         return;
       }
     }
+    if (norm(req.body.purchaseDate) && Number(req.body.cost) > 0) await assertOpenDate(req.body.purchaseDate, "Purchase date");
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     const ctx = buildContext(req, "Asset Registry");
     const comment = norm(req.body.comment); delete req.body.comment;
@@ -101,6 +105,15 @@ router.post("/assets", requireAuth, async (req, res) => {
     await db.insert(assetTransactionsTable).values({ assetId: item.id, action: "Registered", newStatus: item.status, userName: performedBy, comment, notes: `Registered as ${item.status}` });
     await safeLog({ entityType: "asset", entityId: item.id, action: "create", performedBy, summary: `Created asset: ${item.name} (${item.assetTag})`, newValues: item, context: ctx });
     res.status(201).json(item);
+  } catch (e) { handleError(res, e); }
+});
+
+router.get("/assets/:id", requireAuth, async (req, res, next) => {
+  if (!/^\d+$/.test(String(req.params.id))) return next();
+  try {
+    const [a] = await db.select().from(assetsTable).where(eq(assetsTable.id, Number(req.params.id)));
+    if (!a) { res.status(404).json({ error: "Asset not found" }); return; }
+    res.json(a);
   } catch (e) { handleError(res, e); }
 });
 
@@ -113,9 +126,27 @@ router.patch("/assets/:id", requireAuth, async (req, res) => {
     for (const f of LIFECYCLE_FIELDS) delete req.body[f];
     const comment = norm(req.body.comment); delete req.body.comment;
     for (const f of ["id", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive"]) delete req.body[f];
-    const changes = diffAsset(old, { ...old, ...req.body });
-    if (!changes.length) { res.json(old); return; }
+    const allChanges = diffAsset(old, { ...old, ...req.body });
+    if (!allChanges.length) { res.json(old); return; }
     if (!comment || comment.length < 3) { res.status(400).json({ error: "Please add a comment explaining the change (reason / reference)." }); return; }
+    // Cost, purchase date and depreciation fields are maker-checker: they wait in Depreciation › Approvals
+    const finChanges = allChanges.filter(c => FINANCE_FIELDS.includes(c.field));
+    const changes = allChanges.filter(c => !FINANCE_FIELDS.includes(c.field));
+    for (const f of FINANCE_FIELDS) delete req.body[f];
+    let financeRequest: { id: number; requestNo: string } | null = null;
+    if (finChanges.length) {
+      const dup = await pendingFor("asset_edit", "assetId", id);
+      if (dup) { res.status(409).json({ error: `A cost / depreciation change for ${old.assetTag} is already waiting for approval (${dup.request_no}).` }); return; }
+      const set = Object.fromEntries(finChanges.map(c => [c.field, c.to === null ? null : ["cost", "salvageValue"].includes(c.field) ? Number(c.to).toFixed(2) : ["usefulLifeYears"].includes(c.field) ? String(Number(c.to)) : c.to]));
+      const { lockedFinanceChange } = await import("../lib/finance-controls");
+      const locked = lockedFinanceChange(old, { ...old, ...set }, await getLock());
+      if (locked) { res.status(409).json({ error: locked }); return; }
+      const by = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+      financeRequest = await createRequest({ kind: "asset_edit", title: `${old.assetTag} — ${finChanges.map(c => c.label).join(", ")}`, payload: { assetId: id, set, changes: finChanges, comment },
+        preview: { changes: [{ assetTag: old.assetTag, name: old.name, changes: finChanges }] }, by, userId: (req.session as any)?.userId ?? null, note: comment });
+      void notifyRequest(financeRequest.id);
+      if (!changes.length) { res.json({ ...old, financeRequest }); return; }
+    }
     const { type, serialNumber } = req.body;
     if (serialNumber && type) {
       const existing = await db.select({ id: assetsTable.id }).from(assetsTable)
@@ -131,7 +162,7 @@ router.patch("/assets/:id", requireAuth, async (req, res) => {
     await db.insert(assetTransactionsTable).values({ assetId: id, action: "Updated", userName: performedBy, comment, changes,
       notes: changes.map(c => c.label).join(", ") + " changed" });
     await safeLog({ entityType: "asset", entityId: id, action: "update", performedBy, summary: `Updated asset: ${item.name} (${item.assetTag}) — ${changes.map(c => `${c.label}: ${c.from ?? "—"} → ${c.to ?? "—"}`).join("; ")}${comment ? ` · "${comment}"` : ""}`, newValues: { changes, comment }, context: ctx });
-    res.json(item);
+    res.json({ ...item, financeRequest });
   } catch (e) { handleError(res, e); }
 });
 
@@ -141,6 +172,8 @@ router.delete("/assets/:id", requireAuth, async (req, res) => {
     const [old] = await db.select().from(assetsTable).where(eq(assetsTable.id, id));
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     if (old && ["Allocated"].includes(old.status)) { res.status(400).json({ error: `${old.assetTag} is issued to ${old.ownerName} — return it before deleting` }); return; }
+    const lock = await getLock();
+    if (old && lock && Number(old.cost) > 0 && old.purchaseDate && old.purchaseDate <= lock.lockDate) { res.status(409).json({ error: `${old.assetTag} is in the closed ${lock.label} fixed asset register — dispose of it or write it off instead of deleting.` }); return; }
     await db.update(assetsTable).set({ isActive: false }).where(eq(assetsTable.id, id));
     await db.insert(assetTransactionsTable).values({ assetId: id, action: "Deleted", oldStatus: old?.status, userName: performedBy, comment: norm(req.query.reason as string) });
     await safeLog({ entityType: "asset", entityId: id, action: "delete", performedBy, summary: `Deleted asset: ${old?.name || id} (${old?.assetTag || ""})`, context: buildContext(req, "Asset Registry") });
@@ -203,6 +236,7 @@ router.post("/assets/import", requireAuth, async (req, res) => {
     const byCode = new Map(people.filter(p => p.code).map(p => [p.code!.trim().toLowerCase(), p]));
     for (const a of existing) typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
 
+    const lock = await getLock();
     const clean: any[] = [];
     rows.forEach((raw, i) => {
       const rowNo = Number(raw?.__row) || i + 2; // Excel row number (header is row 1)
@@ -241,6 +275,7 @@ router.post("/assets/import", requireAuth, async (req, res) => {
         const n = Number(String(r.cost).replace(/[,₹\s]/g, ""));
         if (!Number.isFinite(n) || n < 0) err("Cost", `"${r.cost}" is not a valid amount`); else r.cost = n.toFixed(2);
       }
+      if (lock && r.purchaseDate && Number(r.cost) > 0 && r.purchaseDate <= lock.lockDate) err("Purchase Date", `${r.purchaseDate} is in ${lock.label}, which is closed — use a later date or ask Finance to reopen the year`);
       if (r.assetTag) {
         if (usedTags.has(r.assetTag.toLowerCase())) err("Asset Tag", `"${r.assetTag}" already exists`);
         else usedTags.add(r.assetTag.toLowerCase());

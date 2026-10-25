@@ -11,16 +11,19 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { Tabs, inr, inrShort, fmtDate, downloadCsv, DepScheduleDialog, FinanceUploadDialog, downloadFinanceSheet } from "@/components/asset-finance";
-import { Landmark, TrendingDown, PackagePlus, Wallet, Search, Download, Upload, AlertTriangle, Save, Loader2 } from "lucide-react";
+import { Landmark, TrendingDown, PackagePlus, Wallet, Search, Download, Upload, AlertTriangle, Save, Loader2, Lock } from "lucide-react";
+import { Approvals, YearClose, Disposals, Journal, useFinanceRequests } from "@/components/asset-finance-controls";
 import { cn } from "@/lib/utils";
 
 const PAGE = 15;
 
 export default function AssetDepreciation() {
-  const initial = new URLSearchParams(window.location.search).get("tab");
-  const [tab, setTab] = useState<"register" | "missing" | "rules">(initial === "missing" ? "missing" : initial === "rules" ? "rules" : "register");
+  const TABS = ["register", "approvals", "close", "disposals", "journal", "missing", "rules"] as const;
+  const initial = new URLSearchParams(window.location.search).get("tab") as any;
+  const [tab, setTab] = useState<typeof TABS[number]>(TABS.includes(initial) ? initial : "register");
   const [fy, setFy] = useState<number | null>(null);
-  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_registry", "write");
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_registry", "write") || canAccess("asset_depreciation", "write");
+  const { data: pend } = useFinanceRequests("Pending");
   const [upload, setUpload] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ["asset-depreciation", fy], queryFn: () => apiFetch<any>(`/asset-depreciation/register${fy ? `?fy=${fy}` : ""}`) });
 
@@ -29,16 +32,22 @@ export default function AssetDepreciation() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Depreciation</h1>
-          <p className="text-sm text-muted-foreground">Fixed-asset register for IT assets — Companies Act Schedule II useful lives, SLM or WDV, Indian financial year, pro-rata by days.</p>
+          <p className="text-sm text-muted-foreground">Fixed-asset register for IT assets, with maker-checker approvals, year-end lock, disposal P&L and the monthly journal — Companies Act Schedule II, SLM / WDV, Indian financial year.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {isAdmin && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setUpload(true)}><Upload className="w-4 h-4" />Update purchase & cost</Button>}
-          <Tabs tabs={[{ key: "register", label: "Register" }, { key: "missing", label: "Missing data", count: data?.missing?.length }, { key: "rules", label: "Rules" }]} value={tab} onChange={setTab} />
         </div>
+      </div>
+      <div className="-mt-2">
+          <Tabs tabs={[{ key: "register", label: "Register" }, { key: "approvals", label: "Approvals", count: pend?.pending || undefined }, { key: "close", label: "Year-end close" }, { key: "disposals", label: "Disposals P&L" }, { key: "journal", label: "Monthly journal" }, { key: "missing", label: "Missing data", count: data?.missing?.length }, { key: "rules", label: "Rules" }]} value={tab} onChange={setTab} />
       </div>
       {tab === "register" && <Register data={data} isLoading={isLoading} fy={fy} setFy={setFy} />}
       {tab === "missing" && <Missing data={data} onUpload={() => setUpload(true)} />}
       {tab === "rules" && <Rules />}
+      {tab === "approvals" && <Approvals />}
+      {tab === "close" && <YearClose />}
+      {tab === "disposals" && <Disposals />}
+      {tab === "journal" && <Journal />}
       <FinanceUploadDialog open={upload} onClose={() => setUpload(false)} />
     </div>
   );
@@ -59,9 +68,10 @@ function Register({ data, isLoading, fy, setFy }: { data: any; isLoading: boolea
     <>
       <div className="flex flex-wrap items-center gap-3">
         <select className="h-9 rounded-md border bg-background px-3 text-sm font-medium" value={fy ?? data?.fy ?? ""} onChange={e => { setFy(Number(e.target.value)); setPage(1); }}>
-          {(data?.years || []).map((y: any) => <option key={y.fy} value={y.fy}>{y.label}</option>)}
+          {(data?.years || []).map((y: any) => <option key={y.fy} value={y.fy}>{y.label}{y.closed ? " (closed)" : ""}</option>)}
         </select>
         {data && <span className="text-sm text-muted-foreground">{fmtDate(data.from)} – {fmtDate(data.asOf)}{partial ? " (year to date)" : ""}</span>}
+        {data?.locked && <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300"><Lock className="w-3 h-3" />Closed — frozen register{data.closedBy ? ` · ${data.closedBy}` : ""}</span>}
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard icon={Landmark} label="Gross block (closing)" value={inrShort(t.grossClosing)} sub={`opening ${inrShort(t.grossOpening)}`} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
@@ -125,7 +135,7 @@ function Register({ data, isLoading, fy, setFy }: { data: any; isLoading: boolea
 }
 
 function Missing({ data, onUpload }: { data: any; onUpload: () => void }) {
-  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_registry", "write"); const { toast } = useToast();
+  const { canAccess } = useAuth(); const isAdmin = canAccess("asset_registry", "write") || canAccess("asset_depreciation", "write"); const { toast } = useToast();
   const [page, setPage] = useState(1);
   const rows: any[] = data?.missing || [];
   return (
@@ -168,15 +178,15 @@ function Rules() {
   const rate = (d: any) => d && d.method === "WDV" && d.usefulLifeYears > 0 ? `${((1 - Math.pow(Math.max(Number(d.salvagePct), 5) / 100, 1 / d.usefulLifeYears)) * 100).toFixed(2)}% p.a.` : d && d.method === "SLM" && d.usefulLifeYears > 0 ? `${((100 - Number(d.salvagePct)) / d.usefulLifeYears).toFixed(2)}% p.a.` : "—";
   async function save(r: any) {
     const d = draft[r.id];
-    if (!await confirmDialog(`Change the ${r.assetType} rule to ${d.method}${d.method !== "None" ? `, ${d.usefulLifeYears} years, ${d.salvagePct}% residual` : ""}?\n\nAll ${r.assetType} assets without their own override are recalculated, including past years in the register.`, { title: "Update depreciation rule", confirmText: "Save rule" })) return;
+    if (!await confirmDialog(`Submit a change to the ${r.assetType} rule — ${d.method}${d.method !== "None" ? `, ${d.usefulLifeYears} years, ${d.salvagePct}% residual` : ""} — for approval?\n\nFinance (a different person) approves it in the Approvals tab. ${r.assetType} assets without their own override are then recalculated; closed years stay frozen.`, { title: "Change depreciation rule", confirmText: "Submit for approval" })) return;
     setBusy(r.id);
-    try { await apiFetch(`/asset-depreciation/rules/${r.id}`, { method: "PUT", body: JSON.stringify(d) }); ["asset-dep-rules", "asset-depreciation", "asset-dashboard", "asset-coverage", "asset-dep"].forEach(k => qc.invalidateQueries({ queryKey: [k] })); toast({ title: `${r.assetType} rule saved` }); }
+    try { const x = await apiFetch<any>(`/asset-depreciation/rules/${r.id}`, { method: "PUT", body: JSON.stringify(d) }); ["asset-dep-rules", "asset-fin-requests"].forEach(k => qc.invalidateQueries({ queryKey: [k] })); toast({ title: `Sent for approval — ${x.requestNo}`, description: `${r.assetType} rule changes when Finance approves it.` }); }
     catch (x: any) { toast({ title: "Could not save", description: x.message, variant: "destructive" }); } finally { setBusy(null); }
   }
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <p className="text-sm text-muted-foreground">Default method and useful life per asset type. Defaults follow Companies Act 2013 Schedule II (end-user computers 3 years, servers & networks 6 years) with 5% residual value. An individual asset can override these in its edit form.</p>
+        <p className="text-sm text-muted-foreground">Changes go through approval (Approvals tab) and never alter a closed year. Default method and useful life per asset type. Defaults follow Companies Act 2013 Schedule II (end-user computers 3 years, servers & networks 6 years) with 5% residual value. An individual asset can override these in its edit form.</p>
         <Table>
           <TableHeader><TableRow><TableHead>Asset type</TableHead><TableHead>Method</TableHead><TableHead>Useful life (yrs)</TableHead><TableHead>Residual %</TableHead><TableHead>Effective rate</TableHead><TableHead>Basis / notes</TableHead><TableHead /></TableRow></TableHeader>
           <TableBody>
@@ -188,7 +198,7 @@ function Rules() {
                 <TableCell><Input disabled={!isAdmin || d.method === "None"} type="number" min={0} max={99} className="h-8 w-20" value={d.salvagePct} onChange={e => set(r.id, "salvagePct", e.target.value)} /></TableCell>
                 <TableCell className="text-sm text-muted-foreground tabular-nums">{rate(d)}</TableCell>
                 <TableCell><Input disabled={!isAdmin} className="h-8 min-w-[200px]" value={d.notes} onChange={e => set(r.id, "notes", e.target.value)} /></TableCell>
-                <TableCell>{isAdmin && <Button size="sm" variant={dirty(r) ? "default" : "ghost"} disabled={!dirty(r) || busy === r.id} className={cn("gap-1.5", !dirty(r) && "opacity-40")} onClick={() => save(r)}>{busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}Save</Button>}</TableCell>
+                <TableCell>{isAdmin && <Button size="sm" variant={dirty(r) ? "default" : "ghost"} disabled={!dirty(r) || busy === r.id} className={cn("gap-1.5", !dirty(r) && "opacity-40")} onClick={() => save(r)}>{busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}Submit</Button>}</TableCell>
               </TableRow>
             ); })}
           </TableBody>

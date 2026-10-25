@@ -226,13 +226,13 @@ export function FinanceUploadDialog({ open, onClose }: { open: boolean; onClose:
   }
   async function apply() {
     if (!result || result.errors.length || !result.toUpdate) return;
-    if (!await confirmDialog(`Update ${result.toUpdate} asset(s) — ${result.fieldsChanged} field change(s) — from "${fileName}"?\n\nEach change is recorded in the asset's history.`, { title: "Apply finance data", confirmText: "Apply changes" })) return;
+    if (!await confirmDialog(`Submit ${result.toUpdate} asset(s) — ${result.fieldsChanged} field change(s) — from "${fileName}" for approval?\n\nFinance (a different person) approves it in Depreciation › Approvals; the changes are applied, archived and emailed then.`, { title: "Submit for approval", confirmText: "Submit for approval" })) return;
     setBusy(true);
     try {
       const r = await apiFetch<FinResult>("/assets/finance-update", { method: "POST", body: JSON.stringify({ rows, dryRun: false, fileName }) });
       if (r.errors.length) { setResult(r); return; }
-      ["assets", "asset-dashboard", "asset-depreciation", "asset-warranty", "asset-coverage"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
-      toast({ title: "Finance data updated", description: `${r.updated} assets updated.${(r as any).archiveBatch ? ` Archived as ${(r as any).archiveBatch}.` : ""}` });
+      ["assets", "asset-dashboard", "asset-depreciation", "asset-warranty", "asset-coverage", "asset-fin-requests"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+      toast({ title: `Submitted for approval — ${(r as any).requestNo}`, description: `${result.toUpdate} asset(s). Changes apply when Finance approves them in Depreciation › Approvals.` });
       close();
     } catch (err: any) { toast({ title: "Update failed", description: err.message, variant: "destructive" }); }
     finally { setBusy(false); }
@@ -288,7 +288,7 @@ export function FinanceUploadDialog({ open, onClose }: { open: boolean; onClose:
           )}
         </div>
         <div className="flex justify-start gap-2 pt-3 border-t">
-          <Button onClick={apply} disabled={busy || !result || !!result.errors.length || !result.toUpdate} className="gap-2">{busy && result ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}Apply changes</Button>
+          <Button onClick={apply} disabled={busy || !result || !!result.errors.length || !result.toUpdate} className="gap-2">{busy && result ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}Submit for approval</Button>
           <Button variant="outline" onClick={close} disabled={busy}><X className="w-4 h-4" />Cancel</Button>
         </div>
       </DialogContent>

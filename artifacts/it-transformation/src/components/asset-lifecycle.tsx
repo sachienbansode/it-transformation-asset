@@ -395,13 +395,35 @@ function TransitionDialog({ asset, action, onClose, onDone }: { asset: any; acti
             <div><Label className={field}>Value realised (₹)</Label><Input type="number" min="0" value={f.disposalValue || ""} onChange={e => set("disposalValue", e.target.value)} /></div>
           </>}
           <div className="col-span-2"><Label className={field}>{needsReason ? "Reason *" : "Remarks"}</Label><Textarea rows={2} value={f.reason || ""} onChange={e => set("reason", e.target.value)} /></div>
+          {(to === "Disposed" || to === "Lost / Stolen") && <DisposalValuePanel assetId={asset.id} date={to === "Disposed" ? f.disposalDate : new Date().toISOString().slice(0, 10)} value={to === "Disposed" ? f.disposalValue : "0"} writeOff={to === "Lost / Stolen"} />}
         </div>
-        <div className="flex justify-start gap-2 pt-3 border-t">
+        <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-start gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
           <Button onClick={submit} disabled={busy} className={cn("gap-2", meta.danger && "bg-red-600 hover:bg-red-700")}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}{meta.label.split(" — ")[0]}</Button>
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Book value on the disposal date and the profit / loss against the value realised (from the depreciation schedule). */
+function DisposalValuePanel({ assetId, date, value, writeOff }: { assetId: number; date: string; value: string; writeOff: boolean }) {
+  const v = value && Number(value) >= 0 ? Number(value) : 0;
+  const { data, isFetching, error } = useQuery({ queryKey: ["asset-disposal-preview", assetId, date, v], queryFn: () => apiFetch<any>(`/asset-depreciation/asset/${assetId}?on=${date}&value=${v}`), enabled: !!date, retry: false });
+  const inr = (n: number) => `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+  if (error) return null;
+  const locked = data?.lock && date && date <= data.lock.lockDate;
+  return (
+    <div className="col-span-2 rounded-[10px] border bg-muted/30 p-3 text-sm">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">{writeOff ? "Write-off (finance)" : "Profit / loss on disposal"}{isFetching && " …"}</div>
+      {locked && <div className="text-red-600 text-xs font-semibold mb-1">{date} is in {data.lock.label}, which is closed — use a later date.</div>}
+      {data?.missing ? <div className="text-amber-700 dark:text-amber-300 text-xs">Cost / purchase date missing ({data.missing.join(", ")}) — the profit / loss cannot be calculated. Fill them in via Depreciation › Update purchase & cost.</div>
+        : data && <div className="grid grid-cols-3 gap-2">
+          <div><div className="text-[11px] text-muted-foreground">Book value on {date}</div><div className="font-semibold tabular-nums">{inr(data.bookValue)}</div><div className="text-[10px] text-muted-foreground">cost {inr(data.input?.cost)} − dep {inr(data.accumulated)}</div></div>
+          <div><div className="text-[11px] text-muted-foreground">{writeOff ? "Recovered" : "Value realised"}</div><div className="font-semibold tabular-nums">{inr(v)}</div></div>
+          <div><div className="text-[11px] text-muted-foreground">{(data.disposal?.gainLoss ?? 0) >= 0 ? "Profit" : "Loss"}</div><div className={cn("font-bold tabular-nums", (data.disposal?.gainLoss ?? 0) >= 0 ? "text-emerald-600" : "text-red-600")}>{inr(Math.abs(data.disposal?.gainLoss ?? 0))}</div></div>
+        </div>}
+    </div>
   );
 }
 

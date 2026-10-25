@@ -60,6 +60,8 @@ export const assetsTable = pgTable("assets", {
   disposalMethod: text("disposal_method"),
   disposalReference: text("disposal_reference"),
   disposalValue: numeric("disposal_value", { precision: 12, scale: 2 }),
+  disposalBookValue: numeric("disposal_book_value", { precision: 12, scale: 2 }),
+  disposalGainLoss: numeric("disposal_gain_loss", { precision: 12, scale: 2 }),
   invoiceNo: text("invoice_no"),
   warrantyStart: text("warranty_start"),
   depreciationMethod: text("depreciation_method"),          // null = rule for the asset type
@@ -241,6 +243,9 @@ export const assetDepreciationRulesTable = pgTable("asset_depreciation_rules", {
   usefulLifeYears: numeric("useful_life_years", { precision: 5, scale: 2 }).notNull().default("3"),
   salvagePct: numeric("salvage_pct", { precision: 5, scale: 2 }).notNull().default("5"),
   notes: text("notes"),
+  assetLedger: text("asset_ledger"),
+  accDepLedger: text("acc_dep_ledger"),
+  expenseLedger: text("expense_ledger"),
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

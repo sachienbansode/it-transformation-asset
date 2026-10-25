@@ -9,6 +9,8 @@ import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
 import { snapshotRegister, archiveAssetUpload } from "../lib/archive";
 import { notify, htmlTable } from "../lib/mailer";
 import { DATE_RE, DepRule, resolveInput, schedule, accumulated, registerLine, fyOf, fyLabel, fyStart, fyEnd, today } from "../lib/depreciation";
+import { getLock, loadCarries, closedRegister, lockedFinanceChange, createRequest, pendingFor, notifyRequest, type Lock } from "../lib/finance-controls";
+import { can, getAccess } from "../lib/rbac";
 
 /*
  * Asset finance: contracts / AMC / extended warranty, warranty tracking, depreciation (Schedule II, Indian FY)
@@ -292,22 +294,35 @@ router.get("/asset-depreciation/rules", requireAuth, async (_req, res) => {
   try { res.json(await db.select().from(assetDepreciationRulesTable).orderBy(assetDepreciationRulesTable.assetType)); } catch (e) { handleError(res, e); }
 });
 
+/** Validate a rule change; returns the values to store or an error. */
+function ruleValues(body: any) {
+  const method = s(body.method) || "SLM";
+  const life = Number(body.usefulLifeYears), salvage = Number(body.salvagePct);
+  if (!["SLM", "WDV", "None"].includes(method)) return { error: "Method must be SLM, WDV or None" };
+  if (method !== "None" && !(life > 0 && life <= 60)) return { error: "Useful life must be between 0 and 60 years" };
+  if (method !== "None" && !(salvage >= 0 && salvage < 100)) return { error: "Residual value must be 0–99 %" };
+  return { v: { method, usefulLifeYears: String(life > 0 ? life : 1), salvagePct: String(salvage >= 0 ? salvage : 0), notes: s(body.notes) } };
+}
+
+/* Rule changes are maker-checker: they create a request that a different person approves (Approvals tab). */
 router.put("/asset-depreciation/rules/:id", requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const method = s(req.body.method) || "SLM";
-    const life = Number(req.body.usefulLifeYears), salvage = Number(req.body.salvagePct);
-    if (!["SLM", "WDV", "None"].includes(method)) return fail(res, 400, "Method must be SLM, WDV or None");
-    if (!(life > 0 && life <= 60)) return fail(res, 400, "Useful life must be between 0 and 60 years");
-    if (!(salvage >= 0 && salvage < 100)) return fail(res, 400, "Residual value must be 0–99 %");
-    const u = await who(req);
+    const r = ruleValues(req.body); if (r.error) return fail(res, 400, r.error);
     const [old] = await db.select().from(assetDepreciationRulesTable).where(eq(assetDepreciationRulesTable.id, id));
     if (!old) return fail(res, 404, "Rule not found");
-    const [r] = await db.update(assetDepreciationRulesTable).set({ method, usefulLifeYears: String(life), salvagePct: String(salvage), notes: s(req.body.notes), updatedBy: u.performedBy, updatedAt: new Date() })
-      .where(eq(assetDepreciationRulesTable.id, id)).returning();
-    await safeLog({ entityType: "asset_depreciation_rule", entityId: id, action: "update", performedBy: u.performedBy,
-      summary: `Depreciation rule for ${r.assetType}: ${old.method} ${Number(old.usefulLifeYears)}y ${Number(old.salvagePct)}% → ${r.method} ${life}y ${salvage}%`, context: buildContext(req, "Depreciation") });
-    res.json(r);
+    const v = r.v!;
+    const preview = [["Method", old.method, v.method], ["Useful life (yrs)", Number(old.usefulLifeYears), Number(v.usefulLifeYears)], ["Residual %", Number(old.salvagePct), Number(v.salvagePct)], ["Notes", old.notes || "", v.notes || ""]]
+      .filter(([, a, b]) => String(a) !== String(b)).map(([label, from, to]) => ({ label, from, to }));
+    if (!preview.length) return fail(res, 400, "Nothing changed");
+    const dup = await pendingFor("rule_update", "id", id);
+    if (dup) return fail(res, 409, `A change to the ${old.assetType} rule is already waiting for approval (${dup.request_no}). Approve or cancel it first.`);
+    const u = await who(req);
+    const lock = await getLock();
+    const reqNo = await createRequest({ kind: "rule_update", title: `Depreciation rule — ${old.assetType}`, payload: { id, ...v }, preview: { changes: preview, effectiveFrom: lock ? fyLabel(lock.fy + 1) : null }, by: u.performedBy, userId: u.userId, note: s(req.body.note) });
+    await safeLog({ entityType: "asset_depreciation_rule", entityId: id, action: "change_requested", performedBy: u.performedBy, summary: `${reqNo.requestNo}: change to ${old.assetType} rule submitted for approval`, context: buildContext(req, "Depreciation") });
+    void notifyRequest(reqNo.id);
+    res.status(202).json({ pendingApproval: true, ...reqNo });
   } catch (e) { handleError(res, e); }
 });
 
@@ -316,40 +331,69 @@ router.post("/asset-depreciation/rules", requireAuth, async (req, res) => {
     const assetType = s(req.body.assetType); if (!assetType) return fail(res, 400, "Asset type is required");
     const [dup] = await db.select({ id: assetDepreciationRulesTable.id }).from(assetDepreciationRulesTable).where(sql`lower(asset_type) = lower(${assetType})`);
     if (dup) return fail(res, 400, `A rule for "${assetType}" already exists`);
+    const r = ruleValues({ method: "SLM", usefulLifeYears: 3, salvagePct: 5, ...req.body }); if (r.error) return fail(res, 400, r.error);
     const u = await who(req);
-    const [r] = await db.insert(assetDepreciationRulesTable).values({ assetType, method: s(req.body.method) || "SLM", usefulLifeYears: String(Number(req.body.usefulLifeYears) || 3), salvagePct: String(Number(req.body.salvagePct) || 5), notes: s(req.body.notes), updatedBy: u.performedBy }).returning();
-    res.status(201).json(r);
+    const reqNo = await createRequest({ kind: "rule_create", title: `New depreciation rule — ${assetType}`, payload: { assetType, ...r.v }, preview: { changes: [{ label: "Asset type", from: null, to: assetType }, { label: "Method", from: null, to: r.v!.method }, { label: "Useful life (yrs)", from: null, to: Number(r.v!.usefulLifeYears) }, { label: "Residual %", from: null, to: Number(r.v!.salvagePct) }] }, by: u.performedBy, userId: u.userId });
+    void notifyRequest(reqNo.id);
+    res.status(202).json({ pendingApproval: true, ...reqNo });
   } catch (e) { handleError(res, e); }
 });
+
+/** Applied by the approver (asset-finance-controls). */
+export async function applyRuleRequest(kind: string, p: any, approver: string) {
+  if (kind === "rule_create") {
+    const [dup] = await db.select({ id: assetDepreciationRulesTable.id }).from(assetDepreciationRulesTable).where(sql`lower(asset_type) = lower(${p.assetType})`);
+    if (dup) throw new Error(`A rule for "${p.assetType}" already exists`);
+    const [r] = await db.insert(assetDepreciationRulesTable).values({ assetType: p.assetType, method: p.method, usefulLifeYears: p.usefulLifeYears, salvagePct: p.salvagePct, notes: p.notes, updatedBy: approver }).returning();
+    return { ruleId: r.id };
+  }
+  const [r] = await db.update(assetDepreciationRulesTable).set({ method: p.method, usefulLifeYears: p.usefulLifeYears, salvagePct: p.salvagePct, notes: p.notes, updatedBy: approver, updatedAt: new Date() })
+    .where(eq(assetDepreciationRulesTable.id, p.id)).returning();
+  if (!r) throw new Error("Rule no longer exists");
+  return { ruleId: r.id };
+}
 
 const REGISTER_COLS = { id: assetsTable.id, assetTag: assetsTable.assetTag, name: assetsTable.name, type: assetsTable.type, serialNumber: assetsTable.serialNumber, status: assetsTable.status,
   location: assetsTable.location, department: assetsTable.department, vendorName: assetsTable.vendorName, purchaseDate: assetsTable.purchaseDate, purchaseOrderNo: assetsTable.purchaseOrderNo,
   invoiceNo: assetsTable.invoiceNo, cost: assetsTable.cost, depreciationMethod: assetsTable.depreciationMethod, usefulLifeYears: assetsTable.usefulLifeYears, salvageValue: assetsTable.salvageValue,
-  disposalDate: assetsTable.disposalDate, disposalValue: assetsTable.disposalValue, warrantyStart: assetsTable.warrantyStart, warrantyExpiry: assetsTable.warrantyExpiry };
+  disposalDate: assetsTable.disposalDate, disposalValue: assetsTable.disposalValue, disposalMethod: assetsTable.disposalMethod, warrantyStart: assetsTable.warrantyStart, warrantyExpiry: assetsTable.warrantyExpiry };
 
-router.get("/asset-depreciation/register", requireAuth, async (req, res) => {
-  try {
-    const on = today();
-    const fy = Number(req.query.fy) || fyOf(on);
-    const asOf = s(req.query.asOf) && DATE_RE.test(String(req.query.asOf)) ? String(req.query.asOf) : (fyEnd(fy) < on ? fyEnd(fy) : on);
-    const rules = await loadRules();
-    const assets = await db.select(REGISTER_COLS).from(assetsTable).where(eq(assetsTable.isActive, true)).orderBy(assetsTable.assetTag);
-    const rows: any[] = [], missing: any[] = [];
+/** Register lines for a financial year — frozen copy if the year is closed, otherwise calculated (continuing from the last close). */
+export async function buildRegister(fy: number, asOfIn?: string | null) {
+  const on = today();
+  const asOf = asOfIn && DATE_RE.test(asOfIn) ? asOfIn : (fyEnd(fy) < on ? fyEnd(fy) : on);
+  const assets = await db.select(REGISTER_COLS).from(assetsTable).where(eq(assetsTable.isActive, true)).orderBy(assetsTable.assetTag);
+  const rules = await loadRules();
+  const lock = await getLock();
+  const frozen = lock && fy <= lock.fy ? await closedRegister(fy) : null;
+  const missing: any[] = [];
+  let rows: any[] = [];
+  if (frozen) rows = frozen.register;
+  else {
+    const carries = await loadCarries();
     for (const a of assets) {
-      const { input, missing: miss } = resolveInput(a, rules);
+      const { input, missing: miss } = resolveInput(a, rules, carries);
       if (!input) { if (!GONE.includes(a.status) || a.disposalDate) missing.push({ id: a.id, assetTag: a.assetTag, name: a.name, type: a.type, serialNumber: a.serialNumber, status: a.status, location: a.location, missing: miss }); continue; }
       const line = registerLine(a, input, fy, asOf);
       if (!line) continue;
       rows.push({ ...a, method: input.method, lifeYears: input.lifeYears, salvage: input.salvage, source: input.source, ...line });
     }
-    const sum = (k: string) => Math.round(rows.reduce((t, r) => t + (Number(r[k]) || 0), 0) * 100) / 100;
-    const totals = Object.fromEntries(["grossOpening", "additions", "deletions", "grossClosing", "accOpening", "depreciation", "accOnDeletion", "accClosing", "netOpening", "netClosing"].map(k => [k, sum(k)]));
-    const years: number[] = [];
-    const first = assets.filter(a => a.purchaseDate && DATE_RE.test(a.purchaseDate)).reduce((m, a) => Math.min(m, fyOf(a.purchaseDate!)), fyOf(on));
-    for (let y = fyOf(on); y >= Math.max(first, fyOf(on) - 15); y--) years.push(y);
-    res.json({ fy, label: fyLabel(fy), from: fyStart(fy), to: fyEnd(fy), asOf, rows, missing, totals, years: years.map(y => ({ fy: y, label: fyLabel(y) })),
-      byType: Object.values(rows.reduce((m: any, r) => { const k = r.type; m[k] ||= { type: k, count: 0, gross: 0, depreciation: 0, net: 0 }; m[k].count++; m[k].gross += r.grossClosing; m[k].depreciation += r.depreciation; m[k].net += r.netClosing; return m; }, {})) });
-  } catch (e) { handleError(res, e); }
+  }
+  if (frozen) for (const a of assets) { const { input, missing: miss } = resolveInput(a, rules); if (!input && (!GONE.includes(a.status) || a.disposalDate)) missing.push({ id: a.id, assetTag: a.assetTag, name: a.name, type: a.type, serialNumber: a.serialNumber, status: a.status, location: a.location, missing: miss }); }
+  const sum = (k: string) => Math.round(rows.reduce((t, r) => t + (Number(r[k]) || 0), 0) * 100) / 100;
+  const totals = Object.fromEntries(["grossOpening", "additions", "deletions", "grossClosing", "accOpening", "depreciation", "accOnDeletion", "accClosing", "netOpening", "netClosing", "disposalValue", "gainLoss"].map(k => [k, sum(k)]));
+  const years: number[] = [];
+  const first = assets.filter(a => a.purchaseDate && DATE_RE.test(a.purchaseDate)).reduce((m, a) => Math.min(m, fyOf(a.purchaseDate!)), fyOf(on));
+  for (let y = fyOf(on); y >= Math.max(first, fyOf(on) - 15); y--) years.push(y);
+  if (lock && !years.includes(lock.fy)) years.push(lock.fy);
+  const byType = Object.values(rows.reduce((m: any, r) => { const k = r.type; m[k] ||= { type: k, count: 0, gross: 0, depreciation: 0, net: 0 }; m[k].count++; m[k].gross += r.grossClosing; m[k].depreciation += r.depreciation; m[k].net += r.netClosing; return m; }, {}));
+  return { fy, label: fyLabel(fy), from: fyStart(fy), to: fyEnd(fy), asOf: frozen ? fyEnd(fy) : asOf, rows, missing, totals, byType,
+    years: years.sort((a, b) => b - a).map(y => ({ fy: y, label: fyLabel(y), closed: !!lock && y <= lock.fy })),
+    locked: !!frozen, closedBy: frozen?.closed_by ?? null, closedAt: frozen?.closed_at ?? null, lock };
+}
+
+router.get("/asset-depreciation/register", requireAuth, async (req, res) => {
+  try { res.json(await buildRegister(Number(req.query.fy) || fyOf(today()), s(req.query.asOf))); } catch (e) { handleError(res, e); }
 });
 
 router.get("/asset-depreciation/asset/:id", requireAuth, async (req, res) => {
@@ -357,11 +401,16 @@ router.get("/asset-depreciation/asset/:id", requireAuth, async (req, res) => {
     const [a] = await db.select(REGISTER_COLS).from(assetsTable).where(eq(assetsTable.id, Number(req.params.id)));
     if (!a) return fail(res, 404, "Asset not found");
     const rules = await loadRules();
-    const { input, missing, rule } = resolveInput(a, rules);
-    if (!input) { res.json({ asset: a, rule, missing }); return; }
-    const on = today();
+    const { input, missing, rule } = resolveInput(a, rules, await loadCarries());
+    const lock = await getLock();
+    if (!input) { res.json({ asset: a, rule, missing, lock }); return; }
+    const on = s(req.query.on) && DATE_RE.test(String(req.query.on)) ? String(req.query.on) : today();
     const acc = accumulated(input, on);
-    res.json({ asset: a, rule, input, schedule: schedule(input), accumulated: acc, bookValue: Math.round((input.cost - acc) * 100) / 100, asOf: on });
+    const book = Math.round((input.cost - acc) * 100) / 100;
+    const sale = req.query.value !== undefined && req.query.value !== "" ? Number(req.query.value) : null;
+    res.json({ asset: a, rule, input: { ...input, carry: undefined }, schedule: schedule(input), accumulated: acc, bookValue: book, asOf: on, lock,
+      lockedYears: input.carry ? input.carry.rows.length : 0,
+      disposal: sale !== null && Number.isFinite(sale) ? { value: sale, gainLoss: Math.round((sale - book) * 100) / 100 } : null });
   } catch (e) { handleError(res, e); }
 });
 
@@ -378,7 +427,7 @@ router.get("/assets/:id/coverage", requireAuth, async (req, res) => {
     const licenses = await db.select({ id: assetLicenseAssignmentsTable.id, licenseId: assetLicensesTable.id, productName: assetLicensesTable.productName, edition: assetLicensesTable.edition, expiryDate: assetLicensesTable.expiryDate, assignedAt: assetLicenseAssignmentsTable.assignedAt })
       .from(assetLicenseAssignmentsTable).innerJoin(assetLicensesTable, eq(assetLicensesTable.id, assetLicenseAssignmentsTable.licenseId))
       .where(and(eq(assetLicenseAssignmentsTable.assetId, id), eq(assetLicenseAssignmentsTable.status, "Active")));
-    const { input, missing, rule } = resolveInput(a, await loadRules());
+    const { input, missing, rule } = resolveInput(a, await loadRules(), await loadCarries());
     const acc = input ? accumulated(input, on) : null;
     res.json({
       warranty: { start: a.warrantyStart ?? null, expiry: a.warrantyExpiry, ...warrantyState(a.warrantyExpiry, on) },
@@ -394,57 +443,88 @@ router.get("/assets/:id/coverage", requireAuth, async (req, res) => {
 const FIN_FIELDS: Record<string, string> = { purchaseDate: "Purchase date", purchaseOrderNo: "PO number", invoiceNo: "Invoice number", cost: "Cost", warrantyStart: "Warranty start", warrantyExpiry: "Warranty expiry",
   depreciationMethod: "Depreciation method", usefulLifeYears: "Useful life (years)", salvageValue: "Residual value" };
 
+/** Validate a finance sheet against the live register (also re-run by the approver just before applying). */
+export async function validateFinanceRows(rows: any[]) {
+  const lock = await getLock();
+  const assets = await db.select().from(assetsTable).where(eq(assetsTable.isActive, true));
+  const byTag = new Map(assets.map(a => [a.assetTag.toLowerCase(), a]));
+  const bySerial = new Map<string, any[]>();
+  for (const a of assets) if (a.serialNumber) { const k = a.serialNumber.toLowerCase(); bySerial.set(k, [...(bySerial.get(k) || []), a]); }
+  const errors: { row: number; field: string; message: string }[] = [];
+  const updates: { asset: any; set: any; changes: any[] }[] = [];
+  const seen = new Set<number>();
+  rows.forEach((raw, i): void => {
+    const rowNo = Number(raw?.__row) || i + 2;
+    const err = (field: string, message: string): void => { errors.push({ row: rowNo, field, message }); };
+    const tag = s(raw.assetTag), serial = s(raw.serialNumber);
+    let a: any = tag ? byTag.get(tag.toLowerCase()) : null;
+    if (!a && serial) { const m = bySerial.get(serial.toLowerCase()) || []; if (m.length === 1) a = m[0]; else if (m.length > 1) return err("Serial Number", `"${serial}" matches ${m.length} assets — give the Asset Tag`); }
+    if (!a) return err("Asset Tag", tag ? `"${tag}" not found` : "Asset Tag or Serial Number is required");
+    if (seen.has(a.id)) return err("Asset Tag", `${a.assetTag} appears more than once in the file`);
+    seen.add(a.id);
+    const set: any = {};
+    for (const f of ["purchaseDate", "warrantyStart", "warrantyExpiry"]) { const v = s(raw[f]); if (v === null) continue; if (!DATE_RE.test(v)) err(FIN_FIELDS[f], `"${v}" must be a date (YYYY-MM-DD)`); else set[f] = v; }
+    for (const f of ["purchaseOrderNo", "invoiceNo"]) { const v = s(raw[f]); if (v !== null) set[f] = v; }
+    for (const f of ["cost", "salvageValue"]) { const v = s(raw[f]); if (v === null) continue; const n = Number(v.replace(/[,₹\s]/g, "")); if (!Number.isFinite(n) || n < 0) err(FIN_FIELDS[f], `"${v}" is not a valid amount`); else set[f] = n.toFixed(2); }
+    { const v = s(raw.depreciationMethod); if (v !== null) { const m = ["SLM", "WDV", "None"].find(x => x.toLowerCase() === v.toLowerCase()); if (!m) err(FIN_FIELDS.depreciationMethod, `"${v}" — use SLM, WDV or None`); else set.depreciationMethod = m; } }
+    { const v = s(raw.usefulLifeYears); if (v !== null) { const n = Number(v); if (!(n > 0 && n <= 60)) err(FIN_FIELDS.usefulLifeYears, `"${v}" is not a valid number of years`); else set.usefulLifeYears = String(n); } }
+    const pd = set.purchaseDate ?? a.purchaseDate, ws = set.warrantyStart ?? a.warrantyStart, we = set.warrantyExpiry ?? a.warrantyExpiry;
+    if (pd && pd > today()) err("Purchase Date", "Cannot be in the future");
+    if (ws && we && we < ws) err("Warranty Expiry", "Is before the warranty start");
+    if (pd && we && we < pd) err("Warranty Expiry", "Is before the purchase date");
+    const changes = Object.entries(set).filter(([f, v]) => String(a[f] ?? "") !== String(v ?? "") && !(f === "cost" || f === "salvageValue" ? Number(a[f]) === Number(v) : false))
+      .map(([f, v]) => ({ field: f, label: FIN_FIELDS[f], from: a[f] ?? null, to: v }));
+    const locked = lockedFinanceChange(a, { ...a, ...Object.fromEntries(changes.map(c => [c.field, c.to])) }, lock);
+    if (locked) err("Cost / Purchase Date", locked);
+    if (changes.length) updates.push({ asset: a, set: Object.fromEntries(changes.map(c => [c.field, c.to])), changes });
+  });
+  return { errors, updates, seen, summary: { total: rows.length, matched: seen.size, toUpdate: updates.length, unchanged: seen.size - updates.length, fieldsChanged: updates.reduce((t, u) => t + u.changes.length, 0), errors } };
+}
+
+/** Who may submit a finance sheet: edit access to the Asset Registry or to Depreciation. */
+async function canSubmitFinance(req: Request) {
+  const a = await getAccess(req);
+  return !!a && (can(a, "asset_registry", "write") || can(a, "asset_depreciation", "write"));
+}
+
 router.post("/assets/finance-update", requireAuth, async (req, res) => {
   try {
+    if (!await canSubmitFinance(req)) return fail(res, 403, "You need edit access to the Asset Registry or to Depreciation to upload purchase / cost data.");
     const rows: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
     const dryRun = req.body?.dryRun !== false;
     if (!rows.length) return fail(res, 400, "The file has no rows.");
     if (rows.length > 5000) return fail(res, 400, "Maximum 5,000 rows per upload.");
-    const assets = await db.select().from(assetsTable).where(eq(assetsTable.isActive, true));
-    const byTag = new Map(assets.map(a => [a.assetTag.toLowerCase(), a]));
-    const bySerial = new Map<string, any[]>();
-    for (const a of assets) if (a.serialNumber) { const k = a.serialNumber.toLowerCase(); bySerial.set(k, [...(bySerial.get(k) || []), a]); }
-    const errors: { row: number; field: string; message: string }[] = [];
-    const updates: { asset: any; set: any; changes: any[] }[] = [];
-    const seen = new Set<number>();
-    rows.forEach((raw, i): void => {
-      const rowNo = Number(raw?.__row) || i + 2;
-      const err = (field: string, message: string): void => { errors.push({ row: rowNo, field, message }); };
-      const tag = s(raw.assetTag), serial = s(raw.serialNumber);
-      let a: any = tag ? byTag.get(tag.toLowerCase()) : null;
-      if (!a && serial) { const m = bySerial.get(serial.toLowerCase()) || []; if (m.length === 1) a = m[0]; else if (m.length > 1) return err("Serial Number", `"${serial}" matches ${m.length} assets — give the Asset Tag`); }
-      if (!a) return err("Asset Tag", tag ? `"${tag}" not found` : "Asset Tag or Serial Number is required");
-      if (seen.has(a.id)) return err("Asset Tag", `${a.assetTag} appears more than once in the file`);
-      seen.add(a.id);
-      const set: any = {};
-      for (const f of ["purchaseDate", "warrantyStart", "warrantyExpiry"]) { const v = s(raw[f]); if (v === null) continue; if (!DATE_RE.test(v)) err(FIN_FIELDS[f], `"${v}" must be a date (YYYY-MM-DD)`); else set[f] = v; }
-      for (const f of ["purchaseOrderNo", "invoiceNo"]) { const v = s(raw[f]); if (v !== null) set[f] = v; }
-      for (const f of ["cost", "salvageValue"]) { const v = s(raw[f]); if (v === null) continue; const n = Number(v.replace(/[,₹\s]/g, "")); if (!Number.isFinite(n) || n < 0) err(FIN_FIELDS[f], `"${v}" is not a valid amount`); else set[f] = n.toFixed(2); }
-      { const v = s(raw.depreciationMethod); if (v !== null) { const m = ["SLM", "WDV", "None"].find(x => x.toLowerCase() === v.toLowerCase()); if (!m) err(FIN_FIELDS.depreciationMethod, `"${v}" — use SLM, WDV or None`); else set.depreciationMethod = m; } }
-      { const v = s(raw.usefulLifeYears); if (v !== null) { const n = Number(v); if (!(n > 0 && n <= 60)) err(FIN_FIELDS.usefulLifeYears, `"${v}" is not a valid number of years`); else set.usefulLifeYears = String(n); } }
-      const pd = set.purchaseDate ?? a.purchaseDate, ws = set.warrantyStart ?? a.warrantyStart, we = set.warrantyExpiry ?? a.warrantyExpiry;
-      if (pd && pd > today()) err("Purchase Date", "Cannot be in the future");
-      if (ws && we && we < ws) err("Warranty Expiry", "Is before the warranty start");
-      if (pd && we && we < pd) err("Warranty Expiry", "Is before the purchase date");
-      const changes = Object.entries(set).filter(([f, v]) => String(a[f] ?? "") !== String(v ?? "") && !(f === "cost" || f === "salvageValue" ? Number(a[f]) === Number(v) : false))
-        .map(([f, v]) => ({ field: f, label: FIN_FIELDS[f], from: a[f] ?? null, to: v }));
-      if (changes.length) updates.push({ asset: a, set: Object.fromEntries(changes.map(c => [c.field, c.to])), changes });
-    });
-    const summary = { total: rows.length, matched: seen.size, toUpdate: updates.length, unchanged: seen.size - updates.length, fieldsChanged: updates.reduce((t, u) => t + u.changes.length, 0), errors };
-    if (dryRun || errors.length) { res.json({ ...summary, updated: 0, dryRun: true, preview: updates.slice(0, 8).map(u => ({ assetTag: u.asset.assetTag, changes: u.changes })) }); return; }
+    const { errors, updates, summary } = await validateFinanceRows(rows);
+    const preview = updates.slice(0, 8).map(u => ({ assetTag: u.asset.assetTag, changes: u.changes }));
+    if (dryRun || errors.length) { res.json({ ...summary, updated: 0, dryRun: true, preview }); return; }
+    if (!updates.length) return fail(res, 400, "Nothing to change — every value in the file already matches the register.");
+    // Maker-checker: the upload waits in Depreciation › Approvals until a different person approves it
     const u = await who(req);
-    const comment = s(req.body?.comment) || "Finance data upload";
-    const before = await snapshotRegister();
-    await db.transaction(async tx => {
-      for (const up of updates) {
-        await tx.update(assetsTable).set({ ...up.set, updatedBy: u.performedBy, updatedAt: new Date() }).where(eq(assetsTable.id, up.asset.id));
-        await tx.insert(assetTransactionsTable).values({ assetId: up.asset.id, action: "Updated", userName: u.performedBy, comment, changes: up.changes, notes: up.changes.map(c => c.label).join(", ") + " changed" });
-      }
-    });
-    await safeLog({ entityType: "asset", action: "finance_update", performedBy: u.performedBy, summary: `Finance data upload: updated ${updates.length} assets (${summary.fieldsChanged} fields)`, context: buildContext(req, "Depreciation") });
-    const archiveBatch = await archiveAssetUpload({ kind: "asset_finance_upload", fileName: s(req.body?.fileName), uploaded: rows, before, by: u.performedBy, summary: { assetsUpdated: updates.length, fieldsChanged: summary.fieldsChanged } });
-    res.json({ ...summary, updated: updates.length, dryRun: false, archiveBatch });
+    const fileName = s(req.body?.fileName);
+    const reqNo = await createRequest({ kind: "finance_upload", title: `Purchase / cost upload${fileName ? ` — ${fileName}` : ""} (${updates.length} assets)`, fileName,
+      payload: { rows, fileName, comment: s(req.body?.comment) || "Finance data upload" },
+      preview: { assets: updates.length, fields: summary.fieldsChanged, changes: updates.slice(0, 300).map(x => ({ assetTag: x.asset.assetTag, name: x.asset.name, changes: x.changes })) },
+      by: u.performedBy, userId: u.userId, note: s(req.body?.comment) });
+    await safeLog({ entityType: "asset", action: "finance_update_requested", performedBy: u.performedBy, summary: `${reqNo.requestNo}: finance upload for ${updates.length} assets submitted for approval`, context: buildContext(req, "Depreciation") });
+    void notifyRequest(reqNo.id);
+    res.status(202).json({ ...summary, updated: 0, dryRun: false, pendingApproval: true, ...reqNo });
   } catch (e) { handleError(res, e); }
 });
+
+/** Applied by the approver: re-validates against the live register, applies, archives and emails. */
+export async function applyFinanceUpload(p: any, approver: string, requestNo: string) {
+  const { errors, updates, summary } = await validateFinanceRows(p.rows || []);
+  if (errors.length) throw new Error(`The sheet no longer validates (${errors.length} error(s), e.g. row ${errors[0].row}: ${errors[0].message}). Reject it and upload a corrected sheet.`);
+  const comment = `${p.comment || "Finance data upload"} · ${requestNo} approved by ${approver}`;
+  const before = await snapshotRegister();
+  await db.transaction(async tx => {
+    for (const up of updates) {
+      await tx.update(assetsTable).set({ ...up.set, updatedBy: approver, updatedAt: new Date() }).where(eq(assetsTable.id, up.asset.id));
+      await tx.insert(assetTransactionsTable).values({ assetId: up.asset.id, action: "Updated", userName: approver, comment, changes: up.changes, notes: up.changes.map(c => c.label).join(", ") + " changed" });
+    }
+  });
+  const archiveBatch = await archiveAssetUpload({ kind: "asset_finance_upload", fileName: p.fileName || null, uploaded: p.rows, before, by: approver, summary: { request: requestNo, assetsUpdated: updates.length, fieldsChanged: summary.fieldsChanged } });
+  return { updated: updates.length, fieldsChanged: summary.fieldsChanged, archiveBatch };
+}
 
 export default router;

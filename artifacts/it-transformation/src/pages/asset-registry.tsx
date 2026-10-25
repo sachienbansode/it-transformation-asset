@@ -163,8 +163,9 @@ export default function AssetRegistry() {
 
     try {
       if (editingItem) {
-        await updateAsset.mutateAsync({ id: editingItem.id, ...payload });
-        toast({ title: "Asset updated successfully" });
+        const r: any = await updateAsset.mutateAsync({ id: editingItem.id, ...payload });
+        if (r?.financeRequest) toast({ title: `Cost / depreciation change sent for approval — ${r.financeRequest.requestNo}`, description: "Finance approves it in Depreciation › Approvals. Other changes were saved." });
+        else toast({ title: "Asset updated successfully" });
       } else {
         await createAsset.mutateAsync(payload);
         toast({ title: "Asset registered", description: `Tag: ${payload.assetTag}` });

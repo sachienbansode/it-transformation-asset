@@ -48,7 +48,8 @@ const RULES: [RegExp, string | null][] = [
   [/^\/asset-dashboard(\/|$)/, "assets"],
   [/^\/asset-(contracts|warranty)(\/|$)/, "asset_contracts"],
   [/^\/asset-depreciation(\/|$)/, "asset_depreciation"],
-  [/^\/assets\/finance-update$/, "asset_registry"],
+  [/^\/assets\/finance-update$/, null],      // Asset Registry OR Depreciation edit access — checked in the route
+  [/^\/asset-finance-requests(\/|$)/, null], // maker-checker queue — checked in the route
   [/^\/asset-(licenses|license-assignments|license-compliance)(\/|$)/, "asset_licenses"],
   [/^\/asset-vendors(\/|$)/, "asset_vendors"],
   [/^\/asset-audits(\/|$)/, "asset_audits"],
