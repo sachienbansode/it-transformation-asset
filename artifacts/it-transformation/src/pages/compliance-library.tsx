@@ -15,7 +15,7 @@ import { confirmDialog } from "@/components/confirm-dialog";
 import { Search, Upload, FileText, Eye, Download, Loader2, Archive, CalendarClock, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDocViewer } from "@/components/doc-viewer";
-import { useCompanies, uploadFile, fileUrl, fmtDate, fmtSize, d10, today, DOC_CATEGORIES, PersonPicker, refOf } from "@/components/compliance-shared";
+import { Pager, useCompanies, uploadFile, fileUrl, fmtDate, fmtSize, d10, today, DOC_CATEGORIES, PersonPicker, refOf } from "@/components/compliance-shared";
 
 /* Evidence & policy library: one copy of each document, versioned, reused by any number of checkpoints and audits. */
 
@@ -25,7 +25,8 @@ export default function ComplianceLibrary() {
   const [company, setCompany] = useState("all"); const [cat, setCat] = useState("all"); const [term, setTerm] = useState("");
   const { data: docs = [], isLoading } = useQuery<any[]>({ queryKey: ["compliance-documents", company, cat, term],
     queryFn: () => apiFetch(`/compliance-documents?${new URLSearchParams({ ...(company !== "all" ? { companyId: company } : {}), ...(cat !== "all" ? { category: cat } : {}), ...(term ? { q: term } : {}) })}`) });
-  const [open, setOpen] = useState<number | null>(null); const [add, setAdd] = useState(false);
+  const [open, setOpen] = useState<number | null>(null); const [add, setAdd] = useState(false); const [page, setPage] = useState(0);
+  React.useEffect(() => setPage(0), [company, cat, term]);
   const dueSoon = (d: any) => d.nextReviewDate && d10(d.nextReviewDate) <= new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10);
   return (
     <div className="space-y-4">
@@ -43,7 +44,7 @@ export default function ComplianceLibrary() {
         <div className="rounded-[10px] border overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40"><th className="text-left px-3 py-2">Document</th><th className="text-left px-2 w-24">Category</th><th className="text-left px-2 w-44">Company</th><th className="text-left px-2 w-32">Owner</th><th className="text-left px-2 w-28">Next review</th><th className="px-2 w-16">Used</th><th className="w-20"></th></tr></thead>
-            <tbody>{docs.map(d => (
+            <tbody>{docs.slice(page * 10, page * 10 + 10).map(d => (
               <tr key={d.id} className="border-t hover:bg-accent/40 cursor-pointer" onClick={() => setOpen(d.id)}>
                 <td className="px-3 py-2"><div className="font-medium">{d.title}</div><div className="text-[11px] text-muted-foreground">{d.fileName} · v{d.version} · {fmtSize(d.fileSize)} · {fmtDate(d.uploadedAt)}</div></td>
                 <td className="px-2 text-xs">{d.category}</td><td className="px-2 text-xs">{d.companyName || "Group-wide"}</td><td className="px-2 text-xs">{d.ownerName || "—"}</td>
@@ -55,6 +56,7 @@ export default function ComplianceLibrary() {
             </tbody>
           </table>
         </div>
+        <Pager page={page} total={docs.length} size={10} onPage={setPage} />
       </CardContent></Card>
       {open && <DocDialog id={open} canEdit={canEdit} onClose={() => setOpen(null)} />}
       {add && <NewDocDialog onClose={() => setAdd(false)} />}

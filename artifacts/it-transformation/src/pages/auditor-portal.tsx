@@ -13,8 +13,9 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
 import { ShieldCheck, Loader2, LogOut, Search, FileText, Eye, Download, Paperclip, MessageSquare, Send, ChevronLeft, ChevronRight, ArrowLeft, Table2, KeyRound, Mail, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { StatusBadge, Progress, fmtDate, fmtSize, refOf, AUDITOR_STATUSES, CLOSED, DocsButton } from "@/components/compliance-shared";
+import { StatusBadge, Progress, fmtDate, fmtSize, refOf, AUDITOR_STATUSES, CLOSED, DocsButton, Pager } from "@/components/compliance-shared";
 import { useDocViewer } from "@/components/doc-viewer";
+import { GridTable } from "@/components/compliance-grid";
 
 /* External auditor portal: sign-in (password + emailed code), set password from the invitation, and the audit review screens. */
 
@@ -170,7 +171,7 @@ function References({ auditId, canDownload }: { auditId: number; canDownload: bo
   );
 }
 
-const PAGE = 50;
+const PAGE = 10;
 function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string }) {
   const view = useDocViewer();
   const [term, setTerm] = useState(""); const [status, setStatus] = useState("todo"); const [area, setArea] = useState("all"); const [page, setPage] = useState(0); const [open, setOpen] = useState<number | null>(null);
@@ -200,7 +201,7 @@ function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string 
           </tr>))}
           {!shown.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">{items.length ? "Nothing matches the filters." : "Nothing has been shared with you yet."}</td></tr>}
         </tbody></table></div>
-      {pages > 1 && <div className="flex items-center justify-end gap-2 text-xs"><Button size="sm" variant="outline" className="h-7" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft className="w-3.5 h-3.5" /></Button><span>Page {page + 1} of {pages}</span><Button size="sm" variant="outline" className="h-7" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}><ChevronRight className="w-3.5 h-3.5" /></Button></div>}
+      <Pager page={page} total={list.length} size={PAGE} onPage={setPage} />
       {open && <Review itemId={open} audit={audit} order={list.map(i => i.id)} onNav={setOpen} onClose={() => setOpen(null)} />}
     </CardContent></Card>
   );
@@ -279,7 +280,7 @@ function Schedules({ auditId, canDownload }: { auditId: number; canDownload: boo
         {!isLoading && !grids.length && <div className="px-3 py-6 text-center text-sm text-muted-foreground">No schedules shared yet.</div>}</div>
       {open && <Dialog open onOpenChange={o => { if (!o) setOpen(null); }}><DialogContent className="max-w-[95vw] w-[1200px] max-h-[92vh] flex flex-col">
         <DialogHeader><DialogTitle>{open.sheet}</DialogTitle><DialogDescription>Read-only.</DialogDescription></DialogHeader>
-        <div className="flex-1 overflow-auto rounded-[10px] border"><table className="text-xs border-collapse"><tbody>{open.grid.map((row: string[], r: number) => <tr key={r}>{row.map((c, ci) => <td key={ci} className={cn("border px-2 py-1 min-w-[120px] max-w-[320px] whitespace-pre-line align-top", open.templateGrid[r]?.[ci] && "bg-muted/60 font-medium")}>{c}</td>)}</tr>)}</tbody></table></div>
+        <div className="flex-1 overflow-auto rounded-[10px] border"><GridTable grid={open.grid} templateGrid={open.templateGrid || []} merges={open.merges} editable={false} /></div>
         {!!open.documents.length && <div className="divide-y rounded-[10px] border">{open.documents.map((d: any) => <div key={d.id} className="flex items-center gap-2 px-3 py-2 text-sm"><FileText className="w-4 h-4 text-primary" /><div className="flex-1 truncate">{d.title} <span className="text-[11px] text-muted-foreground">{d.fileName} v{d.version}</span></div>
           {d.fileId && <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => view({ url: afile(d.fileId), downloadUrl: canDownload ? afile(d.fileId, true) : null, name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" />View</Button>}{d.fileId && canDownload && <a href={afile(d.fileId, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}</div>)}</div>}
       </DialogContent></Dialog>}

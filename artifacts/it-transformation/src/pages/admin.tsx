@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { getRoleLabel } from "@/lib/utils";
+import { getRoleLabel, cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -40,6 +40,8 @@ interface AdminUser {
   lastLoginAt?: string; createdAt: string;
 }
 interface AdminSettings {
+  "uploads.allowedFileTypes"?: string[] | string;
+  "uploads.maxSizeMB"?: number | string;
   "auth.selfRegistration"?: boolean;
   "auth.mfaDefault"?: boolean;
   "auth.mfaRequired.internal"?: boolean;
@@ -117,6 +119,37 @@ export default function Admin() {
 
 // ─── SETTINGS TAB ────────────────────────────────────────────────────────────
 
+const UPLOAD_DEFAULT_TYPES = ["pdf", "xlsx", "xls", "csv", "docx", "doc", "pptx", "ppt", "txt", "jpg", "jpeg", "png", "msg", "eml", "zip"];
+const UPLOAD_BLOCKED = ["exe", "msi", "bat", "cmd", "com", "scr", "ps1", "vbs", "js", "mjs", "jar", "sh", "dll", "html", "htm", "xhtml", "svg", "php", "asp", "aspx", "hta", "lnk", "reg"];
+function UploadPolicyCard({ settings, set }: { settings: AdminSettings; set: (k: keyof AdminSettings, v: unknown) => void }) {
+  const raw = settings["uploads.allowedFileTypes"];
+  const parse = (v: any): string[] => { let x = v; for (let i = 0; i < 3 && typeof x === "string"; i++) { try { x = JSON.parse(x); } catch { break; } } return (Array.isArray(x) ? x : String(x ?? "").split(/[,;\s]+/)).map((t: any) => String(t).trim().toLowerCase().replace(/^\*?\./, "")).filter(Boolean); };
+  const types = raw === undefined ? UPLOAD_DEFAULT_TYPES : parse(raw);
+  const [add, setAdd] = useState("");
+  const blocked = (t: string) => UPLOAD_BLOCKED.includes(t);
+  const addType = () => { const t = add.trim().toLowerCase().replace(/^\*?\./, "").replace(/[^a-z0-9]/g, ""); if (!t || types.includes(t)) { setAdd(""); return; } set("uploads.allowedFileTypes", [...types, t]); setAdd(""); };
+  const max = settings["uploads.maxSizeMB"] ?? 20;
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">File uploads</CardTitle><CardDescription>Applies to every file attached in IT Hub: audit evidence, circulars and policies, ITSM attachments, retirement documents and profile photos. Programs and scripts (.exe, .js, .html, .svg …) are always refused.</CardDescription></CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <Label>Allowed file types</Label>
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {types.map(t => <span key={t} className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs", blocked(t) ? "border-red-400 text-red-600 line-through" : "bg-accent")}>.{t}
+              <button type="button" className="text-muted-foreground hover:text-red-600" onClick={() => set("uploads.allowedFileTypes", types.filter(x => x !== t))}>×</button></span>)}
+          </div>
+          <div className="flex gap-2 mt-2"><Input className="h-8 w-40" placeholder="e.g. .jpeg" value={add} onChange={e => setAdd(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addType(); } }} /><Button type="button" size="sm" variant="outline" className="h-8" onClick={addType}>Add</Button>
+            <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => set("uploads.allowedFileTypes", UPLOAD_DEFAULT_TYPES)}>Reset to defaults</Button></div>
+          {types.some(blocked) && <p className="text-[11px] text-red-600 mt-1">Struck-out types are always blocked for security and will not be accepted.</p>}
+        </div>
+        <div className="flex items-center gap-3"><Label className="w-40">Maximum file size (MB)</Label><Input type="number" min={1} max={100} className="h-8 w-28" value={String(max)} onChange={e => set("uploads.maxSizeMB", e.target.value === "" ? "" : Number(e.target.value))} /><span className="text-[11px] text-muted-foreground">The server's own limit (UPLOAD_MAX_MB, default 25) still applies.</span></div>
+        <p className="text-[11px] text-muted-foreground">Click "Save Settings" at the bottom to apply.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsTab() {
   const { toast } = useToast();
   const [settings, setSettings] = useState<AdminSettings>({});
@@ -168,6 +201,9 @@ function SettingsTab() {
           />
         </CardContent>
       </Card>
+
+      {/* File uploads */}
+      <UploadPolicyCard settings={settings} set={set} />
 
       {/* MS SSO */}
       <Card>

@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { readObject } from "./storage";
 import { logAudit } from "./audit-logs";
-import { sha256, AUDITOR_STATUSES, sendFile } from "./compliance";
+import { sha256, AUDITOR_STATUSES, sendFile, backfillMerges } from "./compliance";
 
 /*
  * External auditor portal.
@@ -214,7 +214,8 @@ async function tellTeam(iid: number, who: string, what: string, comment?: string
 
 router.get("/auditor-audits/:id/grids", wrap(async (req, res) => {
   const aid = id(req.params.id); await access(req, aid);
-  const grids = (await q(sql`SELECT id, sheet, sort_order, grid, template_grid, status, updated_at FROM cmp_grids WHERE audit_id = ${aid} AND shared_at IS NOT NULL ORDER BY sort_order`)).map(camel);
+  await backfillMerges(aid);
+  const grids = (await q(sql`SELECT id, sheet, sort_order, grid, template_grid, merges, status, updated_at FROM cmp_grids WHERE audit_id = ${aid} AND shared_at IS NOT NULL ORDER BY sort_order`)).map(camel);
   for (const g of grids as any[]) g.documents = (await q(sql`SELECT d.id, d.title, d.category, f.id AS file_id, f.file_name, f.version, f.file_size, f.content_type FROM cmp_grid_documents l JOIN cmp_documents d ON d.id = l.document_id
     LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true WHERE l.grid_id = ${g.id}`)).map(camel);
   res.json(grids);

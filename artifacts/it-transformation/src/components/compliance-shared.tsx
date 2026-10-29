@@ -42,8 +42,12 @@ export const usePeople = () => useQuery<any[]>({ queryKey: ["compliance-people"]
 export const useCompanies = () => useQuery<any[]>({ queryKey: ["compliance-companies"], queryFn: () => apiFetch("/compliance-companies") });
 
 /** Upload one file to storage; returns the file block the compliance API expects. */
+let policy: Promise<{ types: string[]; maxMB: number }> | null = null;
+export const uploadPolicy = () => (policy ||= apiFetch<{ types: string[]; maxMB: number }>("/upload-policy").catch(() => { policy = null; return { types: [], maxMB: 25 }; }));
 export async function uploadFile(file: File) {
-  if (file.size > 25 * 1024 * 1024) throw new Error("File too large — maximum 25 MB");
+  const p = await uploadPolicy(); const ext = (file.name.match(/\.([^.]+)$/)?.[1] || "").toLowerCase();
+  if (p.types.length && !p.types.includes(ext)) throw new Error(`.${ext || "?"} files are not allowed. Allowed: ${p.types.map(t => "." + t).join(", ")}`);
+  if (file.size > p.maxMB * 1024 * 1024) throw new Error(`File too large — maximum ${p.maxMB} MB`);
   const { uploadURL, objectPath } = await apiFetch<{ uploadURL: string; objectPath: string }>("/storage/uploads/request-url", { method: "POST", body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type || "application/octet-stream" }) });
   const r = await fetch(uploadURL, { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file, credentials: "include" });
   if (!r.ok) throw new Error("Upload to storage failed");
@@ -107,5 +111,26 @@ export function DocsButton({ count, load, open, canDownload = true }: { count: n
             <Eye className="w-3.5 h-3.5 text-primary shrink-0" /><div className="min-w-0"><div className="truncate">{d.title}</div><div className="text-[11px] text-muted-foreground truncate">{d.category} · {d.fileName} · v{d.version}</div></div></button>)}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Pager: "Showing 11–20 of 207", first / previous / page numbers / next / last. */
+export function Pager({ page, total, size = 10, onPage }: { page: number; total: number; size?: number; onPage: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / size));
+  if (total === 0) return null;
+  const nums: (number | "…")[] = []; const add = (n: number) => { if (!nums.includes(n)) nums.push(n); };
+  [0, 1, page - 1, page, page + 1, pages - 2, pages - 1].filter(n => n >= 0 && n < pages).sort((a, b) => a - b).forEach((n, i, arr) => { if (i && n - (arr[i - 1] as number) > 1) nums.push("…"); add(n); });
+  const btn = "h-7 min-w-7 px-2 rounded-md border text-xs disabled:opacity-40 hover:bg-accent";
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span>Showing {page * size + 1}–{Math.min(total, (page + 1) * size)} of {total}</span>
+      {pages > 1 && <div className="flex items-center gap-1">
+        <button type="button" className={btn} disabled={page === 0} onClick={() => onPage(0)}>«</button>
+        <button type="button" className={btn} disabled={page === 0} onClick={() => onPage(page - 1)}>‹</button>
+        {nums.map((n, i) => n === "…" ? <span key={"e" + i} className="px-1">…</span> : <button key={n} type="button" onClick={() => onPage(n)} className={cn(btn, n === page && "bg-primary text-primary-foreground border-primary hover:bg-primary")}>{n + 1}</button>)}
+        <button type="button" className={btn} disabled={page >= pages - 1} onClick={() => onPage(page + 1)}>›</button>
+        <button type="button" className={btn} disabled={page >= pages - 1} onClick={() => onPage(pages - 1)}>»</button>
+      </div>}
+    </div>
   );
 }

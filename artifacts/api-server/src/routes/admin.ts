@@ -1,3 +1,4 @@
+import { clearUploadPolicyCache } from "../lib/upload-policy";
 import { Router } from "express";
 import { eq, and, lt, sql } from "drizzle-orm";
 import { db, usersTable, settingsTable } from "@workspace/db";
@@ -28,6 +29,7 @@ router.put("/admin/settings", requireAdmin, async (req, res): Promise<void> => {
       .values({ key, value })
       .onConflictDoUpdate({ target: settingsTable.key, set: { value } });
   }
+  clearUploadPolicyCache();
   res.json({ ok: true });
 });
 

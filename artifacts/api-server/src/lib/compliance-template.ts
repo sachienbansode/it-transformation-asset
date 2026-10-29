@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { fillWorkbook, type CellWrite } from "./xlsx-fill";
 
 /*
  * Audit checklist workbook → template. Generic rules, so any auditor's Excel can be imported:
@@ -18,13 +19,26 @@ const oneLine = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").replace(/\s
 const PLACEHOLDER = /^walkthrough\s*:?\s*evidence\s*:?$/i;
 
 export type TItem = { kind: "checklist" | "policy"; sheet: string; sourceRow: number; refNo: string | null; seq: number; area: string | null; subArea: string | null; checkpoint: string; evidenceRequired: string | null; docType: string | null; ownerText?: string | null; spocText?: string | null; managementReply?: string | null; auditorRemarks?: string | null; status: string; sortOrder: number };
-export type TGrid = { sheet: string; sortOrder: number; grid: string[][] };
+export type Merge = { r: number; c: number; rs: number; cs: number };
+export type TGrid = { sheet: string; sortOrder: number; grid: string[][]; merges: Merge[] };
 
 function findHeader(aoa: any[][], test: (cells: string[]) => boolean) {
   for (let i = 0; i < Math.min(aoa.length, 15); i++) { const cells = (aoa[i] || []).map(norm); if (test(cells)) return i; }
   return -1;
 }
 const col = (cells: string[], ...names: string[]) => cells.findIndex(c => names.some(n => c === n || c.startsWith(n)));
+
+/** Merged cells of a sheet, relative to the grid (only those inside it). */
+export function mergesOf(ws: XLSX.WorkSheet, rows: number, width: number): Merge[] {
+  const rg = XLSX.utils.decode_range(ws["!ref"] || "A1");
+  return ((ws["!merges"] || []) as XLSX.Range[]).map(m => ({ r: m.s.r - rg.s.r, c: m.s.c - rg.s.c, rs: m.e.r - m.s.r + 1, cs: m.e.c - m.s.c + 1 }))
+    .filter(m => m.r >= 0 && m.c >= 0 && m.r < rows && m.c < width && (m.rs > 1 || m.cs > 1)).map(m => ({ ...m, rs: Math.min(m.rs, rows - m.r), cs: Math.min(m.cs, width - m.c) }));
+}
+/** Merges for named sheets of an uploaded workbook (used to back-fill templates imported before merges were kept). */
+export function sheetMerges(buf: Buffer, sheets: { sheet: string; rows: number; width: number }[]) {
+  const wb = XLSX.read(buf, { type: "buffer" });
+  return Object.fromEntries(sheets.map(x => [x.sheet, wb.Sheets[x.sheet] ? mergesOf(wb.Sheets[x.sheet], x.rows, x.width) : []]));
+}
 
 export function parseWorkbook(buf: Buffer) {
   const wb = XLSX.read(buf, { type: "buffer", cellDates: false });
@@ -80,7 +94,7 @@ export function parseWorkbook(buf: Buffer) {
     const grid = rows.slice(0, Math.min(lastR + 1, 500)).map(l => Array.from({ length: width }, (_, c) => String(l[c] ?? "")));
     // a table that ends at its header row (sample sheets) gets 10 empty rows to fill
     if (grid.length === 1) for (let i = 0; i < 10; i++) grid.push(Array(width).fill(""));
-    grids.push({ sheet: name, sortOrder: si, grid });
+    grids.push({ sheet: name, sortOrder: si, grid, merges: mergesOf(ws, grid.length, width) });
   });
   return { items, grids, skipped, sheets: wb.SheetNames };
 }
@@ -117,4 +131,62 @@ export function exportWorkbook(o: { audit: any; items: any[]; grids: any[]; user
     XLSX.utils.book_append_sheet(wb, ws, sheet.slice(0, 31));
   }
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+/* Export in the auditor's own workbook: the uploaded file with today's values written into its cells (formatting kept). */
+export function exportIntoOriginal(orig: Buffer, o: { audit: any; items: any[]; grids: any[]; users: Map<number, string>; docsByItem: Map<number, string[]> }) {
+  const wb = XLSX.read(orig, { type: "buffer" });
+  const name = (id: number | null) => (id ? o.users.get(id) ?? "" : "");
+  const fmt = (d: any) => (d ? new Date(String(d).slice(0, 10) + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "");
+  const writes: Record<string, CellWrite[]> = {};
+  const W = (sheet: string, w: CellWrite) => (writes[sheet] ||= []).push(w);
+  for (const sheet of new Set(o.items.map(i => i.sheet))) {
+    const ws = wb.Sheets[sheet]; if (!ws) continue;
+    const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false, blankrows: true });
+    const start = XLSX.utils.decode_range(ws["!ref"] || "A1"); const R0 = start.s.r, C0 = start.s.c;
+    const list = o.items.filter(i => i.sheet === sheet);
+    const isPolicy = list[0]?.kind === "policy";
+    const hr = findHeader(aoa, isPolicy ? (c => c.includes("particulars") && c.includes("type")) : (c => c.some(x => x === "audit checklist" || x === "checkpoint" || x === "control")));
+    if (hr < 0) continue;
+    const h = (aoa[hr] || []).map(norm);
+    const lastHeader = h.reduce((m, v, i) => (v ? i : m), 0);
+    const cols = isPolicy
+      ? { owner: col(h, "person responsible", "owner"), doc: col(h, "document reference"), review: col(h, "last review date"), status: col(h, "status"), reply: col(h, "management reply"), remarks: col(h, "auditors remarks", "auditor remarks") }
+      : { owner: col(h, "person responsible", "owner"), spoc: col(h, "spoc"), reply: col(h, "management reply", "management response"), remarks: col(h, "auditors remarks", "auditor remarks", "auditor s remarks"), status: col(h, "status"), doc: -1, review: -1 };
+    // columns the template does not have are added after its last header (header styled like the last header cell)
+    let next = lastHeader + 1;
+    const ensure = (key: string, label: string) => { if ((cols as any)[key] >= 0) return; (cols as any)[key] = next; W(sheet, { row: R0 + hr, col: C0 + next, value: label, styleFrom: { row: R0 + hr, col: C0 + lastHeader } }); next++; };
+    if (isPolicy) { ensure("reply", "Management Reply"); ensure("remarks", "Auditors Remarks"); }
+    else { ensure("doc", "Evidence Reference"); }
+    ensure("target", "Target Date"); ensure("shared", "Shared with Auditor");
+    for (const i of list) {
+      const r = (i.sourceRow ?? 0) - 1; if (r < 0) continue;
+      const put = (k: string, v: any) => { const c = (cols as any)[k]; if (c === undefined || c < 0) return; W(sheet, { row: R0 + r, col: C0 + c, value: v ?? "", styleFrom: { row: R0 + r, col: C0 + (cols.reply >= 0 && cols.reply <= lastHeader ? cols.reply : lastHeader) } }); };
+      put("owner", name(i.ownerUserId));
+      if (!isPolicy) put("spoc", name(i.spocUserId));
+      put("reply", i.managementReply || "");
+      put("remarks", i.auditorRemarks || "");
+      put("status", i.status);
+      put("doc", (o.docsByItem.get(i.id) || []).join("\n"));
+      if (isPolicy) put("review", fmt(i.lastReviewDate));
+      put("target", fmt(i.targetDate));
+      put("shared", i.sharedAt ? "Yes" : "No");
+    }
+  }
+  for (const g of o.grids) {
+    const ws = wb.Sheets[g.sheet]; if (!ws) continue;
+    const start = XLSX.utils.decode_range(ws["!ref"] || "A1"); const R0 = start.s.r, C0 = start.s.c;
+    const t: string[][] = g.templateGrid || [];
+    (g.grid as string[][]).forEach((row, r) => row.forEach((v, c) => {
+      if (t[r]?.[c]) return; // template label
+      const before = t[r]?.[c] ?? "";
+      if ((v ?? "") === before) return;
+      const sr = Math.min(r, Math.max(0, t.length - 1));
+      W(g.sheet, { row: R0 + r, col: C0 + c, value: v, styleFrom: { row: R0 + sr, col: C0 + c } });
+    }));
+  }
+  // stamp on the first sheet, two rows below its content
+  const first = wb.SheetNames[0]; const fws = wb.Sheets[first];
+  if (fws) { const rr = XLSX.utils.decode_range(fws["!ref"] || "A1"); W(first, { row: rr.e.r + 2, col: rr.s.c, value: `Status exported from IT Hub — ${o.audit.auditNo} ${o.audit.companyName} — ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}` }); }
+  return fillWorkbook(orig, writes);
 }

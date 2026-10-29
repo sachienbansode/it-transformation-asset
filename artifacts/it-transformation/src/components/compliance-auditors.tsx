@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { UserPlus, Loader2, Copy, Mail, ShieldOff, ShieldCheck, Pencil, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtDate, d10 } from "@/components/compliance-shared";
+import { fmtDate, d10, Pager } from "@/components/compliance-shared";
 
 /* Audit › Auditors & access log: invite external auditors (audit-scoped, time-bound), revoke, and see every access. */
 
@@ -21,7 +21,7 @@ export function AuditorsTab({ audit, canEdit }: { audit: any; canEdit: boolean }
   const qc = useQueryClient(); const { toast } = useToast();
   const { data: list = [], isLoading } = useQuery<any[]>({ queryKey: ["compliance-auditors", audit.id], queryFn: () => apiFetch(`/compliance-audits/${audit.id}/auditors`) });
   const { data: logRows = [] } = useQuery<any[]>({ queryKey: ["compliance-access-log", audit.id], queryFn: () => apiFetch(`/compliance-audits/${audit.id}/access-log`) });
-  const [invite, setInvite] = useState<any>(null); const [link, setLink] = useState<string | null>(null);
+  const [invite, setInvite] = useState<any>(null); const [link, setLink] = useState<string | null>(null); const [lp, setLp] = useState(0);
   const refresh = () => ["compliance-auditors", "compliance-access-log"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
   async function patch(x: any, body: any, msg: string) {
     try { await apiFetch(`/compliance-auditor-access/${x.id}`, { method: "PATCH", body: JSON.stringify(body) }); refresh(); toast({ title: msg }); } catch (e: any) { toast({ title: "Could not update", description: e.message, variant: "destructive" }); }
@@ -54,14 +54,15 @@ export function AuditorsTab({ audit, canEdit }: { audit: any; canEdit: boolean }
       </CardContent></Card>
       <Card className="lg:col-span-2"><CardContent className="p-0">
         <div className="px-4 py-3 font-semibold text-sm border-b">Access log <span className="text-xs font-normal text-muted-foreground">(latest 500)</span></div>
-        <div className="max-h-[520px] overflow-y-auto divide-y">
-          {logRows.map(r => (
+        <div className="divide-y">
+          {logRows.slice(lp * 10, lp * 10 + 10).map(r => (
             <div key={r.id} className="px-4 py-2 text-xs">
               <div className="flex justify-between gap-2"><span className={cn("font-medium", /failed|refused|revoke/.test(r.action) && "text-red-600")}>{ACTION_LABEL[r.action] || r.action}</span><span className="text-muted-foreground whitespace-nowrap">{new Date(r.at).toLocaleString("en-IN")}</span></div>
               <div className="text-muted-foreground truncate">{r.userName || "—"}{r.userType === "external" ? " (auditor)" : ""}{r.documentTitle ? ` · ${r.documentTitle}` : ""}{r.detail && !r.documentTitle ? ` · ${r.detail}` : ""}{r.ip ? ` · ${r.ip}` : ""}</div>
             </div>))}
           {!logRows.length && <div className="px-4 py-6 text-center text-sm text-muted-foreground">Nothing yet.</div>}
         </div>
+        <div className="px-4 py-2 border-t"><Pager page={lp} total={logRows.length} size={10} onPage={setLp} /></div>
       </CardContent></Card>
       {invite && <InviteDialog audit={audit} init={invite} onClose={() => setInvite(null)} onDone={(l) => { refresh(); if (l) setLink(l); }} />}
       {link && <LinkDialog link={link} onClose={() => setLink(null)} />}

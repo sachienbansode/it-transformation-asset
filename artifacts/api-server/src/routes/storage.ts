@@ -8,6 +8,7 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 import { ObjectPermission } from "../lib/objectAcl";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { checkUpload, getUploadPolicy } from "../lib/upload-policy";
 
 const RequestUploadUrlBody = z.object({
   name: z.string(),
@@ -60,6 +61,11 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
   if (!parsed.success) {
     res.status(400).json({ error: "Missing or invalid required fields" });
     return;
+  }
+
+  {
+    const bad = await checkUpload(parsed.data.name, parsed.data.size);
+    if (bad) { res.status(400).json({ error: bad }); return; }
   }
 
   try {
@@ -200,5 +206,8 @@ export async function readObject(objectPath: string): Promise<{ buffer: Buffer; 
   const r = await objectStorageService.downloadObject(objectFile);
   return { buffer: Buffer.from(await r.arrayBuffer()), contentType: r.headers.get("content-type") || "application/octet-stream", name: null };
 }
+
+/** Upload policy for the browser (allowed extensions, max size). */
+router.get("/upload-policy", async (_req: Request, res: Response) => { res.json(await getUploadPolicy()); });
 
 export default router;

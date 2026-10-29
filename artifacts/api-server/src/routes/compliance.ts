@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { readObject } from "./storage";
-import { parseWorkbook, exportWorkbook, STATUSES, CLOSED } from "../lib/compliance-template";
+import { parseWorkbook, exportWorkbook, exportIntoOriginal, sheetMerges, STATUSES, CLOSED } from "../lib/compliance-template";
 import { getAccess } from "../lib/rbac";
 import crypto from "crypto";
 
@@ -106,11 +106,18 @@ router.post("/compliance-templates/import", wrap(async (req, res) => {
     const [t] = rowsOf(await tx.execute(sql`INSERT INTO cmp_templates (name, framework, version, description, source_file, source_object, created_by) VALUES (${v.name}, ${v.framework ?? null}, ${v.version ?? null}, ${v.description ?? null}, ${v.fileName ?? null}, ${v.objectPath}, ${by}) RETURNING id`));
     for (const i of p.items) await tx.execute(sql`INSERT INTO cmp_template_items (template_id, kind, sheet, source_row, ref_no, seq, area, sub_area, checkpoint, evidence_required, doc_type, sort_order)
       VALUES (${t.id}, ${i.kind}, ${i.sheet}, ${i.sourceRow}, ${i.refNo}, ${i.seq}, ${i.area}, ${i.subArea}, ${i.checkpoint}, ${i.evidenceRequired}, ${i.docType}, ${i.sortOrder})`);
-    for (const g of p.grids) await tx.execute(sql`INSERT INTO cmp_template_grids (template_id, sheet, sort_order, grid) VALUES (${t.id}, ${g.sheet}, ${g.sortOrder}, ${JSON.stringify(g.grid)}::jsonb)`);
+    for (const g of p.grids) await tx.execute(sql`INSERT INTO cmp_template_grids (template_id, sheet, sort_order, grid, merges) VALUES (${t.id}, ${g.sheet}, ${g.sortOrder}, ${JSON.stringify(g.grid)}::jsonb, ${JSON.stringify(g.merges)}::jsonb)`);
     return t.id as number;
   });
   await audit({ entityType: "compliance_template", entityId: tid, action: "import", performedBy: by, summary: `Template ${v.name} imported from ${v.fileName || "file"}: ${summary.checkpoints} checkpoints, ${summary.policies} policies, ${summary.grids.length} schedules` });
   res.status(201).json({ ...summary, applied: true, id: tid });
+}));
+router.get("/compliance-templates/:id/source", wrap(async (req, res) => {
+  const tid = id(req.params.id);
+  const [t] = await q(sql`SELECT name, source_file, source_object FROM cmp_templates WHERE id = ${tid}`); if (!t) return fail(res, 404, "Template not found");
+  const obj = t.source_object ? await readObject(t.source_object).catch(() => null) : null; if (!obj) return fail(res, 404, "The uploaded file is no longer in storage");
+  await audit({ entityType: "compliance_template", entityId: tid, action: "download_source", performedBy: await who(req), summary: `Original checklist ${t.source_file || t.name} downloaded` });
+  sendFile(res, obj.buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", t.source_file || `${t.name}.xlsx`, true);
 }));
 router.patch("/compliance-templates/:id", wrap(async (req, res) => {
   const tid = id(req.params.id);
@@ -176,7 +183,7 @@ router.post("/compliance-audits", wrap(async (req, res) => {
     await tx.execute(sql`UPDATE cmp_audits SET audit_no = ${"AUD-" + new Date().getFullYear() + "-"} || lpad(id::text, 4, '0') WHERE id = ${a.id}`);
     await tx.execute(sql`INSERT INTO cmp_items (audit_id, kind, sheet, source_row, ref_no, seq, area, sub_area, checkpoint, evidence_required, doc_type, sort_order, target_date, updated_by)
       SELECT ${a.id}, kind, sheet, source_row, ref_no, seq, area, sub_area, checkpoint, evidence_required, doc_type, sort_order, ${v.targetDate ?? null}::date, ${by} FROM cmp_template_items WHERE template_id = ${v.templateId} ORDER BY sort_order`);
-    await tx.execute(sql`INSERT INTO cmp_grids (audit_id, sheet, sort_order, template_grid, grid, updated_by) SELECT ${a.id}, sheet, sort_order, grid, grid, ${by} FROM cmp_template_grids WHERE template_id = ${v.templateId}`);
+    await tx.execute(sql`INSERT INTO cmp_grids (audit_id, sheet, sort_order, template_grid, grid, merges, updated_by) SELECT ${a.id}, sheet, sort_order, grid, grid, merges, ${by} FROM cmp_template_grids WHERE template_id = ${v.templateId}`);
     return a.id as number;
   });
   const a = await getAudit(aid);
@@ -300,8 +307,20 @@ async function emailAssignment(userIds: number[], itemIds: number[]) {
 }
 
 /* ─── Information schedules (grids) ─────────────────────────────────────── */
+export async function backfillMerges(aid: number) {
+  const missing = await q(sql`SELECT g.id, g.sheet, g.template_grid, a.template_id FROM cmp_grids g JOIN cmp_audits a ON a.id = g.audit_id WHERE g.audit_id = ${aid} AND g.merges IS NULL`);
+  if (!missing.length) return;
+  const [t] = await q(sql`SELECT source_object FROM cmp_templates WHERE id = ${missing[0].template_id}`);
+  const obj = t?.source_object ? await readObject(t.source_object).catch(() => null) : null;
+  const m = obj ? (() => { try { return sheetMerges(obj.buffer, missing.map(g => ({ sheet: g.sheet, rows: (g.template_grid || []).length, width: Math.max(1, ...(g.template_grid || []).map((r: any[]) => r.length)) }))); } catch { return {} as Record<string, any[]>; } })() : {};
+  for (const g of missing) {
+    const merges = JSON.stringify((m as any)[g.sheet] || []);
+    await q(sql`UPDATE cmp_grids SET merges = ${merges}::jsonb WHERE id = ${g.id}`);
+    await q(sql`UPDATE cmp_template_grids SET merges = ${merges}::jsonb WHERE template_id = ${g.template_id} AND sheet = ${g.sheet} AND merges IS NULL`);
+  }
+}
 router.get("/compliance-audits/:id/grids", wrap(async (req, res) => {
-  const aid = id(req.params.id);
+  const aid = id(req.params.id); await backfillMerges(aid);
   res.json((await q(sql`SELECT g.*, u.name AS owner_name, (SELECT count(*)::int FROM cmp_grid_documents d WHERE d.grid_id = g.id) AS evidence_count FROM cmp_grids g LEFT JOIN users u ON u.id = g.owner_user_id WHERE g.audit_id = ${aid} ORDER BY g.sort_order`)).map(camel));
 }));
 router.patch("/compliance-grids/:id", wrap(async (req, res) => {
@@ -594,8 +613,15 @@ router.get("/compliance-audits/:id/export", wrap(async (req, res) => {
   for (const l of await q(sql`SELECT l.item_id, d.title, f.file_name, f.version FROM cmp_item_documents l JOIN cmp_items i ON i.id = l.item_id JOIN cmp_documents d ON d.id = l.document_id
     LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true WHERE i.audit_id = ${aid}`))
     docsByItem.set(l.item_id, [...(docsByItem.get(l.item_id) || []), `${l.title}${l.file_name ? ` (${l.file_name}, v${l.version})` : ""}`]);
-  const buf = exportWorkbook({ audit: a, items, grids, users, docsByItem });
-  await audit({ entityType: "compliance_audit", entityId: aid, action: "export", performedBy: await who(req), summary: `Audit ${a.auditNo} exported to Excel` });
+  let buf: Buffer | null = null; let layout = "standard";
+  if (req.query.layout !== "standard") {
+    const [t] = await q(sql`SELECT source_object FROM cmp_templates WHERE id = ${a.templateId}`);
+    const orig = t?.source_object ? await readObject(t.source_object).catch(() => null) : null;
+    if (orig) { try { buf = exportIntoOriginal(orig.buffer, { audit: a, items, grids, users, docsByItem }); layout = "original"; } catch (e) { console.error("export into original failed — falling back", e); } }
+  }
+  if (!buf) buf = exportWorkbook({ audit: a, items, grids, users, docsByItem });
+  await audit({ entityType: "compliance_audit", entityId: aid, action: "export", performedBy: await who(req), summary: `Audit ${a.auditNo} exported to Excel (${layout} layout)` });
+  res.setHeader("X-Export-Layout", layout);
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="${a.auditNo}_${String(a.companyName).replace(/[^A-Za-z0-9]+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx"`);
   res.send(buf);

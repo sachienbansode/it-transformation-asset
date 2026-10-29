@@ -13,9 +13,10 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
 import { ArrowLeft, Download, Pencil, Loader2, Search, Paperclip, MessageSquare, CalendarClock, Save, ChevronLeft, ChevronRight, Plus, Table2, History, Send, Share2, EyeOff, Gavel } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DocsButton, fileUrl, STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople } from "@/components/compliance-shared";
+import { Pager, DocsButton, fileUrl, STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople } from "@/components/compliance-shared";
 import { EvidencePanel } from "@/components/compliance-evidence";
 import { useDocViewer } from "@/components/doc-viewer";
+import { GridTable } from "@/components/compliance-grid";
 import { AuditorsTab } from "@/components/compliance-auditors";
 import { ReferencesPanel } from "@/components/compliance-references";
 import { AuditDialog } from "@/pages/compliance";
@@ -43,7 +44,8 @@ export default function ComplianceAudit() {
           <div className="text-sm text-muted-foreground">{a.auditNo} · {a.companyName} · {a.status}{a.periodFrom ? ` · period ${fmtDate(a.periodFrom)} – ${fmtDate(a.periodTo)}` : ""}{a.auditFirm ? ` · ${a.auditFirm}` : ""} · target {fmtDate(a.targetDate)}</div>
         </div>
         <div className="flex gap-2">
-          <a href={`${API}/compliance-audits/${a.id}/export`}><Button size="sm" variant="outline" className="gap-1.5"><Download className="w-4 h-4" />Export Excel</Button></a>
+          <a href={`${API}/compliance-audits/${a.id}/export`} title="The auditor's workbook (same format as uploaded) filled with today's status"><Button size="sm" variant="outline" className="gap-1.5"><Download className="w-4 h-4" />Export status (Excel)</Button></a>
+          {a.templateId && <a href={`${API}/compliance-templates/${a.templateId}/source`} title="The checklist file exactly as uploaded"><Button size="sm" variant="ghost" className="gap-1.5"><Download className="w-4 h-4" />Uploaded checklist</Button></a>}
           {canEdit && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEdit(true)}><Pencil className="w-4 h-4" />Edit audit</Button>}
         </div>
       </div>
@@ -157,7 +159,7 @@ function Overview({ items, go }: { items: any[]; go: (kind: "checklist" | "polic
   );
 }
 
-const PAGE = 50;
+const PAGE = 10;
 function ItemsTable({ audit, items, kind, canEdit, area, setArea, preset = {} }: { audit: any; items: any[]; kind: "checklist" | "policy"; canEdit: boolean; area: string; setArea: (v: string) => void; preset?: Preset }) {
   const qc = useQueryClient(); const { toast } = useToast(); const { user } = useAuth(); const view = useDocViewer();
   const [term, setTerm] = useState(""); const [share, setShare] = useState(preset.share ?? "all"); const [status, setStatus] = useState(preset.status ?? "all"); const [owner, setOwner] = useState(preset.owner ?? "all"); const [sheet, setSheet] = useState("all"); const [overdue, setOverdue] = useState(!!preset.overdue);
@@ -187,6 +189,7 @@ function ItemsTable({ audit, items, kind, canEdit, area, setArea, preset = {} }:
         <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={overdue} onChange={e => setOverdue(e.target.checked)} />Overdue only</label>
         <span className="text-xs text-muted-foreground ml-auto">{list.length} of {items.length}</span>
       </div>
+      {canEdit && allShown && sel.size < list.length && <div className="text-xs rounded-[8px] bg-accent/60 px-3 py-1.5">{sel.size} selected on this page. <button type="button" className="text-primary font-medium hover:underline" onClick={() => setSel(new Set(list.map(i => i.id)))}>Select all {list.length} matching the filters</button></div>}
       {canEdit && sel.size > 0 && <BulkBar ids={[...sel]} onDone={() => { setSel(new Set()); refresh(); }} />}
       <div className="rounded-[10px] border overflow-x-auto">
         <table className="w-full text-sm">
@@ -210,10 +213,7 @@ function ItemsTable({ audit, items, kind, canEdit, area, setArea, preset = {} }:
           </tbody>
         </table>
       </div>
-      {pages > 1 && <div className="flex items-center justify-end gap-2 text-xs">
-        <Button size="sm" variant="outline" className="h-7" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft className="w-3.5 h-3.5" /></Button>
-        <span>Page {page + 1} of {pages}</span>
-        <Button size="sm" variant="outline" className="h-7" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}><ChevronRight className="w-3.5 h-3.5" /></Button></div>}
+      <Pager page={page} total={list.length} size={PAGE} onPage={setPage} />
       {open && <ItemDialog itemId={open} audit={audit} canEdit={canEdit} order={order} onNav={setOpen} onClose={() => { setOpen(null); refresh(); }} />}
     </CardContent></Card>
   );
@@ -384,20 +384,14 @@ function GridDialog({ g, audit, canEdit, onClose }: { g: any; audit: any; canEdi
   return (
     <Dialog open onOpenChange={o => { if (!o && !busy) onClose(); }}>
       <DialogContent className="max-w-[95vw] w-[1200px] max-h-[92vh] flex flex-col">
-        <DialogHeader><DialogTitle>{g.sheet}</DialogTitle><DialogDescription>Grey cells come from the auditor's template and cannot be changed. Fill the white cells; add rows for more entries.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{g.sheet}</DialogTitle><DialogDescription>Shaded cells come from the auditor's template and are read-only. Fill the white cells; add rows for more entries (hover a row to delete or clear it).</DialogDescription></DialogHeader>
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-52"><Label className="text-[11px]">Owner</Label><PersonPicker disabled={!canEdit} value={owner} onChange={setOwner} /></div>
           {canEdit && <label className="flex items-center gap-2 text-sm self-center pb-1"><input type="checkbox" checked={shared} onChange={e => setShared(e.target.checked)} /><Share2 className="w-4 h-4 text-emerald-600" />Shared with the auditor (read-only)</label>}
           <div><Label className="text-[11px]">Status</Label><Select disabled={!canEdit} value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
         </div>
         <div className="flex-1 overflow-auto rounded-[10px] border">
-          <table className="text-xs border-collapse">
-            <tbody>{grid.map((row, r) => (
-              <tr key={r}>{Array.from({ length: width }, (_, c) => locked(r, c)
-                ? <td key={c} className="border bg-muted/60 font-medium px-2 py-1 min-w-[140px] max-w-[320px] whitespace-pre-line align-top">{row[c]}</td>
-                : <td key={c} className="border p-0 min-w-[140px]"><textarea disabled={!canEdit} rows={1} className="w-full min-h-[30px] bg-transparent px-2 py-1 resize-y outline-none focus:bg-accent/40" value={row[c] ?? ""}
-                    onChange={e => setGrid(p => p.map((x, ri) => (ri === r ? Array.from({ length: width }, (_, ci) => (ci === c ? e.target.value : x[ci] ?? "")) : x)))} /></td>)}</tr>))}</tbody>
-          </table>
+          <GridTable grid={grid} templateGrid={g.templateGrid || []} merges={g.merges} editable={canEdit} onChange={setGrid} />
         </div>
         {canEdit && <div><Button type="button" size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setGrid(p => [...p, Array(width).fill("")])}><Plus className="w-3.5 h-3.5" />Add row</Button></div>}
         <div><div className="text-sm font-semibold mb-1.5 flex items-center gap-1.5"><Paperclip className="w-4 h-4" />Supporting files</div>

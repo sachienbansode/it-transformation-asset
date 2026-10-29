@@ -10,8 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
-import { apiFetch } from "@/lib/api";
-import { Plus, Pencil, Loader2, Building2, FileSpreadsheet, ClipboardCheck, AlertTriangle, Upload, CheckCircle2, X, Trash2, CalendarClock, UserX } from "lucide-react";
+import { apiFetch, API } from "@/lib/api";
+import { Download, Plus, Pencil, Loader2, Building2, FileSpreadsheet, ClipboardCheck, AlertTriangle, Upload, CheckCircle2, X, Trash2, CalendarClock, UserX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCompanies, fmtDate, Progress, uploadFile, AUDIT_STATUSES, today, d10 } from "@/components/compliance-shared";
 import { ReferencesPanel } from "@/components/compliance-references";
@@ -259,6 +259,7 @@ function Templates() {
             <div className="flex-1 min-w-0"><div className="font-medium text-sm">{t.name}{t.version ? <span className="text-muted-foreground font-normal"> · {t.version}</span> : null}</div>
               <div className="text-xs text-muted-foreground">{t.framework || "—"} · {t.checkpoints} checkpoints · {t.policies} policies · {t.grids} schedules · from {t.sourceFile || "file"}</div></div>
             <div className="text-xs text-muted-foreground">{t.audits} audit(s)</div>
+            {t.sourceObject && <a href={`${API}/compliance-templates/${t.id}/source`} title={`Download the uploaded file ${t.sourceFile || ""}`}><Button size="sm" variant="outline" className="h-7 text-xs gap-1"><Download className="w-3.5 h-3.5" />Uploaded file</Button></a>}
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setRefs(t)}>Circular & references</Button>
           </div>
         ))}
