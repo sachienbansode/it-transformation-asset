@@ -61,16 +61,16 @@ export default function ComplianceAudit() {
       </div>
       {(() => { const ck = items.filter(i => i.kind === "checklist"); const T = ck.length || s.checkpoints || 0;
         const ent = ck.filter(i => courtOf(i) === "entity").length, aud = ck.filter(i => courtOf(i) === "auditor").length, clo = ck.filter(i => courtOf(i) === "closed").length;
-        const subPct = T ? Math.round(((aud + clo) / T) * 100) : 0;
+        const subPct = T ? Math.round(((aud + clo) / T) * 100) : 0; const P = (n: number) => (T ? Math.round(((n || 0) / T) * 100) : 0); const F = (n: number) => (n && P(n) === 0 ? "<1" : n < T && P(n) === 100 ? ">99" : String(P(n)));
         return (
         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-2">
-          <Tile label="Total checkpoints" value={s.checkpoints} sub={`+ ${s.policies} policies`} onClick={() => go("checklist")} />
-          <Tile label="Submission progress" value={`${subPct}%`} sub={`${aud + clo}/${T} sent to auditor`} tone="text-indigo-600" className="xl:col-span-2" onClick={() => go("checklist", { share: "court:sent" })}><Progress value={subPct} className="mt-1.5" /></Tile>
-          <Tile label="Closure" value={`${pct}%`} sub={`${s.closed}/${s.checkpoints} closed by auditor`} tone="text-emerald-600" className="xl:col-span-2" onClick={() => go("checklist", { status: "g:closed" })}><Progress value={pct} className="mt-1.5" /></Tile>
-          <Tile label="Pending with entity" value={ent} tone="text-orange-600" onClick={() => go("checklist", { share: "court:entity" })} />
-          <Tile label="Pending with auditor" value={aud} tone="text-violet-600" onClick={() => go("checklist", { share: "court:auditor" })} />
-          <Tile label="Overdue" value={s.overdue} tone={s.overdue ? "text-red-600" : ""} onClick={() => go("checklist", { overdue: true })} />
-          <Tile label="No owner" value={s.unassigned} tone={s.unassigned ? "text-orange-600" : ""} onClick={() => go("checklist", { owner: "none" })} />
+          <Tile label="Checkpoints" value={s.checkpoints} sub={`+ ${s.policies} policies`} onClick={() => go("checklist")} />
+          <Tile label="Submission progress" value={`${F(aud + clo)}%`} sub={`${aud + clo} of ${T} sent to auditor`} tone="text-indigo-600" bar="bg-indigo-500" barValue={subPct} className="xl:col-span-2" onClick={() => go("checklist", { share: "court:sent" })} />
+          <Tile label="Closure" value={`${F(s.closed)}%`} sub={`${s.closed} of ${s.checkpoints} closed by auditor`} tone="text-emerald-600" bar="bg-emerald-500" barValue={pct} className="xl:col-span-2" onClick={() => go("checklist", { status: "g:closed" })} />
+          <Tile label="With entity" value={`${F(ent)}%`} sub={`${ent} of ${T}`} tone="text-orange-600" bar="bg-orange-400" barValue={P(ent)} onClick={() => go("checklist", { share: "court:entity" })} />
+          <Tile label="With auditor" value={`${F(aud)}%`} sub={`${aud} of ${T}`} tone="text-violet-600" bar="bg-violet-500" barValue={P(aud)} onClick={() => go("checklist", { share: "court:auditor" })} />
+          <Tile label="Overdue" value={`${F(s.overdue)}%`} sub={`${s.overdue} of ${T}`} tone={s.overdue ? "text-red-600" : ""} bar="bg-red-500" barValue={P(s.overdue)} onClick={() => go("checklist", { overdue: true })} />
+          <Tile label="No owner" value={`${F(s.unassigned)}%`} sub={`${s.unassigned} of ${T}`} tone={s.unassigned ? "text-orange-600" : ""} bar="bg-orange-400" barValue={P(s.unassigned)} onClick={() => go("checklist", { owner: "none" })} />
         </div>); })()}
       <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px] flex-wrap">
         {([["overview", "Overview"], ["checklist", `Checklist (${s.checkpoints})`], ["policy", `Policies & procedures (${s.policies})`], ["schedules", "Schedules"], ["scope", "Scope & circular"], ["auditors", "Auditors & access log"]] as const).map(([k, l]) =>
@@ -88,9 +88,15 @@ export default function ComplianceAudit() {
 }
 
 type Preset = { status?: string; owner?: string; overdue?: boolean; share?: string; area?: string; open?: number };
-function Tile({ label, value, sub, tone, className, children, onClick }: { label: string; value: React.ReactNode; sub?: string; tone?: string; className?: string; children?: React.ReactNode; onClick?: () => void }) {
+function Tile({ label, value, sub, tone, className, children, onClick, bar, barValue }: { label: string; value: React.ReactNode; sub?: string; tone?: string; className?: string; children?: React.ReactNode; onClick?: () => void; bar?: string; barValue?: number }) {
   return <div role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onClick={onClick} onKeyDown={e => { if (onClick && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onClick(); } }} title={onClick ? "Open the list" : undefined}
-    className={cn("rounded-[10px] border bg-card px-3 py-2", onClick && "cursor-pointer hover:border-primary/60 hover:shadow-sm transition", className)}><div className="text-[11px] text-muted-foreground">{label}</div><div className={cn("text-xl font-semibold leading-tight", tone)}>{value}{sub && <span className="text-xs text-muted-foreground font-normal ml-1.5">{sub}</span>}</div>{children}</div>;
+    className={cn("rounded-[10px] border bg-card px-3 py-2.5 flex flex-col min-h-[92px]", onClick && "cursor-pointer hover:border-primary/60 hover:shadow-sm transition", className)}>
+    <div className="text-[11px] text-muted-foreground truncate" title={label}>{label}</div>
+    <div className={cn("text-2xl font-semibold leading-tight mt-0.5 tabular-nums", tone)}>{value}</div>
+    <div className="text-[11px] text-muted-foreground truncate min-h-[16px]">{sub}</div>
+    <div className="mt-auto pt-1.5">{barValue !== undefined ? <div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className={cn("h-full rounded-full", bar || "bg-primary")} style={{ width: `${Math.min(100, Math.max(0, barValue))}%` }} /></div> : <div className="h-1.5" />}</div>
+    {children}
+  </div>;
 }
 
 const OPEN = (st: string) => !CLOSED.includes(st);

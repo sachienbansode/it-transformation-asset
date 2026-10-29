@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
-import { readObject } from "./storage";
+import { readObject, deleteObject } from "./storage";
 import { parseWorkbook, exportWorkbook, exportIntoOriginal, sheetMerges, STATUSES, CLOSED, TEAM_STATUSES, AUDITOR_STATUSES } from "../lib/compliance-template";
 import { refreshStatuses, statusRows, autoShareOn } from "../lib/compliance-status";
 import { getAccess } from "../lib/rbac";
@@ -424,6 +424,29 @@ router.patch("/compliance-documents/:id", wrap(async (req, res) => {
   const [d] = await q(sql`SELECT ${docCols} ${docJoin} WHERE d.id = ${did}`);
   res.json(camel(d));
 }));
+// Delete a document for good (admin only): every version, its links to checkpoints / schedules / references, and the files on disk.
+// Each checkpoint that used it gets a history line; the access log keeps the record of earlier views.
+router.delete("/compliance-documents/:id", wrap(async (req, res) => {
+  const did = id(req.params.id); const acc = await getAccess(req);
+  if (!acc || !(acc.isAdmin || acc.perms?.compliance === "admin")) throw Object.assign(new Bad("Only an administrator (or Compliance Admin) can delete evidence. Others can unlink it or archive it."), { status: 403 });
+  const v = parse(z.object({ reason: z.string().trim().min(5, "Give a reason (at least 5 characters)").max(500) }), req.body ?? {});
+  const [d] = await q(sql`SELECT id, title FROM cmp_documents WHERE id = ${did}`); if (!d) return fail(res, 404, "Document not found");
+  const by = await who(req);
+  const files = await q(sql`SELECT object_path FROM cmp_document_files WHERE document_id = ${did}`);
+  const items = await q(sql`SELECT item_id FROM cmp_item_documents WHERE document_id = ${did}`);
+  await db.transaction(async tx => {
+    await tx.execute(sql`DELETE FROM cmp_item_documents WHERE document_id = ${did}`);
+    await tx.execute(sql`DELETE FROM cmp_grid_documents WHERE document_id = ${did}`);
+    await tx.execute(sql`DELETE FROM cmp_reference_docs WHERE document_id = ${did}`);
+    await tx.execute(sql`DELETE FROM cmp_document_files WHERE document_id = ${did}`);
+    await tx.execute(sql`DELETE FROM cmp_documents WHERE id = ${did}`);
+  });
+  for (const it of items) await addComment(it.item_id, req, `Evidence deleted by administrator: ${d.title} — ${v.reason}`, true);
+  let removed = 0; for (const f of files) if (await deleteObject(f.object_path)) removed++;
+  await audit_({ aid: null, req, action: "document_deleted", detail: `${d.title}: ${v.reason}`, documentId: null });
+  await audit({ entityType: "compliance_document", entityId: did, action: "delete", performedBy: by, summary: `Evidence "${d.title}" deleted (${files.length} version(s), ${items.length} checkpoint link(s)) — ${v.reason}` });
+  res.json({ ok: true, versions: files.length, links: items.length, filesRemoved: removed });
+}));
 router.post("/compliance-documents/:id/files", wrap(async (req, res) => {
   const did = id(req.params.id);
   const v = parse(fileSchema, req.body); const by = await who(req);
@@ -717,7 +740,12 @@ router.get("/compliance-audits/:id/dashboard", wrap(async (req, res) => {
   const a = await getAudit(aid); if (!a) return fail(res, 404, "Audit not found");
   const items = (await q(sql`SELECT i.*, (SELECT count(*)::int FROM cmp_item_documents d WHERE d.item_id = i.id) AS evidence_count FROM cmp_items i WHERE i.audit_id = ${aid} ORDER BY i.sort_order`)).map(camel);
   const users = new Map((await q(sql`SELECT id, name FROM users`)).map(u => [u.id as number, u.name as string]));
-  const d = dashboardData(a, items, users, await activityOf(aid, 200));
+  const [company] = (await q(sql`SELECT * FROM cmp_companies WHERE id = ${a.companyId}`)).map(camel);
+  const auditors = (await q(sql`SELECT u.name, u.email, x.firm, x.valid_from, x.valid_until, x.can_download, x.is_active, x.last_access_at, (u.password_hash IS NOT NULL) AS accepted,
+    (x.is_active AND u.is_active AND x.valid_from <= (now() AT TIME ZONE 'Asia/Kolkata')::date AND x.valid_until >= (now() AT TIME ZONE 'Asia/Kolkata')::date) AS live
+    FROM cmp_audit_access x JOIN users u ON u.id = x.user_id WHERE x.audit_id = ${aid} ORDER BY x.is_active DESC, u.name`)).map(camel);
+  const [tpl] = a.templateId ? (await q(sql`SELECT name, version FROM cmp_templates WHERE id = ${a.templateId}`)).map(camel) : [null];
+  const d = dashboardData({ ...a, company, auditors, template: tpl }, items, users, await activityOf(aid, 200));
   const base = `${a.auditNo}_Dashboard_${new Date().toISOString().slice(0, 10)}`;
   let buf: Buffer, type: string;
   if (fmt === "xlsx") { buf = dashboardXlsx(d); type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; }

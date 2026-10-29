@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
-import { Search, Upload, FileText, Eye, Download, Loader2, Archive, CalendarClock, Save, Link2, Link2Off, ArrowRight } from "lucide-react";
+import { Search, Upload, FileText, Eye, Download, Loader2, Archive, CalendarClock, Save, Link2, Link2Off, ArrowRight, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDocViewer } from "@/components/doc-viewer";
 import { Pager, useCompanies, uploadFile, fileUrl, fmtDate, fmtSize, d10, today, DOC_CATEGORIES, PersonPicker, refOf } from "@/components/compliance-shared";
@@ -21,7 +21,7 @@ import { Pager, useCompanies, uploadFile, fileUrl, fmtDate, fmtSize, d10, today,
 
 export default function ComplianceLibrary() {
   const [, nav] = useLocation();
-  const { canAccess } = useAuth(); const canEdit = canAccess("compliance", "write"); const view = useDocViewer();
+  const { canAccess } = useAuth(); const canEdit = canAccess("compliance", "write"); const canDelete = canAccess("compliance", "admin"); const view = useDocViewer();
   const { data: companies = [] } = useCompanies();
   const [company, setCompany] = useState("all"); const [cat, setCat] = useState("all"); const [term, setTerm] = useState(""); const [linked, setLinked] = useState("all");
   const { data: docs = [], isLoading } = useQuery<any[]>({ queryKey: ["compliance-documents", company, cat, term, linked],
@@ -60,7 +60,7 @@ export default function ComplianceLibrary() {
         </div>
         <Pager page={page} total={docs.length} size={10} onPage={setPage} />
       </CardContent></Card>
-      {open && <DocDialog id={open} canEdit={canEdit} onClose={() => setOpen(null)} />}
+      {open && <DocDialog id={open} canEdit={canEdit} canDelete={canDelete} onClose={() => setOpen(null)} />}
       {add && <NewDocDialog onClose={() => setAdd(false)} />}
     </div>
   );
@@ -115,11 +115,24 @@ function NewDocDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex gap-2 pt-3 border-t"><Button onClick={save} disabled={busy || !file || f.title.trim().length < 2} className="gap-1.5">{busy && <Loader2 className="w-4 h-4 animate-spin" />}Upload</Button><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button></div>
       </DialogContent>
+      {del && d && <Dialog open onOpenChange={o => { if (!o && !busy) setDel(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="text-red-600">Delete "{d.title}" permanently?</DialogTitle>
+            <DialogDescription>All {d.files.length} version(s) and the files are removed{d.links.length ? `, and it is unlinked from ${d.links.length} checkpoint(s) / schedule(s) (each gets a history line)` : ""}. This cannot be undone. To keep it but hide it, use Archive instead.</DialogDescription></DialogHeader>
+          <div><Label>Reason *</Label><Textarea rows={2} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. uploaded to the wrong audit / contains personal data" /></div>
+          <div className="flex gap-2 pt-1"><Button variant="destructive" disabled={busy || reason.trim().length < 5} className="gap-1.5" onClick={async () => {
+            setBusy(true);
+            try { await apiFetch(`/compliance-documents/${id}`, { method: "DELETE", body: JSON.stringify({ reason: reason.trim() }) }); qc.invalidateQueries({ queryKey: ["compliance-documents"] }); qc.invalidateQueries({ queryKey: ["compliance-items"] }); toast({ title: "Evidence deleted" }); setDel(false); onClose(); }
+            catch (e: any) { toast({ title: "Could not delete", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+          }}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}<Trash2 className="w-4 h-4" />Delete permanently</Button><Button variant="outline" onClick={() => setDel(false)} disabled={busy}>Cancel</Button></div>
+        </DialogContent>
+      </Dialog>}
     </Dialog>
   );
 }
 
-function DocDialog({ id, canEdit, onClose }: { id: number; canEdit: boolean; onClose: () => void }) {
+function DocDialog({ id, canEdit, canDelete, onClose }: { id: number; canEdit: boolean; canDelete?: boolean; onClose: () => void }) {
+  const [del, setDel] = useState(false); const [reason, setReason] = useState("");
   const [, nav] = useLocation(); const go = (href: string) => { onClose(); nav(href); };
   const view = useDocViewer(); const qc = useQueryClient(); const { toast } = useToast(); const { data: companies = [] } = useCompanies(); const ref = useRef<HTMLInputElement>(null);
   const { data: d, refetch } = useQuery<any>({ queryKey: ["compliance-document", id], queryFn: () => apiFetch(`/compliance-documents/${id}`) });
@@ -172,9 +185,22 @@ function DocDialog({ id, canEdit, onClose }: { id: number; canEdit: boolean; onC
         <div className="flex gap-2 pt-3 border-t">
           {canEdit && <Button onClick={save} disabled={busy || !f} className="gap-1.5">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save</Button>}
           <Button variant="outline" onClick={onClose} disabled={busy}>Close</Button>
-          {canEdit && d && <Button variant="ghost" className="ml-auto gap-1.5 text-red-600" onClick={archive}><Archive className="w-4 h-4" />Archive</Button>}
+          {canEdit && d && <Button variant="ghost" className="ml-auto gap-1.5 text-amber-700" onClick={archive}><Archive className="w-4 h-4" />Archive</Button>}
+          {canDelete && d && <Button variant="ghost" className={cn("gap-1.5 text-red-600", !canEdit && "ml-auto")} onClick={() => { setReason(""); setDel(true); }}><Trash2 className="w-4 h-4" />Delete</Button>}
         </div>
       </DialogContent>
+      {del && d && <Dialog open onOpenChange={o => { if (!o && !busy) setDel(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="text-red-600">Delete "{d.title}" permanently?</DialogTitle>
+            <DialogDescription>All {d.files.length} version(s) and the files are removed{d.links.length ? `, and it is unlinked from ${d.links.length} checkpoint(s) / schedule(s) (each gets a history line)` : ""}. This cannot be undone. To keep it but hide it, use Archive instead.</DialogDescription></DialogHeader>
+          <div><Label>Reason *</Label><Textarea rows={2} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. uploaded to the wrong audit / contains personal data" /></div>
+          <div className="flex gap-2 pt-1"><Button variant="destructive" disabled={busy || reason.trim().length < 5} className="gap-1.5" onClick={async () => {
+            setBusy(true);
+            try { await apiFetch(`/compliance-documents/${id}`, { method: "DELETE", body: JSON.stringify({ reason: reason.trim() }) }); qc.invalidateQueries({ queryKey: ["compliance-documents"] }); qc.invalidateQueries({ queryKey: ["compliance-items"] }); toast({ title: "Evidence deleted" }); setDel(false); onClose(); }
+            catch (e: any) { toast({ title: "Could not delete", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+          }}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}<Trash2 className="w-4 h-4" />Delete permanently</Button><Button variant="outline" onClick={() => setDel(false)} disabled={busy}>Cancel</Button></div>
+        </DialogContent>
+      </Dialog>}
     </Dialog>
   );
 }

@@ -207,6 +207,16 @@ export async function readObject(objectPath: string): Promise<{ buffer: Buffer; 
   return { buffer: Buffer.from(await r.arrayBuffer()), contentType: r.headers.get("content-type") || "application/octet-stream", name: null };
 }
 
+/** Remove a stored object for good (local disk; previews too). Cloud objects are left to the bucket's lifecycle. Never throws. */
+export async function deleteObject(objectPath: string): Promise<boolean> {
+  const id = String(objectPath).split("/").pop() || "";
+  if (DRIVER !== "local" || !ID_RE.test(id)) return false;
+  let ok = false;
+  for (const f of [path.join(UPLOAD_DIR, id), path.join(UPLOAD_DIR, `${id}.json`)]) { try { fs.unlinkSync(f); ok = true; } catch { /* already gone */ } }
+  try { for (const f of fs.readdirSync(path.join(UPLOAD_DIR, "previews"))) if (f.startsWith(id)) fs.unlinkSync(path.join(UPLOAD_DIR, "previews", f)); } catch { /* no previews */ }
+  return ok;
+}
+
 /** Upload policy for the browser (allowed extensions, max size). */
 router.get("/upload-policy", async (_req: Request, res: Response) => { res.json(await getUploadPolicy()); });
 

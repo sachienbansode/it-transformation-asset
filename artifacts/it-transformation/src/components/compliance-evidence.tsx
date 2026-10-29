@@ -7,7 +7,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
-import { Upload, Link2, Loader2, Eye, Download, Unlink, FileText, Search } from "lucide-react";
+import { Upload, Link2, Loader2, Eye, Download, Unlink, FileText, Search, Trash2 } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
+import { Dialog as DelDialog, DialogContent as DelContent, DialogHeader as DelHeader, DialogTitle as DelTitle, DialogDescription as DelDesc } from "@/components/ui/dialog";
+import { Textarea as DelText } from "@/components/ui/textarea";
 import { uploadFile, fileUrl, fmtDate, fmtSize, DOC_CATEGORIES } from "@/components/compliance-shared";
 import { useDocViewer } from "@/components/doc-viewer";
 
@@ -16,6 +19,13 @@ import { useDocViewer } from "@/components/doc-viewer";
 export function EvidencePanel({ target, companyId, docs, canEdit, defaultCategory = "Evidence", onChange }: { target: { itemId?: number; gridId?: number }; companyId: number; docs: any[]; canEdit: boolean; defaultCategory?: string; onChange: () => void }) {
   const { toast } = useToast(); const ref = useRef<HTMLInputElement>(null); const view = useDocViewer();
   const [busy, setBusy] = useState(false); const [cat, setCat] = useState(defaultCategory); const [pick, setPick] = useState(false);
+  const { canAccess } = useAuth(); const canDelete = canAccess("compliance", "admin");
+  const [delDoc, setDelDoc] = useState<any>(null); const [reason, setReason] = useState("");
+  async function remove() {
+    setBusy(true);
+    try { await apiFetch(`/compliance-documents/${delDoc.id}`, { method: "DELETE", body: JSON.stringify({ reason: reason.trim() }) }); toast({ title: "Evidence deleted", description: "Removed from the library and from every checkpoint" }); setDelDoc(null); onChange(); }
+    catch (e: any) { toast({ title: "Could not delete", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
   const base = target.itemId ? `/compliance-items/${target.itemId}` : `/compliance-grids/${target.gridId}`;
   async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []); if (!files.length) return;
@@ -52,7 +62,8 @@ export function EvidencePanel({ target, companyId, docs, canEdit, defaultCategor
               <div className="text-[11px] text-muted-foreground truncate">{d.category} · {d.fileName} · v{d.version} · {fmtSize(d.fileSize)} · {fmtDate(d.uploadedAt)}</div></div>
             {d.fileId && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => view({ url: fileUrl(d.fileId), downloadUrl: fileUrl(d.fileId, true), name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" /></Button>}
             {d.fileId && <a href={fileUrl(d.fileId, true)} title="Download"><Button type="button" size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}
-            {canEdit && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Unlink" onClick={() => unlink(d)}><Unlink className="w-3.5 h-3.5 text-red-500" /></Button>}
+            {canEdit && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Unlink (keeps it in the library)" onClick={() => unlink(d)}><Unlink className="w-3.5 h-3.5 text-amber-600" /></Button>}
+            {canDelete && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Delete permanently (admin)" onClick={() => { setReason(""); setDelDoc(d); }}><Trash2 className="w-3.5 h-3.5 text-red-600" /></Button>}
           </div>
         ))}
       </div>
@@ -60,6 +71,14 @@ export function EvidencePanel({ target, companyId, docs, canEdit, defaultCategor
         try { await apiFetch(`${base}/documents`, { method: "POST", body: JSON.stringify({ documentId: doc.id }) }); onChange(); toast({ title: `Linked ${doc.title}` }); }
         catch (e: any) { toast({ title: "Could not link", description: e.message, variant: "destructive" }); }
       }} />}
+      {delDoc && <DelDialog open onOpenChange={o => { if (!o && !busy) setDelDoc(null); }}>
+        <DelContent className="max-w-md">
+          <DelHeader><DelTitle className="text-red-600">Delete "{delDoc.title}" permanently?</DelTitle>
+            <DelDesc>Removes the document, all its versions and files from the Evidence Library and from every checkpoint that uses it. This cannot be undone — use Unlink to just remove it from here.</DelDesc></DelHeader>
+          <div><div className="text-sm font-medium mb-1">Reason *</div><DelText rows={2} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. wrong file / contains personal data" /></div>
+          <div className="flex gap-2 pt-1"><Button variant="destructive" disabled={busy || reason.trim().length < 5} onClick={remove} className="gap-1.5">{busy && <Loader2 className="w-4 h-4 animate-spin" />}<Trash2 className="w-4 h-4" />Delete permanently</Button><Button variant="outline" onClick={() => setDelDoc(null)} disabled={busy}>Cancel</Button></div>
+        </DelContent>
+      </DelDialog>}
     </div>
   );
 }

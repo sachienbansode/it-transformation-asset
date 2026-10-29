@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, PageOrientation, Footer, PageNumber, HeadingLevel } from "docx";
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, PageOrientation, Footer, PageNumber, HeadingLevel, PageBreak } from "docx";
 import { CLOSED } from "./compliance-template";
 import { groupOf, courtOf } from "./compliance-status";
 
@@ -45,8 +45,33 @@ export function dashboardData(audit: any, items: any[], users: Map<number, strin
 }
 type D = ReturnType<typeof dashboardData>;
 
+/* Audit details (cover page / first sheet): company, engagement, scope, auditors */
+const dt = (x: any) => (x ? new Date(String(x).length === 10 ? x + "T00:00:00" : x).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }) : "—");
+function details(a: any) {
+  const c = a.company || {};
+  const info: [string, string][] = [
+    ["Company", c.name || a.companyName || "—"], ["Short name", c.shortName || "—"], ["Business line", c.businessLine || "—"], ["Regulator", c.regulator || "—"],
+    ["Registration no.", c.registrationNo || "—"], ["Registered address", c.address || "—"],
+    ["Audit no.", a.auditNo], ["Title", a.title], ["Audit type", a.auditType || "—"], ["Status", a.status], ["Checklist template", a.template ? `${a.template.name}${a.template.version ? ` (${a.template.version})` : ""}` : "—"],
+    ["Audit start date", dt(a.startDate)], ["Audit period", a.periodFrom ? `${dt(a.periodFrom)} to ${dt(a.periodTo)}` : "—"], ["Target closure date", dt(a.targetDate)],
+    ["Audit firm", a.auditFirm || "—"], ["Auditor contact", a.auditorContact || "—"], ["Notes", a.notes || "—"],
+  ];
+  const apps = ((a.scope?.applications || []) as any[]).map(x => [x.name || "", x.category || "", x.hosting || "", x.notes || ""]);
+  const vendors = ((a.scope?.vendors || []) as any[]).map(x => [x.role || "", x.name || "", x.system || "", x.notes || ""]);
+  const auditors = ((a.auditors || []) as any[]).map(x => [x.name || "", x.email || "", x.firm || "", `${dt(x.validFrom)} – ${dt(x.validUntil)}`, x.canDownload ? "View + download" : "View only",
+    x.live ? "Active" : x.isActive ? "Outside dates" : "Revoked", x.accepted ? (x.lastAccessAt ? dt(x.lastAccessAt) : "Not signed in yet") : "Invitation not accepted"]);
+  return { info, apps, vendors, auditors };
+}
+
 export function dashboardXlsx(d: D) {
   const wb = XLSX.utils.book_new(); const a = d.audit;
+  const x = details(a);
+  const s0 = XLSX.utils.aoa_to_sheet([["Audit details"], [`As on ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`], [], ["Field", "Value"], ...x.info,
+    [], ["In-scope applications"], ["Application", "Category", "Hosting", "Notes"], ...(x.apps.length ? x.apps : [["None recorded"]]),
+    [], ["Critical vendors"], ["Role", "Vendor", "System / service", "Notes"], ...(x.vendors.length ? x.vendors : [["None recorded"]]),
+    [], ["External auditors (portal access)"], ["Name", "Email", "Firm", "Access period", "Rights", "Status", "Last active"], ...(x.auditors.length ? x.auditors : [["None invited"]])]);
+  s0["!cols"] = [{ wch: 26 }, { wch: 44 }, { wch: 28 }, { wch: 28 }, { wch: 16 }, { wch: 14 }, { wch: 22 }];
+  XLSX.utils.book_append_sheet(wb, s0, "Audit details");
   const head = [["Audit dashboard"], [`${a.auditNo} — ${a.title}`], [`${a.companyName}${a.auditFirm ? " · " + a.auditFirm : ""}`], [`As on ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`], []];
   const sum = [...head, ["Measure", "Value"], ["Total checkpoints", d.tot.total], ["Policies & procedures", d.policies], ["Closure %", d.closurePct / 100], ["Submitted to auditor %", d.submissionPct / 100],
     ["Pending with entity", d.tot.withEntity], ["Pending with auditor", d.tot.withAuditor], ["Closed / N.A.", d.tot.closed], ["Pending", d.tot.pending], ["In progress", d.tot.inprog], ["Submitted", d.tot.submitted], ["Under review", d.tot.review], ["Overdue", d.tot.overdue], ["No owner", d.tot.noOwner]];
@@ -75,11 +100,12 @@ const border = { style: BorderStyle.SINGLE, size: 4, color: LINE };
 const borders = { top: border, bottom: border, left: border, right: border };
 const p = (t: string | number, o: { b?: boolean; color?: string; size?: number; align?: (typeof AlignmentType)[keyof typeof AlignmentType] } = {}) =>
   new Paragraph({ alignment: o.align, spacing: { before: 20, after: 20 }, children: [new TextRun({ text: String(t), bold: o.b, color: o.color, size: o.size ?? 18, font: "Arial" })] });
-function table(headers: string[], rows: (string | number)[][], widths: number[], opts: { totalRow?: boolean } = {}) {
+function table(headers: string[], rows: (string | number)[][], widths: number[], opts: { totalRow?: boolean; left?: boolean; labels?: number[] } = {}) {
   const total = widths.reduce((a, b) => a + b, 0);
   const cell = (v: string | number, i: number, kind: "h" | "b" | "t") => new TableCell({ borders, width: { size: widths[i], type: WidthType.DXA }, margins: { top: 50, bottom: 50, left: 90, right: 90 },
     shading: kind === "h" ? { fill: BLUE, type: ShadingType.CLEAR, color: "auto" } : kind === "t" ? { fill: GREY, type: ShadingType.CLEAR, color: "auto" } : undefined,
-    children: [p(v, { b: kind !== "b", color: kind === "h" ? "FFFFFF" : undefined, align: i === 0 ? AlignmentType.LEFT : AlignmentType.CENTER })] });
+    children: [p(v, { b: kind !== "b" || (opts.labels || []).includes(i), color: kind === "h" ? "FFFFFF" : (opts.labels || []).includes(i) ? "475467" : undefined, align: i === 0 || opts.left ? AlignmentType.LEFT : AlignmentType.CENTER })],
+    ...(kind === "b" && (opts.labels || []).includes(i) ? { shading: { fill: GREY, type: ShadingType.CLEAR, color: "auto" } } : {}) });
   return new Table({ width: { size: total, type: WidthType.DXA }, columnWidths: widths, rows: [
     new TableRow({ tableHeader: true, children: headers.map((h, i) => cell(h, i, "h")) }),
     ...rows.map((r, ri) => new TableRow({ children: r.map((v, i) => cell(v, i, opts.totalRow && ri === rows.length - 1 ? "t" : "b")) })) ] });
@@ -94,6 +120,18 @@ export async function dashboardDocx(d: D) {
     p(`${a.auditNo} — ${a.title}`, { b: true, size: 22 }),
     p(`${a.companyName}${a.auditFirm ? " · " + a.auditFirm : ""}${a.periodFrom ? ` · period ${String(a.periodFrom).slice(0, 10)} to ${String(a.periodTo || "").slice(0, 10)}` : ""}${a.targetDate ? ` · target ${String(a.targetDate).slice(0, 10)}` : ""}`, { color: "475467" }),
     p(`As on ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`, { color: "667085", size: 16 }),
+    ...(() => { const x = details(a); const half = Math.ceil(x.info.length / 2); const L = x.info.slice(0, half), R = x.info.slice(half);
+      return [
+        h("Audit details"),
+        table(["Field", "Value", "Field", "Value"], L.map((r, i) => [r[0], r[1], R[i]?.[0] ?? "", R[i]?.[1] ?? ""]), [2300, 4700, 2300, 4700], { left: true, labels: [0, 2] }),
+        h("Scope — in-scope applications"),
+        x.apps.length ? table(["Application", "Category", "Hosting", "Notes"], x.apps, [3500, 3500, 3500, 3500], { left: true }) : p("None recorded", { color: "667085" }),
+        h("Scope — critical vendors"),
+        x.vendors.length ? table(["Role", "Vendor", "System / service", "Notes"], x.vendors, [3000, 3500, 4000, 3500], { left: true }) : p("None recorded", { color: "667085" }),
+        h("External auditors (portal access)"),
+        x.auditors.length ? table(["Name", "Email", "Firm", "Access period", "Rights", "Status", "Last active"], x.auditors, [2000, 2900, 2000, 2500, 1500, 1400, 1700], { left: true }) : p("None invited", { color: "667085" }),
+        new Paragraph({ children: [new PageBreak()] }),
+      ]; })(),
     h("Summary"),
     table(["Total checkpoints", "Policies", "Submitted to auditor", "Closure", "Pending with entity", "Pending with auditor", "Overdue", "No owner"],
       [[d.tot.total, d.policies, `${d.submissionPct}% (${d.tot.submittedToAuditor}/${d.tot.total})`, `${d.closurePct}% (${d.tot.closed}/${d.tot.total})`, d.tot.withEntity, d.tot.withAuditor, d.tot.overdue, d.tot.noOwner]], [1700, 1100, 2200, 2000, 2000, 2000, 1500, 1500]),
