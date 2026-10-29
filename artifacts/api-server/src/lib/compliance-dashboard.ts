@@ -1,19 +1,21 @@
 import * as XLSX from "xlsx";
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, PageOrientation, Footer, PageNumber, HeadingLevel } from "docx";
 import { CLOSED } from "./compliance-template";
+import { groupOf } from "./compliance-status";
 
 /* Audit dashboard as Excel (several sheets) and as a printable report (Word → PDF via LibreOffice). */
 
 const isOverdue = (i: any, today: string) => !!i.targetDate && String(i.targetDate).slice(0, 10) < today && !CLOSED.includes(i.status);
-const GROUPS: [string, (s: string) => boolean][] = [["Pending", s => s === "Pending"], ["In progress", s => s === "In Progress" || s === "Partially Closed"], ["Submitted", s => s === "Submitted"], ["Under review", s => s === "Under Review"], ["Closed / N.A.", s => CLOSED.includes(s)]];
+// dashboard buckets follow the status master (each status belongs to one bucket)
+const GROUPS: [string, (s: string) => boolean][] = [["Pending", s => groupOf(s) === "pending"], ["In progress", s => groupOf(s) === "inprog"], ["Submitted", s => groupOf(s) === "submitted"], ["Under review", s => groupOf(s) === "review"], ["Closed / N.A.", s => groupOf(s) === "closed"]];
 const ref = (i: any) => (i.refNo ? `${i.refNo}${i.seq > 1 ? "." + i.seq : ""}` : "");
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 
 export function dashboardData(audit: any, items: any[], users: Map<number, string>) {
   const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
   const check = items.filter(i => i.kind === "checklist"), pol = items.filter(i => i.kind === "policy");
-  const row = (list: any[]) => ({ total: list.length, pending: list.filter(i => i.status === "Pending").length, inprog: list.filter(i => i.status === "In Progress" || i.status === "Partially Closed").length,
-    submitted: list.filter(i => i.status === "Submitted").length, review: list.filter(i => i.status === "Under Review").length, closed: list.filter(i => CLOSED.includes(i.status)).length,
+  const row = (list: any[]) => ({ total: list.length, pending: list.filter(i => groupOf(i.status) === "pending").length, inprog: list.filter(i => groupOf(i.status) === "inprog").length,
+    submitted: list.filter(i => groupOf(i.status) === "submitted").length, review: list.filter(i => groupOf(i.status) === "review").length, closed: list.filter(i => CLOSED.includes(i.status)).length,
     overdue: list.filter(i => isOverdue(i, today)).length, noOwner: list.filter(i => !i.ownerUserId).length });
   const areas = new Map<string, any[]>(); check.forEach(i => { const k = i.area || i.sheet; areas.set(k, [...(areas.get(k) || []), i]); });
   const owners = new Map<string, any[]>(); items.forEach(i => { const k = i.ownerUserId ? users.get(i.ownerUserId) || `#${i.ownerUserId}` : "— No owner —"; owners.set(k, [...(owners.get(k) || []), i]); });

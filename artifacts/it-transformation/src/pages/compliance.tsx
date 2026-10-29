@@ -59,32 +59,53 @@ function Audits() {
         </CardContent></Card>
       )}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {audits.map(a => {
-          const pct = a.checkpoints ? Math.round((a.closed / a.checkpoints) * 100) : 0;
-          return (
-            <Link key={a.id} href={`/compliance/${a.id}`}>
-              <Card className="cursor-pointer hover:border-primary/50 transition-colors h-full"><CardContent className="p-4 space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0"><div className="text-xs font-mono text-primary">{a.auditNo}</div><div className="font-semibold leading-snug">{a.title}</div><div className="text-xs text-muted-foreground">{a.companyName}</div></div>
-                  <span className="text-[11px] rounded-full bg-muted px-2 py-0.5 shrink-0">{a.status}</span>
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs mb-1"><span className="text-muted-foreground">Closure</span><span className="font-semibold">{a.closed}/{a.checkpoints} · {pct}%</span></div>
-                  <Progress value={pct} />
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="rounded-[8px] border px-2 py-1.5"><div className="text-muted-foreground">Under review</div><div className="font-semibold text-amber-600">{a.underReview}</div></div>
-                  <div className="rounded-[8px] border px-2 py-1.5"><div className="text-muted-foreground flex items-center gap-1"><CalendarClock className="w-3 h-3" />Overdue</div><div className={cn("font-semibold", a.overdue && "text-red-600")}>{a.overdue}</div></div>
-                  <div className="rounded-[8px] border px-2 py-1.5"><div className="text-muted-foreground flex items-center gap-1"><UserX className="w-3 h-3" />No owner</div><div className={cn("font-semibold", a.unassigned && "text-orange-600")}>{a.unassigned}</div></div>
-                </div>
-                <div className="text-xs text-muted-foreground flex justify-between"><span>Policies {a.policiesClosed}/{a.policies}</span><span>Target {fmtDate(a.targetDate)}</span></div>
-              </CardContent></Card>
-            </Link>
-          );
-        })}
+        {audits.map(a => <AuditCard key={a.id} a={a} />)}
       </div>
       {add && <AuditDialog onClose={() => setAdd(false)} />}
     </div>
+  );
+}
+
+const SEG = [
+  { k: "pending", label: "Pending", cls: "bg-slate-300 dark:bg-slate-500", n: (a: any) => a.pending },
+  { k: "inprog", label: "In progress", cls: "bg-blue-400", n: (a: any) => a.inProgress },
+  { k: "submitted", label: "Submitted", cls: "bg-indigo-500", n: (a: any) => a.submitted },
+  { k: "review", label: "Under review", cls: "bg-amber-400", n: (a: any) => a.underReview },
+  { k: "closed", label: "Closed / N.A.", cls: "bg-emerald-500", n: (a: any) => a.closed },
+];
+const STATUS_CHIP: Record<string, string> = { Planning: "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300", Fieldwork: "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  Reporting: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300", Closed: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
+function AuditCard({ a }: { a: any }) {
+  const total = a.checkpoints || 0; const pct = total ? Math.round((a.closed / total) * 100) : 0;
+  const days = a.targetDate ? Math.round((new Date(d10(a.targetDate) + "T00:00:00").getTime() - new Date(today() + "T00:00:00").getTime()) / 86400000) : null;
+  return (
+    <Link href={`/compliance/${a.id}`}>
+      <Card className="cursor-pointer hover:border-primary/50 hover:shadow-md transition h-full"><CardContent className="p-4 space-y-3.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0"><div className="text-xs font-mono text-primary">{a.auditNo}</div><div className="font-semibold leading-snug mt-0.5">{a.title}</div>
+            <div className="text-xs text-muted-foreground truncate">{a.companyName}{a.auditFirm ? ` · ${a.auditFirm}` : ""}</div></div>
+          <span className={cn("text-[11px] rounded-full px-2 py-0.5 shrink-0 font-medium", STATUS_CHIP[a.status] || STATUS_CHIP.Planning)}>{a.status}</span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-[11px] rounded-[10px] bg-muted/50 px-3 py-2">
+          <div><div className="text-muted-foreground">Start</div><div className="font-semibold text-foreground">{fmtDate(a.startDate)}</div></div>
+          <div><div className="text-muted-foreground">Period</div><div className="font-semibold text-foreground whitespace-nowrap">{a.periodFrom ? `${fmtDate(a.periodFrom).slice(0, 6)} – ${fmtDate(a.periodTo).slice(0, 6)}` : "—"}</div></div>
+          <div><div className="text-muted-foreground">Target</div><div className={cn("font-semibold", days !== null && days < 0 && a.status !== "Closed" ? "text-red-600" : "text-foreground")}>{fmtDate(a.targetDate)}</div>
+            {days !== null && a.status !== "Closed" && <div className={cn("text-[10px]", days < 0 ? "text-red-600" : days <= 7 ? "text-amber-600" : "text-muted-foreground")}>{days < 0 ? `${-days} day(s) late` : days === 0 ? "due today" : `${days} day(s) left`}</div>}</div>
+        </div>
+        <div>
+          <div className="flex justify-between text-xs mb-1.5"><span className="text-muted-foreground">Checkpoints · closure</span><span className="font-semibold">{a.closed}/{total} · {pct}%</span></div>
+          <div className="flex h-2.5 rounded-full overflow-hidden bg-muted">{SEG.map(g => { const n = g.n(a) || 0; return n ? <div key={g.k} title={`${g.label}: ${n}`} className={cn(g.cls, "h-full")} style={{ width: `${(n / Math.max(1, total)) * 100}%` }} /> : null; })}</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px]">{SEG.map(g => <span key={g.k} className="inline-flex items-center gap-1"><span className={cn("w-2 h-2 rounded-sm", g.cls)} />{g.label} <b>{g.n(a) || 0}</b></span>)}</div>
+        </div>
+        <div className="grid grid-cols-4 gap-2 text-xs">
+          <div className="rounded-[8px] border px-2 py-1.5"><div className="text-muted-foreground text-[11px]">Shared</div><div className="font-semibold text-indigo-600">{a.shared ?? 0}</div></div>
+          <div className="rounded-[8px] border px-2 py-1.5"><div className="text-muted-foreground text-[11px] whitespace-nowrap">In review</div><div className="font-semibold text-amber-600">{a.underReview}</div></div>
+          <div className="rounded-[8px] border px-2 py-1.5"><div className="text-muted-foreground text-[11px] whitespace-nowrap">Overdue</div><div className={cn("font-semibold", a.overdue && "text-red-600")}>{a.overdue}</div></div>
+          <div className="rounded-[8px] border px-2 py-1.5"><div className="text-muted-foreground text-[11px] whitespace-nowrap">No owner</div><div className={cn("font-semibold", a.unassigned && "text-orange-600")}>{a.unassigned}</div></div>
+        </div>
+        <div className="text-xs text-muted-foreground flex justify-between border-t pt-2"><span>Policies: {a.policiesSubmitted ?? 0} submitted · {a.policiesClosed} closed of {a.policies}</span></div>
+      </CardContent></Card>
+    </Link>
   );
 }
 
@@ -95,24 +116,25 @@ export function AuditDialog({ audit, onClose }: { audit?: any; onClose: () => vo
   const qc = useQueryClient(); const { toast } = useToast(); const [, nav] = useLocation();
   const { data: companies = [] } = useCompanies();
   const { data: templates = [] } = useQuery<any[]>({ queryKey: ["compliance-templates"], queryFn: () => apiFetch("/compliance-templates") });
-  const [f, setF] = useState<any>(() => audit ? { ...audit, periodFrom: audit.periodFrom?.slice(0, 10) ?? "", periodTo: audit.periodTo?.slice(0, 10) ?? "", targetDate: audit.targetDate?.slice(0, 10) ?? "" }
-    : { companyId: null, templateId: null, title: "", auditType: "", periodFrom: "", periodTo: "", auditFirm: "", auditorContact: "", targetDate: "", status: "Planning", notes: "", scope: { applications: [], vendors: [] } });
+  const [f, setF] = useState<any>(() => audit ? { ...audit, startDate: audit.startDate?.slice(0, 10) ?? "", periodFrom: audit.periodFrom?.slice(0, 10) ?? "", periodTo: audit.periodTo?.slice(0, 10) ?? "", targetDate: audit.targetDate?.slice(0, 10) ?? "" }
+    : { companyId: null, templateId: null, title: "", auditType: "", startDate: today(), periodFrom: "", periodTo: "", auditFirm: "", auditorContact: "", targetDate: "", status: "Planning", notes: "", scope: { applications: [], vendors: [] } });
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
   const dateErr = useMemo(() => {
-    const e: Record<string, string> = {}; const from = f.periodFrom || "", to = f.periodTo || "", tg = f.targetDate || "";
+    const e: Record<string, string> = {}; const from = f.periodFrom || "", to = f.periodTo || "", tg = f.targetDate || "", st = f.startDate || "";
+    if (st && tg && tg < st) e.targetDate = "Cannot be before the audit start date";
     if (from && to && from > to) e.periodTo = "Must be on or after the 'from' date";
-    if (tg && from && tg < from) e.targetDate = "Cannot be before the audit period starts";
+    if (e.targetDate) { /* already set */ } else if (tg && from && tg < from) e.targetDate = "Cannot be before the audit period starts";
     else if (tg && tg < today() && (!audit || tg !== d10(audit.targetDate))) e.targetDate = "Cannot be in the past";
     return e;
-  }, [f.periodFrom, f.periodTo, f.targetDate, audit]);
+  }, [f.startDate, f.periodFrom, f.periodTo, f.targetDate, audit]);
   const err = (k: string) => dateErr[k] ? <div className="text-[11px] text-red-600 mt-0.5">{dateErr[k]}</div> : null;
   const apps: App[] = f.scope?.applications || []; const vendors: Vendor[] = f.scope?.vendors || [];
   const setScope = (k: "applications" | "vendors", v: any[]) => set("scope", { ...f.scope, [k]: v });
   async function save() {
     setBusy(true);
     try {
-      const body = { companyId: f.companyId, templateId: f.templateId, title: f.title, auditType: f.auditType || null, periodFrom: f.periodFrom || null, periodTo: f.periodTo || null, auditFirm: f.auditFirm || null,
+      const body = { companyId: f.companyId, templateId: f.templateId, title: f.title, auditType: f.auditType || null, startDate: f.startDate || null, periodFrom: f.periodFrom || null, periodTo: f.periodTo || null, auditFirm: f.auditFirm || null,
         auditorContact: f.auditorContact || null, targetDate: f.targetDate || null, status: f.status, notes: f.notes || null,
         scope: { applications: apps.filter(a => a.name?.trim()), vendors: vendors.filter(v => v.name?.trim() && v.role?.trim()) } };
       const r = await apiFetch<any>(audit ? `/compliance-audits/${audit.id}` : "/compliance-audits", { method: audit ? "PATCH" : "POST", body: JSON.stringify(audit ? { ...body, templateId: undefined } : body) });
@@ -136,10 +158,11 @@ export function AuditDialog({ audit, onClose }: { audit?: any; onClose: () => vo
             <div className="md:col-span-2"><Label>Title *</Label><Input value={f.title} onChange={e => set("title", e.target.value)} placeholder="e.g. SEBI System Audit — MF licence (pre-inspection)" /></div>
             <div><Label>Audit type</Label><Input value={f.auditType ?? ""} onChange={e => set("auditType", e.target.value)} placeholder="e.g. SEBI System Audit" /></div>
             <div><Label>Status</Label><Select value={f.status} onValueChange={v => set("status", v)}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{AUDIT_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Audit start date</Label><Input type="date" value={f.startDate ?? ""} onChange={e => set("startDate", e.target.value)} /><div className="text-[11px] text-muted-foreground mt-0.5">When fieldwork / the engagement starts</div></div>
+            <div><Label>Target closure date</Label><Input type="date" min={[f.startDate || "", f.periodFrom || "", audit ? "" : today()].sort().pop() || undefined} value={f.targetDate ?? ""} onChange={e => set("targetDate", e.target.value)} className={cn(dateErr.targetDate && "border-red-500")} />{err("targetDate")}<div className="text-[11px] text-muted-foreground mt-0.5">{audit ? "Changing it here does not move checkpoint dates" : "Also set as each checkpoint's target date"}</div></div>
             <div><Label>Audit period from</Label><Input type="date" value={f.periodFrom ?? ""} onChange={e => set("periodFrom", e.target.value)} /></div>
             <div><Label>Audit period to</Label><Input type="date" min={f.periodFrom || undefined} value={f.periodTo ?? ""} onChange={e => set("periodTo", e.target.value)} className={cn(dateErr.periodTo && "border-red-500")} />{err("periodTo")}</div>
-            <div><Label>Audit firm</Label><Input value={f.auditFirm ?? ""} onChange={e => set("auditFirm", e.target.value)} /></div>
-            <div><Label>Target closure date</Label><Input type="date" min={[f.periodFrom || "", audit ? "" : today()].sort().pop() || undefined} value={f.targetDate ?? ""} onChange={e => set("targetDate", e.target.value)} className={cn(dateErr.targetDate && "border-red-500")} />{err("targetDate")}<div className="text-[11px] text-muted-foreground mt-0.5">{audit ? "Changing it here does not move checkpoint dates" : "Also set as each checkpoint's target date"}</div></div>
+            <div className="md:col-span-2"><Label>Audit firm</Label><Input value={f.auditFirm ?? ""} onChange={e => set("auditFirm", e.target.value)} /></div>
             <div className="md:col-span-2"><Label>Auditor contact</Label><Input value={f.auditorContact ?? ""} onChange={e => set("auditorContact", e.target.value)} placeholder="Name, email, phone" /></div>
           </div>
           <ScopeTable title="In-scope applications" cols={[["name", "Application *"], ["category", "Category (Front / Back office …)"], ["hosting", "Hosting"]]} rows={apps} onChange={v => setScope("applications", v)} blank={{ name: "", category: "", hosting: "" }} />

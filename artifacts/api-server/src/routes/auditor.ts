@@ -8,6 +8,7 @@ import { readObject } from "./storage";
 import { OFFICE, officePreview } from "../lib/preview";
 import { logAudit } from "./audit-logs";
 import { sha256, AUDITOR_STATUSES, sendFile, backfillMerges } from "./compliance";
+import { refreshStatuses, statusRows } from "../lib/compliance-status";
 
 /*
  * External auditor portal.
@@ -29,7 +30,8 @@ const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: 
 };
 const todayIst = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
 const LIVE = sql`x.is_active AND x.valid_from <= (now() AT TIME ZONE 'Asia/Kolkata')::date AND x.valid_until >= (now() AT TIME ZONE 'Asia/Kolkata')::date`;
-const otpOn = () => (process.env.AUDITOR_OTP || "on").toLowerCase() !== "off";
+// MFA (email OTP) is mandatory for auditors. AUDITOR_OTP=off is honoured only outside production (local testing).
+const otpOn = () => process.env.NODE_ENV === "production" || (process.env.AUDITOR_OTP || "on").toLowerCase() !== "off";
 const sess = (req: Request) => req.session as any;
 async function log(req: Request, action: string, o: { userId?: number | null; name?: string | null; auditId?: number | null; documentId?: number | null; fileId?: number | null; detail?: string | null } = {}) {
   await q(sql`INSERT INTO cmp_access_log (user_id, user_name, action, audit_id, document_id, file_id, detail, ip) VALUES (${o.userId ?? sess(req).userId ?? null}, ${o.name ?? sess(req).auditorName ?? null}, ${action}, ${o.auditId ?? null}, ${o.documentId ?? null}, ${o.fileId ?? null}, ${o.detail ?? null}, ${req.ip ?? null})`).catch(() => {});
@@ -134,12 +136,13 @@ async function itemFor(req: Request, iid: number) {
   return { i, x };
 }
 const stats = sql`count(*) FILTER (WHERE i.kind = 'checklist')::int AS checkpoints,
-  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN ('Closed','Closed-Obs','Not Applicable'))::int AS closed,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'closed'))::int AS closed,
   count(*) FILTER (WHERE i.kind = 'checklist' AND i.status = 'Submitted')::int AS to_review,
-  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status = 'Under Review')::int AS under_review,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'review'))::int AS under_review,
   count(*) FILTER (WHERE i.kind = 'checklist' AND i.status = 'In Progress')::int AS info_requested,
   count(*) FILTER (WHERE i.kind = 'policy')::int AS policies`;
 
+router.get("/auditor-statuses", wrap(async (_req, res) => { await refreshStatuses(); res.json({ statuses: statusRows() }); }));
 router.get("/auditor-me", wrap(async (req, res) => {
   const [u] = await q(sql`SELECT id, name, email FROM users WHERE id = ${req.session.userId}`);
   const audits = (await q(sql`SELECT a.id, a.audit_no, a.title, a.status, a.period_from, a.period_to, a.target_date, a.scope, c.name AS company_name, x.firm, x.valid_until, x.can_download, s.*
@@ -153,7 +156,7 @@ router.get("/auditor-audits/:id", wrap(async (req, res) => {
   const [a] = await q(sql`SELECT a.id, a.audit_no, a.title, a.status, a.audit_type, a.period_from, a.period_to, a.target_date, a.scope, a.audit_firm, c.name AS company_name FROM cmp_audits a JOIN cmp_companies c ON c.id = a.company_id WHERE a.id = ${aid}`);
   const [s] = await q(sql`SELECT ${stats} FROM cmp_items i WHERE i.audit_id = ${aid} AND i.shared_at IS NOT NULL`);
   const [t] = await q(sql`SELECT count(*) FILTER (WHERE kind = 'checklist')::int AS total FROM cmp_items WHERE audit_id = ${aid}`);
-  const byArea = (await q(sql`SELECT coalesce(area, sheet) AS area, min(sort_order) AS o, count(*)::int AS total, count(*) FILTER (WHERE status IN ('Closed','Closed-Obs','Not Applicable'))::int AS closed,
+  const byArea = (await q(sql`SELECT coalesce(area, sheet) AS area, min(sort_order) AS o, count(*)::int AS total, count(*) FILTER (WHERE status IN (SELECT name FROM cmp_statuses WHERE grp = 'closed'))::int AS closed,
     count(*) FILTER (WHERE status = 'Submitted')::int AS to_review FROM cmp_items WHERE audit_id = ${aid} AND kind = 'checklist' AND shared_at IS NOT NULL GROUP BY 1 ORDER BY 2`)).map(camel);
   res.json({ ...camel(a), canDownload: x.can_download, validUntil: x.valid_until, stats: { ...camel(s), totalInAudit: t.total }, byArea });
 }));
@@ -174,7 +177,7 @@ async function itemDetail(iid: number) {
 }
 router.get("/auditor-items/:id", wrap(async (req, res) => { const { i } = await itemFor(req, id(req.params.id)); res.json(await itemDetail(i.id)); }));
 
-const decision = z.object({ status: z.enum([...AUDITOR_STATUSES, "In Progress"] as unknown as [string, ...string[]]).optional(), auditorRemarks: z.string().max(20000).nullable().optional(), comment: z.string().trim().max(4000).optional() });
+const decision = z.object({ status: z.string().refine(x => x === "In Progress" || AUDITOR_STATUSES.includes(x)).optional(), auditorRemarks: z.string().max(20000).nullable().optional(), comment: z.string().trim().max(4000).optional() });
 router.patch("/auditor-items/:id", wrap(async (req, res) => {
   const iid = id(req.params.id); const { i } = await itemFor(req, iid);
   const p = decision.safeParse(req.body); if (!p.success) throw new Bad("Choose a valid review status");

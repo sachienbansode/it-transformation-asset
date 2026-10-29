@@ -11,6 +11,44 @@ import { logAudit, getPerformedBy } from "./audit-logs";
 
 const router = Router();
 
+// ─── CSV EXPORT of users and master tables (Admin) ──────────
+// Fixed list of tables and columns (no SQL from the request). Secrets are never exported.
+const EXPORTS: Record<string, { file: string; sql: ReturnType<typeof sql> }> = {
+  users: { file: "users", sql: sql`SELECT u.id, u.employee_code, u.name, u.email, u.mobile, u.user_type, u.role, u.department, u.designation, u.is_active, u.status, u.mfa_enabled, u.identity_source, u.last_login_at, u.created_at,
+    (SELECT string_agg(r.name, '; ') FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id) AS roles FROM users u ORDER BY u.name` },
+  masters: { file: "master_data", sql: sql`SELECT id, category, key, label, color, sort_order, is_active FROM masters ORDER BY category, sort_order, label` },
+  business_units: { file: "business_units", sql: sql`SELECT * FROM business_units ORDER BY 1` },
+  roles: { file: "roles", sql: sql`SELECT * FROM roles ORDER BY 1` },
+  role_permissions: { file: "role_permissions", sql: sql`SELECT rp.*, r.name AS role_name FROM role_permissions rp LEFT JOIN roles r ON r.id = rp.role_id ORDER BY rp.role_id` },
+  user_roles: { file: "user_roles", sql: sql`SELECT ur.*, u.email, r.name AS role_name FROM user_roles ur LEFT JOIN users u ON u.id = ur.user_id LEFT JOIN roles r ON r.id = ur.role_id ORDER BY u.email` },
+  asset_categories: { file: "asset_categories", sql: sql`SELECT * FROM asset_categories ORDER BY 1` },
+  kpi_categories: { file: "kpi_categories", sql: sql`SELECT * FROM kpi_categories ORDER BY 1` },
+  compliance_statuses: { file: "compliance_checkpoint_statuses", sql: sql`SELECT name, stage, grp AS dashboard_bucket, color, sort_order, is_active, is_system, description FROM cmp_statuses ORDER BY sort_order` },
+  compliance_companies: { file: "compliance_companies", sql: sql`SELECT * FROM cmp_companies ORDER BY 1` },
+};
+const SECRET = /password|secret|token|hash|azure_id|central_sub/i;
+const csvCell = (v: unknown) => {
+  if (v === null || v === undefined) return "";
+  let t = v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v);
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; // no formula injection when opened in Excel
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+router.get("/admin/export", requireAdmin, (_req, res): void => { res.json(Object.keys(EXPORTS)); });
+router.get("/admin/export/:name", requireAdmin, async (req, res): Promise<void> => {
+  const e = EXPORTS[String(req.params.name)];
+  if (!e) { res.status(404).json({ error: "Unknown export" }); return; }
+  try {
+    const r: any = await db.execute(e.sql); const rows: any[] = r.rows ?? r;
+    const cols = (rows[0] ? Object.keys(rows[0]) : (r.fields || []).map((f: any) => f.name)).filter((c: string) => !SECRET.test(c));
+    const body = "\uFEFF" + [cols.join(","), ...rows.map(x => cols.map((c: string) => csvCell(x[c])).join(","))].join("\r\n");
+    const stamp = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${e.file}_${stamp}.csv"`);
+    await logAudit({ entityType: "admin_export", action: "export", performedBy: await getPerformedBy((req.session as any)?.userId).catch(() => "Admin"), summary: `${e.file}.csv exported (${rows.length} rows)` }).catch(() => {});
+    res.send(body);
+  } catch (err: any) { res.status(500).json({ error: err?.message || "Export failed" }); }
+});
+
 // ─── SETTINGS ────────────────────────────────────────────────
 
 router.get("/admin/settings", requireAdmin, async (_req, res): Promise<void> => {

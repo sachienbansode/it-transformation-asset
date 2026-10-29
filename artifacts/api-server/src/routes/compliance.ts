@@ -5,14 +5,14 @@ import { z } from "zod";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { readObject } from "./storage";
-import { parseWorkbook, exportWorkbook, exportIntoOriginal, sheetMerges, STATUSES, CLOSED } from "../lib/compliance-template";
+import { parseWorkbook, exportWorkbook, exportIntoOriginal, sheetMerges, STATUSES, CLOSED, TEAM_STATUSES, AUDITOR_STATUSES } from "../lib/compliance-template";
+import { refreshStatuses, statusRows, autoShareOn } from "../lib/compliance-status";
 import { getAccess } from "../lib/rbac";
 import crypto from "crypto";
 import { OFFICE, officePreview, toPdf } from "../lib/preview";
 import { dashboardData, dashboardXlsx, dashboardDocx } from "../lib/compliance-dashboard";
 
-export const TEAM_STATUSES = ["Pending", "In Progress", "Submitted"];
-export const AUDITOR_STATUSES = ["Under Review", "Partially Closed", "Closed", "Closed-Obs", "Not Applicable"];
+export { TEAM_STATUSES, AUDITOR_STATUSES };
 
 /*
  * Audit & Compliance (module key "compliance", enforced by lib/rbac.ts: GET = read, writes = write).
@@ -23,6 +23,7 @@ export const AUDITOR_STATUSES = ["Under Review", "Partially Closed", "Closed", "
 
 const router = Router();
 router.use(requireAuth);
+router.use(async (_req, _res, next) => { await refreshStatuses(); next(); });
 const rowsOf = (r: any) => (r.rows ?? r) as any[];
 const q = async (query: any) => rowsOf(await db.execute(query));
 const camel = (r: any) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.replace(/_([a-z])/g, (_, c) => c.toUpperCase()), v instanceof Date ? v.toISOString() : v]));
@@ -44,8 +45,9 @@ const realDate = (d: string) => { const t = new Date(d + "T00:00:00Z"); return !
 const dateS = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").refine(realDate, "Not a valid date").nullable().optional().or(z.literal("").transform(() => null));
 const istToday = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
 const d10 = (x: any) => (x ? (x instanceof Date ? x.toISOString() : String(x)).slice(0, 10) : null);
-function checkAuditDates(m: { periodFrom?: any; periodTo?: any; targetDate?: any }, isNew: boolean, old?: any) {
-  const from = d10(m.periodFrom), to = d10(m.periodTo), target = d10(m.targetDate);
+function checkAuditDates(m: { startDate?: any; periodFrom?: any; periodTo?: any; targetDate?: any }, isNew: boolean, old?: any) {
+  const from = d10(m.periodFrom), to = d10(m.periodTo), target = d10(m.targetDate), start = d10(m.startDate);
+  if (start && target && target < start) throw new Bad("Target closure date cannot be before the audit start date");
   if (from && to && from > to) throw new Bad("Audit period: 'from' date is after the 'to' date");
   if (target && from && target < from) throw new Bad("Target closure date cannot be before the audit period starts");
   if (target && target < istToday() && (isNew || target !== d10(old?.targetDate))) throw new Bad("Target closure date cannot be in the past");
@@ -137,16 +139,21 @@ const scopeSchema = z.object({
 });
 const auditSchema = z.object({
   companyId: z.coerce.number().int().positive(), templateId: z.coerce.number().int().positive().optional(), title: z.string().trim().min(3).max(200),
-  auditType: txt(120), periodFrom: dateS, periodTo: dateS, auditFirm: txt(160), auditorContact: txt(300), status: z.enum(["Planning", "Fieldwork", "Reporting", "Closed"]).optional(),
+  auditType: txt(120), startDate: dateS, periodFrom: dateS, periodTo: dateS, auditFirm: txt(160), auditorContact: txt(300), status: z.enum(["Planning", "Fieldwork", "Reporting", "Closed"]).optional(),
   targetDate: dateS, scope: scopeSchema.optional(), notes: txt(4000),
 });
 const statsSql = sql`count(*) FILTER (WHERE i.kind = 'checklist')::int AS checkpoints,
-  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN ('Closed','Closed-Obs','Not Applicable'))::int AS closed,
-  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status = 'Under Review')::int AS under_review,
-  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status NOT IN ('Closed','Closed-Obs','Not Applicable') AND i.target_date < (now() AT TIME ZONE 'Asia/Kolkata')::date)::int AS overdue,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'closed'))::int AS closed,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'review'))::int AS under_review,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status NOT IN (SELECT name FROM cmp_statuses WHERE grp = 'closed') AND i.target_date < (now() AT TIME ZONE 'Asia/Kolkata')::date)::int AS overdue,
   count(*) FILTER (WHERE i.kind = 'checklist' AND i.owner_user_id IS NULL)::int AS unassigned,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'pending'))::int AS pending,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'inprog'))::int AS in_progress,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'submitted'))::int AS submitted,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.shared_at IS NOT NULL)::int AS shared,
+  count(*) FILTER (WHERE i.kind = 'policy' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'submitted'))::int AS policies_submitted,
   count(*) FILTER (WHERE i.kind = 'policy')::int AS policies,
-  count(*) FILTER (WHERE i.kind = 'policy' AND i.status IN ('Closed','Closed-Obs','Not Applicable'))::int AS policies_closed`;
+  count(*) FILTER (WHERE i.kind = 'policy' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'closed'))::int AS policies_closed`;
 router.get("/compliance-audits", wrap(async (req, res) => {
   const company = req.query.companyId ? id(req.query.companyId) : null;
   res.json((await q(sql`SELECT a.*, c.name AS company_name, t.name AS template_name, s.* FROM cmp_audits a JOIN cmp_companies c ON c.id = a.company_id LEFT JOIN cmp_templates t ON t.id = a.template_id
@@ -163,11 +170,11 @@ router.get("/compliance-audits/:id", wrap(async (req, res) => {
   const [s] = await q(sql`SELECT ${statsSql} FROM cmp_items i WHERE i.audit_id = ${aid}`);
   const byStatus = (await q(sql`SELECT kind, status, count(*)::int AS n FROM cmp_items WHERE audit_id = ${aid} GROUP BY kind, status`)).map(camel);
   const byArea = (await q(sql`SELECT coalesce(area, sheet) AS area, min(sort_order) AS o, count(*)::int AS total,
-    count(*) FILTER (WHERE status IN ('Closed','Closed-Obs','Not Applicable'))::int AS closed, count(*) FILTER (WHERE status = 'Under Review')::int AS under_review,
-    count(*) FILTER (WHERE status = 'Pending')::int AS pending, count(*) FILTER (WHERE status NOT IN ('Closed','Closed-Obs','Not Applicable') AND target_date < (now() AT TIME ZONE 'Asia/Kolkata')::date)::int AS overdue
+    count(*) FILTER (WHERE status IN (SELECT name FROM cmp_statuses WHERE grp = 'closed'))::int AS closed, count(*) FILTER (WHERE status IN (SELECT name FROM cmp_statuses WHERE grp = 'review'))::int AS under_review,
+    count(*) FILTER (WHERE status = 'Pending')::int AS pending, count(*) FILTER (WHERE status NOT IN (SELECT name FROM cmp_statuses WHERE grp = 'closed') AND target_date < (now() AT TIME ZONE 'Asia/Kolkata')::date)::int AS overdue
     FROM cmp_items WHERE audit_id = ${aid} AND kind = 'checklist' GROUP BY 1 ORDER BY 2`)).map(camel);
-  const byOwner = (await q(sql`SELECT coalesce(u.name, '— Unassigned —') AS owner, i.owner_user_id, count(*)::int AS total, count(*) FILTER (WHERE i.status IN ('Closed','Closed-Obs','Not Applicable'))::int AS closed,
-    count(*) FILTER (WHERE i.status NOT IN ('Closed','Closed-Obs','Not Applicable') AND i.target_date < (now() AT TIME ZONE 'Asia/Kolkata')::date)::int AS overdue
+  const byOwner = (await q(sql`SELECT coalesce(u.name, '— Unassigned —') AS owner, i.owner_user_id, count(*)::int AS total, count(*) FILTER (WHERE i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'closed'))::int AS closed,
+    count(*) FILTER (WHERE i.status NOT IN (SELECT name FROM cmp_statuses WHERE grp = 'closed') AND i.target_date < (now() AT TIME ZONE 'Asia/Kolkata')::date)::int AS overdue
     FROM cmp_items i LEFT JOIN users u ON u.id = i.owner_user_id WHERE i.audit_id = ${aid} GROUP BY 1, 2 ORDER BY 3 DESC`)).map(camel);
   const grids = (await q(sql`SELECT status, count(*)::int AS n FROM cmp_grids WHERE audit_id = ${aid} GROUP BY status`)).map(camel);
   res.json({ ...a, stats: camel(s), byStatus, byArea, byOwner, grids });
@@ -179,8 +186,8 @@ router.post("/compliance-audits", wrap(async (req, res) => {
   if (!(await q(sql`SELECT 1 FROM cmp_templates WHERE id = ${v.templateId} AND is_active`)).length) throw new Bad("Choose an active template");
   checkAuditDates(v, true);
   const aid = await db.transaction(async tx => {
-    const [a] = rowsOf(await tx.execute(sql`INSERT INTO cmp_audits (company_id, template_id, title, audit_type, period_from, period_to, audit_firm, auditor_contact, status, target_date, scope, notes, created_by)
-      VALUES (${v.companyId}, ${v.templateId}, ${v.title}, ${v.auditType ?? null}, ${v.periodFrom ?? null}, ${v.periodTo ?? null}, ${v.auditFirm ?? null}, ${v.auditorContact ?? null}, ${v.status ?? "Planning"}, ${v.targetDate ?? null},
+    const [a] = rowsOf(await tx.execute(sql`INSERT INTO cmp_audits (company_id, template_id, title, audit_type, start_date, period_from, period_to, audit_firm, auditor_contact, status, target_date, scope, notes, created_by)
+      VALUES (${v.companyId}, ${v.templateId}, ${v.title}, ${v.auditType ?? null}, ${v.startDate ?? null}, ${v.periodFrom ?? null}, ${v.periodTo ?? null}, ${v.auditFirm ?? null}, ${v.auditorContact ?? null}, ${v.status ?? "Planning"}, ${v.targetDate ?? null},
       ${JSON.stringify(v.scope ?? { applications: [], vendors: [] })}::jsonb, ${v.notes ?? null}, ${by}) RETURNING id`));
     await tx.execute(sql`UPDATE cmp_audits SET audit_no = ${"AUD-" + new Date().getFullYear() + "-"} || lpad(id::text, 4, '0') WHERE id = ${a.id}`);
     await tx.execute(sql`INSERT INTO cmp_items (audit_id, kind, sheet, source_row, ref_no, seq, area, sub_area, checkpoint, evidence_required, doc_type, sort_order, target_date, updated_by)
@@ -198,7 +205,7 @@ router.patch("/compliance-audits/:id", wrap(async (req, res) => {
   const v: any = parse(auditSchema.partial().omit({ templateId: true }), req.body); const by = await who(req);
   const m: any = { ...old, ...v };
   checkAuditDates(m, false, old);
-  await q(sql`UPDATE cmp_audits SET company_id = ${m.companyId}, title = ${m.title}, audit_type = ${m.auditType ?? null}, period_from = ${m.periodFrom ?? null}, period_to = ${m.periodTo ?? null}, audit_firm = ${m.auditFirm ?? null},
+  await q(sql`UPDATE cmp_audits SET company_id = ${m.companyId}, title = ${m.title}, audit_type = ${m.auditType ?? null}, start_date = ${d10(m.startDate) ?? null}, period_from = ${m.periodFrom ?? null}, period_to = ${m.periodTo ?? null}, audit_firm = ${m.auditFirm ?? null},
     auditor_contact = ${m.auditorContact ?? null}, status = ${m.status}, target_date = ${m.targetDate ?? null}, scope = ${JSON.stringify(m.scope ?? { applications: [], vendors: [] })}::jsonb, notes = ${m.notes ?? null}, updated_at = now() WHERE id = ${aid}`);
   await audit({ entityType: "compliance_audit", entityId: aid, action: "update", performedBy: by, summary: `Audit ${old.auditNo} updated${v.status && v.status !== old.status ? ` — status ${old.status} → ${v.status}` : ""}` });
   res.json(await getAudit(aid));
@@ -224,7 +231,7 @@ router.get("/compliance-items/:id", wrap(async (req, res) => {
   res.json({ ...camel(i), documents, comments, siblings });
 }));
 const itemPatch = z.object({ ownerUserId: z.coerce.number().int().positive().nullable().optional(), spocUserId: z.coerce.number().int().positive().nullable().optional(), targetDate: dateS,
-  managementReply: txt(), auditorRemarks: txt(), status: z.enum(STATUSES as [string, ...string[]]).optional(), lastReviewDate: dateS,
+  managementReply: txt(), auditorRemarks: txt(), status: z.string().refine(x => STATUSES.includes(x), "Unknown status — see Admin › Master Data › Audit & Compliance").optional(), lastReviewDate: dateS,
   overrideReason: z.string().trim().max(1000).optional() });
 async function addComment(itemId: number, req: Request, body: string, system = false, visibility: "internal" | "auditor" = "internal") {
   await q(sql`INSERT INTO cmp_comments (item_id, user_id, author, system, body, visibility) VALUES (${itemId}, ${uid(req) ?? null}, ${await who(req)}, ${system}, ${body}, ${visibility})`);
@@ -243,7 +250,11 @@ async function applyItemPatch(req: Request, iid: number, v: z.infer<typeof itemP
     throw new Bad(`"${AUDITOR_STATUSES.includes(m.status) ? m.status : o.status}" is the auditor's decision. To record it on the auditor's behalf, give the reason (e.g. "confirmed by auditor email 12-Nov").`);
   if (remarksChange && (!reason || reason.length < 5)) throw new Bad("Auditor remarks are written by the auditor. To record them on the auditor's behalf, give the reason.");
   const by = await who(req);
-  if (statusChange && m.status === "Submitted") await q(sql`UPDATE cmp_items SET submitted_by_user_id = ${uid(req) ?? null}, submitted_at = now() WHERE id = ${iid}`);
+  const isSubmit = statusChange && statusRows().find(x => x.name === m.status)?.grp === "submitted" || (statusChange && m.status === "Submitted");
+  if (isSubmit) await q(sql`UPDATE cmp_items SET submitted_by_user_id = ${uid(req) ?? null}, submitted_at = now() WHERE id = ${iid}`);
+  // default: a Submitted checkpoint is shared with the auditor at once (Admin › Master Data › Audit & Compliance › auto-share)
+  const autoShared = isSubmit && autoShareOn() && !o.shared_at;
+  if (autoShared) await q(sql`UPDATE cmp_items SET shared_at = now(), shared_by = ${by} WHERE id = ${iid}`);
   await q(sql`UPDATE cmp_items SET owner_user_id = ${m.ownerUserId ?? null}, spoc_user_id = ${m.spocUserId ?? null}, target_date = ${m.targetDate ?? null}, management_reply = ${m.managementReply ?? null},
     auditor_remarks = ${m.auditorRemarks ?? null}, status = ${m.status}, last_review_date = ${m.lastReviewDate ?? null}, updated_by = ${by}, updated_at = now() WHERE id = ${iid}`);
   const notes: string[] = [];
@@ -254,6 +265,7 @@ async function applyItemPatch(req: Request, iid: number, v: z.infer<typeof itemP
   if ((m.targetDate ?? null) !== oldT && v.targetDate !== undefined) notes.push(`Target date ${oldT ?? "—"} → ${m.targetDate ?? "—"}`);
   if (v.managementReply !== undefined && (v.managementReply ?? null) !== (o.management_reply ?? null)) notes.push("Management reply updated");
   if (v.auditorRemarks !== undefined && (v.auditorRemarks ?? null) !== (o.auditor_remarks ?? null)) notes.push("Auditor remarks updated");
+  if (autoShared) notes.push("Shared with the auditor (auto-share on Submitted)");
   if (notes.length) await addComment(iid, req, notes.join(" · ") + (reason && (statusChange || remarksChange) ? ` — recorded for the auditor: ${reason}` : ""), true);
   const assigned = [m.ownerUserId !== o.owner_user_id ? m.ownerUserId : null, m.spocUserId !== o.spoc_user_id ? m.spocUserId : null].filter(Boolean) as number[];
   return { o, m, assigned, notes };
@@ -327,7 +339,7 @@ router.get("/compliance-audits/:id/grids", wrap(async (req, res) => {
 }));
 router.patch("/compliance-grids/:id", wrap(async (req, res) => {
   const gid = id(req.params.id);
-  const v = parse(z.object({ grid: z.array(z.array(z.string().max(5000)).max(40)).max(1000).optional(), status: z.enum(STATUSES as [string, ...string[]]).optional(), ownerUserId: z.coerce.number().int().positive().nullable().optional() }), req.body);
+  const v = parse(z.object({ grid: z.array(z.array(z.string().max(5000)).max(40)).max(1000).optional(), status: z.string().refine(x => STATUSES.includes(x), "Unknown status").optional(), ownerUserId: z.coerce.number().int().positive().nullable().optional() }), req.body);
   const [o] = await q(sql`SELECT * FROM cmp_grids WHERE id = ${gid}`); if (!o) return fail(res, 404, "Schedule not found");
   await checkUser(v.ownerUserId);
   let grid = v.grid ?? o.grid;
@@ -509,7 +521,7 @@ router.post("/compliance-items/share", wrap(async (req, res) => {
     if (v.shared) {
       if (r.shared_at) continue;
       if (!["Submitted", ...AUDITOR_STATUSES].includes(r.status)) { skipped.push({ id: r.id, ref, reason: `status is ${r.status} — set it to Submitted first` }); continue; }
-      if (r.submitted_by_user_id && r.submitted_by_user_id === me && !a?.isAdmin) { skipped.push({ id: r.id, ref, reason: "you submitted it — another reviewer must share it" }); continue; }
+      if (!autoShareOn() && r.submitted_by_user_id && r.submitted_by_user_id === me && !a?.isAdmin) { skipped.push({ id: r.id, ref, reason: "you submitted it — another reviewer must share it" }); continue; }
       await q(sql`UPDATE cmp_items SET shared_at = now(), shared_by = ${by} WHERE id = ${r.id}`);
       await addComment(r.id, req, "Reviewed and shared with the auditor", true);
     } else {
@@ -522,6 +534,53 @@ router.post("/compliance-items/share", wrap(async (req, res) => {
   if (done) await audit({ entityType: "compliance_item", action: v.shared ? "share" : "unshare", performedBy: by, summary: `${done} checkpoint(s) ${v.shared ? "shared with" : "withdrawn from"} the auditor` });
   res.json({ done, skipped });
 }));
+/* ─── Status master (Admin › Master Data › Audit & Compliance) ──────────── */
+router.get("/compliance-statuses", wrap(async (_req, res) => {
+  await refreshStatuses(true);
+  res.json({ statuses: statusRows(), autoShareOnSubmit: autoShareOn() });
+}));
+const statusSchema = z.object({ name: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9][A-Za-z0-9 ./&()-]*$/, "Letters, numbers, spaces and . / & ( ) - only"),
+  stage: z.enum(["team", "auditor"]), grp: z.enum(["pending", "inprog", "submitted", "review", "closed"]), color: z.string().regex(/^[a-z]{3,10}$/).default("slate"),
+  sortOrder: z.coerce.number().int().min(0).max(9999).default(100), isActive: z.boolean().default(true), description: txt(300) });
+async function adminOnly(req: Request) { const a = await getAccess(req); if (!a?.isAdmin) throw Object.assign(new Bad("Only an administrator can change the status master"), { status: 403 }); }
+router.post("/compliance-statuses", wrap(async (req, res) => {
+  await adminOnly(req); const v = parse(statusSchema, req.body); const by = await who(req);
+  if ((await q(sql`SELECT 1 FROM cmp_statuses WHERE lower(name) = lower(${v.name})`)).length) throw new Bad(`"${v.name}" already exists`);
+  await q(sql`INSERT INTO cmp_statuses (name, stage, grp, color, sort_order, is_active, description) VALUES (${v.name}, ${v.stage}, ${v.grp}, ${v.color}, ${v.sortOrder}, ${v.isActive}, ${v.description ?? null})`);
+  await audit({ entityType: "compliance_status", action: "create", performedBy: by, summary: `Checkpoint status "${v.name}" added (${v.stage}, ${v.grp})` });
+  await refreshStatuses(true); res.status(201).json({ statuses: statusRows() });
+}));
+router.patch("/compliance-statuses/:name", wrap(async (req, res) => {
+  await adminOnly(req); const name = String(req.params.name); const by = await who(req);
+  const [o] = await q(sql`SELECT * FROM cmp_statuses WHERE name = ${name}`); if (!o) return fail(res, 404, "Status not found");
+  const v = parse(statusSchema.omit({ name: true }).partial(), req.body);
+  // built-in statuses drive the workflow: their stage and bucket are fixed, and the four core ones cannot be switched off
+  if (o.is_system && ((v.stage && v.stage !== o.stage) || (v.grp && v.grp !== o.grp))) throw new Bad(`"${name}" is built in — its stage and bucket cannot change`);
+  if (o.is_system && v.isActive === false && ["Pending", "Submitted", "Under Review", "Closed"].includes(name)) throw new Bad(`"${name}" is needed by the workflow and cannot be switched off`);
+  if (!o.is_system && v.grp && v.grp !== o.grp && (await q(sql`SELECT 1 FROM cmp_items WHERE status = ${name} LIMIT 1`)).length) throw new Bad("This status is in use — its bucket cannot change. Add a new status instead.");
+  await q(sql`UPDATE cmp_statuses SET stage = ${v.stage ?? o.stage}, grp = ${v.grp ?? o.grp}, color = ${v.color ?? o.color}, sort_order = ${v.sortOrder ?? o.sort_order},
+    is_active = ${v.isActive ?? o.is_active}, description = ${v.description === undefined ? o.description : v.description}, updated_at = now() WHERE name = ${name}`);
+  await audit({ entityType: "compliance_status", action: "update", performedBy: by, summary: `Checkpoint status "${name}" updated` });
+  await refreshStatuses(true); res.json({ statuses: statusRows() });
+}));
+router.delete("/compliance-statuses/:name", wrap(async (req, res) => {
+  await adminOnly(req); const name = String(req.params.name); const by = await who(req);
+  const [o] = await q(sql`SELECT * FROM cmp_statuses WHERE name = ${name}`); if (!o) return fail(res, 404, "Status not found");
+  if (o.is_system) throw new Bad(`"${name}" is built in — switch it off instead`);
+  const [u] = await q(sql`SELECT (SELECT count(*) FROM cmp_items WHERE status = ${name}) + (SELECT count(*) FROM cmp_grids WHERE status = ${name}) AS n`);
+  if (Number(u.n)) throw new Bad(`"${name}" is used by ${u.n} checkpoint(s) — switch it off instead`);
+  await q(sql`DELETE FROM cmp_statuses WHERE name = ${name}`);
+  await audit({ entityType: "compliance_status", action: "delete", performedBy: by, summary: `Checkpoint status "${name}" removed` });
+  await refreshStatuses(true); res.json({ statuses: statusRows() });
+}));
+router.put("/compliance-config", wrap(async (req, res) => {
+  await adminOnly(req); const v = parse(z.object({ autoShareOnSubmit: z.boolean() }), req.body); const by = await who(req);
+  await q(sql`INSERT INTO settings (key, value, description) VALUES ('compliance.autoShareOnSubmit', ${JSON.stringify(v.autoShareOnSubmit)}::jsonb, 'Share a checkpoint with the auditor as soon as it is Submitted')
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`);
+  await audit({ entityType: "compliance_status", action: "config", performedBy: by, summary: `Auto-share on Submitted ${v.autoShareOnSubmit ? "on" : "off"}` });
+  await refreshStatuses(true); res.json({ autoShareOnSubmit: autoShareOn() });
+}));
+
 router.post("/compliance-grids/:id/share", wrap(async (req, res) => {
   const gid = id(req.params.id); const v = parse(z.object({ shared: z.boolean() }), req.body); const by = await who(req);
   const [g] = await q(sql`SELECT * FROM cmp_grids WHERE id = ${gid}`); if (!g) return fail(res, 404, "Schedule not found");
@@ -566,6 +625,7 @@ router.post("/compliance-audits/:id/auditors", wrap(async (req, res) => {
   else if (!u.is_active) await q(sql`UPDATE users SET is_active = true, status = 'active' WHERE id = ${u.id}`);
   const [x] = await q(sql`INSERT INTO cmp_audit_access (audit_id, user_id, firm, can_download, valid_until, invited_by) VALUES (${aid}, ${u.id}, ${v.firm ?? null}, ${v.canDownload ?? false}, ${v.validUntil}, ${by})
     ON CONFLICT (audit_id, user_id) DO UPDATE SET firm = EXCLUDED.firm, can_download = EXCLUDED.can_download, valid_until = EXCLUDED.valid_until, is_active = true, revoked_at = NULL, revoked_by = NULL RETURNING *`);
+  await q(sql`INSERT INTO user_roles (user_id, role_id) SELECT ${u.id}, id FROM roles WHERE name = 'External Auditor' ON CONFLICT DO NOTHING`).catch(() => {});
   const link = await newSetupLink(u.id);
   await emailInvite(v.email, v.name, au, link, v.validUntil, isNew || !u.password_hash);
   await audit_({ aid, req, action: "invite", detail: `${v.email} until ${v.validUntil}${v.canDownload ? ", downloads allowed" : ", view only"}` });

@@ -11,8 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, API } from "@/lib/api";
 import { useAllMasters, getBadgeClass } from "@/hooks/use-masters";
+import { ComplianceStatusMaster } from "@/components/compliance-status-master";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -26,6 +27,7 @@ import {
 import {
   Settings, Users, Database, Plus, Pencil, Trash2, RefreshCw, Shield, Building2, Clock,
   ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Minus, Info, Search, Paperclip, X, Sliders,
+  Download,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { confirmDialog } from "@/components/confirm-dialog";
@@ -773,6 +775,9 @@ const MASTER_MODULES = [
     { key: "asset_os", label: "Operating System" },
     { key: "asset_contract_type", label: "Contract Type" },
   ]},
+  { module: "Audit & Compliance", items: [
+    { key: "compliance_status", label: "Checkpoint Status" },
+  ]},
   { module: "IT Service Management", items: [
     { key: "incident_priority", label: "Incident Priority" },
     { key: "incident_severity", label: "Incident Severity" },
@@ -866,6 +871,11 @@ function MastersTab() {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
+        <Download className="h-3.5 w-3.5 text-muted-foreground" /><span className="text-xs font-medium mr-1">Download CSV:</span>
+        {([["masters", "All master data"], ["users", "Users"], ["business_units", "Business units"], ["roles", "Roles"], ["role_permissions", "Role permissions"], ["user_roles", "User roles"], ["asset_categories", "Asset categories"], ["kpi_categories", "KPI categories"], ["compliance_statuses", "Checkpoint statuses"], ["compliance_companies", "Audit companies"]] as const).map(([k, l]) =>
+          <a key={k} href={`${API}/admin/export/${k}`}><Button variant="outline" size="sm" className="h-7 text-xs">{l}</Button></a>)}
+      </div>
       <div className="flex gap-4">
         {/* Category list with module groups */}
         <div className="w-56 shrink-0 space-y-1 max-h-[600px] overflow-y-auto">
@@ -887,9 +897,9 @@ function MastersTab() {
                   }`}
                 >
                   {c.label}
-                  <span className="ml-1 text-[10px] opacity-60">
+                  {c.key !== "compliance_status" && <span className="ml-1 text-[10px] opacity-60">
                     ({(allMasters || []).filter(m => m.category === c.key).length})
-                  </span>
+                  </span>}
                 </button>
               ))}
             </div>
@@ -897,6 +907,7 @@ function MastersTab() {
         </div>
 
         {/* Items table */}
+        {selectedCategory === "compliance_status" ? <div className="flex-1 min-w-0"><ComplianceStatusMaster /></div> :
         <div className="flex-1 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">
@@ -956,7 +967,7 @@ function MastersTab() {
               </table>
             </div>
           )}
-        </div>
+        </div>}
       </div>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>

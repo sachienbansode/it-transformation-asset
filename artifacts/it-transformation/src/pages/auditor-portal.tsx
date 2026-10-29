@@ -13,12 +13,13 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
 import { ShieldCheck, Loader2, LogOut, Search, FileText, Eye, Download, Paperclip, MessageSquare, Send, ChevronLeft, ChevronRight, ArrowLeft, Table2, KeyRound, Mail, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { StatusBadge, Progress, fmtDate, fmtSize, refOf, AUDITOR_STATUSES, CLOSED, DocsButton, Pager } from "@/components/compliance-shared";
+import { StatusBadge, Progress, fmtDate, fmtSize, refOf, AUDITOR_STATUSES, CLOSED, DocsButton, Pager, useStatusMaster, StatusFilter, StatusSelect, matchStatus, offered } from "@/components/compliance-shared";
 import { useDocViewer } from "@/components/doc-viewer";
 import { GridTable } from "@/components/compliance-grid";
 
 /* External auditor portal: sign-in (password + emailed code), set password from the invitation, and the audit review screens. */
 
+const linkify = (t: string) => t.split(/(https?:\/\/[^\s]+)/g).map((x, i) => (/^https?:\/\//.test(x) ? <a key={i} href={x} target="_blank" rel="noreferrer noopener" className="text-primary underline break-all">{x}</a> : x));
 const afile = (id: number, dl = false) => `${API}/auditor-files/${id}${dl ? "?download=1" : ""}`;
 
 function Shell({ children, title }: { children: React.ReactNode; title?: string }) {
@@ -90,7 +91,7 @@ export function AuditorSetup() {
 
 /* ─── Signed-in auditor ─────────────────────────────────────────────────── */
 export function AuditorApp() {
-  const { user, logout } = useAuth();
+  const { user, logout } = useAuth(); useStatusMaster(true);
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card"><div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">
@@ -174,9 +175,9 @@ function References({ auditId, canDownload }: { auditId: number; canDownload: bo
 const PAGE = 10;
 function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string }) {
   const view = useDocViewer();
-  const [term, setTerm] = useState(""); const [status, setStatus] = useState("todo"); const [area, setArea] = useState("all"); const [page, setPage] = useState(0); const [open, setOpen] = useState<number | null>(null);
+  const [term, setTerm] = useState(""); const [status, setStatus] = useState("open"); const [area, setArea] = useState("all"); const [page, setPage] = useState(0); const [open, setOpen] = useState<number | null>(null);
   const areas = useMemo(() => [...new Set(items.map(i => i.area).filter(Boolean))], [items]);
-  const list = useMemo(() => { const t = term.toLowerCase(); return items.filter(i => (area === "all" || i.area === area) && (status === "all" || (status === "todo" ? !CLOSED.includes(i.status) : i.status === status)) &&
+  const list = useMemo(() => { const t = term.toLowerCase(); return items.filter(i => (area === "all" || i.area === area) && matchStatus(status, i.status) &&
     (!t || [i.refNo, i.checkpoint, i.managementReply, i.subArea].some(x => x && String(x).toLowerCase().includes(t)))); }, [items, term, status, area]);
   useEffect(() => setPage(0), [term, status, area]);
   const shown = list.slice(page * PAGE, page * PAGE + PAGE); const pages = Math.max(1, Math.ceil(list.length / PAGE));
@@ -185,7 +186,7 @@ function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string 
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative w-60"><Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" /><Input className="pl-8 h-9" placeholder="Search…" value={term} onChange={e => setTerm(e.target.value)} /></div>
         {kind === "checklist" && <Select value={area} onValueChange={setArea}><SelectTrigger className="h-9 w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All areas</SelectItem>{areas.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select>}
-        <Select value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todo">Open (not closed)</SelectItem><SelectItem value="all">All</SelectItem>{["Submitted", "In Progress", ...AUDITOR_STATUSES].map(x => <SelectItem key={x} value={x}>{x === "Submitted" ? "To review (Submitted)" : x === "In Progress" ? "Info requested" : x}</SelectItem>)}</SelectContent></Select>
+        <StatusFilter value={status} onChange={setStatus} labels={{ Submitted: "Submitted (to review)", "In Progress": "In Progress (info requested)" }} />
         <span className="text-xs text-muted-foreground ml-auto">{list.length} of {items.length}</span>
       </div>
       <div className="rounded-[10px] border overflow-x-auto"><table className="w-full text-sm">
@@ -235,7 +236,7 @@ function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audi
             <div className="rounded-[10px] border bg-muted/30 p-3"><div className="text-[11px] font-semibold uppercase text-muted-foreground mb-1">Checkpoint</div><div className="text-sm whitespace-pre-line">{it.checkpoint}</div></div>
             <div className="rounded-[10px] border bg-muted/30 p-3"><div className="text-[11px] font-semibold uppercase text-muted-foreground mb-1">Evidence required</div><div className="text-sm whitespace-pre-line">{it.evidenceRequired || "—"}</div></div>
           </div>}
-          <div className="rounded-[10px] border p-3"><div className="text-[11px] font-semibold uppercase text-muted-foreground mb-1">Management reply</div><div className="text-sm whitespace-pre-line">{it.managementReply || <span className="text-muted-foreground">—</span>}</div></div>
+          <div className="rounded-[10px] border p-3"><div className="text-[11px] font-semibold uppercase text-muted-foreground mb-1">Management reply</div><div className="text-sm whitespace-pre-line">{it.managementReply ? linkify(it.managementReply) : <span className="text-muted-foreground">—</span>}</div></div>
           <div><div className="text-sm font-semibold mb-1.5 flex items-center gap-1.5"><Paperclip className="w-4 h-4" />Evidence ({it.documents.length})</div>
             <div className="divide-y rounded-[10px] border">{it.documents.map((d: any) => (
               <div key={d.id} className="flex items-center gap-2 px-3 py-2 text-sm"><FileText className="w-4 h-4 text-primary shrink-0" />
@@ -245,8 +246,7 @@ function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audi
               </div>))}
               {!it.documents.length && <div className="px-3 py-3 text-xs text-muted-foreground">No evidence attached.</div>}</div></div>
           <div className="grid md:grid-cols-3 gap-3 rounded-[10px] border border-primary/30 bg-accent/30 p-3">
-            <div><Label>Your review status</Label><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>{opts.map(s => <SelectItem key={s} value={s}>{s === "In Progress" ? "Request information" : s === "Submitted" ? "Submitted (to review)" : s}</SelectItem>)}</SelectContent></Select>
+            <div><Label>Your review status</Label><StatusSelect value={status} onChange={setStatus} options={offered(opts, it.status)} labels={{ "In Progress": "Request information (In Progress)", Submitted: "Submitted (to review)" }} />
               {status === "In Progress" && status !== it.status && <div className="text-[11px] text-amber-700 mt-1">Say what is needed in the comment below</div>}</div>
             <div className="md:col-span-2"><Label>Auditor remarks</Label><Textarea rows={4} value={remarks} onChange={e => setRemarks(e.target.value)} placeholder={"Walkthrough:\n\nEvidence:"} /></div>
           </div>

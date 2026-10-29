@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, API } from "@/lib/api";
 import { getRoleLabel } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Users, Plus, Pencil, Trash2, RefreshCw, Search, UserCheck, UserX, Shield, KeyRound } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, RefreshCw, Search, UserCheck, UserX, Shield, KeyRound, Download } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { confirmDialog } from "@/components/confirm-dialog";
 
@@ -189,6 +189,7 @@ export default function AdminUsers() {
           <p className="text-sm text-muted-foreground mt-0.5">Manage application users, roles, and access levels</p>
         </div>
         <div className="flex gap-2">
+          <a href={`${API}/admin/export/users`} title="All users as CSV (opens in Excel)"><Button variant="outline" size="sm"><Download className="h-3.5 w-3.5 mr-1" />Download CSV</Button></a>
           <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</Button>
           <Button size="sm" onClick={openAdd} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white"><Plus className="h-3.5 w-3.5 mr-1" />Add User</Button>
         </div>

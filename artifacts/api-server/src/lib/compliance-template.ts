@@ -12,6 +12,9 @@ import { fillWorkbook, type CellWrite } from "./xlsx-fill";
 
 export const STATUSES = ["Pending", "In Progress", "Submitted", "Under Review", "Partially Closed", "Closed", "Closed-Obs", "Not Applicable"];
 export const CLOSED = ["Closed", "Closed-Obs", "Not Applicable"];
+export const TEAM_STATUSES = ["Pending", "In Progress", "Submitted"];
+export const AUDITOR_STATUSES = ["Under Review", "Partially Closed", "Closed", "Closed-Obs", "Not Applicable"];
+// ↑ built-in defaults; refreshed in place from the status master by lib/compliance-status.ts
 
 const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const clean = (v: unknown) => String(v ?? "").replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").trim();
@@ -106,7 +109,8 @@ export function exportWorkbook(o: { audit: any; items: any[]; grids: any[]; user
   const count = (s: string) => check.filter(i => i.status === s).length;
   const total = check.length || 1;
   const idx: any[][] = [["Overall Status"], [`${o.audit.companyName} — ${o.audit.title}`], ["Sr No", "Status", "Count", "%"]];
-  ["Not Applicable", "Pending", "In Progress", "Submitted", "Partially Closed", "Under Review", "Closed", "Closed-Obs"].forEach((s, i) => idx.push([i + 1, s, count(s), +(count(s) / total).toFixed(4)]));
+  const base = ["Not Applicable", "Pending", "In Progress", "Submitted", "Partially Closed", "Under Review", "Closed", "Closed-Obs"];
+  [...base, ...STATUSES.filter(x => !base.includes(x))].forEach((s, i) => idx.push([i + 1, s, count(s), +(count(s) / total).toFixed(4)]));
   idx.push(["", "Total", check.length, 1]);
   idx.push(["Total Closure", "", check.filter(i => CLOSED.includes(i.status)).length, +(check.filter(i => CLOSED.includes(i.status)).length / total).toFixed(4)]);
   idx.push([]); idx.push(["Exported", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })]);
