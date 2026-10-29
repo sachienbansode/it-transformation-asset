@@ -38,7 +38,16 @@ const uid = (req: Request) => (req.session as any)?.userId as number | undefined
 const who = async (req: Request) => getPerformedBy(uid(req)).catch(() => "System");
 const audit = (p: Parameters<typeof logAudit>[0]) => logAudit(p).catch(() => { /* non-fatal */ });
 const id = (v: unknown) => { const n = Number(v); if (!Number.isInteger(n) || n <= 0) throw new Bad("Invalid id"); return n; };
-const dateS = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").nullable().optional().or(z.literal("").transform(() => null));
+const realDate = (d: string) => { const t = new Date(d + "T00:00:00Z"); return !isNaN(+t) && t.toISOString().slice(0, 10) === d && d >= "2000-01-01" && d <= "2100-12-31"; };
+const dateS = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").refine(realDate, "Not a valid date").nullable().optional().or(z.literal("").transform(() => null));
+const istToday = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+const d10 = (x: any) => (x ? (x instanceof Date ? x.toISOString() : String(x)).slice(0, 10) : null);
+function checkAuditDates(m: { periodFrom?: any; periodTo?: any; targetDate?: any }, isNew: boolean, old?: any) {
+  const from = d10(m.periodFrom), to = d10(m.periodTo), target = d10(m.targetDate);
+  if (from && to && from > to) throw new Bad("Audit period: 'from' date is after the 'to' date");
+  if (target && from && target < from) throw new Bad("Target closure date cannot be before the audit period starts");
+  if (target && target < istToday() && (isNew || target !== d10(old?.targetDate))) throw new Bad("Target closure date cannot be in the past");
+}
 const txt = (max = 20000) => z.string().max(max).nullable().optional();
 
 /* ─── People (owner / SPOC pickers) ─────────────────────────────────────── */
@@ -47,7 +56,7 @@ router.get("/compliance-people", wrap(async (_req, res) => {
 }));
 
 /* ─── Companies ──────────────────────────────────────────────────────────── */
-const companySchema = z.object({ name: z.string().trim().min(2).max(160), shortName: txt(40), businessLine: txt(80), regulator: txt(40), registrationNo: txt(60), address: txt(500), isActive: z.boolean().optional() });
+const companySchema = z.object({ name: z.string().trim().min(2).max(160), shortName: txt(40), businessLine: txt(400), regulator: txt(200), registrationNo: txt(60), address: txt(500), isActive: z.boolean().optional() });
 router.get("/compliance-companies", wrap(async (_req, res) => {
   res.json((await q(sql`SELECT c.*, (SELECT count(*)::int FROM cmp_audits a WHERE a.company_id = c.id AND a.is_active) AS audits FROM cmp_companies c ORDER BY c.is_active DESC, c.name`)).map(camel));
 }));
@@ -159,7 +168,7 @@ router.post("/compliance-audits", wrap(async (req, res) => {
   if (!(await q(sql`SELECT 1 FROM cmp_companies WHERE id = ${v.companyId} AND is_active`)).length) throw new Bad("Choose an active company");
   if (!v.templateId) throw new Bad("Choose an audit template");
   if (!(await q(sql`SELECT 1 FROM cmp_templates WHERE id = ${v.templateId} AND is_active`)).length) throw new Bad("Choose an active template");
-  if (v.periodFrom && v.periodTo && v.periodFrom > v.periodTo) throw new Bad("Audit period: 'from' is after 'to'");
+  checkAuditDates(v, true);
   const aid = await db.transaction(async tx => {
     const [a] = rowsOf(await tx.execute(sql`INSERT INTO cmp_audits (company_id, template_id, title, audit_type, period_from, period_to, audit_firm, auditor_contact, status, target_date, scope, notes, created_by)
       VALUES (${v.companyId}, ${v.templateId}, ${v.title}, ${v.auditType ?? null}, ${v.periodFrom ?? null}, ${v.periodTo ?? null}, ${v.auditFirm ?? null}, ${v.auditorContact ?? null}, ${v.status ?? "Planning"}, ${v.targetDate ?? null},
@@ -179,7 +188,7 @@ router.patch("/compliance-audits/:id", wrap(async (req, res) => {
   const old = await getAudit(aid); if (!old) return fail(res, 404, "Audit not found");
   const v: any = parse(auditSchema.partial().omit({ templateId: true }), req.body); const by = await who(req);
   const m: any = { ...old, ...v };
-  if (m.periodFrom && m.periodTo && m.periodFrom > m.periodTo) throw new Bad("Audit period: 'from' is after 'to'");
+  checkAuditDates(m, false, old);
   await q(sql`UPDATE cmp_audits SET company_id = ${m.companyId}, title = ${m.title}, audit_type = ${m.auditType ?? null}, period_from = ${m.periodFrom ?? null}, period_to = ${m.periodTo ?? null}, audit_firm = ${m.auditFirm ?? null},
     auditor_contact = ${m.auditorContact ?? null}, status = ${m.status}, target_date = ${m.targetDate ?? null}, scope = ${JSON.stringify(m.scope ?? { applications: [], vendors: [] })}::jsonb, notes = ${m.notes ?? null}, updated_at = now() WHERE id = ${aid}`);
   await audit({ entityType: "compliance_audit", entityId: aid, action: "update", performedBy: by, summary: `Audit ${old.auditNo} updated${v.status && v.status !== old.status ? ` — status ${old.status} → ${v.status}` : ""}` });
@@ -216,6 +225,7 @@ async function checkUser(uId: number | null | undefined) { if (uId && !(await q(
 async function applyItemPatch(req: Request, iid: number, v: z.infer<typeof itemPatch>) {
   const [o] = await q(sql`SELECT * FROM cmp_items WHERE id = ${iid}`); if (!o) throw Object.assign(new Bad("Checkpoint not found"), { status: 404 });
   await checkUser(v.ownerUserId); await checkUser(v.spocUserId);
+  if (v.targetDate) { const [au] = await q(sql`SELECT period_from FROM cmp_audits WHERE id = ${o.audit_id}`); if (au?.period_from && v.targetDate < d10(au.period_from)!) throw new Bad(`Target date cannot be before the audit period starts (${d10(au.period_from)})`); }
   const m: any = { ...camel(o) }; for (const [k, val] of Object.entries(v)) if (val !== undefined && k !== "overrideReason") m[k] = val;
   // Auditor decisions belong to the auditor. The team may record one on the auditor's behalf (e.g. given by email) with a reason.
   const reason = v.overrideReason?.trim();
@@ -313,7 +323,7 @@ router.patch("/compliance-grids/:id", wrap(async (req, res) => {
 
 /* ─── Evidence & policy library ─────────────────────────────────────────── */
 const fileSchema = z.object({ objectPath: z.string().min(1).max(300), fileName: z.string().min(1).max(250), fileSize: z.coerce.number().int().nonnegative().optional(), contentType: z.string().max(150).optional(), note: txt(500) });
-const docSchema = z.object({ companyId: z.coerce.number().int().positive().nullable().optional(), category: z.enum(["Policy", "Procedure", "Evidence", "Report", "Agreement", "Other"]).default("Evidence"),
+const docSchema = z.object({ companyId: z.coerce.number().int().positive().nullable().optional(), category: z.enum(["Policy", "Procedure", "Evidence", "Report", "Agreement", "Circular", "Engagement Letter", "Other"]).default("Evidence"),
   title: z.string().trim().min(2).max(250), description: txt(2000), ownerUserId: z.coerce.number().int().positive().nullable().optional(), approvedBy: txt(160), approvedOn: dateS,
   lastReviewDate: dateS, nextReviewDate: dateS, confidential: z.boolean().optional() });
 const docCols = sql`d.*, c.name AS company_name, u.name AS owner_name, f.id AS file_id, f.file_name, f.version, f.file_size, f.content_type, f.uploaded_at, f.uploaded_by,
@@ -426,6 +436,43 @@ router.get("/compliance-files/:id", wrap(async (req, res) => {
   sendFile(res, obj.buffer, f.content_type || obj.contentType, f.file_name, download);
 }));
 
+
+
+/* ─── Reference documents (base circular, engagement letter …) on a template or an audit ─── */
+const refOwner = (t: string) => { if (t !== "template" && t !== "audit") throw new Bad("Invalid owner"); return t; };
+router.get("/compliance-references/:type/:id", wrap(async (req, res) => {
+  const t = refOwner(req.params.type), oid = id(req.params.id);
+  let owners = sql`(r.owner_type = ${t} AND r.owner_id = ${oid})`;
+  if (t === "audit") { const [a] = await q(sql`SELECT template_id FROM cmp_audits WHERE id = ${oid}`); if (a?.template_id) owners = sql`(${owners} OR (r.owner_type = 'template' AND r.owner_id = ${a.template_id}))`; }
+  res.json((await q(sql`SELECT ${docCols}, r.owner_type, r.shared_with_auditor, r.linked_by AS ref_linked_by ${docJoin} JOIN cmp_reference_docs r ON r.document_id = d.id WHERE ${owners} AND d.is_active ORDER BY r.owner_type DESC, r.linked_at`)).map(camel));
+}));
+router.post("/compliance-references/:type/:id", wrap(async (req, res) => {
+  const t = refOwner(req.params.type), oid = id(req.params.id); const by = await who(req);
+  const v = parse(z.object({ documentId: z.coerce.number().int().positive().optional(), title: z.string().trim().min(2).max(250).optional(), category: z.enum(["Circular", "Engagement Letter", "Report", "Policy", "Other"]).default("Circular"), file: fileSchema.optional(), sharedWithAuditor: z.boolean().default(true) }), req.body);
+  if (!(await q(t === "audit" ? sql`SELECT 1 FROM cmp_audits WHERE id = ${oid}` : sql`SELECT 1 FROM cmp_templates WHERE id = ${oid}`)).length) return fail(res, 404, "Not found");
+  let did = v.documentId;
+  if (!did) {
+    if (!v.file || !v.title) throw new Bad("Upload a file");
+    await readObject(v.file.objectPath).catch(() => { throw new Bad("Uploaded file not found — upload it again"); });
+    const companyId = t === "audit" ? (await q(sql`SELECT company_id FROM cmp_audits WHERE id = ${oid}`))[0].company_id : null;
+    const [d] = await q(sql`INSERT INTO cmp_documents (company_id, category, title, created_by) VALUES (${companyId}, ${v.category}, ${v.title}, ${by}) RETURNING id`);
+    await q(sql`INSERT INTO cmp_document_files (document_id, version, object_path, file_name, file_size, content_type, uploaded_by) VALUES (${d.id}, 1, ${v.file.objectPath}, ${v.file.fileName}, ${v.file.fileSize ?? null}, ${v.file.contentType ?? null}, ${by})`);
+    did = d.id;
+  }
+  await q(sql`INSERT INTO cmp_reference_docs (owner_type, owner_id, document_id, shared_with_auditor, linked_by) VALUES (${t}, ${oid}, ${did}, ${v.sharedWithAuditor}, ${by}) ON CONFLICT (owner_type, owner_id, document_id) DO UPDATE SET shared_with_auditor = EXCLUDED.shared_with_auditor`);
+  await audit({ entityType: `compliance_${t}`, entityId: oid, action: "reference_add", performedBy: by, summary: `Reference document ${v.title ?? did} added` });
+  res.status(201).json({ ok: true, documentId: did });
+}));
+router.patch("/compliance-references/:type/:id/:docId", wrap(async (req, res) => {
+  const t = refOwner(req.params.type), v = parse(z.object({ sharedWithAuditor: z.boolean() }), req.body);
+  await q(sql`UPDATE cmp_reference_docs SET shared_with_auditor = ${v.sharedWithAuditor} WHERE owner_type = ${t} AND owner_id = ${id(req.params.id)} AND document_id = ${id(req.params.docId)}`);
+  res.json({ ok: true });
+}));
+router.delete("/compliance-references/:type/:id/:docId", wrap(async (req, res) => {
+  const t = refOwner(req.params.type);
+  await q(sql`DELETE FROM cmp_reference_docs WHERE owner_type = ${t} AND owner_id = ${id(req.params.id)} AND document_id = ${id(req.params.docId)}`);
+  res.json({ ok: true });
+}));
 
 /* ─── Internal review → share with the auditor ──────────────────────────── */
 // An item is visible to the auditor only once shared. Sharing needs status Submitted (or an auditor status) and,

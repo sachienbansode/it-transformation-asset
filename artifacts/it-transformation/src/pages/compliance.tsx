@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,8 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { Plus, Pencil, Loader2, Building2, FileSpreadsheet, ClipboardCheck, AlertTriangle, Upload, CheckCircle2, X, Trash2, CalendarClock, UserX } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCompanies, fmtDate, Progress, uploadFile, AUDIT_STATUSES } from "@/components/compliance-shared";
+import { useCompanies, fmtDate, Progress, uploadFile, AUDIT_STATUSES, today, d10 } from "@/components/compliance-shared";
+import { ReferencesPanel } from "@/components/compliance-references";
 
 /* Audit & Compliance — audits across companies, plus companies and checklist templates. */
 
@@ -98,6 +99,14 @@ export function AuditDialog({ audit, onClose }: { audit?: any; onClose: () => vo
     : { companyId: null, templateId: null, title: "", auditType: "", periodFrom: "", periodTo: "", auditFirm: "", auditorContact: "", targetDate: "", status: "Planning", notes: "", scope: { applications: [], vendors: [] } });
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
+  const dateErr = useMemo(() => {
+    const e: Record<string, string> = {}; const from = f.periodFrom || "", to = f.periodTo || "", tg = f.targetDate || "";
+    if (from && to && from > to) e.periodTo = "Must be on or after the 'from' date";
+    if (tg && from && tg < from) e.targetDate = "Cannot be before the audit period starts";
+    else if (tg && tg < today() && (!audit || tg !== d10(audit.targetDate))) e.targetDate = "Cannot be in the past";
+    return e;
+  }, [f.periodFrom, f.periodTo, f.targetDate, audit]);
+  const err = (k: string) => dateErr[k] ? <div className="text-[11px] text-red-600 mt-0.5">{dateErr[k]}</div> : null;
   const apps: App[] = f.scope?.applications || []; const vendors: Vendor[] = f.scope?.vendors || [];
   const setScope = (k: "applications" | "vendors", v: any[]) => set("scope", { ...f.scope, [k]: v });
   async function save() {
@@ -128,9 +137,9 @@ export function AuditDialog({ audit, onClose }: { audit?: any; onClose: () => vo
             <div><Label>Audit type</Label><Input value={f.auditType ?? ""} onChange={e => set("auditType", e.target.value)} placeholder="e.g. SEBI System Audit" /></div>
             <div><Label>Status</Label><Select value={f.status} onValueChange={v => set("status", v)}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{AUDIT_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Audit period from</Label><Input type="date" value={f.periodFrom ?? ""} onChange={e => set("periodFrom", e.target.value)} /></div>
-            <div><Label>Audit period to</Label><Input type="date" value={f.periodTo ?? ""} onChange={e => set("periodTo", e.target.value)} /></div>
+            <div><Label>Audit period to</Label><Input type="date" min={f.periodFrom || undefined} value={f.periodTo ?? ""} onChange={e => set("periodTo", e.target.value)} className={cn(dateErr.periodTo && "border-red-500")} />{err("periodTo")}</div>
             <div><Label>Audit firm</Label><Input value={f.auditFirm ?? ""} onChange={e => set("auditFirm", e.target.value)} /></div>
-            <div><Label>Target closure date</Label><Input type="date" value={f.targetDate ?? ""} onChange={e => set("targetDate", e.target.value)} /><div className="text-[11px] text-muted-foreground mt-0.5">{audit ? "Changing it here does not move checkpoint dates" : "Also set as each checkpoint's target date"}</div></div>
+            <div><Label>Target closure date</Label><Input type="date" min={[f.periodFrom || "", audit ? "" : today()].sort().pop() || undefined} value={f.targetDate ?? ""} onChange={e => set("targetDate", e.target.value)} className={cn(dateErr.targetDate && "border-red-500")} />{err("targetDate")}<div className="text-[11px] text-muted-foreground mt-0.5">{audit ? "Changing it here does not move checkpoint dates" : "Also set as each checkpoint's target date"}</div></div>
             <div className="md:col-span-2"><Label>Auditor contact</Label><Input value={f.auditorContact ?? ""} onChange={e => set("auditorContact", e.target.value)} placeholder="Name, email, phone" /></div>
           </div>
           <ScopeTable title="In-scope applications" cols={[["name", "Application *"], ["category", "Category (Front / Back office …)"], ["hosting", "Hosting"]]} rows={apps} onChange={v => setScope("applications", v)} blank={{ name: "", category: "", hosting: "" }} />
@@ -138,8 +147,10 @@ export function AuditDialog({ audit, onClose }: { audit?: any; onClose: () => vo
           <div><Label>Notes</Label><Textarea rows={2} value={f.notes ?? ""} onChange={e => set("notes", e.target.value)} /></div>
         </div>
         <div className="flex gap-2 pt-3 border-t">
-          <Button onClick={save} disabled={busy || !f.companyId || !f.templateId || f.title.trim().length < 3} className="gap-1.5">{busy && <Loader2 className="w-4 h-4 animate-spin" />}{audit ? "Save" : "Create audit"}</Button>
+          <Button onClick={save} disabled={busy || !f.companyId || !f.templateId || f.title.trim().length < 3 || Object.keys(dateErr).length > 0} className="gap-1.5">{busy && <Loader2 className="w-4 h-4 animate-spin" />}{audit ? "Save" : "Create audit"}</Button>
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          {!audit && (!f.companyId || !f.templateId || f.title.trim().length < 3) && <span className="text-[11px] text-muted-foreground self-center">Company, template and title (3+ characters) are required</span>}
+          {Object.keys(dateErr).length > 0 && <span className="text-[11px] text-red-600 self-center">Fix the dates above</span>}
         </div>
       </DialogContent>
     </Dialog>
@@ -235,7 +246,7 @@ function CompanyDialog({ c, onClose }: { c: any; onClose: () => void }) {
 function Templates() {
   const { canAccess } = useAuth(); const canEdit = canAccess("compliance", "write");
   const { data: templates = [], isLoading } = useQuery<any[]>({ queryKey: ["compliance-templates"], queryFn: () => apiFetch("/compliance-templates") });
-  const [imp, setImp] = useState(false);
+  const [imp, setImp] = useState(false); const [refs, setRefs] = useState<any>(null);
   return (
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex items-center justify-between gap-3"><div className="text-sm text-muted-foreground">Import the auditor's checklist workbook once; every audit created from it gets its own copy to fill.</div>
@@ -248,11 +259,16 @@ function Templates() {
             <div className="flex-1 min-w-0"><div className="font-medium text-sm">{t.name}{t.version ? <span className="text-muted-foreground font-normal"> · {t.version}</span> : null}</div>
               <div className="text-xs text-muted-foreground">{t.framework || "—"} · {t.checkpoints} checkpoints · {t.policies} policies · {t.grids} schedules · from {t.sourceFile || "file"}</div></div>
             <div className="text-xs text-muted-foreground">{t.audits} audit(s)</div>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setRefs(t)}>Circular & references</Button>
           </div>
         ))}
         {!isLoading && !templates.length && <div className="px-3 py-6 text-center text-sm text-muted-foreground">No templates yet.</div>}
       </div>
       {imp && <ImportDialog onClose={() => setImp(false)} />}
+      {refs && <Dialog open onOpenChange={o => { if (!o) setRefs(null); }}><DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader><DialogTitle>{refs.name} — circular & references</DialogTitle><DialogDescription>Documents here appear in every audit created from this template (e.g. the SEBI base circular).</DialogDescription></DialogHeader>
+        <div className="flex-1 overflow-y-auto pr-1"><ReferencesPanel ownerType="template" ownerId={refs.id} canEdit={canEdit} /></div>
+      </DialogContent></Dialog>}
     </CardContent></Card>
   );
 }

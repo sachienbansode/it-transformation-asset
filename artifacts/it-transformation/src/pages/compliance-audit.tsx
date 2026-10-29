@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople } from "@/components/compliance-shared";
 import { EvidencePanel } from "@/components/compliance-evidence";
 import { AuditorsTab } from "@/components/compliance-auditors";
+import { ReferencesPanel } from "@/components/compliance-references";
 import { AuditDialog } from "@/pages/compliance";
 
 type Tab = "overview" | "checklist" | "policy" | "schedules" | "scope" | "auditors";
@@ -53,7 +54,7 @@ export default function ComplianceAudit() {
         <Tile label="No owner" value={s.unassigned} tone={s.unassigned ? "text-orange-600" : ""} />
       </div>
       <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px] flex-wrap">
-        {([["overview", "Overview"], ["checklist", `Checklist (${s.checkpoints})`], ["policy", `Policies & procedures (${s.policies})`], ["schedules", "Schedules"], ["scope", "Scope"], ["auditors", "Auditors & access log"]] as const).map(([k, l]) =>
+        {([["overview", "Overview"], ["checklist", `Checklist (${s.checkpoints})`], ["policy", `Policies & procedures (${s.policies})`], ["schedules", "Schedules"], ["scope", "Scope & circular"], ["auditors", "Auditors & access log"]] as const).map(([k, l]) =>
           <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
       </div>
       {tab === "overview" && <Overview a={a} onArea={ar => { setAreaFilter(ar); setTab("checklist"); }} />}
@@ -278,6 +279,7 @@ function ItemDialog({ itemId, audit, canEdit, order, onNav, onClose }: { itemId:
           {canEdit && it && (it.sharedAt ? <Button variant="ghost" disabled={busy} onClick={() => share(false)} className="gap-1.5"><EyeOff className="w-4 h-4" />Withdraw</Button>
             : <Button variant="outline" disabled={busy || dirty || !["Submitted", ...AUDITOR_STATUSES].includes(it.status)} title={dirty ? "Save first" : it.status === "Submitted" ? "Reviewed — make it visible to the auditor" : "Set the status to Submitted first"} onClick={() => share(true)} className="gap-1.5"><Share2 className="w-4 h-4" />Share with auditor</Button>)}
           <Button variant="outline" onClick={onClose} disabled={busy}>Close</Button>
+          {canEdit && it && !busy && <span className="text-[11px] text-muted-foreground max-w-[260px] leading-tight">{dirty ? "Unsaved changes — Save before sharing" : !it.sharedAt && !["Submitted", ...AUDITOR_STATUSES].includes(it.status) ? "Save lights up when you change something. To share, set status to Submitted and save." : !it.sharedAt ? "Ready to share — another reviewer should click Share" : "Shared — the auditor can see this checkpoint"}</span>}
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
             {pos >= 0 && <span>{pos + 1} of {order.length}</span>}
             <Button size="sm" variant="outline" disabled={busy || pos <= 0} onClick={() => save(order[pos - 1])} className="gap-1"><ChevronLeft className="w-4 h-4" />Previous</Button>
@@ -355,6 +357,8 @@ function Scope({ a, canEdit, onEdit }: { a: any; canEdit: boolean; onEdit: () =>
   const apps = a.scope?.applications || [], vendors = a.scope?.vendors || [];
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      <Card className="md:col-span-2"><CardContent className="p-4 space-y-2"><div className="font-semibold text-sm">Base circular & reference documents</div>
+        <ReferencesPanel ownerType="audit" ownerId={a.id} canEdit={canEdit} /></CardContent></Card>
       <Card><CardContent className="p-0"><div className="px-4 py-3 font-semibold text-sm border-b flex justify-between items-center">In-scope applications{canEdit && <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={onEdit}><Pencil className="w-3.5 h-3.5" />Edit</Button>}</div>
         <div className="divide-y">{apps.map((x: any, i: number) => <div key={i} className="px-4 py-2 text-sm"><div className="font-medium">{x.name}</div><div className="text-xs text-muted-foreground">{[x.category, x.hosting].filter(Boolean).join(" · ") || "—"}</div></div>)}
           {!apps.length && <div className="px-4 py-4 text-sm text-muted-foreground">None listed.</div>}</div></CardContent></Card>

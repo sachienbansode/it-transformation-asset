@@ -14,7 +14,7 @@ export const CLOSED = ["Closed", "Closed-Obs", "Not Applicable"];
 export const TEAM_STATUSES = ["Pending", "In Progress", "Submitted"];
 export const AUDITOR_STATUSES = ["Under Review", "Partially Closed", "Closed", "Closed-Obs", "Not Applicable"];
 export const AUDIT_STATUSES = ["Planning", "Fieldwork", "Reporting", "Closed"];
-export const DOC_CATEGORIES = ["Policy", "Procedure", "Evidence", "Report", "Agreement", "Other"];
+export const DOC_CATEGORIES = ["Policy", "Procedure", "Evidence", "Report", "Agreement", "Circular", "Engagement Letter", "Other"];
 
 const STATUS_STYLE: Record<string, string> = {
   "Pending": "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300",

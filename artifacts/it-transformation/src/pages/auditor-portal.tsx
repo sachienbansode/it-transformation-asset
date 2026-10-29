@@ -149,11 +149,22 @@ function AuditView() {
         <div className="rounded-[10px] border bg-card px-3 py-2"><div className="text-[11px] text-muted-foreground">Under review</div><div className="text-xl font-semibold text-amber-600">{s.underReview}</div></div>
         <div className="rounded-[10px] border bg-card px-3 py-2"><div className="text-[11px] text-muted-foreground">Info requested</div><div className="text-xl font-semibold">{s.infoRequested}</div></div>
       </div>
+      <References auditId={a.id} canDownload={a.canDownload} />
       <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">
         {([["checklist", `Checklist (${s.checkpoints})`], ["policy", `Policies (${s.policies})`], ["schedules", "Schedules"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
       </div>
       {tab === "schedules" ? <Schedules auditId={a.id} canDownload={a.canDownload} /> : <Items audit={a} items={items.filter(i => i.kind === (tab === "policy" ? "policy" : "checklist"))} kind={tab} />}
     </div>
+  );
+}
+
+function References({ auditId, canDownload }: { auditId: number; canDownload: boolean }) {
+  const { data: refs = [] } = useQuery<any[]>({ queryKey: ["auditor-refs", auditId], queryFn: () => apiFetch(`/auditor-audits/${auditId}/references`) });
+  if (!refs.length) return null;
+  return (
+    <div className="rounded-[10px] border bg-card px-3 py-2"><div className="text-[11px] font-semibold uppercase text-muted-foreground mb-1">Circular & reference documents</div>
+      <div className="flex flex-wrap gap-2">{refs.map(d => <div key={d.id} className="flex items-center gap-1.5 rounded-[8px] border px-2 py-1 text-sm"><FileText className="w-3.5 h-3.5 text-primary" /><span className="truncate max-w-[280px]">{d.title}</span>
+        {d.fileId && <a href={afile(d.fileId)} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">View</a>}{d.fileId && canDownload && <a href={afile(d.fileId, true)} className="text-xs text-muted-foreground hover:underline">Download</a>}</div>)}</div></div>
   );
 }
 

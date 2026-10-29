@@ -220,6 +220,14 @@ router.get("/auditor-audits/:id/grids", wrap(async (req, res) => {
   res.json(grids);
 }));
 
+
+router.get("/auditor-audits/:id/references", wrap(async (req, res) => {
+  const aid = id(req.params.id); await access(req, aid);
+  res.json((await q(sql`SELECT d.id, d.title, d.category, r.owner_type, f.id AS file_id, f.file_name, f.version, f.file_size FROM cmp_reference_docs r JOIN cmp_documents d ON d.id = r.document_id AND d.is_active
+    LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true
+    WHERE r.shared_with_auditor AND ((r.owner_type = 'audit' AND r.owner_id = ${aid}) OR (r.owner_type = 'template' AND r.owner_id = (SELECT template_id FROM cmp_audits WHERE id = ${aid}))) ORDER BY r.linked_at`)).map(camel));
+}));
+
 /* Files: only the current version of a document linked to something shared in an audit the auditor can access */
 router.get("/auditor-files/:id", wrap(async (req, res) => {
   const fid = id(req.params.id); const download = req.query.download === "1";
@@ -227,7 +235,9 @@ router.get("/auditor-files/:id", wrap(async (req, res) => {
     WHERE f.id = ${fid} AND f.version = (SELECT max(version) FROM cmp_document_files y WHERE y.document_id = f.document_id)`);
   if (!f) throw new Bad("File not found", 404);
   const audits = await q(sql`SELECT DISTINCT i.audit_id FROM cmp_item_documents l JOIN cmp_items i ON i.id = l.item_id WHERE l.document_id = ${f.document_id} AND i.shared_at IS NOT NULL
-    UNION SELECT DISTINCT g.audit_id FROM cmp_grid_documents l JOIN cmp_grids g ON g.id = l.grid_id WHERE l.document_id = ${f.document_id} AND g.shared_at IS NOT NULL`);
+    UNION SELECT DISTINCT g.audit_id FROM cmp_grid_documents l JOIN cmp_grids g ON g.id = l.grid_id WHERE l.document_id = ${f.document_id} AND g.shared_at IS NOT NULL
+    UNION SELECT r.owner_id FROM cmp_reference_docs r WHERE r.document_id = ${f.document_id} AND r.owner_type = 'audit' AND r.shared_with_auditor
+    UNION SELECT a.id FROM cmp_reference_docs r JOIN cmp_audits a ON a.template_id = r.owner_id WHERE r.document_id = ${f.document_id} AND r.owner_type = 'template' AND r.shared_with_auditor`);
   let x: any = null;
   for (const a of audits) { const [r] = await q(sql`SELECT x.* FROM cmp_audit_access x JOIN users u ON u.id = x.user_id AND u.is_active WHERE x.user_id = ${req.session.userId} AND x.audit_id = ${a.audit_id} AND ${LIVE}`); if (r) { x = r; break; } }
   if (!x) { await log(req, "file_refused", { fileId: fid, documentId: f.document_id }); throw new Bad("You do not have access to this file", 403); }

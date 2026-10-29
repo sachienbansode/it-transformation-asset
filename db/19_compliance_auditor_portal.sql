@@ -60,3 +60,15 @@ INSERT INTO public.notification_rules (event_key, label, module, description, at
 SELECT 'compliance_auditor_activity', 'Auditor comments and decisions', 'Audit & Compliance', 'Sent to the checkpoint owner and SPOC when the auditor comments, requests information or changes a status. Recipients here get a copy.', false, 32
 WHERE NOT EXISTS (SELECT 1 FROM public.notification_rules WHERE event_key = 'compliance_auditor_activity');
 COMMIT;
+
+-- Reference documents (base circular, engagement letter …) on a template (all its audits) or on one audit
+BEGIN;
+CREATE TABLE IF NOT EXISTS public.cmp_reference_docs (
+  owner_type text NOT NULL,          -- template | audit
+  owner_id integer NOT NULL,
+  document_id integer NOT NULL REFERENCES public.cmp_documents(id) ON DELETE CASCADE,
+  shared_with_auditor boolean NOT NULL DEFAULT true,
+  linked_by text, linked_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (owner_type, owner_id, document_id)
+);
+COMMIT;
