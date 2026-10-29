@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
-import { ArrowLeft, Download, Pencil, Loader2, Search, Paperclip, MessageSquare, CalendarClock, Save, ChevronLeft, ChevronRight, Plus, Table2, History, Send, Share2, EyeOff, Gavel } from "lucide-react";
+import { ArrowLeft, Download, Pencil, Loader2, Search, Paperclip, MessageSquare, CalendarClock, Save, ChevronLeft, ChevronRight, Plus, Table2, History, Send, Share2, EyeOff, Gavel, FileDown, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Pager, DocsButton, fileUrl, STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople } from "@/components/compliance-shared";
 import { EvidencePanel } from "@/components/compliance-evidence";
@@ -43,8 +43,10 @@ export default function ComplianceAudit() {
           <h1 className="text-2xl font-bold tracking-tight leading-tight">{a.title}</h1>
           <div className="text-sm text-muted-foreground">{a.auditNo} · {a.companyName} · {a.status}{a.periodFrom ? ` · period ${fmtDate(a.periodFrom)} – ${fmtDate(a.periodTo)}` : ""}{a.auditFirm ? ` · ${a.auditFirm}` : ""} · target {fmtDate(a.targetDate)}</div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <a href={`${API}/compliance-audits/${a.id}/export`} title="The auditor's workbook (same format as uploaded) filled with today's status"><Button size="sm" variant="outline" className="gap-1.5"><Download className="w-4 h-4" />Export status (Excel)</Button></a>
+          <a href={`${API}/compliance-audits/${a.id}/dashboard?format=pdf`} title="Dashboard as a PDF report"><Button size="sm" variant="outline" className="gap-1.5"><FileDown className="w-4 h-4" />Dashboard PDF</Button></a>
+          <a href={`${API}/compliance-audits/${a.id}/dashboard?format=xlsx`} title="Dashboard figures and the list of open items in Excel"><Button size="sm" variant="outline" className="gap-1.5"><FileSpreadsheet className="w-4 h-4" />Dashboard Excel</Button></a>
           {a.templateId && <a href={`${API}/compliance-templates/${a.templateId}/source`} title="The checklist file exactly as uploaded"><Button size="sm" variant="ghost" className="gap-1.5"><Download className="w-4 h-4" />Uploaded checklist</Button></a>}
           {canEdit && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEdit(true)}><Pencil className="w-4 h-4" />Edit audit</Button>}
         </div>

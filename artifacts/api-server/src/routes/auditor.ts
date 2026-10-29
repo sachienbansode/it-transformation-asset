@@ -5,6 +5,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { readObject } from "./storage";
+import { OFFICE, officePreview } from "../lib/preview";
 import { logAudit } from "./audit-logs";
 import { sha256, AUDITOR_STATUSES, sendFile, backfillMerges } from "./compliance";
 
@@ -231,7 +232,7 @@ router.get("/auditor-audits/:id/references", wrap(async (req, res) => {
 
 /* Files: only the current version of a document linked to something shared in an audit the auditor can access */
 router.get("/auditor-files/:id", wrap(async (req, res) => {
-  const fid = id(req.params.id); const download = req.query.download === "1";
+  const fid = id(req.params.id); const download = req.query.download === "1", preview = req.query.preview === "1";
   const [f] = await q(sql`SELECT f.*, d.title FROM cmp_document_files f JOIN cmp_documents d ON d.id = f.document_id AND d.is_active
     WHERE f.id = ${fid} AND f.version = (SELECT max(version) FROM cmp_document_files y WHERE y.document_id = f.document_id)`);
   if (!f) throw new Bad("File not found", 404);
@@ -245,5 +246,6 @@ router.get("/auditor-files/:id", wrap(async (req, res) => {
   if (download && !x.can_download) throw new Bad("Downloads are not enabled for your access — view the file in the browser", 403);
   const obj = await readObject(f.object_path).catch(() => null); if (!obj) throw new Bad("File is missing from storage", 404);
   await log(req, download ? "download" : "view", { auditId: x.audit_id, documentId: f.document_id, fileId: fid, detail: f.file_name });
+  if (preview && OFFICE.test(f.file_name)) { const pdf = await officePreview(`c${fid}`, f.file_name, obj.buffer); return sendFile(res, pdf, "application/pdf", f.file_name.replace(/\.[^.]+$/, ".pdf"), false); }
   sendFile(res, obj.buffer, f.content_type || obj.contentType, f.file_name, download);
 }));

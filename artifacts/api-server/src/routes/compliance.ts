@@ -8,6 +8,8 @@ import { readObject } from "./storage";
 import { parseWorkbook, exportWorkbook, exportIntoOriginal, sheetMerges, STATUSES, CLOSED } from "../lib/compliance-template";
 import { getAccess } from "../lib/rbac";
 import crypto from "crypto";
+import { OFFICE, officePreview, toPdf } from "../lib/preview";
+import { dashboardData, dashboardXlsx, dashboardDocx } from "../lib/compliance-dashboard";
 
 export const TEAM_STATUSES = ["Pending", "In Progress", "Submitted"];
 export const AUDITOR_STATUSES = ["Under Review", "Partially Closed", "Closed", "Closed-Obs", "Not Applicable"];
@@ -450,8 +452,9 @@ router.get("/compliance-files/:id", wrap(async (req, res) => {
   const [f] = await q(sql`SELECT f.*, d.title FROM cmp_document_files f JOIN cmp_documents d ON d.id = f.document_id WHERE f.id = ${fid}`);
   if (!f) return fail(res, 404, "File not found");
   const obj = await readObject(f.object_path).catch(() => null); if (!obj) return fail(res, 404, "File is missing from storage");
-  const download = req.query.download === "1";
+  const download = req.query.download === "1", preview = req.query.preview === "1";
   await q(sql`INSERT INTO cmp_access_log (user_id, user_name, action, document_id, file_id, ip) VALUES (${uid(req) ?? null}, ${await who(req)}, ${download ? "download" : "view"}, ${f.document_id}, ${fid}, ${req.ip ?? null})`);
+  if (preview && OFFICE.test(f.file_name)) { const pdf = await officePreview(`c${fid}`, f.file_name, obj.buffer); return sendFile(res, pdf, "application/pdf", f.file_name.replace(/\.[^.]+$/, ".pdf"), false); }
   sendFile(res, obj.buffer, f.content_type || obj.contentType, f.file_name, download);
 }));
 
@@ -600,6 +603,23 @@ router.get("/compliance-audits/:id/access-log", wrap(async (req, res) => {
   res.json((await q(sql`SELECT l.*, d.title AS document_title, u.user_type FROM cmp_access_log l LEFT JOIN cmp_documents d ON d.id = l.document_id LEFT JOIN users u ON u.id = l.user_id
     WHERE l.audit_id = ${aid} OR (l.audit_id IS NULL AND l.document_id IN (SELECT document_id FROM cmp_item_documents x JOIN cmp_items i ON i.id = x.item_id WHERE i.audit_id = ${aid}))
     ORDER BY l.at DESC LIMIT 500`)).map(camel));
+}));
+
+/* ─── Dashboard download (Excel / PDF / Word) ─────────────────────────────── */
+router.get("/compliance-audits/:id/dashboard", wrap(async (req, res) => {
+  const aid = id(req.params.id); const fmt = String(req.query.format || "xlsx");
+  if (!["xlsx", "pdf", "docx"].includes(fmt)) throw new Bad("format must be xlsx, pdf or docx");
+  const a = await getAudit(aid); if (!a) return fail(res, 404, "Audit not found");
+  const items = (await q(sql`SELECT i.*, (SELECT count(*)::int FROM cmp_item_documents d WHERE d.item_id = i.id) AS evidence_count FROM cmp_items i WHERE i.audit_id = ${aid} ORDER BY i.sort_order`)).map(camel);
+  const users = new Map((await q(sql`SELECT id, name FROM users`)).map(u => [u.id as number, u.name as string]));
+  const d = dashboardData(a, items, users);
+  const base = `${a.auditNo}_Dashboard_${new Date().toISOString().slice(0, 10)}`;
+  let buf: Buffer, type: string;
+  if (fmt === "xlsx") { buf = dashboardXlsx(d); type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; }
+  else { const docx = await dashboardDocx(d); if (fmt === "docx") { buf = docx; type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; } else { buf = await toPdf(`${base}.docx`, docx); type = "application/pdf"; } }
+  await audit({ entityType: "compliance_audit", entityId: aid, action: "dashboard_export", performedBy: await who(req), summary: `Dashboard of ${a.auditNo} downloaded (${fmt})` });
+  res.setHeader("Content-Type", type); res.setHeader("Content-Disposition", `attachment; filename="${base}.${fmt}"`); res.setHeader("Cache-Control", "private, no-store");
+  res.send(buf);
 }));
 
 /* ─── Export (auditor's workbook layout) ─────────────────────────────────── */
