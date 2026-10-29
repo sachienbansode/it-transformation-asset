@@ -11,6 +11,8 @@ import { getAccess } from "../lib/rbac";
 import crypto from "crypto";
 import { OFFICE, officePreview, toPdf } from "../lib/preview";
 import { dashboardData, dashboardXlsx, dashboardDocx } from "../lib/compliance-dashboard";
+import { fmtDate, fmtDateTime } from "../lib/dates";
+import { ZipStream } from "../lib/zip";
 
 export { TEAM_STATUSES, AUDITOR_STATUSES };
 
@@ -42,7 +44,7 @@ const who = async (req: Request) => getPerformedBy(uid(req)).catch(() => "System
 const audit = (p: Parameters<typeof logAudit>[0]) => logAudit(p).catch(() => { /* non-fatal */ });
 const id = (v: unknown) => { const n = Number(v); if (!Number.isInteger(n) || n <= 0) throw new Bad("Invalid id"); return n; };
 const realDate = (d: string) => { const t = new Date(d + "T00:00:00Z"); return !isNaN(+t) && t.toISOString().slice(0, 10) === d && d >= "2000-01-01" && d <= "2100-12-31"; };
-const dateS = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").refine(realDate, "Not a valid date").nullable().optional().or(z.literal("").transform(() => null));
+const dateS = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date").refine(realDate, "Not a valid date").nullable().optional().or(z.literal("").transform(() => null));
 const istToday = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
 const d10 = (x: any) => (x ? (x instanceof Date ? x.toISOString() : String(x)).slice(0, 10) : null);
 function checkAuditDates(m: { startDate?: any; periodFrom?: any; periodTo?: any; targetDate?: any }, isNew: boolean, old?: any) {
@@ -314,7 +316,7 @@ async function emailAssignment(userIds: number[], itemIds: number[]) {
     const to = users.map(u => u.email).filter(Boolean);
     const a = items[0];
     const subject = `Audit ${a.audit_no}: ${items.length} checkpoint(s) assigned to you — ${a.company}`;
-    const rows = items.slice(0, 50).map(i => `<tr><td style="padding:4px 8px;border:1px solid #ddd">${esc(i.ref_no ?? "")}${i.seq > 1 ? "." + i.seq : ""}</td><td style="padding:4px 8px;border:1px solid #ddd">${esc(i.area ?? (i.kind === "policy" ? "Policy register" : ""))}</td><td style="padding:4px 8px;border:1px solid #ddd">${esc(String(i.checkpoint).slice(0, 220))}</td><td style="padding:4px 8px;border:1px solid #ddd">${i.target_date ? new Date(i.target_date).toLocaleDateString("en-IN") : "—"}</td></tr>`).join("");
+    const rows = items.slice(0, 50).map(i => `<tr><td style="padding:4px 8px;border:1px solid #ddd">${esc(i.ref_no ?? "")}${i.seq > 1 ? "." + i.seq : ""}</td><td style="padding:4px 8px;border:1px solid #ddd">${esc(i.area ?? (i.kind === "policy" ? "Policy register" : ""))}</td><td style="padding:4px 8px;border:1px solid #ddd">${esc(String(i.checkpoint).slice(0, 220))}</td><td style="padding:4px 8px;border:1px solid #ddd">${i.target_date ? fmtDate(i.target_date) : "—"}</td></tr>`).join("");
     const html = `<p>You have been made owner / SPOC for the audit checkpoints below. Please add the management reply and upload the evidence in IT Hub › Audit &amp; Compliance.</p>${htmlTable([["Audit", `${a.audit_no} — ${a.title}`], ["Company", a.company]])}
       <table style="border-collapse:collapse;font-size:13px;margin-top:8px"><tr><th style="padding:4px 8px;border:1px solid #ddd">Ref</th><th style="padding:4px 8px;border:1px solid #ddd">Area</th><th style="padding:4px 8px;border:1px solid #ddd">Checkpoint</th><th style="padding:4px 8px;border:1px solid #ddd">Target</th></tr>${rows}</table>${items.length > 50 ? `<p>…and ${items.length - 50} more.</p>` : ""}<p>Regards,</p>`;
     if (to.length) await sendDirect("compliance_assignment", to, subject, html);
@@ -645,7 +647,7 @@ async function newSetupLink(userId: number) {
 async function emailInvite(to: string, name: string, audit: any, link: string, validUntil: string, isNew: boolean) {
   const { sendDirect, htmlTable } = await import("../lib/mailer");
   const html = `<p>Dear ${name},</p><p>You have been given read-only access to the evidence for the audit below in the IT Hub auditor portal. You can review the evidence, comment and record your review status for each checkpoint.</p>
-    ${htmlTable([["Audit", `${audit.auditNo} — ${audit.title}`], ["Company", audit.companyName], ["Access valid until", new Date(validUntil + "T00:00:00").toLocaleDateString("en-IN")]])}
+    ${htmlTable([["Audit", `${audit.auditNo} — ${audit.title}`], ["Company", audit.companyName], ["Access valid until", fmtDate(validUntil)]])}
     <p>${isNew ? "Set your password using this link (valid for 72 hours):" : "Use this link to set or reset your password (valid for 72 hours):"}<br><a href="${link}">${link}</a></p>
     <p>Each sign-in also needs a one-time code sent to this email address.</p><p>Regards,</p>`;
   await sendDirect("compliance_auditor", [to], `Auditor access: ${audit.auditNo} — ${audit.companyName}`, html);
@@ -734,10 +736,8 @@ router.get("/compliance-audits/:id/activity", wrap(async (req, res) => {
                      (SELECT max(last_access_at) FROM cmp_audit_access WHERE audit_id = ${aid}))) AS last_auditor`);
   res.json({ rows, lastEntity: last?.last_entity ?? null, lastAuditor: last?.last_auditor ?? null });
 }));
-router.get("/compliance-audits/:id/dashboard", wrap(async (req, res) => {
-  const aid = id(req.params.id); const fmt = String(req.query.format || "xlsx");
-  if (!["xlsx", "pdf", "docx"].includes(fmt)) throw new Bad("format must be xlsx, pdf or docx");
-  const a = await getAudit(aid); if (!a) return fail(res, 404, "Audit not found");
+async function dashboardFile(aid: number, fmt: "xlsx" | "pdf" | "docx") {
+  const a = await getAudit(aid); if (!a) return null;
   const items = (await q(sql`SELECT i.*, (SELECT count(*)::int FROM cmp_item_documents d WHERE d.item_id = i.id) AS evidence_count FROM cmp_items i WHERE i.audit_id = ${aid} ORDER BY i.sort_order`)).map(camel);
   const users = new Map((await q(sql`SELECT id, name FROM users`)).map(u => [u.id as number, u.name as string]));
   const [company] = (await q(sql`SELECT * FROM cmp_companies WHERE id = ${a.companyId}`)).map(camel);
@@ -746,19 +746,72 @@ router.get("/compliance-audits/:id/dashboard", wrap(async (req, res) => {
     FROM cmp_audit_access x JOIN users u ON u.id = x.user_id WHERE x.audit_id = ${aid} ORDER BY x.is_active DESC, u.name`)).map(camel);
   const [tpl] = a.templateId ? (await q(sql`SELECT name, version FROM cmp_templates WHERE id = ${a.templateId}`)).map(camel) : [null];
   const d = dashboardData({ ...a, company, auditors, template: tpl }, items, users, await activityOf(aid, 200));
-  const base = `${a.auditNo}_Dashboard_${new Date().toISOString().slice(0, 10)}`;
+  const base = `${a.auditNo}_Dashboard_${fmtDate(new Date())}`;
   let buf: Buffer, type: string;
   if (fmt === "xlsx") { buf = dashboardXlsx(d); type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; }
   else { const docx = await dashboardDocx(d); if (fmt === "docx") { buf = docx; type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; } else { buf = await toPdf(`${base}.docx`, docx); type = "application/pdf"; } }
-  await audit({ entityType: "compliance_audit", entityId: aid, action: "dashboard_export", performedBy: await who(req), summary: `Dashboard of ${a.auditNo} downloaded (${fmt})` });
-  res.setHeader("Content-Type", type); res.setHeader("Content-Disposition", `attachment; filename="${base}.${fmt}"`); res.setHeader("Cache-Control", "private, no-store");
-  res.send(buf);
+  return { a, buf, type, file: `${base}.${fmt}` };
+}
+router.get("/compliance-audits/:id/dashboard", wrap(async (req, res) => {
+  const aid = id(req.params.id); const fmt = String(req.query.format || "xlsx");
+  if (!["xlsx", "pdf", "docx"].includes(fmt)) throw new Bad("format must be xlsx, pdf or docx");
+  const r = await dashboardFile(aid, fmt as any); if (!r) return fail(res, 404, "Audit not found");
+  await audit({ entityType: "compliance_audit", entityId: aid, action: "dashboard_export", performedBy: await who(req), summary: `Dashboard of ${r.a.auditNo} downloaded (${fmt})` });
+  res.setHeader("Content-Type", r.type); res.setHeader("Content-Disposition", `attachment; filename="${r.file}"`); res.setHeader("Cache-Control", "private, no-store");
+  res.send(r.buf);
 }));
 
-/* ─── Export (auditor's workbook layout) ─────────────────────────────────── */
-router.get("/compliance-audits/:id/export", wrap(async (req, res) => {
-  const aid = id(req.params.id);
+/* Complete report (team only — the auditor portal has no route to it): one ZIP with the dashboard (PDF + Excel), the status
+   workbook in the auditor's format, every linked evidence / policy / reference file (current version) and an index. */
+router.get("/compliance-audits/:id/complete-report", wrap(async (req, res) => {
+  const aid = id(req.params.id); const by = await who(req);
   const a = await getAudit(aid); if (!a) return fail(res, 404, "Audit not found");
+  const docs = await q(sql`
+    WITH links AS (
+      SELECT l.document_id, 'Checkpoint' AS used_as, i.sheet, i.ref_no, i.seq, i.kind, i.checkpoint AS what, i.status FROM cmp_item_documents l JOIN cmp_items i ON i.id = l.item_id WHERE i.audit_id = ${aid}
+      UNION ALL SELECT l.document_id, 'Schedule', g.sheet, NULL, 1, 'schedule', g.sheet, g.status FROM cmp_grid_documents l JOIN cmp_grids g ON g.id = l.grid_id WHERE g.audit_id = ${aid}
+      UNION ALL SELECT r.document_id, 'Reference', NULL, NULL, 1, 'reference', CASE r.owner_type WHEN 'template' THEN 'Checklist template reference' ELSE 'Audit reference' END, NULL FROM cmp_reference_docs r
+        WHERE (r.owner_type = 'audit' AND r.owner_id = ${aid}) OR (r.owner_type = 'template' AND r.owner_id = ${a.templateId ?? 0}))
+    SELECT l.*, d.title, d.category, f.object_path, f.file_name, f.version, f.file_size FROM links l JOIN cmp_documents d ON d.id = l.document_id
+      LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true ORDER BY l.used_as, l.sheet NULLS FIRST, l.ref_no, l.seq`);
+  const dashPdf = await dashboardFile(aid, "pdf").catch(e => ({ error: String(e?.message || e) }) as any);
+  const dashXlsx = await dashboardFile(aid, "xlsx"); const status = await statusWorkbook(aid);
+  const zipName = `${a.auditNo}_Complete_Report_${fmtDate(new Date())}.zip`;
+  res.setHeader("Content-Type", "application/zip"); res.setHeader("Content-Disposition", `attachment; filename="${zipName}"`); res.setHeader("Cache-Control", "private, no-store");
+  const zip = new ZipStream(res); const root = `${a.auditNo} Complete Report/`;
+  if (dashPdf?.buf) await zip.add(root + "1 Dashboard/" + dashPdf.file, dashPdf.buf); else await zip.add(root + "1 Dashboard/PDF not available.txt", Buffer.from(`The PDF needs LibreOffice on the server: ${dashPdf?.error || ""}`));
+  if (dashXlsx) await zip.add(root + "1 Dashboard/" + dashXlsx.file, dashXlsx.buf);
+  if (status) await zip.add(root + "2 Status workbook/" + status.file, status.buf);
+  const placed = new Map<string, string>(); const index: any[] = []; let files = 0, missing = 0;
+  for (const d of docs) {
+    let path = placed.get(`${d.document_id}`);
+    if (!path && d.object_path) {
+      const ext = (String(d.file_name || "").match(/\.[A-Za-z0-9]{1,6}$/)?.[0]) || "";
+      const folder = d.used_as === "Reference" ? "5 References" : d.category === "Policy" || d.category === "Procedure" ? "3 Policies & procedures" : "4 Evidence";
+      const obj = await readObject(d.object_path).catch(() => null);
+      if (obj) { const name = await zip.add(`${root}${folder}/${String(d.title).replace(/[\/]+/g, "-").slice(0, 120)} (v${d.version})${ext}`, obj.buffer); path = name.slice(root.length); placed.set(`${d.document_id}`, path); files++; }
+      else { missing++; path = "(file missing on the server)"; placed.set(`${d.document_id}`, path); }
+    }
+    index.push({ "Used as": d.used_as, Sheet: d.sheet || "", Ref: d.ref_no ? `${d.ref_no}${d.seq > 1 ? "." + d.seq : ""}` : "", "Checkpoint / item": String(d.what || "").replace(/\s+/g, " ").slice(0, 250), Status: d.status || "",
+      Document: d.title, Category: d.category, Version: d.version ?? "", "Original file": d.file_name || "", "File in this ZIP": path || "(no file)" });
+  }
+  const XL = await import("xlsx"); const wb = XL.utils.book_new(); const ws = XL.utils.json_to_sheet(index.length ? index : [{ Info: "No evidence linked yet" }]);
+  ws["!cols"] = [{ wch: 11 }, { wch: 24 }, { wch: 7 }, { wch: 70 }, { wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 8 }, { wch: 36 }, { wch: 60 }]; XL.utils.book_append_sheet(wb, ws, "Evidence index");
+  await zip.add(root + "Evidence index.xlsx", XL.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer);
+  await zip.add(root + "README.txt", Buffer.from([`${a.auditNo} — ${a.title}`, `${a.companyName}`, `Prepared ${fmtDateTime(new Date())} by ${by}`, "",
+    "1 Dashboard            — audit details, status, whose action is pending, activity (PDF and Excel)",
+    "2 Status workbook      — the auditor's checklist with today's replies, owners, statuses and evidence references",
+    "3 Policies & procedures, 4 Evidence, 5 References — current version of every linked file (each file once)",
+    "Evidence index.xlsx    — which checkpoint uses which file", "", `Files: ${files}${missing ? ` · ${missing} missing on the server` : ""}`, "Internal — not for distribution outside the audit."].join("\r\n")));
+  await zip.finish(); res.end();
+  await audit_({ aid, req, action: "complete_report", detail: `${files} file(s)` });
+  await audit({ entityType: "compliance_audit", entityId: aid, action: "complete_report", performedBy: by, summary: `Complete report of ${a.auditNo} downloaded (${files} evidence file(s))` });
+}));
+
+
+/* ─── Export (auditor's workbook layout) ─────────────────────────────────── */
+async function statusWorkbook(aid: number, layoutPref?: string) {
+  const a = await getAudit(aid); if (!a) return null;
   const items = (await q(sql`SELECT * FROM cmp_items WHERE audit_id = ${aid} ORDER BY sort_order`)).map(camel).map((i: any) => ({ ...i, targetDate: i.targetDate ? String(i.targetDate).slice(0, 10) : null, lastReviewDate: i.lastReviewDate ? String(i.lastReviewDate).slice(0, 10) : null }));
   const grids = (await q(sql`SELECT * FROM cmp_grids WHERE audit_id = ${aid} ORDER BY sort_order`)).map(camel);
   const users = new Map((await q(sql`SELECT id, name FROM users`)).map(u => [u.id as number, u.name as string]));
@@ -767,17 +820,22 @@ router.get("/compliance-audits/:id/export", wrap(async (req, res) => {
     LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true WHERE i.audit_id = ${aid}`))
     docsByItem.set(l.item_id, [...(docsByItem.get(l.item_id) || []), `${l.title}${l.file_name ? ` (${l.file_name}, v${l.version})` : ""}`]);
   let buf: Buffer | null = null; let layout = "standard";
-  if (req.query.layout !== "standard") {
+  if (layoutPref !== "standard") {
     const [t] = await q(sql`SELECT source_object FROM cmp_templates WHERE id = ${a.templateId}`);
     const orig = t?.source_object ? await readObject(t.source_object).catch(() => null) : null;
     if (orig) { try { buf = exportIntoOriginal(orig.buffer, { audit: a, items, grids, users, docsByItem }); layout = "original"; } catch (e) { console.error("export into original failed — falling back", e); } }
   }
   if (!buf) buf = exportWorkbook({ audit: a, items, grids, users, docsByItem });
-  await audit({ entityType: "compliance_audit", entityId: aid, action: "export", performedBy: await who(req), summary: `Audit ${a.auditNo} exported to Excel (${layout} layout)` });
-  res.setHeader("X-Export-Layout", layout);
+  return { a, buf, layout, file: `${a.auditNo}_${String(a.companyName).replace(/[^A-Za-z0-9]+/g, "_")}_${fmtDate(new Date())}.xlsx` };
+}
+router.get("/compliance-audits/:id/export", wrap(async (req, res) => {
+  const aid = id(req.params.id);
+  const r = await statusWorkbook(aid, String(req.query.layout || "")); if (!r) return fail(res, 404, "Audit not found");
+  await audit({ entityType: "compliance_audit", entityId: aid, action: "export", performedBy: await who(req), summary: `Audit ${r.a.auditNo} exported to Excel (${r.layout} layout)` });
+  res.setHeader("X-Export-Layout", r.layout);
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.setHeader("Content-Disposition", `attachment; filename="${a.auditNo}_${String(a.companyName).replace(/[^A-Za-z0-9]+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx"`);
-  res.send(buf);
+  res.setHeader("Content-Disposition", `attachment; filename="${r.file}"`);
+  res.send(r.buf);
 }));
 
 export { CLOSED };

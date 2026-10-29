@@ -81,7 +81,7 @@ function pickLicense(b: any) {
 }
 function validateLicense(o: any): string | null {
   if (!s(o.productName)) return "Product name is required";
-  for (const f of ["startDate", "expiryDate"]) if (o[f] && !DATE_RE.test(o[f])) return `${f === "startDate" ? "Start" : "Expiry"} date must be YYYY-MM-DD`;
+  for (const f of ["startDate", "expiryDate"]) if (o[f] && !DATE_RE.test(o[f])) return `${f === "startDate" ? "Start" : "Expiry"} date is not valid — use dd-MMM-yyyy, e.g. 05-Nov-2026`;
   if (o.startDate && o.expiryDate && o.expiryDate < o.startDate) return "Expiry date is before the start date";
   for (const f of ["cost", "renewalCost"]) if (o[f] !== null && o[f] !== undefined && !(Number(o[f]) >= 0)) return "Cost must be a positive number";
   return null;

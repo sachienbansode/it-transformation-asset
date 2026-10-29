@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { fmtDate, fmtDateTime } from "@/lib/date";
 
 type Tab = "settings" | "masters" | "business-units" | "audit" | "itsm-config";
 
@@ -609,7 +610,7 @@ function UsersTab() {
                     })()}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString("en-IN") : "Never"}
+                    {u.lastLoginAt ? fmtDate(u.lastLoginAt) : "Never"}
                   </td>
                   <td className="px-4 py-2.5 flex gap-1">
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
@@ -876,9 +877,9 @@ function MastersTab() {
         {([["masters", "All master data"], ["users", "Users"], ["business_units", "Business units"], ["roles", "Roles"], ["role_permissions", "Role permissions"], ["user_roles", "User roles"], ["asset_categories", "Asset categories"], ["kpi_categories", "KPI categories"], ["compliance_statuses", "Checkpoint statuses"], ["compliance_companies", "Audit companies"]] as const).map(([k, l]) =>
           <a key={k} href={`${API}/admin/export/${k}`}><Button variant="outline" size="sm" className="h-7 text-xs">{l}</Button></a>)}
       </div>
-      <div className="flex gap-4">
+      <div className="flex flex-col md:flex-row gap-4">
         {/* Category list with module groups */}
-        <div className="w-56 shrink-0 space-y-1 max-h-[600px] overflow-y-auto">
+        <div className="w-full md:w-56 shrink-0 space-y-1 max-h-[260px] md:max-h-[600px] overflow-y-auto">
           <div className="sticky top-0 bg-background pb-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
@@ -907,8 +908,8 @@ function MastersTab() {
         </div>
 
         {/* Items table */}
-        {selectedCategory === "compliance_status" ? <div className="flex-1 min-w-0"><ComplianceStatusMaster /></div> :
-        <div className="flex-1 space-y-3">
+        {selectedCategory === "compliance_status" ? <div className="flex-1 min-w-0 overflow-x-auto"><ComplianceStatusMaster /></div> :
+        <div className="flex-1 min-w-0 space-y-3 overflow-x-auto">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">
               <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mr-1.5">
@@ -1297,7 +1298,7 @@ function AuditTrailTab() {
                   {auditRecordId(log.id)}
                 </span>
                 <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                  {new Date(log.performedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                  {fmtDateTime(log.performedAt)}
                 </span>
                 <Badge variant="outline" className="text-[10px] capitalize">{log.entityType.replace(/_/g, " ")}</Badge>
                 <Badge variant="outline" className={`text-[10px] capitalize border ${actionBadge(log.action)}`}>{log.action}</Badge>

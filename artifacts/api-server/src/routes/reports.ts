@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, checklistItemsTable, roadmapItemsTable, applicationsTable, retirementsTable, aibomEntriesTable, sbomEntriesTable, settingsTable } from "@workspace/db";
 import { requireAuth } from "./auth";
 import PptxGenJS from "pptxgenjs";
+import { fmtDate } from "../lib/dates";
 
 const router = Router();
 
@@ -51,7 +52,7 @@ function addBrandedSlide(pptx: PptxGenJS, config: { logo?: string }) {
     fontSize: 10, bold: true, color: BRAND.primaryLight, fontFace: "Calibri",
   });
   // Date in top bar (right)
-  slide.addText(new Date().toLocaleDateString("en-IN", { dateStyle: "long" }), {
+  slide.addText(fmtDate(), {
     x: W - 3.5, y: 0.05, w: 3.3, h: 0.35, align: "right",
     fontSize: 9, color: BRAND.muted, fontFace: "Calibri",
   });
@@ -179,7 +180,7 @@ router.get("/reports/ppt", requireAuth, async (req, res): Promise<void> => {
       x: 0.8, y: 4.0, w: W - 1.6, h: 0.4,
       fontSize: 13, color: BRAND.muted, fontFace: "Calibri", align: "center",
     });
-    slide.addText(new Date().toLocaleDateString("en-IN", { dateStyle: "full" }), {
+    slide.addText(fmtDate(), {
       x: 0.8, y: 4.45, w: W - 1.6, h: 0.4,
       fontSize: 13, color: BRAND.muted, fontFace: "Calibri", align: "center",
     });

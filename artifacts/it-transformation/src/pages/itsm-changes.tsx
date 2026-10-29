@@ -19,6 +19,7 @@ import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
+import { fmtCell, fmtDate, fmtDateTime } from "@/lib/date";
 
 const PAGE_SIZE = 10;
 const CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
@@ -96,15 +97,11 @@ function TicketNo({ no }: { no: string }) {
 }
 
 function formatDate(dateStr: string | null | undefined) {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return fmtDate(dateStr);
 }
 
 function formatDateTime(dateStr: string | null | undefined) {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return fmtDateTime(dateStr);
 }
 
 async function downloadReport(type: string, filename: string) {
@@ -113,7 +110,7 @@ async function downloadReport(type: string, filename: string) {
   const headers = Object.keys(data[0]);
   const csvRows = [headers.join(","), ...data.map(row =>
     headers.map(h => {
-      const val = row[h] == null ? "" : String(row[h]);
+      const val = row[h] == null ? "" : String(fmtCell(row[h]));
       return `"${val.replace(/"/g, '""')}"`;
     }).join(",")
   )];
@@ -260,7 +257,7 @@ export default function ItsmChanges() {
                   <TableCell className="py-3"><RiskBadge value={c.riskLevel} /></TableCell>
                   <TableCell className="py-3"><ApprovalBadge value={c.approvalStatus} /></TableCell>
                   <TableCell className="py-3 text-xs font-medium text-muted-foreground">{c.status}</TableCell>
-                  <TableCell className="py-3 text-xs text-muted-foreground">{c.implementationDate || <span className="italic">TBD</span>}</TableCell>
+                  <TableCell className="py-3 text-xs text-muted-foreground">{c.implementationDate ? fmtDate(c.implementationDate) : <span className="italic">TBD</span>}</TableCell>
                   <TableCell className="py-3"><AssigneeBadge name={c.requestedBy} /></TableCell>
                   <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(c.createdAt)}</TableCell>
                   <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(c.updatedAt)}</TableCell>
@@ -298,7 +295,7 @@ export default function ItsmChanges() {
                 <RiskBadge value={viewModal.riskLevel} />
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Status", viewModal.status], ["Category", viewModal.category], ["Requested By", viewModal.requestedBy], ["Approved By", viewModal.approvedBy], ["Implementation Date", viewModal.implementationDate], ["Backout Duration", viewModal.backoutDuration], ["Impact", viewModal.impact], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
+                {[["Status", viewModal.status], ["Category", viewModal.category], ["Requested By", viewModal.requestedBy], ["Approved By", viewModal.approvedBy], ["Implementation Date", fmtDate(viewModal.implementationDate)], ["Backout Duration", viewModal.backoutDuration], ["Impact", viewModal.impact], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
                     <div className="font-medium text-sm">{(v as string) || "—"}</div>

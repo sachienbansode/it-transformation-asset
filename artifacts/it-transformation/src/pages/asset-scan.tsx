@@ -11,8 +11,9 @@ import { StatusPill, AckPill, LifecycleButtons, AssetTrail } from "@/components/
 import { StickerDialog } from "@/components/asset-sticker";
 import { QrCode, AlertTriangle, ShieldCheck, ShieldAlert, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDate } from "@/lib/date";
 
-const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmt = (d?: string | null) => d ? fmtDate(d) : "—";
 
 // Opened by scanning an asset's QR sticker: /a/<asset tag>
 export default function AssetScan() {

@@ -31,6 +31,7 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { fmtDate } from "@/lib/date";
 
 const PAGE_SIZE = 10;
 
@@ -369,7 +370,7 @@ export default function Retirements() {
                 <TableCell className="font-medium">{item.appName}</TableCell>
                 <TableCell><Badge variant="outline">{item.business}</Badge></TableCell>
                 <TableCell><Badge variant="secondary">{item.reason}</Badge></TableCell>
-                <TableCell className="text-xs">{item.targetDate || "-"}</TableCell>
+                <TableCell className="text-xs">{item.targetDate ? fmtDate(item.targetDate) : "-"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{item.successor || "-"}</TableCell>
                 <TableCell><Badge className={getEffortBadge(item.migrationEffort)}>{item.migrationEffort}</Badge></TableCell>
                 <TableCell className="font-medium text-xs">{item.budgetLakhs != null ? format(item.budgetLakhs, 1) : "—"}</TableCell>

@@ -16,9 +16,10 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { fmtCell, fmtDate } from "@/lib/date";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
-  const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const esc = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
   const csv = [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(r[c.key])).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })), download: filename });
   a.click(); URL.revokeObjectURL(a.href);
@@ -220,8 +221,8 @@ export default function MaintenanceRecords() {
                   <TableCell className="font-mono text-xs font-semibold text-[#1B63D6]">{getAssetLabel(r.assetId)}</TableCell>
                   <TableCell><Badge variant="outline" className={TYPE_BADGE[r.type] || ""}>{r.type}</Badge></TableCell>
                   <TableCell className="text-sm max-w-[200px] truncate" title={r.description}>{r.description || "—"}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{r.scheduledDate || "—"}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{r.completedDate || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{r.scheduledDate ? fmtDate(r.scheduledDate) : "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{r.completedDate ? fmtDate(r.completedDate) : "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{r.vendorName || "—"}</TableCell>
                   <TableCell className="text-sm text-right font-medium">{r.cost ? `₹${Number(r.cost).toLocaleString("en-IN")}` : "—"}</TableCell>
                   <TableCell><Badge variant="outline" className={STATUS_BADGE[r.status] || ""}>{r.status}</Badge></TableCell>

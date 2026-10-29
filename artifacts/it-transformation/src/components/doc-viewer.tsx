@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { Download, FileText, ShieldAlert, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDateTime } from "@/lib/date";
 
 /*
  * In-app, read-only document viewer for audit evidence.
@@ -37,7 +38,7 @@ function Viewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   const { user } = useAuth();
   const [focused, setFocused] = useState(true); const k = kindOf(doc);
   const [text, setText] = useState<string | null>(null); const [loading, setLoading] = useState(k !== "other");
-  const stamp = `${user?.name || ""} · ${user?.email || ""} · ${new Date().toLocaleString("en-IN")} · CONFIDENTIAL`;
+  const stamp = `${user?.name || ""} · ${user?.email || ""} · ${fmtDateTime()} · CONFIDENTIAL`;
   useEffect(() => {
     // focus moving into the PDF frame also fires window "blur": only hide when the page itself lost focus
     const blur = () => setTimeout(() => { if (document.activeElement?.tagName !== "IFRAME") setFocused(false); }, 0);

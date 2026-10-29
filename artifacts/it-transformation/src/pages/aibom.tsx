@@ -27,6 +27,7 @@ import { ImportExportMenu } from "@/components/import-export-menu";
 import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { fmtDate } from "@/lib/date";
 
 const PAGE_SIZE = 10;
 
@@ -256,7 +257,7 @@ export default function Aibom() {
                     <TableCell><Badge className={getRiskBadge(item.riskLevel)}>{item.riskLevel}</Badge></TableCell>
                     <TableCell><Badge className={getComplianceBadge(item.complianceStatus)}>{item.complianceStatus}</Badge></TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-28 truncate">{x.governanceFramework || "—"}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{x.lastAuditDate || "—"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{x.lastAuditDate ? fmtDate(x.lastAuditDate) : "—"}</TableCell>
                     {isAdmin && (
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}><Edit className="h-4 w-4" /></Button>
@@ -282,7 +283,7 @@ export default function Aibom() {
                           </div>
                           <div>
                             <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-0.5">Governance Review</p>
-                            <p>{item.governanceReviewDate || "—"}</p>
+                            <p>{item.governanceReviewDate ? fmtDate(item.governanceReviewDate) : "—"}</p>
                           </div>
                           <div className="col-span-2">
                             <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-0.5">Comments</p>

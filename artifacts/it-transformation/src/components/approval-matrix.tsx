@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { CheckCircle2, XCircle, Clock, ChevronRight, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { fmtDate } from "@/lib/date";
 
 const STATUS_STYLES: Record<string, { icon: any; bg: string; text: string; badge: string }> = {
   Pending: { icon: Clock, bg: "bg-amber-50 dark:bg-amber-900/10", text: "text-amber-600", badge: "border-amber-500/30 text-amber-600 bg-amber-50 dark:bg-amber-400/10" },
@@ -77,7 +78,7 @@ export function ApprovalMatrix({ ticketId, ticketType, readonly = false }: Appro
                 </div>
                 <p className="text-[11px] font-medium">{a.approverRole}</p>
                 {a.approverName && <p className="text-[10px] text-muted-foreground mt-0.5">By: {a.approverName}</p>}
-                {a.actionAt && <p className="text-[10px] text-muted-foreground">{new Date(a.actionAt).toLocaleDateString()}</p>}
+                {a.actionAt && <p className="text-[10px] text-muted-foreground">{fmtDate(a.actionAt)}</p>}
                 {a.notes && <p className="text-[10px] text-muted-foreground mt-1 italic">"{a.notes}"</p>}
 
                 {a.status === "Pending" && a.approvers?.length > 0 && <p className="text-[10px] text-muted-foreground mt-0.5">Approvers: {a.approvers.slice(0, 4).join(", ")}{a.approvers.length > 4 ? ` +${a.approvers.length - 4}` : ""}</p>}

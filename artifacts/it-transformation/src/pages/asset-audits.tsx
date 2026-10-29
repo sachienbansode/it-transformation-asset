@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { ClipboardCheck, Plus, Loader2, MapPin, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDate } from "@/lib/date";
 
 export const AUDIT_STATUS_STYLE: Record<string, string> = {
   Planned: "bg-slate-100 text-slate-700 dark:bg-slate-400/10 dark:text-slate-300",
@@ -20,7 +21,7 @@ export const AUDIT_STATUS_STYLE: Record<string, string> = {
   Completed: "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300",
   Cancelled: "bg-zinc-100 text-zinc-500 dark:bg-zinc-400/10 dark:text-zinc-400",
 };
-const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmt = (d?: string | null) => d ? fmtDate(d) : "—";
 
 export default function AssetAudits() {
   const { data: audits = [], isLoading } = useQuery({ queryKey: ["asset-audits"], queryFn: () => apiFetch<any[]>("/asset-audits") });

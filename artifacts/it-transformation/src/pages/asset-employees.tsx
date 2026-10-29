@@ -8,8 +8,9 @@ import { apiFetch } from "@/lib/api";
 import { AckPill, printHandoverNote, HolderTag } from "@/components/asset-lifecycle";
 import { Search, Users, Printer, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDate } from "@/lib/date";
 
-const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmt = (d?: string | null) => d ? fmtDate(d) : "—";
 
 export default function AssetEmployees() {
   const { data: holders = [], isLoading } = useQuery({ queryKey: ["asset-holders"], queryFn: () => apiFetch<any[]>("/asset-holders") });

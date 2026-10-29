@@ -7,6 +7,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
 import { Users, CalendarClock, Loader2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDate, fmtDateTime } from "@/lib/date";
 
 /*
  * Shared ITSM pieces for category-routed tickets (incidents and service requests):
@@ -62,7 +63,7 @@ export function useRoute(kind: Kind, category?: string | null, subcategory?: str
   });
 }
 
-export const fmtDay = (d?: string | null) => d ? new Date(d.length === 10 ? d + "T00:00:00" : d).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }) : "—";
+export const fmtDay = (d?: string | null) => d ? `${new Date(d.length === 10 ? d + "T00:00:00" : d).toLocaleDateString("en-GB", { weekday: "short" })}, ${fmtDate(d)}` : "—";
 
 export function RoutingPreview({ route, loading }: { route: any; loading?: boolean }) {
   if (loading) return <div className="col-span-2 text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" />Finding the team…</div>;
@@ -123,7 +124,7 @@ export function RaisedByCell({ name, createdBy, at }: { name?: string | null; cr
   return (
     <div className="min-w-[120px]">
       <div className="text-sm font-medium truncate max-w-[160px]">{name || by || "—"}</div>
-      <div className="text-[11px] text-muted-foreground">{at ? new Date(at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}{by && name && by !== name ? ` · by ${by}` : ""}</div>
+      <div className="text-[11px] text-muted-foreground">{at ? fmtDateTime(at) : ""}{by && name && by !== name ? ` · by ${by}` : ""}</div>
     </div>
   );
 }
@@ -144,7 +145,7 @@ export function ClosureCell({ date, done, doneAt }: { date?: string | null; done
   const dueToday = !done && today === date;
   return (
     <div className="min-w-[90px]">
-      <div className={cn("text-sm whitespace-nowrap", late && "text-red-600 font-semibold", dueToday && "text-amber-600 font-semibold")}>{new Date(date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</div>
+      <div className={cn("text-sm whitespace-nowrap", late && "text-red-600 font-semibold", dueToday && "text-amber-600 font-semibold")}>{fmtDate(date)}</div>
       <div className={cn("text-[10px]", late ? "text-red-600" : "text-muted-foreground")}>{done ? (late ? "closed late" : "on time") : late ? "overdue" : dueToday ? "due today" : "on track"}</div>
     </div>
   );

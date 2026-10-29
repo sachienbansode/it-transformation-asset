@@ -15,6 +15,7 @@ import {
   UserPlus, Undo2, Wrench, Server, Archive, Trash2, AlertOctagon, PackageCheck, Loader2, Search,
   ArrowRightLeft, Activity, PencilLine, ScanLine, ShieldCheck, MessageSquare, FileCheck2, ArrowRight, MapPin, Lock, Download, AlertTriangle, CheckCircle2,
 } from "lucide-react";
+import { fmtDate, fmtDateTime, fmtTime } from "@/lib/date";
 
 /* ─── Lifecycle model (served by the API so the rules live in one place) ─── */
 
@@ -521,7 +522,7 @@ export async function markAcknowledged(h: any, toast: ReturnType<typeof useToast
 /* ─── Printable handover / return note ───────────────────────────────────── */
 
 const esc = (v: any) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
-const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmt = (d?: string | null) => d ? fmtDate(d) : "—";
 
 export async function printHandoverNote(handovers: any[], kind: "issue" | "return" = "issue") {
   if (!handovers.length) return;
@@ -592,7 +593,7 @@ const FILTERS: { key: "all" | Cat | "changes"; label: string }[] = [
 const dayLabel = (d: Date) => {
   const t = new Date(); t.setHours(0, 0, 0, 0); const x = new Date(d); x.setHours(0, 0, 0, 0);
   const diff = Math.round((t.getTime() - x.getTime()) / 86400000);
-  return diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+  return diff === 0 ? "Today" : diff === 1 ? "Yesterday" : `${d.toLocaleDateString("en-GB", { weekday: "short" })}, ${fmtDate(d)}`;
 };
 
 /**
@@ -629,7 +630,7 @@ export function AssetTrail({ assetId, assetTag }: { assetId: number; assetTag: s
     const e = (v: any) => { const x = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(x) ? `"${x}"` : x; };
     const lines = [["When", "Action", "Type", "By", "Status from", "Status to", "Field", "From", "To", "Comment", "Details"].join(",")];
     for (const t of sorted) {
-      const base = [new Date(t.createdAt).toLocaleString("en-IN"), t.action, CAT[catOf(t)].label, who(t.userName), t.oldStatus, t.newStatus];
+      const base = [fmtDateTime(t.createdAt), t.action, CAT[catOf(t)].label, who(t.userName), t.oldStatus, t.newStatus];
       const ch = Array.isArray(t.changes) && t.changes.length ? t.changes : [null];
       for (const c of ch) lines.push([...base, c?.label, c?.from, c?.to, t.comment, t.notes].map(e).join(","));
     }
@@ -640,7 +641,7 @@ export function AssetTrail({ assetId, assetTag }: { assetId: number; assetTag: s
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 rounded-[10px] bg-muted/50 px-3 py-2 text-xs">
-        <span className="flex items-center gap-1.5 text-muted-foreground"><Lock className="w-3.5 h-3.5" />Read-only history · {sorted.length} entries · {holders} handover{holders === 1 ? "" : "s"}{sorted.length ? ` · since ${new Date(sorted[sorted.length - 1].createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}` : ""}</span>
+        <span className="flex items-center gap-1.5 text-muted-foreground"><Lock className="w-3.5 h-3.5" />Read-only history · {sorted.length} entries · {holders} handover{holders === 1 ? "" : "s"}{sorted.length ? ` · since ${fmtDate(sorted[sorted.length - 1].createdAt)}` : ""}</span>
         <button className="text-primary font-medium flex items-center gap-1" onClick={exportCsv}><Download className="w-3.5 h-3.5" />Export</button>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -669,7 +670,7 @@ export function AssetTrail({ assetId, assetTag }: { assetId: number; assetTag: s
                   <div className="pb-3 flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="text-sm font-semibold text-foreground">{t.action}</span>
-                      <span className="text-[11px] text-muted-foreground shrink-0">{new Date(t.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+                      <span className="text-[11px] text-muted-foreground shrink-0">{fmtTime(t.createdAt)}</span>
                     </div>
                     <div className="text-[11px] text-muted-foreground">{c.label} · by {who(t.userName)}</div>
                     {(t.oldStatus || t.newStatus) && t.oldStatus !== t.newStatus && (

@@ -262,3 +262,34 @@
     size: A4 landscape;
   }
 }
+
+/* ─── Phones & small tablets: one set of rules for every screen (incl. the auditor portal) ─── */
+@media (max-width: 767px) {
+  /* page titles: smaller, and the action buttons next to them wrap below instead of squeezing the title */
+  main h1, .auditor-main h1 { font-size: 1.3rem !important; line-height: 1.75rem !important; }
+  main .flex.justify-between:has(> div > h1), main .flex.justify-between:has(> h1),
+  main .flex.justify-between:has(> div > div > h1), .auditor-main .flex.justify-between:has(h1) { flex-wrap: wrap; row-gap: .6rem; }
+  main .flex.justify-between:has(> div > h1) > div:last-child:not(:first-child),
+  main .flex.justify-between:has(> div > div > h1) > div:last-child:not(:first-child) { flex-wrap: wrap; }
+  /* segmented tab bars scroll sideways instead of overflowing */
+  main .inline-flex.bg-muted, .auditor-main .inline-flex.bg-muted, main [role="tablist"], .auditor-main [role="tablist"] {
+    max-width: 100%; overflow-x: auto; flex-wrap: nowrap !important; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  main .inline-flex.bg-muted::-webkit-scrollbar, main [role="tablist"]::-webkit-scrollbar { display: none; }
+  main .inline-flex.bg-muted > button, main [role="tablist"] > button { flex-shrink: 0; white-space: nowrap; }
+  /* filter rows: full-width controls stacked two per line */
+  main .flex.flex-wrap.gap-2 > .relative[class*="w-6"], main .flex.flex-wrap.gap-2 > .relative[class*="w-5"] { width: 100% !important; }
+  main .flex.flex-wrap.gap-2 > button[role="combobox"] { width: calc(50% - .25rem) !important; min-width: 0; }
+  /* tables scroll inside their card; cells keep a readable minimum */
+  main table { font-size: .8125rem; }
+  main td, main th { white-space: normal; }
+  /* comfortable touch targets */
+  main button, main [role="button"], .auditor-main button { min-height: 2.25rem; }
+  main .h-7 { min-height: 2rem; }
+  /* dialogs: full width, scroll inside */
+  [role="dialog"] { padding: 1rem !important; width: calc(100% - 1rem) !important; }
+  [role="dialog"] .grid.grid-cols-2:not(.keep-cols), [role="dialog"] .grid.md\:grid-cols-2 { grid-template-columns: 1fr !important; }
+  [role="dialog"] .grid > [class*="col-span-2"] { grid-column: auto !important; }
+  /* cards and paddings a little tighter */
+  main .p-4 { padding: .85rem; }
+}

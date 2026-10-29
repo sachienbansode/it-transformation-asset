@@ -8,6 +8,7 @@ import { requireAdmin } from "./auth";
 import bcrypt from "bcryptjs";
 import { forceSeedProductionDatabase } from "../seed-production";
 import { logAudit, getPerformedBy } from "./audit-logs";
+import { fmtCell } from "../lib/dates";
 
 const router = Router();
 
@@ -27,7 +28,8 @@ const EXPORTS: Record<string, { file: string; sql: ReturnType<typeof sql> }> = {
   compliance_companies: { file: "compliance_companies", sql: sql`SELECT * FROM cmp_companies ORDER BY 1` },
 };
 const SECRET = /password|secret|token|hash|azure_id|central_sub/i;
-const csvCell = (v: unknown) => {
+const csvCell = (raw: unknown) => {
+  const v = fmtCell(raw);
   if (v === null || v === undefined) return "";
   let t = v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v);
   if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; // no formula injection when opened in Excel

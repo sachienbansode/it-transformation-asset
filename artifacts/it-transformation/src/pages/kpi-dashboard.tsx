@@ -13,6 +13,7 @@ import {
   AlertTriangle, BarChart3, ClipboardList, ChevronRight, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDate } from "@/lib/date";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface KpiSet {
@@ -129,8 +130,8 @@ function MyKpiView({ sets, persons, years }: { sets: KpiSet[]; persons: KpiPerso
                   </div>
                   <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-3">
                     <span><span className="font-medium">{s.itemCount ?? 0}</span> KPIs</span>
-                    {s.submittedAt && <span>Submitted {new Date(s.submittedAt).toLocaleDateString("en-IN")}</span>}
-                    {s.approvedAt && <span>Approved {new Date(s.approvedAt).toLocaleDateString("en-IN")}</span>}
+                    {s.submittedAt && <span>Submitted {fmtDate(s.submittedAt)}</span>}
+                    {s.approvedAt && <span>Approved {fmtDate(s.approvedAt)}</span>}
                   </p>
                 </div>
                 <ChevronRight className="h-4 w-4 text-muted-foreground/40 flex-shrink-0 mt-1" />

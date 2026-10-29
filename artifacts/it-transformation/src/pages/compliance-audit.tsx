@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
-import { ArrowLeft, Download, Pencil, Loader2, Search, Paperclip, MessageSquare, CalendarClock, Save, ChevronLeft, ChevronRight, Plus, Table2, History, Send, Share2, EyeOff, Gavel, FileDown, FileSpreadsheet } from "lucide-react";
+import { Archive, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Download, EyeOff, FileDown, FileSpreadsheet, Gavel, History, Loader2, MessageSquare, Paperclip, Pencil, Plus, Save, Search, Send, Share2, Table2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Pager, DocsButton, fileUrl, STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople, useStatusMaster, groupOf, offered, StatusFilter, StatusSelect, matchStatus, DOT, statusRows, courtOf, ago, stamp } from "@/components/compliance-shared";
 import { EvidencePanel } from "@/components/compliance-evidence";
@@ -20,12 +20,13 @@ import { GridTable } from "@/components/compliance-grid";
 import { AuditorsTab } from "@/components/compliance-auditors";
 import { ReferencesPanel } from "@/components/compliance-references";
 import { AuditDialog } from "@/pages/compliance";
+import { fmtDateTime } from "@/lib/date";
 
 type Tab = "overview" | "checklist" | "policy" | "schedules" | "scope" | "auditors";
 
 export default function ComplianceAudit() {
   const { id } = useParams<{ id: string }>();
-  const { canAccess } = useAuth(); const canEdit = canAccess("compliance", "write");
+  const { canAccess } = useAuth(); const canEdit = canAccess("compliance", "write"); const { toast } = useToast();
   const { data: a, isLoading } = useQuery<any>({ queryKey: ["compliance-audit", id], queryFn: () => apiFetch(`/compliance-audits/${id}`) });
   const { data: items = [] } = useQuery<any[]>({ queryKey: ["compliance-items", id], queryFn: () => apiFetch(`/compliance-audits/${id}/items`) });
   useStatusMaster();
@@ -52,6 +53,7 @@ export default function ComplianceAudit() {
           <div className="text-sm text-muted-foreground">{a.auditNo} · {a.companyName} · {a.status}{a.startDate ? ` · started ${fmtDate(a.startDate)}` : ""}{a.periodFrom ? ` · period ${fmtDate(a.periodFrom)} – ${fmtDate(a.periodTo)}` : ""}{a.auditFirm ? ` · ${a.auditFirm}` : ""} · target {fmtDate(a.targetDate)}</div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <a href={`${API}/compliance-audits/${a.id}/complete-report`} title="One ZIP: dashboard PDF + Excel, status workbook, every linked evidence / policy / reference file and an index. Not available to auditors." onClick={() => toast({ title: "Preparing the complete report", description: "The ZIP downloads when ready — large audits can take a minute" })}><Button size="sm" className="gap-1.5"><Archive className="w-4 h-4" />Complete report (ZIP)</Button></a>
           <a href={`${API}/compliance-audits/${a.id}/export`} title="The auditor's workbook (same format as uploaded) filled with today's status"><Button size="sm" variant="outline" className="gap-1.5"><Download className="w-4 h-4" />Export status (Excel)</Button></a>
           <a href={`${API}/compliance-audits/${a.id}/dashboard?format=pdf`} title="Dashboard as a PDF report"><Button size="sm" variant="outline" className="gap-1.5"><FileDown className="w-4 h-4" />Dashboard PDF</Button></a>
           <a href={`${API}/compliance-audits/${a.id}/dashboard?format=xlsx`} title="Dashboard figures and the list of open items in Excel"><Button size="sm" variant="outline" className="gap-1.5"><FileSpreadsheet className="w-4 h-4" />Dashboard Excel</Button></a>
@@ -67,8 +69,8 @@ export default function ComplianceAudit() {
           <Tile label="Checkpoints" value={s.checkpoints} sub={`+ ${s.policies} policies`} onClick={() => go("checklist")} />
           <Tile label="Submission progress" value={`${F(aud + clo)}%`} sub={`${aud + clo} of ${T} sent to auditor`} tone="text-indigo-600" bar="bg-indigo-500" barValue={subPct} className="xl:col-span-2" onClick={() => go("checklist", { share: "court:sent" })} />
           <Tile label="Closure" value={`${F(s.closed)}%`} sub={`${s.closed} of ${s.checkpoints} closed by auditor`} tone="text-emerald-600" bar="bg-emerald-500" barValue={pct} className="xl:col-span-2" onClick={() => go("checklist", { status: "g:closed" })} />
-          <Tile label="With entity" value={`${F(ent)}%`} sub={`${ent} of ${T}`} tone="text-orange-600" bar="bg-orange-400" barValue={P(ent)} onClick={() => go("checklist", { share: "court:entity" })} />
-          <Tile label="With auditor" value={`${F(aud)}%`} sub={`${aud} of ${T}`} tone="text-violet-600" bar="bg-violet-500" barValue={P(aud)} onClick={() => go("checklist", { share: "court:auditor" })} />
+          <Tile label="Pending with entity" value={`${F(ent)}%`} sub={`${ent} of ${T}`} tone="text-orange-600" bar="bg-orange-400" barValue={P(ent)} onClick={() => go("checklist", { share: "court:entity" })} />
+          <Tile label="Pending with auditor" value={`${F(aud)}%`} sub={`${aud} of ${T}`} tone="text-violet-600" bar="bg-violet-500" barValue={P(aud)} onClick={() => go("checklist", { share: "court:auditor" })} />
           <Tile label="Overdue" value={`${F(s.overdue)}%`} sub={`${s.overdue} of ${T}`} tone={s.overdue ? "text-red-600" : ""} bar="bg-red-500" barValue={P(s.overdue)} onClick={() => go("checklist", { overdue: true })} />
           <Tile label="No owner" value={`${F(s.unassigned)}%`} sub={`${s.unassigned} of ${T}`} tone={s.unassigned ? "text-orange-600" : ""} bar="bg-orange-400" barValue={P(s.unassigned)} onClick={() => go("checklist", { owner: "none" })} />
         </div>); })()}
@@ -91,7 +93,7 @@ type Preset = { status?: string; owner?: string; overdue?: boolean; share?: stri
 function Tile({ label, value, sub, tone, className, children, onClick, bar, barValue }: { label: string; value: React.ReactNode; sub?: string; tone?: string; className?: string; children?: React.ReactNode; onClick?: () => void; bar?: string; barValue?: number }) {
   return <div role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onClick={onClick} onKeyDown={e => { if (onClick && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onClick(); } }} title={onClick ? "Open the list" : undefined}
     className={cn("rounded-[10px] border bg-card px-3 py-2.5 flex flex-col min-h-[92px]", onClick && "cursor-pointer hover:border-primary/60 hover:shadow-sm transition", className)}>
-    <div className="text-[11px] text-muted-foreground truncate" title={label}>{label}</div>
+    <div className="text-[11px] leading-tight text-muted-foreground line-clamp-2 min-h-[2.2em]" title={label}>{label}</div>
     <div className={cn("text-2xl font-semibold leading-tight mt-0.5 tabular-nums", tone)}>{value}</div>
     <div className="text-[11px] text-muted-foreground truncate min-h-[16px]">{sub}</div>
     <div className="mt-auto pt-1.5">{barValue !== undefined ? <div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className={cn("h-full rounded-full", bar || "bg-primary")} style={{ width: `${Math.min(100, Math.max(0, barValue))}%` }} /></div> : <div className="h-1.5" />}</div>
@@ -166,7 +168,7 @@ function Activity({ auditId }: { auditId: number }) {
             <span className={cn("mt-1 w-2 h-2 rounded-full shrink-0", r.side === "auditor" ? "bg-violet-500" : "bg-orange-400")} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2"><span className="font-medium truncate">{String(r.author || "—").replace(/\s*<[^>]*>/, "")} <span className={cn("ml-1 rounded px-1 py-px text-[10px] font-normal", r.side === "auditor" ? "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300" : "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300")}>{r.side === "auditor" ? "Auditor" : "Entity"}</span></span>
-                <span className="text-muted-foreground whitespace-nowrap" title={new Date(r.at).toLocaleString("en-IN")}>{stamp(r.at)}</span></div>
+                <span className="text-muted-foreground whitespace-nowrap" title={fmtDateTime(r.at)}>{stamp(r.at)}</span></div>
               <div className="text-muted-foreground line-clamp-2">{r.refNo ? <span className="font-mono text-primary mr-1">{r.refNo}{r.seq > 1 ? "." + r.seq : ""}</span> : null}{r.body}</div>
             </div>
           </div>))}
@@ -292,16 +294,17 @@ function ItemsTable({ audit, items, kind, canEdit, area, setArea, preset = {} }:
           <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40">
             {canEdit && <th className="w-8 px-2"><input type="checkbox" checked={allShown} onChange={() => setSel(p => { const n = new Set(p); shown.forEach(i => (allShown ? n.delete(i.id) : n.add(i.id))); return n; })} /></th>}
             <th className="text-left px-2 py-2 w-16">Ref</th>{kind === "policy" && <th className="text-left px-2 w-24">Type</th>}<th className="text-left px-2">{kind === "policy" ? "Particulars" : "Checkpoint"}</th>
-            <th className="text-left px-2 w-32">Owner</th><th className="text-left px-2 w-32">SPOC</th><th className="text-left px-2 w-28">Target</th><th className="text-left px-2 w-32">Status</th><th className="px-2 w-16"></th></tr></thead>
+            <th className="text-left px-2 w-32 hidden md:table-cell">Owner</th><th className="text-left px-2 w-32 hidden md:table-cell">SPOC</th><th className="text-left px-2 w-28 hidden md:table-cell">Target</th><th className="text-left px-2 w-32">Status</th><th className="px-2 w-16"></th></tr></thead>
           <tbody>{shown.map(i => (
             <tr key={i.id} className="border-t hover:bg-accent/40 cursor-pointer align-top" onClick={() => setOpen(i.id)}>
               {canEdit && <td className="px-2 py-2" onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(i.id)} onChange={() => toggle(i.id)} /></td>}
               <td className="px-2 py-2 font-mono text-xs text-primary whitespace-nowrap">{refOf(i)}</td>
               {kind === "policy" && <td className="px-2 py-2 text-xs">{i.docType}</td>}
-              <td className="px-2 py-2"><div className="line-clamp-2 whitespace-pre-line">{i.checkpoint}</div>{kind === "checklist" && <div className="text-[11px] text-muted-foreground truncate">{[i.area, i.subArea].filter(Boolean).join(" › ")}</div>}</td>
-              <td className="px-2 py-2 text-xs">{i.ownerName || <span className="text-orange-600">—</span>}</td>
-              <td className="px-2 py-2 text-xs">{i.spocName || <span className="text-muted-foreground">—</span>}</td>
-              <td className={cn("px-2 py-2 text-xs whitespace-nowrap", isOverdue(i) && "text-red-600 font-semibold")}>{fmtDate(i.targetDate)}</td>
+              <td className="px-2 py-2"><div className="line-clamp-2 whitespace-pre-line">{i.checkpoint}</div>{kind === "checklist" && <div className="text-[11px] text-muted-foreground truncate">{[i.area, i.subArea].filter(Boolean).join(" › ")}</div>}
+                <div className="md:hidden mt-1 text-[11px] text-muted-foreground flex flex-wrap gap-x-2">{i.ownerName ? <span>Owner: {i.ownerName}</span> : <span className="text-orange-600">No owner</span>}{i.spocName && <span>SPOC: {i.spocName}</span>}<span className={cn(isOverdue(i) && "text-red-600 font-semibold")}>Target {fmtDate(i.targetDate)}</span></div></td>
+              <td className="px-2 py-2 text-xs hidden md:table-cell">{i.ownerName || <span className="text-orange-600">—</span>}</td>
+              <td className="px-2 py-2 text-xs hidden md:table-cell">{i.spocName || <span className="text-muted-foreground">—</span>}</td>
+              <td className={cn("px-2 py-2 text-xs whitespace-nowrap hidden md:table-cell", isOverdue(i) && "text-red-600 font-semibold")}>{fmtDate(i.targetDate)}</td>
               <td className="px-2 py-2"><StatusBadge s={i.status} />{i.sharedAt && <div className="text-[10px] text-emerald-600 mt-0.5 flex items-center gap-0.5"><Share2 className="w-2.5 h-2.5" />shared</div>}</td>
               <td className="px-2 py-2 text-[11px] text-muted-foreground whitespace-nowrap"><DocsButton count={i.evidenceCount} load={() => apiFetch<any>(`/compliance-items/${i.id}`).then(r => r.documents)} open={d => view({ url: fileUrl(d.fileId), downloadUrl: fileUrl(d.fileId, true), name: d.fileName, title: d.title, contentType: d.contentType })} />{i.commentCount > 0 && <span className="inline-flex items-center gap-0.5"><MessageSquare className="w-3 h-3" />{i.commentCount}</span>}</td>
             </tr>))}
@@ -421,7 +424,7 @@ function ItemDialog({ itemId, audit, canEdit, order, onNav, onClose }: { itemId:
               <label className="text-xs flex items-center gap-1.5 text-muted-foreground"><input type="checkbox" checked={history} onChange={e => setHistory(e.target.checked)} /><History className="w-3.5 h-3.5" />Show history</label></div>
             <div className="space-y-2">
               {comments.map((c: any) => <div key={c.id} className={cn("rounded-[10px] px-3 py-2 text-sm", c.system && !c.isExternal ? "bg-muted/40 text-muted-foreground text-xs" : c.isExternal ? "bg-amber-50 dark:bg-amber-500/10 border border-amber-500/30" : c.visibility === "auditor" ? "bg-blue-50 dark:bg-blue-500/10 border border-blue-500/30" : "bg-accent/50")}>
-                <div className="text-[11px] text-muted-foreground mb-0.5">{c.author}{c.isExternal ? " (auditor)" : c.visibility === "auditor" ? " → to auditor" : c.system ? "" : " · internal note"} · {new Date(c.createdAt).toLocaleString("en-IN")}</div><div className="whitespace-pre-line">{c.body}</div></div>)}
+                <div className="text-[11px] text-muted-foreground mb-0.5">{c.author}{c.isExternal ? " (auditor)" : c.visibility === "auditor" ? " → to auditor" : c.system ? "" : " · internal note"} · {fmtDateTime(c.createdAt)}</div><div className="whitespace-pre-line">{c.body}</div></div>)}
               {!comments.length && <div className="text-xs text-muted-foreground">No comments yet.</div>}
               {canEdit && <div className="space-y-1.5"><div className="flex gap-2"><Textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder={toAuditor ? "Reply to the auditor…" : "Internal note (not visible to the auditor)…"} /><Button type="button" size="sm" className="self-end gap-1.5" disabled={!comment.trim()} onClick={post}><Send className="w-3.5 h-3.5" />Post</Button></div>
                 <label className={cn("text-xs flex items-center gap-1.5", !it.sharedAt && "opacity-50")}><input type="checkbox" disabled={!it.sharedAt} checked={toAuditor} onChange={e => setToAuditor(e.target.checked)} />Send to the auditor{!it.sharedAt && " (share the checkpoint first)"}</label></div>}

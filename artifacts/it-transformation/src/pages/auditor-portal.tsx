@@ -11,11 +11,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
-import { ShieldCheck, Loader2, LogOut, Search, FileText, Eye, Download, Paperclip, MessageSquare, Send, ChevronLeft, ChevronRight, ArrowLeft, Table2, KeyRound, Mail, ClipboardCheck } from "lucide-react";
+import { ShieldCheck, Loader2, LogOut, Search, FileText, Eye, Download, Paperclip, MessageSquare, Send, ChevronLeft, ChevronRight, ArrowLeft, Table2, KeyRound, Mail, ClipboardCheck, CheckCircle2, HelpCircle, CircleDot, Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge, Progress, fmtDate, fmtSize, refOf, AUDITOR_STATUSES, CLOSED, DocsButton, Pager, useStatusMaster, StatusFilter, StatusSelect, matchStatus, offered } from "@/components/compliance-shared";
 import { useDocViewer } from "@/components/doc-viewer";
 import { GridTable } from "@/components/compliance-grid";
+import { fmtDateTime } from "@/lib/date";
 
 /* External auditor portal: sign-in (password + emailed code), set password from the invitation, and the audit review screens. */
 
@@ -174,7 +175,22 @@ function References({ auditId, canDownload }: { auditId: number; canDownload: bo
 
 const PAGE = 10;
 function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string }) {
-  const view = useDocViewer();
+  const view = useDocViewer(); const qc = useQueryClient(); const { toast } = useToast();
+  const [sel, setSel] = useState<Set<number>>(new Set()); const [bulkNote, setBulkNote] = useState(""); const [bulkBusy, setBulkBusy] = useState(false);
+  // select several checkpoints and decide in one go (e.g. accept all well-evidenced policy lines)
+  async function bulk(st: string) {
+    const ids = [...sel]; if (!ids.length) return;
+    if ((st === "In Progress" || st === "Closed-Obs") && bulkNote.trim().length < 5) { toast({ title: st === "In Progress" ? "Write the query first" : "Write the observation first", variant: "destructive" }); return; }
+    setBulkBusy(true); let ok = 0; const bad: string[] = [];
+    for (const iid of ids) {
+      const it = items.find(x => x.id === iid);
+      try { await apiFetch(`/auditor-items/${iid}`, { method: "PATCH", body: JSON.stringify({ status: it?.status === st ? undefined : st, comment: bulkNote.trim() || undefined, auditorRemarks: st === "Closed-Obs" && !it?.auditorRemarks ? bulkNote.trim() : undefined }) }); ok++; }
+      catch (e: any) { bad.push(`${it ? refOf(it) : iid}: ${e.message}`); }
+    }
+    ["auditor-items", "auditor-audit", "auditor-me"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+    toast({ title: `${ok} checkpoint(s) updated`, description: bad.length ? bad.slice(0, 3).join(" · ") : "The audit team is notified", variant: bad.length ? "destructive" : undefined });
+    setSel(new Set()); setBulkNote(""); setBulkBusy(false);
+  }
   const [term, setTerm] = useState(""); const [status, setStatus] = useState("open"); const [area, setArea] = useState("all"); const [page, setPage] = useState(0); const [open, setOpen] = useState<number | null>(null);
   const areas = useMemo(() => [...new Set(items.map(i => i.area).filter(Boolean))], [items]);
   const list = useMemo(() => { const t = term.toLowerCase(); return items.filter(i => (area === "all" || i.area === area) && matchStatus(status, i.status) &&
@@ -189,24 +205,41 @@ function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string 
         <StatusFilter value={status} onChange={setStatus} labels={{ Submitted: "Submitted (to review)", "In Progress": "In Progress (info requested)" }} />
         <span className="text-xs text-muted-foreground ml-auto">{list.length} of {items.length}</span>
       </div>
+      {sel.size > 0 && <div className="rounded-[10px] border-2 border-primary/30 bg-accent/30 p-2.5 space-y-2">
+        <div className="flex items-center gap-2 text-sm"><b>{sel.size} selected</b><button type="button" className="text-xs text-primary hover:underline" onClick={() => setSel(new Set())}>clear</button></div>
+        <Input className="h-9" value={bulkNote} onChange={e => setBulkNote(e.target.value)} placeholder="Comment for the audit team (required for a query or an observation)" />
+        <div className="flex flex-wrap gap-2">
+          {["Closed", "In Progress", "Closed-Obs", "Under Review"].filter(x => x === "In Progress" || AUDITOR_STATUSES.includes(x)).map(x => <Button key={x} size="sm" variant="outline" disabled={bulkBusy} onClick={() => bulk(x)} className={cn("gap-1.5", ACTION[x]?.cls)}>{bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : ACTION[x]?.icon}{ACTION[x]?.label || x}</Button>)}
+        </div>
+      </div>}
       <div className="rounded-[10px] border overflow-x-auto"><table className="w-full text-sm">
-        <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40"><th className="text-left px-2 py-2 w-16">Ref</th><th className="text-left px-2">{kind === "policy" ? "Particulars" : "Checkpoint"}</th><th className="text-left px-2 w-32">Owner</th><th className="text-left px-2 w-32">SPOC</th><th className="text-left px-2 w-32">Status</th><th className="w-14"></th></tr></thead>
+        <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40"><th className="w-8 px-2"><input type="checkbox" aria-label="Select page" checked={shown.length > 0 && shown.every(i => sel.has(i.id))} onChange={e => setSel(p => { const n = new Set(p); shown.forEach(i => (e.target.checked ? n.add(i.id) : n.delete(i.id))); return n; })} /></th><th className="text-left px-2 py-2 w-16">Ref</th><th className="text-left px-2">{kind === "policy" ? "Particulars" : "Checkpoint"}</th><th className="text-left px-2 w-32 hidden md:table-cell">Owner</th><th className="text-left px-2 w-32 hidden md:table-cell">SPOC</th><th className="text-left px-2 w-32">Status</th><th className="w-14"></th></tr></thead>
         <tbody>{shown.map(i => (
           <tr key={i.id} className="border-t hover:bg-accent/40 cursor-pointer align-top" onClick={() => setOpen(i.id)}>
+            <td className="px-2 py-2" onClick={e => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${refOf(i)}`} checked={sel.has(i.id)} onChange={() => setSel(p => { const n = new Set(p); n.has(i.id) ? n.delete(i.id) : n.add(i.id); return n; })} /></td>
             <td className="px-2 py-2 font-mono text-xs text-primary whitespace-nowrap">{refOf(i)}</td>
             <td className="px-2 py-2"><div className="line-clamp-2 whitespace-pre-line">{kind === "policy" ? `${i.docType}: ${i.checkpoint}` : i.checkpoint}</div>{i.area && <div className="text-[11px] text-muted-foreground truncate">{[i.area, i.subArea].filter(Boolean).join(" › ")}</div>}</td>
-            <td className="px-2 py-2 text-xs">{i.ownerName || "—"}</td>
-            <td className="px-2 py-2 text-xs">{i.spocName || "—"}</td>
+            <td className="px-2 py-2 text-xs hidden md:table-cell">{i.ownerName || "—"}</td>
+            <td className="px-2 py-2 text-xs hidden md:table-cell">{i.spocName || "—"}</td>
             <td className="px-2 py-2"><StatusBadge s={i.status === "Submitted" ? "Submitted" : i.status} />{i.status === "In Progress" && <div className="text-[10px] text-muted-foreground">info requested</div>}</td>
             <td className="px-2 py-2 text-[11px] text-muted-foreground whitespace-nowrap"><DocsButton count={i.evidenceCount} load={() => apiFetch<any>(`/auditor-items/${i.id}`).then(r => r.documents)} open={d => view({ url: afile(d.fileId), downloadUrl: audit.canDownload ? afile(d.fileId, true) : null, name: d.fileName, title: d.title, contentType: d.contentType })} />{i.commentCount > 0 && <span className="inline-flex items-center gap-0.5"><MessageSquare className="w-3 h-3" />{i.commentCount}</span>}</td>
           </tr>))}
-          {!shown.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">{items.length ? "Nothing matches the filters." : "Nothing has been shared with you yet."}</td></tr>}
+          {!shown.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">{items.length ? "Nothing matches the filters." : "Nothing has been shared with you yet."}</td></tr>}
         </tbody></table></div>
       <Pager page={page} total={list.length} size={PAGE} onPage={setPage} />
       {open && <Review itemId={open} audit={audit} order={list.map(i => i.id)} onNav={setOpen} onClose={() => setOpen(null)} />}
     </CardContent></Card>
   );
 }
+
+const ACTION: Record<string, { label: string; hint?: string; done?: string; cls: string; icon?: React.ReactNode }> = {
+  "Closed": { label: "Accept & close", hint: "Evidence is sufficient", done: "closed", cls: "border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10", icon: <CheckCircle2 className="w-4 h-4" /> },
+  "In Progress": { label: "Raise query", hint: "Ask the team for more (comment required)", done: "query sent", cls: "border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-500/40 dark:text-amber-300 dark:hover:bg-amber-500/10", icon: <HelpCircle className="w-4 h-4" /> },
+  "Closed-Obs": { label: "Close with observation", hint: "Comment becomes the observation", done: "closed with observation", cls: "border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-500/40 dark:text-teal-300", icon: <CheckCircle2 className="w-4 h-4" /> },
+  "Partially Closed": { label: "Partially close", hint: "Say what is still open", done: "partially closed", cls: "border-cyan-300 text-cyan-700 hover:bg-cyan-50 dark:border-cyan-500/40 dark:text-cyan-300", icon: <CircleDot className="w-4 h-4" /> },
+  "Under Review": { label: "Mark under review", hint: "You are looking at it", done: "marked under review", cls: "border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-500/40 dark:text-violet-300", icon: <Eye className="w-4 h-4" /> },
+  "Not Applicable": { label: "Not applicable", done: "marked not applicable", cls: "text-muted-foreground", icon: <Ban className="w-4 h-4" /> },
+};
 
 function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audit: any; order: number[]; onNav: (id: number) => void; onClose: () => void }) {
   const qc = useQueryClient(); const { toast } = useToast(); const view = useDocViewer();
@@ -226,6 +259,21 @@ function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audi
     if (next) onNav(next);
   }
   const opts = [...(it && !AUDITOR_STATUSES.includes(it.status) && it.status !== "In Progress" ? [it.status] : []), ...AUDITOR_STATUSES, "In Progress"];
+  const [more, setMore] = useState(false);
+  // one click = decision + comment, then straight to the next checkpoint
+  async function decide(st: string) {
+    const need = st === "In Progress" || st === "Closed-Obs" || st === "Partially Closed";
+    if (need && comment.trim().length < 5) { toast({ title: st === "In Progress" ? "Write your query first" : "Write the observation first", description: "A short comment in the box above is enough", variant: "destructive" }); return; }
+    setBusy(true);
+    try {
+      const rem = remarks !== (it.auditorRemarks ?? "") ? remarks : (st === "Closed-Obs" && !it.auditorRemarks && comment.trim() ? comment.trim() : undefined);
+      await apiFetch(`/auditor-items/${itemId}`, { method: "PATCH", body: JSON.stringify({ status: st !== it.status ? st : undefined, auditorRemarks: rem, comment: comment.trim() || undefined }) });
+      setComment(""); ["auditor-items", "auditor-audit", "auditor-me"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+      toast({ title: `${refOf(it)}: ${ACTION[st]?.done || st}`, description: "The audit team is notified" });
+      const next = order[pos + 1];
+      if (next) { setLoadedFor(null); onNav(next); } else { await refetch(); setLoadedFor(null); }
+    } catch (e: any) { toast({ title: "Could not save", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
   return (
     <Dialog open onOpenChange={o => { if (!o && !busy) onClose(); }}>
       <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col">
@@ -245,19 +293,26 @@ function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audi
                 {d.fileId && audit.canDownload && <a href={afile(d.fileId, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}
               </div>))}
               {!it.documents.length && <div className="px-3 py-3 text-xs text-muted-foreground">No evidence attached.</div>}</div></div>
-          <div className="grid md:grid-cols-3 gap-3 rounded-[10px] border border-primary/30 bg-accent/30 p-3">
-            <div><Label>Your review status</Label><StatusSelect value={status} onChange={setStatus} options={offered(opts, it.status)} labels={{ "In Progress": "Request information (In Progress)", Submitted: "Submitted (to review)" }} />
-              {status === "In Progress" && status !== it.status && <div className="text-[11px] text-amber-700 mt-1">Say what is needed in the comment below</div>}</div>
-            <div className="md:col-span-2"><Label>Auditor remarks</Label><Textarea rows={4} value={remarks} onChange={e => setRemarks(e.target.value)} placeholder={"Walkthrough:\n\nEvidence:"} /></div>
+          <div><div className="text-sm font-semibold mb-1.5 flex items-center gap-1.5"><MessageSquare className="w-4 h-4" />Conversation with the audit team</div>
+            <div className="space-y-2 max-h-56 overflow-y-auto">{it.comments.map((c: any) => <div key={c.id} className={cn("rounded-[10px] px-3 py-2 text-sm", c.system ? "bg-muted/40 text-muted-foreground text-xs" : c.isExternal ? "bg-amber-50 dark:bg-amber-500/10 border border-amber-500/30" : "bg-accent/50")}>
+              <div className="text-[11px] text-muted-foreground mb-0.5">{c.author}{c.isExternal ? " (you / auditor)" : " (audit team)"} · {fmtDateTime(c.createdAt)}</div><div className="whitespace-pre-line">{c.body}</div></div>)}
+              {!it.comments.length && <div className="text-xs text-muted-foreground">No comments yet.</div>}</div></div>
+          <div className="rounded-[12px] border-2 border-primary/30 bg-accent/20 p-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-2"><div className="text-sm font-semibold">Your decision</div><span className="text-[11px] text-muted-foreground">Current: <StatusBadge s={it.status} /></span></div>
+            <Textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder="Comment for the audit team — required for a query or an observation, optional otherwise" className="text-sm" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 keep-cols">
+              {opts.filter(o => o !== it.status || o === "In Progress").sort((x, y) => { const O = ["Closed", "In Progress", "Closed-Obs", "Partially Closed", "Under Review", "Not Applicable"]; const r = (v: string) => (O.indexOf(v) < 0 ? 99 : O.indexOf(v)); return r(x) - r(y); }).map(o => { const a = ACTION[o] || { label: o, cls: "" }; return (
+                <Button key={o} type="button" disabled={busy} onClick={() => decide(o)} variant="outline" className={cn("h-auto min-h-11 py-2 flex-col gap-0.5 items-start text-left whitespace-normal", a.cls)}>
+                  <span className="text-sm font-semibold flex items-center gap-1.5">{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : a.icon}{a.label}</span>
+                  {a.hint && <span className="text-[10.5px] font-normal opacity-80">{a.hint}</span>}
+                </Button>); })}
+            </div>
+            <button type="button" onClick={() => setMore(v => !v)} className="text-[11px] text-primary hover:underline">{more ? "Hide" : "Add"} formal auditor remarks (shown in the audit workbook)</button>
+            {more && <Textarea rows={3} value={remarks} onChange={e => setRemarks(e.target.value)} placeholder={"Walkthrough:\n\nEvidence:"} />}
           </div>
-          <div><div className="text-sm font-semibold mb-1.5 flex items-center gap-1.5"><MessageSquare className="w-4 h-4" />Comments with the audit team</div>
-            <div className="space-y-2">{it.comments.map((c: any) => <div key={c.id} className={cn("rounded-[10px] px-3 py-2 text-sm", c.system ? "bg-muted/40 text-muted-foreground text-xs" : c.isExternal ? "bg-amber-50 dark:bg-amber-500/10 border border-amber-500/30" : "bg-accent/50")}>
-              <div className="text-[11px] text-muted-foreground mb-0.5">{c.author}{c.isExternal ? " (you / auditor)" : " (audit team)"} · {new Date(c.createdAt).toLocaleString("en-IN")}</div><div className="whitespace-pre-line">{c.body}</div></div>)}
-              {!it.comments.length && <div className="text-xs text-muted-foreground">No comments yet.</div>}
-              <Textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder="Comment or question for the audit team (sent with Save)…" /></div></div>
         </div>}
         <div className="flex items-center gap-2 pt-3 border-t">
-          <Button onClick={() => save()} disabled={busy || !dirty} className="gap-1.5">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}Save</Button>
+          <Button variant="secondary" onClick={() => save()} disabled={busy || !dirty} className="gap-1.5" title="Send the comment / remarks without changing the status">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}Send comment only</Button>
           <Button variant="outline" onClick={onClose} disabled={busy}>Close</Button>
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">{pos >= 0 && <span>{pos + 1} of {order.length}</span>}
             <Button size="sm" variant="outline" disabled={busy || pos <= 0} onClick={() => save(order[pos - 1])}><ChevronLeft className="w-4 h-4" />Previous</Button>

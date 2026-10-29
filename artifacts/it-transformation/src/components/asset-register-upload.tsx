@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, X } from "lucide-react";
+import { parseDateInput } from "@/lib/date";
 
 /* Single source of truth for the asset register file layout.
    Template download, upload parsing and the server-side import all use these columns. */
@@ -24,11 +25,11 @@ const COLUMNS: { header: string; key: string; required?: boolean; width: number;
   { header: "Employee Email", key: "ownerEmail", width: 26, rule: "For your reference only — the login email is taken from User Master.", sample: ["rohan.mehta@example.com", "", ""] },
   { header: "Department", key: "department", width: 18, rule: "Optional.", sample: ["Broking IT", "Infrastructure", "Network"] },
   { header: "Location", key: "location", width: 18, rule: "Optional. Office / DC / rack.", sample: ["Mumbai HO - 4th Floor", "Mumbai DC - Rack A3", "Mumbai DC - Rack B1"] },
-  { header: "Purchase Date", key: "purchaseDate", width: 14, rule: "Optional. YYYY-MM-DD", sample: ["2025-04-15", "2024-11-02", "2025-01-20"] },
+  { header: "Purchase Date", key: "purchaseDate", width: 14, rule: "Optional. dd-MMM-yyyy, e.g. 15-Apr-2025", sample: ["15-Apr-2025", "02-Nov-2024", "20-Jan-2025"] },
   { header: "PO Number", key: "purchaseOrderNo", width: 16, rule: "Optional.", sample: ["PO/IT/2025/0412", "PO/IT/2024/1187", "PO/IT/2025/0058"] },
   { header: "Cost (INR)", key: "cost", width: 12, rule: "Optional. Number only, no currency symbol.", sample: ["92500", "865000", "412000"] },
   { header: "Vendor", key: "vendorName", required: true, width: 20, rule: "Required. New vendor names are added to the vendor list automatically.", sample: ["Dell Technologies", "HP Enterprise", "Cisco Systems"] },
-  { header: "Warranty Expiry", key: "warrantyExpiry", width: 15, rule: "Optional. YYYY-MM-DD", sample: ["2028-04-14", "2027-11-01", "2030-01-19"] },
+  { header: "Warranty Expiry", key: "warrantyExpiry", width: 15, rule: "Optional. dd-MMM-yyyy", sample: ["14-Apr-2028", "01-Nov-2027", "19-Jan-2030"] },
   { header: "IP Address", key: "ipAddress", width: 15, rule: "Optional.", sample: ["", "10.10.20.15", "10.10.1.2"] },
   { header: "MAC Address", key: "macAddress", width: 18, rule: "Optional.", sample: ["", "3C:A8:2A:1F:00:B4", "70:E4:22:9C:41:0A"] },
   { header: "OS Version", key: "osVersion", width: 18, rule: "Optional.", sample: ["Windows 11 Pro 23H2", "RHEL 9.4", "IOS-XE 17.9"] },
@@ -50,8 +51,7 @@ export function toIsoDate(v: any): string {
     if (p) return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`;
   }
   const s = String(v ?? "").trim();
-  const m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/); // DD-MM-YYYY → YYYY-MM-DD
-  return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : s;
+  return parseDateInput(s) || s; // dd-MMM-yyyy, DD-MM-YYYY, YYYY-MM-DD → YYYY-MM-DD
 }
 
 export function downloadAssetTemplate() {
@@ -68,7 +68,7 @@ export function downloadAssetTemplate() {
     [""],
     ["1. Fill one asset per row on the 'Asset Register' sheet. Keep the header row as it is."],
     ["2. Delete the three SAMPLE rows before uploading — rows with a SAMPLE- asset tag are rejected."],
-    ["3. Columns marked * are required. Dates must be YYYY-MM-DD (DD-MM-YYYY is also accepted)."],
+    ["3. Columns marked * are required. Dates as dd-MMM-yyyy, e.g. 05-Nov-2026 (YYYY-MM-DD and DD-MM-YYYY are also accepted)."],
     ["4. The upload is validated first; nothing is saved until every row passes and you confirm."],
     [""],
     ["Column", "Required", "Rule / allowed values", "Example"],

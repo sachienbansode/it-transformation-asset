@@ -16,9 +16,10 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { fmtCell, fmtDate } from "@/lib/date";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
-  const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const esc = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
   const csv = [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(r[c.key])).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })), download: filename });
   a.click(); URL.revokeObjectURL(a.href);
@@ -120,7 +121,7 @@ export default function ItsmKnowledgeBase() {
                   <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">{a.tags || "—"}</TableCell>
                   <TableCell className="text-sm">{a.views || 0}</TableCell>
                   <TableCell><Badge variant="outline" className={a.status === "Published" ? "border-emerald-500/30 text-emerald-600 bg-emerald-50" : a.status === "Draft" ? "border-amber-500/30 text-amber-600 bg-amber-50" : "border-gray-400/30 text-gray-500 bg-gray-50"}>{a.status}</Badge></TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{a.updatedAt ? new Date(a.updatedAt).toLocaleDateString() : "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{a.updatedAt ? fmtDate(a.updatedAt) : "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>

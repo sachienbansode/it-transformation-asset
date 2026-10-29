@@ -7,6 +7,7 @@ import {
 } from "docx";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { fmtDate } from "../lib/dates";
 
 const router = Router();
 
@@ -78,7 +79,7 @@ function titlePage(title: string, subtitle: string, version: string) {
       new TextRun({ text: `Version: ${version}`, font: "Calibri", size: 22, color: BRAND.text }),
     ]}),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [
-      new TextRun({ text: `Date: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}`, font: "Calibri", size: 22, color: BRAND.text }),
+      new TextRun({ text: `Date: ${fmtDate()}`, font: "Calibri", size: 22, color: BRAND.text }),
     ]}),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [
       new TextRun({ text: `Classification: ${BRAND.confidential}`, font: "Calibri", size: 20, color: "CC0000", bold: true }),
@@ -217,7 +218,7 @@ router.get("/export/asset-management-doc", async (req: Request, res: Response) =
               ["Version", "1.0"],
               ["Author", "NIYTRI Technologies"],
               ["Classification", "Confidential"],
-              ["Date", new Date().toLocaleDateString("en-IN")],
+              ["Date", fmtDate()],
               ["Approved By", "CTO, Ashika Group"],
               ["Review Cycle", "Quarterly"],
             ]
@@ -341,7 +342,7 @@ router.get("/export/itsm-doc", async (req: Request, res: Response) => {
               ["Version", "1.0"],
               ["Author", "NIYTRI Technologies"],
               ["Classification", "Confidential"],
-              ["Date", new Date().toLocaleDateString("en-IN")],
+              ["Date", fmtDate()],
               ["Approved By", "CTO, Ashika Group"],
               ["Review Cycle", "Quarterly"],
               ["ITIL Alignment", "ITIL v4 Foundation"],

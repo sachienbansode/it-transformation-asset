@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { fillWorkbook, type CellWrite } from "./xlsx-fill";
+import { fmtDate, nowStamp } from "./dates";
 
 /*
  * Audit checklist workbook → template. Generic rules, so any auditor's Excel can be imported:
@@ -113,7 +114,7 @@ export function exportWorkbook(o: { audit: any; items: any[]; grids: any[]; user
   [...base, ...STATUSES.filter(x => !base.includes(x))].forEach((s, i) => idx.push([i + 1, s, count(s), +(count(s) / total).toFixed(4)]));
   idx.push(["", "Total", check.length, 1]);
   idx.push(["Total Closure", "", check.filter(i => CLOSED.includes(i.status)).length, +(check.filter(i => CLOSED.includes(i.status)).length / total).toFixed(4)]);
-  idx.push([]); idx.push(["Exported", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })]);
+  idx.push([]); idx.push(["Exported", nowStamp()]);
   const wsI = XLSX.utils.aoa_to_sheet(idx); wsI["!cols"] = [{ wch: 14 }, { wch: 22 }, { wch: 10 }, { wch: 10 }];
   XLSX.utils.book_append_sheet(wb, wsI, "Index");
   const name = (id: number | null) => (id ? o.users.get(id) ?? "" : "");
@@ -125,10 +126,10 @@ export function exportWorkbook(o: { audit: any; items: any[]; grids: any[]; user
     if (g) aoa = g.grid;
     else if (pol.some(i => i.sheet === sheet)) {
       aoa = [["Sr No", "Type", "Point No", "Particulars", "Person Responsible", "Document Reference", "Last Review Date", "Status", "Management Reply", "Auditors Remarks"],
-        ...pol.filter(i => i.sheet === sheet).map((i, n) => [n + 1, i.docType, i.refNo, i.checkpoint, name(i.ownerUserId), (o.docsByItem.get(i.id) || []).join("\n"), i.lastReviewDate || "", i.status, i.managementReply || "", i.auditorRemarks || ""])];
+        ...pol.filter(i => i.sheet === sheet).map((i, n) => [n + 1, i.docType, i.refNo, i.checkpoint, name(i.ownerUserId), (o.docsByItem.get(i.id) || []).join("\n"), fmtDate(i.lastReviewDate), i.status, i.managementReply || "", i.auditorRemarks || ""])];
     } else {
       aoa = [["Sr No", "Audit Objective Heading", "Sub-Heading", "Audit Checklist", "Clarifications / Evidences Required", "Person Responsible", "Spoc", "Management Reply", "Auditors Remarks", "Status", "Evidence Reference", "Target Date"],
-        ...check.filter(i => i.sheet === sheet).map(i => [i.seq === 1 ? i.refNo : "", i.seq === 1 ? i.area : "", i.seq === 1 ? i.subArea : "", i.checkpoint, i.evidenceRequired || "", name(i.ownerUserId), name(i.spocUserId), i.managementReply || "", i.auditorRemarks || "", i.status, (o.docsByItem.get(i.id) || []).join("\n"), i.targetDate || ""])];
+        ...check.filter(i => i.sheet === sheet).map(i => [i.seq === 1 ? i.refNo : "", i.seq === 1 ? i.area : "", i.seq === 1 ? i.subArea : "", i.checkpoint, i.evidenceRequired || "", name(i.ownerUserId), name(i.spocUserId), i.managementReply || "", i.auditorRemarks || "", i.status, (o.docsByItem.get(i.id) || []).join("\n"), fmtDate(i.targetDate)])];
     }
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws["!cols"] = g ? (aoa[0] || []).map(() => ({ wch: 24 })) : aoa[0].length === 10 ? [6, 12, 10, 50, 20, 30, 20, 40, 40, 14].map(w => ({ wch: w })) : [6, 22, 22, 60, 45, 18, 18, 45, 45, 14, 40, 12].map(w => ({ wch: w }));
@@ -141,7 +142,7 @@ export function exportWorkbook(o: { audit: any; items: any[]; grids: any[]; user
 export function exportIntoOriginal(orig: Buffer, o: { audit: any; items: any[]; grids: any[]; users: Map<number, string>; docsByItem: Map<number, string[]> }) {
   const wb = XLSX.read(orig, { type: "buffer" });
   const name = (id: number | null) => (id ? o.users.get(id) ?? "" : "");
-  const fmt = (d: any) => (d ? new Date(String(d).slice(0, 10) + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "");
+  const fmt = (d: any) => fmtDate(d ? String(d).slice(0, 10) : "");
   const writes: Record<string, CellWrite[]> = {};
   const W = (sheet: string, w: CellWrite) => (writes[sheet] ||= []).push(w);
   for (const sheet of new Set(o.items.map(i => i.sheet))) {
@@ -191,6 +192,6 @@ export function exportIntoOriginal(orig: Buffer, o: { audit: any; items: any[]; 
   }
   // stamp on the first sheet, two rows below its content
   const first = wb.SheetNames[0]; const fws = wb.Sheets[first];
-  if (fws) { const rr = XLSX.utils.decode_range(fws["!ref"] || "A1"); W(first, { row: rr.e.r + 2, col: rr.s.c, value: `Status exported from IT Hub — ${o.audit.auditNo} ${o.audit.companyName} — ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}` }); }
+  if (fws) { const rr = XLSX.utils.decode_range(fws["!ref"] || "A1"); W(first, { row: rr.e.r + 2, col: rr.s.c, value: `Status exported from IT Hub — ${o.audit.auditNo} ${o.audit.companyName} — ${nowStamp()}` }); }
   return fillWorkbook(orig, writes);
 }

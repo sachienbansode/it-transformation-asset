@@ -14,8 +14,9 @@ import { confirmDialog } from "@/components/confirm-dialog";
 import { inr, fmtDate, downloadCsv } from "@/components/asset-finance";
 import { Check, X, Ban, Lock, LockOpen, Download, Send, Loader2, ChevronDown, ChevronRight, FileSpreadsheet, AlertTriangle, BookOpen, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDateTime } from "@/lib/date";
 
-const fmtTs = (d?: string | null) => d ? new Date(d).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+const fmtTs = (d?: string | null) => d ? fmtDateTime(d) : "—";
 const refresh = (qc: ReturnType<typeof useQueryClient>) => ["asset-fin-requests", "asset-depreciation", "asset-dep-rules", "asset-close", "asset-disposals", "asset-journal", "asset-ledgers", "assets", "asset-dashboard", "asset-coverage", "asset-dep"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
 const STATUS_CLS: Record<string, string> = {
   Pending: "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300",

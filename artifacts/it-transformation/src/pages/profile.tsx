@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { User, Camera, Loader2, Upload } from "lucide-react";
+import { fmtDate, fmtDateTime } from "@/lib/date";
 
 interface ProfileData {
   id: number;
@@ -201,11 +202,11 @@ export default function Profile() {
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
             <FieldRow
               label="Last Login"
-              value={profile?.lastLoginAt ? new Date(profile.lastLoginAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Never"}
+              value={profile?.lastLoginAt ? fmtDateTime(profile.lastLoginAt) : "Never"}
             />
             <FieldRow
               label="Account Created"
-              value={profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) : null}
+              value={profile?.createdAt ? fmtDate(profile.createdAt) : null}
             />
             <FieldRow label="MFA Status" value={profile?.mfaEnabled ? "Enabled" : "Disabled"} />
           </div>

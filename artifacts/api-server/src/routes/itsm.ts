@@ -6,6 +6,7 @@ import { logAudit, getPerformedBy } from "./audit-logs";
 import { getAccess, can } from "../lib/rbac";
 import { route, RoutingError, isMember, teamIdsOf, teamByName, teamById, userByName, emailsOfTeam } from "../lib/itsm-routing";
 import { z } from "zod";
+import { fmtDateTime } from "../lib/dates";
 
 /*
  * IT Service Management API.
@@ -203,7 +204,7 @@ async function emailNextApprovers(kind: Kind, ticketId: number) {
     if (!st.next) return;
     const b = await ticketBrief(kind, ticketId); if (!b) return;
     const people = await approversOf(st.next);
-    const html = `<p>A ${TYPE_NAME[kind].toLowerCase()} is waiting for your approval (${st.next.approverLevel} — ${st.next.approverRole}).</p>${htmlTable([["Ticket", b.no], ["Title", b.t.title], ["Priority", b.t.priority || b.t.riskLevel || "—"], ["Raised by", b.requester || b.t.createdBy || "—"], ["Raised on", new Date(b.t.createdAt).toLocaleString("en-IN")], ["Level", `${st.next.approverLevel} of ${st.rows.length}`]])}<p>Approve or reject it in <b>IT Hub › ITSM › My Approvals</b>${appUrl() ? ` (${appUrl()}/itsm-my-approvals)` : ""}.</p><p>Regards,</p>`;
+    const html = `<p>A ${TYPE_NAME[kind].toLowerCase()} is waiting for your approval (${st.next.approverLevel} — ${st.next.approverRole}).</p>${htmlTable([["Ticket", b.no], ["Title", b.t.title], ["Priority", b.t.priority || b.t.riskLevel || "—"], ["Raised by", b.requester || b.t.createdBy || "—"], ["Raised on", fmtDateTime(b.t.createdAt)], ["Level", `${st.next.approverLevel} of ${st.rows.length}`]])}<p>Approve or reject it in <b>IT Hub › ITSM › My Approvals</b>${appUrl() ? ` (${appUrl()}/itsm-my-approvals)` : ""}.</p><p>Regards,</p>`;
     await sendDirect("itsm_approval_request", people.map(p => p.email).filter(Boolean) as string[], `Approval needed: ${b.no} — ${b.t.title}`, html);
     void notify("itsm_approvals", { subject: `Approval requested: ${b.no} (${st.next.approverLevel} ${st.next.approverRole})`, html });
   } catch (e) { console.error("emailNextApprovers failed", e); }

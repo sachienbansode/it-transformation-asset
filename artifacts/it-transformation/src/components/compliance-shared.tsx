@@ -7,6 +7,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { apiFetch, API } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { fmtDateTime, fmtDate as fmtD } from "@/lib/date";
 
 /* Shared bits for Audit & Compliance screens. */
 
@@ -96,11 +97,11 @@ export const DOT: Record<string, string> = { slate: "bg-slate-400", blue: "bg-bl
   emerald: "bg-emerald-500", teal: "bg-teal-500", green: "bg-green-500", lime: "bg-lime-500", red: "bg-red-500", rose: "bg-rose-500", pink: "bg-pink-500", zinc: "bg-zinc-400" };
 /** Whose action is pending: entity (team) / auditor / closed. With the auditor = shared and Submitted, or Under review. */
 export const courtOf = (i: { status: string; sharedAt?: string | null }): "entity" | "auditor" | "closed" => { const g = groupOf(i.status); return g === "closed" ? "closed" : g === "review" || (g === "submitted" && !!i.sharedAt) ? "auditor" : "entity"; };
-export const ago = (t?: string | null) => { if (!t) return "never"; const s = (Date.now() - new Date(t).getTime()) / 1000; if (s < 60) return "just now"; if (s < 3600) return `${Math.floor(s / 60)} min ago`; if (s < 86400) return `${Math.floor(s / 3600)} h ago`; if (s < 86400 * 7) return `${Math.floor(s / 86400)} day(s) ago`; return new Date(t).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }); };
-export const stamp = (t?: string | null) => (t ? new Date(t).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
+export const ago = (t?: string | null) => { if (!t) return "never"; const s = (Date.now() - new Date(t).getTime()) / 1000; if (s < 60) return "just now"; if (s < 3600) return `${Math.floor(s / 60)} min ago`; if (s < 86400) return `${Math.floor(s / 3600)} h ago`; if (s < 86400 * 7) return `${Math.floor(s / 86400)} day(s) ago`; return fmtD(t); };
+export const stamp = (t?: string | null) => (t ? fmtDateTime(t) : "—");
 export const matchStatus = (f: string, s: string) => f === "all" || (f === "open" ? groupOf(s) !== "closed" : f.startsWith("g:") ? groupOf(s) === f.slice(2) : s === f);
 
-export const fmtDate = (d?: string | null) => (d ? new Date(String(d).length === 10 ? d + "T00:00:00" : d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—");
+export { fmtDate } from "@/lib/date";
 export const d10 = (d?: string | null) => (d ? String(d).slice(0, 10) : "");
 export const today = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
 export const isOverdue = (i: { targetDate?: string | null; status: string }) => !!i.targetDate && d10(i.targetDate) < today() && !CLOSED.includes(i.status);

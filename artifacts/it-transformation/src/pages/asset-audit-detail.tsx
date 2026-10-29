@@ -15,6 +15,7 @@ import { QrScanner } from "@/components/qr-scanner";
 import { AUDIT_STATUS_STYLE } from "@/pages/asset-audits";
 import { ArrowLeft, Camera, CameraOff, Play, CheckCircle2, XCircle, Download, Printer, Undo2, Search, MapPin, ScanLine } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtCell, fmtDateTime } from "@/lib/date";
 
 const RESULT_STYLE: Record<string, string> = {
   Pending: "bg-slate-100 text-slate-600 dark:bg-slate-400/10 dark:text-slate-300",
@@ -25,7 +26,7 @@ const RESULT_STYLE: Record<string, string> = {
   "Unknown tag": "bg-zinc-100 text-zinc-600 dark:bg-zinc-400/10 dark:text-zinc-300",
 };
 const TABS = ["Pending", "Found", "Location mismatch", "Missing", "Not in scope", "Unknown tag", "All"] as const;
-const fmtDT = (d?: string | null) => d ? new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—";
+const fmtDT = (d?: string | null) => d ? fmtDateTime(d) : "—";
 const LOC_KEY = "ashika-audit-location";
 
 export default function AssetAuditDetail() {
@@ -116,7 +117,7 @@ export default function AssetAuditDetail() {
   function exportCsv() {
     const cols: [string, string][] = [["Asset Tag", "assetTag"], ["Asset", "assetName"], ["Serial", "serialNumber"], ["Expected Location", "expectedLocation"], ["Holder", "expectedHolder"],
       ["Register Status", "expectedStatus"], ["Result", "result"], ["Found At", "foundLocation"], ["Condition", "condition"], ["Remarks", "remarks"], ["Scanned By", "scannedBy"], ["Scanned At", "scannedAt"], ["Method", "method"]];
-    const e = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+    const e = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
     const csv = [cols.map(x => x[0]).join(","), ...items.map(r => cols.map(x => e(r[x[1]])).join(","))].join("\n");
     const el = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: `${a.auditNo}_audit.csv` });
     el.click(); URL.revokeObjectURL(el.href);

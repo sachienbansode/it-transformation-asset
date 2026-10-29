@@ -269,7 +269,7 @@ router.post("/assets/import", requireAuth, async (req, res) => {
       }
       if (!r.vendorName) err("Vendor", "Required");
       for (const [f, label] of [["purchaseDate", "Purchase Date"], ["warrantyExpiry", "Warranty Expiry"]] as const) {
-        if (r[f] && !DATE_RE.test(r[f])) err(label, `"${r[f]}" must be a date in YYYY-MM-DD format`);
+        if (r[f] && !DATE_RE.test(r[f])) err(label, `"${r[f]}" is not a valid date — use dd-MMM-yyyy, e.g. 05-Nov-2026`);
       }
       if (r.cost) {
         const n = Number(String(r.cost).replace(/[,₹\s]/g, ""));

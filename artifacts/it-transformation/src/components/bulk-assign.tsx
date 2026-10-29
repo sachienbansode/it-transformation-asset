@@ -8,6 +8,7 @@ import { confirmDialog } from "@/components/confirm-dialog";
 import { toIsoDate } from "@/components/asset-register-upload";
 import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtCell } from "@/lib/date";
 
 /*
  * Bulk assignment by Excel: download the current assignments (with the User Master list), change the Employee Code
@@ -24,8 +25,8 @@ const COLS: { header: string; key: string; width: number; rule: string; ref?: bo
   { header: "Current Emp Code", key: "ownerEmployeeCode", width: 14, rule: "Reference only.", ref: true },
   { header: "Employee Code", key: "employeeCode", width: 14, rule: "Required. The person who should hold the asset — must exist in User Master (see 'People' sheet). Leave the row out to make no change." },
   { header: "Allocation Type", key: "allocationType", width: 13, rule: "Permanent (default), Temporary or Loaner." },
-  { header: "Issue Date", key: "startDate", width: 12, rule: "YYYY-MM-DD. Default today." },
-  { header: "Expected Return", key: "expectedReturnDate", width: 14, rule: "YYYY-MM-DD. Required for Temporary / Loaner." },
+  { header: "Issue Date", key: "startDate", width: 12, rule: "dd-MMM-yyyy, e.g. 05-Nov-2026. Default today." },
+  { header: "Expected Return", key: "expectedReturnDate", width: 14, rule: "dd-MMM-yyyy, e.g. 05-Nov-2026. Required for Temporary / Loaner." },
   { header: "Condition", key: "condition", width: 11, rule: "New, Good (default), Fair, Damaged, Not working." },
   { header: "Accessories", key: "accessories", width: 20, rule: "Optional, e.g. Charger, bag." },
   { header: "Location", key: "location", width: 14, rule: "Optional. Default: asset's location." },
@@ -40,7 +41,7 @@ export async function downloadAssignmentSheet() {
   const [assets, people] = await Promise.all([apiFetch<any[]>("/assets"), apiFetch<any[]>("/asset-people")]);
   const list = assets.filter(a => ["In Stock", "In Use", "Allocated"].includes(a.status)).sort((a, b) => a.assetTag.localeCompare(b.assetTag));
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([COLS.map(c => c.header), ...list.map(a => COLS.map(c => c.key === "employeeCode" ? (a.ownerEmployeeCode || "") : c.key === "allocationType" ? "Permanent" : c.key === "condition" ? "Good" : a[c.key] ?? ""))]);
+  const ws = XLSX.utils.aoa_to_sheet([COLS.map(c => c.header), ...list.map(a => COLS.map(c => c.key === "employeeCode" ? (a.ownerEmployeeCode || "") : c.key === "allocationType" ? "Permanent" : c.key === "condition" ? "Good" : fmtCell(a[c.key] ?? "")))]);
   ws["!cols"] = COLS.map(c => ({ wch: c.width }));
   XLSX.utils.book_append_sheet(wb, ws, "Assignments");
   const ps = XLSX.utils.aoa_to_sheet([["Employee Code", "Name", "Login Email", "Internal / External", "Department", "Designation"],

@@ -19,6 +19,7 @@ import { TicketAttachments } from "@/components/itsm-attachments";
 import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay, useCatalog } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
+import { fmtCell, fmtDate, fmtDateTime } from "@/lib/date";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
@@ -103,15 +104,11 @@ function TicketNo({ no }: { no: string }) {
 }
 
 function formatDate(dateStr: string | null | undefined) {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return fmtDate(dateStr);
 }
 
 function formatDateTime(dateStr: string | null | undefined) {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return fmtDateTime(dateStr);
 }
 
 async function downloadReport(type: string, filename: string) {
@@ -120,7 +117,7 @@ async function downloadReport(type: string, filename: string) {
   const headers = Object.keys(data[0]);
   const csvRows = [headers.join(","), ...data.map(row =>
     headers.map(h => {
-      const val = row[h] == null ? "" : String(row[h]);
+      const val = row[h] == null ? "" : String(fmtCell(row[h]));
       return `"${val.replace(/"/g, '""')}"`;
     }).join(",")
   )];

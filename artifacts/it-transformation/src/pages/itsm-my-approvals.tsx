@@ -14,11 +14,12 @@ import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { CheckCircle2, XCircle, Search, Inbox, Loader2, ExternalLink, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDateTime } from "@/lib/date";
 
 /* ITSM › My Approvals — every approval step waiting for the signed-in person (in order), with approve / reject. */
 
 const PAGE = 10;
-const fmt = (d?: string | null) => d ? new Date(d).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+const fmt = (d?: string | null) => d ? fmtDateTime(d) : "—";
 export function waited(d?: string | null) {
   if (!d) return "—";
   const h = (Date.now() - new Date(d).getTime()) / 3600000;

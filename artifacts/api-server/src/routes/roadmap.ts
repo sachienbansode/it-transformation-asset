@@ -23,6 +23,8 @@ function parseDate(v: string | null | undefined): string | null {
   const s = v.trim();
   const iso = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2,"0")}-${iso[3].padStart(2,"0")}`;
+  const mon = s.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[A-Za-z]*[-/, ]+(\d{4})$/);
+  if (mon) { const mi = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"].indexOf(mon[2].toLowerCase()); if (mi >= 0) return `${mon[3]}-${String(mi + 1).padStart(2, "0")}-${mon[1].padStart(2, "0")}`; }
   const dmy = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,"0")}-${dmy[1].padStart(2,"0")}`;
   return null;

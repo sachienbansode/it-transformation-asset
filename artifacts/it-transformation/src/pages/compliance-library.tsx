@@ -16,6 +16,7 @@ import { Search, Upload, FileText, Eye, Download, Loader2, Archive, CalendarCloc
 import { cn } from "@/lib/utils";
 import { useDocViewer } from "@/components/doc-viewer";
 import { Pager, useCompanies, uploadFile, fileUrl, fmtDate, fmtSize, d10, today, DOC_CATEGORIES, PersonPicker, refOf } from "@/components/compliance-shared";
+import { fmtDateTime } from "@/lib/date";
 
 /* Evidence & policy library: one copy of each document, versioned, reused by any number of checkpoints and audits. */
 
@@ -68,7 +69,7 @@ export default function ComplianceLibrary() {
 
 export function LinkBadge({ d }: { d: any }) {
   if (d.linkStatus === "Linked") return <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"><Link2 className="w-3 h-3" />Linked · {d.linkCount}</span>;
-  if (d.linkStatus === "Un-linked") return <span title={d.lastUnlinkedAt ? `Un-linked ${new Date(d.lastUnlinkedAt).toLocaleString("en-IN")}` : undefined} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"><Link2Off className="w-3 h-3" />Un-linked</span>;
+  if (d.linkStatus === "Un-linked") return <span title={d.lastUnlinkedAt ? `Un-linked ${fmtDateTime(d.lastUnlinkedAt)}` : undefined} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"><Link2Off className="w-3 h-3" />Un-linked</span>;
   return <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-zinc-100 text-zinc-500 dark:bg-zinc-500/15">Not linked</span>;
 }
 const linkHref = (l: { auditId: number; type?: string; itemId?: number | null; gridId?: number | null; id?: number }) =>
@@ -159,7 +160,7 @@ function DocDialog({ id, canEdit, canDelete, onClose }: { id: number; canEdit: b
           <div><div className="text-sm font-semibold mb-1.5">Versions</div>
             <div className="divide-y rounded-[10px] border">{d.files.map((x: any) => (
               <div key={x.id} className="flex items-center gap-2 px-3 py-2 text-sm"><span className="font-mono text-xs w-8">v{x.version}</span>
-                <div className="flex-1 min-w-0"><div className="truncate">{x.fileName}</div><div className="text-[11px] text-muted-foreground">{fmtSize(x.fileSize)} · {x.uploadedBy} · {new Date(x.uploadedAt).toLocaleString("en-IN")}{x.note ? ` · ${x.note}` : ""}</div></div>
+                <div className="flex-1 min-w-0"><div className="truncate">{x.fileName}</div><div className="text-[11px] text-muted-foreground">{fmtSize(x.fileSize)} · {x.uploadedBy} · {fmtDateTime(x.uploadedAt)}{x.note ? ` · ${x.note}` : ""}</div></div>
                 <Button size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => view({ url: fileUrl(x.id), downloadUrl: fileUrl(x.id, true), name: x.fileName, title: `${d.title} v${x.version}`, contentType: x.contentType })}><Eye className="w-3.5 h-3.5" /></Button><a href={fileUrl(x.id, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>
               </div>))}</div>
             {canEdit && <div className="flex gap-2 mt-2"><Input className="h-8 text-xs" placeholder="What changed (optional)" value={note} onChange={e => setNote(e.target.value)} />
@@ -179,7 +180,7 @@ function DocDialog({ id, canEdit, canDelete, onClose }: { id: number; canEdit: b
                 <span className="w-16 shrink-0">{h.action === "link" ? "Linked" : "Un-linked"}</span>
                 {h.auditId ? <button type="button" className="font-mono text-primary hover:underline shrink-0" onClick={() => go(linkHref({ auditId: h.auditId, itemId: h.itemId, gridId: h.gridId }))}>{h.auditNo} · {h.gridId ? h.refNo : refOf(h)}</button> : <span className="text-muted-foreground">(removed)</span>}
                 <span className="flex-1 min-w-0 truncate text-muted-foreground">{h.checkpoint}</span>
-                <span className="text-muted-foreground shrink-0">{h.byName || "—"} · {new Date(h.at).toLocaleString("en-IN")}</span>
+                <span className="text-muted-foreground shrink-0">{h.byName || "—"} · {fmtDateTime(h.at)}</span>
               </div>))}</div></div>}
         </div>}
         <div className="flex gap-2 pt-3 border-t">

@@ -15,6 +15,7 @@ import { AckPill, IssueDialog, ReturnDialog, markAcknowledged, printHandoverNote
 import { BulkAssignDialog } from "@/components/bulk-assign";
 import { Search, UserPlus, Printer, Undo2, FileCheck2, ClipboardList, Clock, AlertTriangle, Download, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtCell, fmtDate } from "@/lib/date";
 
 const PAGE_SIZE = 12;
 const TABS = [
@@ -27,12 +28,12 @@ const TABS = [
 ] as const;
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
-const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmt = (d?: string | null) => d ? fmtDate(d) : "—";
 
 function exportCsv(rows: any[]) {
   const cols: [string, string][] = [["Handover No", "handoverNo"], ["Asset Tag", "assetTag"], ["Asset", "assetName"], ["Serial", "serialNumber"], ["Employee", "userName"], ["Employee Code", "employeeCode"], ["Internal / External", "holderType"], ["Email", "email"],
     ["Department", "department"], ["Type", "allocationType"], ["Issued", "startDate"], ["Expected Return", "expectedReturnDate"], ["Status", "status"], ["Acknowledgement", "ackStatus"], ["Returned", "endDate"], ["Return Condition", "returnCondition"]];
-  const e = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const e = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
   const csv = [cols.map(c => c[0]).join(","), ...rows.map(r => cols.map(c => e(r[c[1]])).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: `asset_handovers_${todayIso()}.csv` });
   a.click(); URL.revokeObjectURL(a.href);

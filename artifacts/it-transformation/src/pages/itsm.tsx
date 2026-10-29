@@ -17,6 +17,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch, API } from "@/lib/api";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { fmtDate } from "@/lib/date";
 
 const PAGE_SIZE = 10;
 const COLORS = ["#dc2626", "#ea580c", "#2D7FF9", "#059669", "#2563eb", "#8b5cf6", "#0f766e"];
@@ -276,7 +277,7 @@ export default function ITSM() {
                     <TableCell><Badge variant="outline" className={c.riskLevel === "High" ? PRIORITY_BADGE.High : c.riskLevel === "Low" ? PRIORITY_BADGE.Low : PRIORITY_BADGE.Medium}>{c.riskLevel}</Badge></TableCell>
                     <TableCell><Badge variant="outline" className={STATUS_BADGE[c.approvalStatus] || ""}>{c.approvalStatus}</Badge></TableCell>
                     <TableCell><Badge variant="outline" className={STATUS_BADGE[c.status] || ""}>{c.status}</Badge></TableCell>
-                    <TableCell className="text-sm">{c.implementationDate || "TBD"}</TableCell>
+                    <TableCell className="text-sm">{c.implementationDate ? fmtDate(c.implementationDate) : "TBD"}</TableCell>
                     <TableCell className="text-sm">{c.requestedBy || "—"}</TableCell>
                   </TableRow>
                 ))}

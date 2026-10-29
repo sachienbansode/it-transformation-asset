@@ -465,7 +465,7 @@ router.post("/asset-handovers/bulk-assign", requireAuth, async (req, res) => {
       if (!ALLOCATION_TYPES.includes(type)) { err("Allocation Type", `Use one of: ${ALLOCATION_TYPES.join(", ")}`); continue; }
       const cond = s(raw.condition) || "Good";
       if (!CONDITIONS.includes(cond)) { err("Condition", `Use one of: ${CONDITIONS.join(", ")}`); continue; }
-      for (const f of ["startDate", "expectedReturnDate"]) if (s(raw[f]) && !/^\d{4}-\d{2}-\d{2}$/.test(raw[f])) err(f === "startDate" ? "Issue Date" : "Expected Return", `"${raw[f]}" must be YYYY-MM-DD`);
+      for (const f of ["startDate", "expectedReturnDate"]) if (s(raw[f]) && !/^\d{4}-\d{2}-\d{2}$/.test(raw[f])) err(f === "startDate" ? "Issue Date" : "Expected Return", `"${raw[f]}" is not a valid date — use dd-MMM-yyyy, e.g. 05-Nov-2026`);
       if (type !== "Permanent" && !s(raw.expectedReturnDate)) { err("Expected Return", "Required for temporary / loaner"); continue; }
       const same = asset.status === "Allocated" && (asset.ownerEmployeeCode || "").toLowerCase() === emp.employeeCode.toLowerCase();
       plan.push({ row, asset, emp: { ...emp, location: s(raw.location) }, action: same ? "Unchanged" : asset.status === "Allocated" ? "Reassign" : "Issue",

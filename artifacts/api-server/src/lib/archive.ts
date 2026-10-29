@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { notify, htmlTable, esc } from "./mailer";
+import { fmtDateTime, fmtRow } from "./dates";
 
 /*
  * Data archive: every upload (and every "Clear all") is stored as one batch in data_archive_batches / _items, with
@@ -49,7 +50,7 @@ export function diffRows(before: Record<string, any>[], after: Record<string, an
 export function workbook(sheets: { name: string; rows: Record<string, any>[]; note?: string }[]): Buffer {
   const wb = XLSX.utils.book_new();
   for (const s of sheets) {
-    const rows = s.rows.length ? s.rows : [{ Info: s.note || "No rows" }];
+    const rows = s.rows.length ? s.rows.map(fmtRow) : [{ Info: s.note || "No rows" }];
     const ws = XLSX.utils.json_to_sheet(rows);
     const cols = Object.keys(rows[0]);
     ws["!cols"] = cols.map(c => ({ wch: Math.min(48, Math.max(10, c.length + 2, ...rows.slice(0, 200).map(r => String(r[c] ?? "").length + 1))) }));
@@ -92,7 +93,7 @@ export async function batchWorkbook(id: number) {
   if (!b) throw new Error("Archive batch not found");
   const s = await batchSections(id);
   const info = [{ Item: "Batch", Value: b.batch_no }, { Item: "Type", Value: KIND_SHEETS[b.kind]?.label || (b.kind === "asset_clear" ? "Asset data cleared (archived)" : b.kind) },
-    { Item: "Title", Value: b.title }, { Item: "File", Value: b.file_name || "—" }, { Item: "By", Value: b.created_by }, { Item: "At", Value: new Date(b.created_at).toLocaleString("en-IN") },
+    { Item: "Title", Value: b.title }, { Item: "File", Value: b.file_name || "—" }, { Item: "By", Value: b.created_by }, { Item: "At", Value: fmtDateTime(b.created_at) },
     ...Object.entries(b.summary || {}).filter(([, v]) => typeof v !== "object").map(([k, v]) => ({ Item: k, Value: v }))];
   let sheets: { name: string; rows: any[]; note?: string }[];
   if (b.kind === "asset_clear") {

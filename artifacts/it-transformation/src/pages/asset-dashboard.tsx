@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api";
 import { inr, inrShort, fmtDate, daysText } from "@/components/asset-finance";
 import { Monitor, Wallet, ShieldCheck, KeyRound, AlertTriangle, AlertCircle, Info, ArrowRight, ScanLine, HardDrive, FileText, ClipboardList, History, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDateTime } from "@/lib/date";
 
 /* Asset Dashboard — one screen for the IT asset manager: what we have, where it is, what it is worth,
    what is covered, and what needs action. All numbers come from GET /asset-dashboard. */
@@ -179,7 +180,7 @@ export default function AssetDashboard() {
                 <div key={t.id} className="py-2 flex items-start gap-3 text-sm">
                   <History className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                   <div className="min-w-0 flex-1"><span className="font-mono text-xs text-primary font-semibold">{t.assetTag || "—"}</span> <span className="font-medium">{t.action}</span> <span className="text-muted-foreground">— {t.comment || t.notes || ""}</span></div>
-                  <div className="text-[11px] text-muted-foreground text-right shrink-0">{t.userName}<div>{new Date(t.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div></div>
+                  <div className="text-[11px] text-muted-foreground text-right shrink-0">{t.userName}<div>{fmtDateTime(t.createdAt)}</div></div>
                 </div>
               ))}</div>
             )}

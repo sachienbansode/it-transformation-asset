@@ -11,6 +11,7 @@ import { confirmDialog } from "@/components/confirm-dialog";
 import { UserPlus, Loader2, Copy, Mail, ShieldOff, ShieldCheck, Pencil, Info, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtDate, d10, Pager } from "@/components/compliance-shared";
+import { fmtDateTime } from "@/lib/date";
 
 /* Audit › Auditors & access log: invite external auditors (audit-scoped, time-bound), revoke, and see every access. */
 
@@ -41,7 +42,7 @@ export function AuditorsTab({ audit, canEdit }: { audit: any; canEdit: boolean }
           {list.map(x => (
             <div key={x.id} className={cn("px-3 py-2.5 flex flex-wrap items-center gap-3", !x.live && "opacity-60")}>
               <div className="flex-1 min-w-[200px]"><div className="font-medium text-sm">{x.name} <span className="text-muted-foreground font-normal">· {x.email}</span></div>
-                <div className="text-xs text-muted-foreground">{x.firm || "—"} · until {fmtDate(x.validUntil)} · {x.canDownload ? "can download" : "view only"} · {x.hasPassword ? (x.lastAccessAt ? `last active ${new Date(x.lastAccessAt).toLocaleString("en-IN")}` : "not signed in yet") : "invitation not accepted"}</div></div>
+                <div className="text-xs text-muted-foreground">{x.firm || "—"} · until {fmtDate(x.validUntil)} · {x.canDownload ? "can download" : "view only"} · {x.hasPassword ? (x.lastAccessAt ? `last active ${fmtDateTime(x.lastAccessAt)}` : "not signed in yet") : "invitation not accepted"}</div></div>
               <span className={cn("text-[11px] rounded-full px-2 py-0.5", x.live ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-500/15")}>{x.live ? "Active" : x.isActive ? "Outside dates" : "Revoked"}</span>
               {canEdit && <div className="flex gap-1">
                 <Button size="icon" variant="ghost" className="h-7 w-7" title="Edit" onClick={() => setInvite({ ...x, validUntil: d10(x.validUntil), edit: true })}><Pencil className="w-3.5 h-3.5" /></Button>
@@ -58,7 +59,7 @@ export function AuditorsTab({ audit, canEdit }: { audit: any; canEdit: boolean }
         <div className="divide-y">
           {logRows.slice(lp * 10, lp * 10 + 10).map(r => (
             <div key={r.id} className="px-4 py-2 text-xs">
-              <div className="flex justify-between gap-2"><span className={cn("font-medium", /failed|refused|revoke/.test(r.action) && "text-red-600")}>{ACTION_LABEL[r.action] || r.action}</span><span className="text-muted-foreground whitespace-nowrap">{new Date(r.at).toLocaleString("en-IN")}</span></div>
+              <div className="flex justify-between gap-2"><span className={cn("font-medium", /failed|refused|revoke/.test(r.action) && "text-red-600")}>{ACTION_LABEL[r.action] || r.action}</span><span className="text-muted-foreground whitespace-nowrap">{fmtDateTime(r.at)}</span></div>
               <div className="text-muted-foreground truncate">{r.userName || "—"}{r.userType === "external" ? " (auditor)" : ""}{r.documentTitle ? ` · ${r.documentTitle}` : ""}{r.detail && !r.documentTitle ? ` · ${r.detail}` : ""}{r.ip ? ` · ${r.ip}` : ""}</div>
             </div>))}
           {!logRows.length && <div className="px-4 py-6 text-center text-sm text-muted-foreground">Nothing yet.</div>}

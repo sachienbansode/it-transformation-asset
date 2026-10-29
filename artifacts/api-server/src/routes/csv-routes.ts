@@ -13,13 +13,15 @@ import {
 } from "@workspace/db";
 import { requireAuth, requireAdmin } from "./auth";
 import { getPerformedBy } from "./audit-logs";
+import { fmtDate, fmtCell } from "../lib/dates";
 
 const router = Router();
 
 // ─── CSV Utilities ────────────────────────────────────────────────────────────
 
 function toCSV(rows: Record<string, unknown>[], columns: string[]): string {
-  const escape = (v: unknown): string => {
+  const escape = (raw: unknown): string => {
+    const v = fmtCell(raw);
     if (v === null || v === undefined) return "";
     const s = String(v);
     if (s.includes(",") || s.includes('"') || s.includes("\n")) {
@@ -69,7 +71,7 @@ function bool(v: string): boolean { return v?.toLowerCase() === "true" || v === 
 
 /**
  * Normalise any date string to ISO YYYY-MM-DD for PostgreSQL date columns.
- * Accepts: DD-MM-YYYY  DD/MM/YYYY  YYYY-MM-DD  YYYY/MM/DD
+ * Accepts: dd-MMM-yyyy  DD-MM-YYYY  DD/MM/YYYY  YYYY-MM-DD  YYYY/MM/DD
  * Returns null when the input is empty or unparseable.
  */
 function parseDate(v: string): string | null {
@@ -81,6 +83,9 @@ function parseDate(v: string): string | null {
     const [, y, m, d] = isoMatch;
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
   }
+  // dd-MMM-yyyy (05-Nov-2026), "5 Nov 2026"
+  const mon = s.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[A-Za-z]*[-/, ]+(\d{4})$/);
+  if (mon) { const mi = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"].indexOf(mon[2].toLowerCase()); if (mi >= 0) return `${mon[3]}-${String(mi + 1).padStart(2, "0")}-${mon[1].padStart(2, "0")}`; }
   // DD-MM-YYYY or DD/MM/YYYY
   const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
   if (dmyMatch) {
@@ -144,12 +149,9 @@ router.post("/checklist/import", requireAdmin, async (req, res): Promise<void> =
 
 const ROADMAP_COLS = ["title","description","phase","business","status","priority","budgetLakhs","startMonth","endMonth","startDate","endDate","isActive","owner"];
 
-/** Convert ISO YYYY-MM-DD → DD-MM-YYYY for export (matches template) */
+/** Convert ISO YYYY-MM-DD → dd-MMM-yyyy for export (re-import accepts it) */
 function formatDateForExport(iso: unknown): string {
-  if (!iso) return "";
-  const s = String(iso);
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}-${m[2]}-${m[1]}` : s;
+  return iso ? fmtDate(String(iso).slice(0, 10)) : "";
 }
 
 router.get("/roadmap/export", async (_req, res): Promise<void> => {

@@ -23,6 +23,7 @@ import {
   FolderOpen, RotateCcw, Info, Search, UserCheck,
 } from "lucide-react";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { fmtDate, fmtDateTime } from "@/lib/date";
 // ─── Role label helper ────────────────────────────────────────────────────────
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
@@ -196,7 +197,7 @@ const downloadTemplate = (yearLabel?: string) => {
   XLSX.writeFile(wb,`KPI_Template${yearLabel?`_${yearLabel.replace(/\s+/g,"_")}`:""}.xlsx`);
 };
 
-const fmtTs=(ts?: string|null)=>ts?new Date(ts).toLocaleString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}):"";
+const fmtTs=(ts?: string|null)=>ts?fmtDateTime(ts):"";
 const downloadSetExcel=(items: KpiSetItem[],person: KpiPerson,year: KpiYear)=>{
   const wb=XLSX.utils.book_new();
   const headers=[...TEMPLATE_HEADERS,"Approval Status","Approval Comments","KPI Created On","KPI Reviewed On"];
@@ -545,7 +546,7 @@ function HistoryDialog({open,set,person,year,onClose}:{
                   <span className="text-[10px] text-muted-foreground">{v.itemCount??0} KPIs</span>
                 </div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">
-                  {new Date(v.createdAt).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"})}
+                  {fmtDateTime(v.createdAt)}
                   {v.fileName&&<span className="ml-2 italic">— {v.fileName}</span>}
                 </div>
                 {v.comments&&<p className="text-[10px] text-muted-foreground mt-0.5">{v.comments}</p>}
@@ -1202,7 +1203,7 @@ function KpiSetsTab({sets,archivedSets,persons,years,statusFilter,onStatusFilter
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-[10px] text-muted-foreground">
-                    {set.submittedAt?new Date(set.submittedAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"2-digit"}):"—"}
+                    {set.submittedAt?fmtDate(set.submittedAt):"—"}
                   </td>
                   <td className="px-4 py-2.5"><div className="flex items-center justify-end gap-0.5">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>onView(set)} title="View KPIs"><Eye className="h-3.5 w-3.5"/></Button>

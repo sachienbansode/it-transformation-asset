@@ -21,9 +21,10 @@ import { StatusPill, LifecycleButtons, useLifecycleModel, AssetTrail } from "@/c
 import { AssetCoveragePanel } from "@/components/asset-finance";
 import { MasterField } from "@/components/master-field";
 import { StickerDialog } from "@/components/asset-sticker";
+import { fmtCell, fmtDate } from "@/lib/date";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
-  const esc = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const esc = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
   const csv = [cols.map(c => c.label).join(","), ...rows.map(r => cols.map(c => esc(r[c.key])).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })), download: filename });
   a.click(); URL.revokeObjectURL(a.href);
@@ -319,9 +320,9 @@ export default function AssetRegistry() {
                   ["Name", viewModal.name], ["Type", viewModal.type],
                   ["Serial Number", viewModal.serialNumber], ["Status", viewModal.status],
                   ["Issued To", viewModal.ownerName ? `${viewModal.ownerName}${viewModal.ownerEmployeeCode ? ` (${viewModal.ownerEmployeeCode})` : ""}` : ""], ["Department", viewModal.department],
-                  ["Location", viewModal.location], ["Purchase Date", viewModal.purchaseDate],
+                  ["Location", viewModal.location], ["Purchase Date", fmtDate(viewModal.purchaseDate)],
                   ["Cost", viewModal.cost ? `₹${Number(viewModal.cost).toLocaleString("en-IN")}` : "—"],
-                  ["Vendor", viewModal.vendorName], ["Warranty Expiry", viewModal.warrantyExpiry],
+                  ["Vendor", viewModal.vendorName], ["Warranty Expiry", fmtDate(viewModal.warrantyExpiry)],
                   ["IP Address", viewModal.ipAddress], ["MAC Address", viewModal.macAddress],
                   ["OS Version", viewModal.osVersion],
                 ] as [string, string][]).map(([label, value]) => (

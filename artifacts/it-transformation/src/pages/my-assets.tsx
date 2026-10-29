@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/api";
 import { AckPill, printHandoverNote, ReviewHandoverDialog } from "@/components/asset-lifecycle";
 import { Laptop, Printer, CheckCircle2, AlertTriangle, Search, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDate } from "@/lib/date";
 
 /*
  * My Assets — only what is issued to the signed-in person (matched by user id, login email or employee code),
@@ -19,7 +20,7 @@ import { cn } from "@/lib/utils";
  */
 
 const PAGE = 10;
-const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmt = (d?: string | null) => d ? fmtDate(d) : "—";
 
 export default function MyAssets() {
   const qc = useQueryClient();

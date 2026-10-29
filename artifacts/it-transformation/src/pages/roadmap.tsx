@@ -26,6 +26,7 @@ import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { fmtDateTime, fmtDate as fmtD } from "@/lib/date";
 
 interface UploadBatch {
   id: number; fileName: string | null; uploadedBy: string | null;
@@ -40,12 +41,8 @@ interface AuditLog {
 
 const PAGE_SIZE = 10;
 
-/** Format ISO date (YYYY-MM-DD) → DD-MM-YYYY for display */
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
-}
+/** Format ISO date (YYYY-MM-DD) → dd-MMM-yyyy for display */
+function fmtDate(iso: string | null | undefined): string { return iso ? fmtD(iso, "") : ""; }
 
 // ─── Gantt Chart ─────────────────────────────────────────────────────────────
 
@@ -623,7 +620,7 @@ export default function Roadmap() {
             <div className="grid grid-cols-2 gap-4">
               {/* Start Date */}
               <div className="grid gap-1.5">
-                <Label>Start Date <span className="text-xs text-muted-foreground">(optional, YYYY-MM-DD)</span></Label>
+                <Label>Start Date <span className="text-xs text-muted-foreground">(optional)</span></Label>
                 <Input
                   type="date"
                   value={(formData as any).startDate || ""}
@@ -634,7 +631,7 @@ export default function Roadmap() {
               </div>
               {/* End Date */}
               <div className="grid gap-1.5">
-                <Label>End Date <span className="text-xs text-muted-foreground">(optional, YYYY-MM-DD)</span></Label>
+                <Label>End Date <span className="text-xs text-muted-foreground">(optional)</span></Label>
                 <Input
                   type="date"
                   value={(formData as any).endDate || ""}
@@ -697,7 +694,7 @@ export default function Roadmap() {
                           <p className="text-sm font-semibold text-foreground">{batch.fileName || `Batch #${batch.id}`}</p>
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Uploaded by <span className="font-medium">{batch.uploadedBy || "Unknown"}</span> · {new Date(batch.createdAt).toLocaleString("en-IN")}
+                          Uploaded by <span className="font-medium">{batch.uploadedBy || "Unknown"}</span> · {fmtDateTime(batch.createdAt)}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -772,7 +769,7 @@ export default function Roadmap() {
                     return (
                       <tr key={log.id} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
-                          {new Date(log.performedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                          {fmtDateTime(log.performedAt)}
                         </td>
                         <td className="px-3 py-2.5">
                           <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide", cls)}>

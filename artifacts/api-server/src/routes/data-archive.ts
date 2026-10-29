@@ -5,6 +5,7 @@ import { requireAdmin } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
 import { ASSET_TABLES, batchSections, batchWorkbook, XLSX_TYPE } from "../lib/archive";
 import { mailConfigured, mailFrom, parseRecipients, EMAIL_RE, sendTest, notify, htmlTable } from "../lib/mailer";
+import { fmtDateTime } from "../lib/dates";
 
 /* Admin › Archive (upload / clear batches, download, restore) and Admin › Notifications (email recipients per event). */
 
@@ -42,7 +43,7 @@ router.post("/data-archive/:id/restore", requireAdmin, async (req, res) => {
     const [b] = rows(await db.execute(sql`SELECT * FROM data_archive_batches WHERE id = ${id}`));
     if (!b) return fail(res, 404, "Archive batch not found");
     if (b.kind !== "asset_clear") return fail(res, 400, "Only a 'Clear all' batch can be restored. Upload batches are kept for reference and download.");
-    if (b.restored_at) return fail(res, 400, `Already restored on ${new Date(b.restored_at).toLocaleString("en-IN")} by ${b.restored_by}`);
+    if (b.restored_at) return fail(res, 400, `Already restored on ${fmtDateTime(b.restored_at)} by ${b.restored_by}`);
     const [{ n }] = rows(await db.execute(sql`SELECT count(*)::int AS n FROM assets`));
     if (n > 0) return fail(res, 400, `The asset register is not empty (${n} assets). Clear it first — that is archived too — then restore this batch.`);
     const s = await batchSections(id);

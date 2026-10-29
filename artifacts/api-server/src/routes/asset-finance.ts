@@ -90,7 +90,7 @@ router.get("/asset-contracts/:id", requireAuth, async (req, res) => {
 function validateContract(b: any, partial = false): string | null {
   if (!partial || b.title !== undefined) if (!s(b.title)) return "Contract title is required";
   if (!partial || b.contractType !== undefined) if (!s(b.contractType)) return "Contract type is required";
-  for (const f of ["startDate", "endDate"]) if (!partial || b[f] !== undefined) if (!s(b[f]) || !DATE_RE.test(b[f])) return `${f === "startDate" ? "Start" : "End"} date is required (YYYY-MM-DD)`;
+  for (const f of ["startDate", "endDate"]) if (!partial || b[f] !== undefined) if (!s(b[f]) || !DATE_RE.test(b[f])) return `${f === "startDate" ? "Start" : "End"} date is required`;
   if (b.startDate && b.endDate && b.endDate < b.startDate) return "End date cannot be before the start date";
   if (b.value !== undefined && b.value !== null && b.value !== "" && !(Number(b.value) >= 0)) return "Contract value must be a positive number";
   return null;
@@ -463,7 +463,7 @@ export async function validateFinanceRows(rows: any[]) {
     if (seen.has(a.id)) return err("Asset Tag", `${a.assetTag} appears more than once in the file`);
     seen.add(a.id);
     const set: any = {};
-    for (const f of ["purchaseDate", "warrantyStart", "warrantyExpiry"]) { const v = s(raw[f]); if (v === null) continue; if (!DATE_RE.test(v)) err(FIN_FIELDS[f], `"${v}" must be a date (YYYY-MM-DD)`); else set[f] = v; }
+    for (const f of ["purchaseDate", "warrantyStart", "warrantyExpiry"]) { const v = s(raw[f]); if (v === null) continue; if (!DATE_RE.test(v)) err(FIN_FIELDS[f], `"${v}" is not a valid date — use dd-MMM-yyyy, e.g. 05-Nov-2026`); else set[f] = v; }
     for (const f of ["purchaseOrderNo", "invoiceNo"]) { const v = s(raw[f]); if (v !== null) set[f] = v; }
     for (const f of ["cost", "salvageValue"]) { const v = s(raw[f]); if (v === null) continue; const n = Number(v.replace(/[,₹\s]/g, "")); if (!Number.isFinite(n) || n < 0) err(FIN_FIELDS[f], `"${v}" is not a valid amount`); else set[f] = n.toFixed(2); }
     { const v = s(raw.depreciationMethod); if (v !== null) { const m = ["SLM", "WDV", "None"].find(x => x.toLowerCase() === v.toLowerCase()); if (!m) err(FIN_FIELDS.depreciationMethod, `"${v}" — use SLM, WDV or None`); else set.depreciationMethod = m; } }

@@ -27,6 +27,7 @@ import { ImportExportMenu } from "@/components/import-export-menu";
 import { Pagination } from "@/components/pagination";
 import { cn } from "@/lib/utils";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { fmtDate } from "@/lib/date";
 
 const PAGE_SIZE = 10;
 
@@ -228,7 +229,7 @@ export default function Sbom() {
                       ) : "—"}
                     </TableCell>
                     <TableCell><Badge className={getRiskBadge(item.riskLevel)}>{item.riskLevel}</Badge></TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{item.lastScan || "—"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{item.lastScan ? fmtDate(item.lastScan) : "—"}</TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-36 truncate">{item.actionRequired || "—"}</TableCell>
                     {isAdmin && (
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>

@@ -10,6 +10,7 @@ import { apiFetch, API } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { Archive, Mail, Download, RotateCcw, Loader2, Save, Send, CheckCircle2, AlertTriangle, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtDateTime } from "@/lib/date";
 
 /* Admin › Archive & Notifications — upload / clear batches (download, restore) and email recipients per event. */
 
@@ -17,7 +18,7 @@ const KIND: Record<string, string> = {
   asset_register_upload: "Asset register upload", asset_bulk_assign: "Bulk assignment upload", asset_finance_upload: "Purchase / cost / warranty upload",
   asset_clear: "Asset data cleared", kpi_upload: "KPI upload",
 };
-const fmt = (d?: string | null) => d ? new Date(d).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+const fmt = (d?: string | null) => d ? fmtDateTime(d) : "—";
 const who = (u?: string | null) => (u || "—").replace(/\s*<[^>]+>$/, "");
 const STATUS: Record<string, string> = {
   Sent: "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300", Failed: "bg-red-50 text-red-700 dark:bg-red-400/10 dark:text-red-300",

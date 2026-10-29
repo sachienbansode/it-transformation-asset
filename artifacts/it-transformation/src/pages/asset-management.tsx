@@ -17,6 +17,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch, API } from "@/lib/api";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { fmtDate } from "@/lib/date";
 
 const PAGE_SIZE = 10;
 const COLORS = ["#2D7FF9", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
@@ -399,7 +400,7 @@ export default function AssetManagement() {
                     <TableCell className="font-medium">{l.productName}</TableCell>
                     <TableCell>{l.vendorName || "—"}</TableCell>
                     <TableCell><Badge variant="outline">{l.licenseType}</Badge></TableCell>
-                    <TableCell className="text-sm">{l.expiryDate || "Perpetual"}</TableCell>
+                    <TableCell className="text-sm">{l.expiryDate ? fmtDate(l.expiryDate) : "Perpetual"}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="w-16 bg-muted rounded-full h-2"><div className="h-full rounded-full" style={{ width: `${(l.seatsUsed / l.seatsTotal) * 100}%`, backgroundColor: (l.seatsUsed / l.seatsTotal) > 0.9 ? "#dc2626" : "#059669" }} /></div>
@@ -429,8 +430,8 @@ export default function AssetManagement() {
                       <TableCell className="font-mono text-xs">{asset?.assetTag || `#${a.assetId}`}</TableCell>
                       <TableCell className="font-medium">{a.userName || "—"}</TableCell>
                       <TableCell>{a.department || "—"}</TableCell>
-                      <TableCell className="text-sm">{a.startDate || "—"}</TableCell>
-                      <TableCell className="text-sm">{a.endDate || "Active"}</TableCell>
+                      <TableCell className="text-sm">{a.startDate ? fmtDate(a.startDate) : "—"}</TableCell>
+                      <TableCell className="text-sm">{a.endDate ? fmtDate(a.endDate) : "Active"}</TableCell>
                       <TableCell><Badge variant="outline" className={a.status === "Active" ? "border-emerald-500/30 text-emerald-600 bg-emerald-50" : ""}>{a.status}</Badge></TableCell>
                     </TableRow>
                   );

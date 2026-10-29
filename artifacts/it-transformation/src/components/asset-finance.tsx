@@ -10,6 +10,7 @@ import { confirmDialog } from "@/components/confirm-dialog";
 import { toIsoDate } from "@/components/asset-register-upload";
 import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, X, ShieldCheck, FileText, KeyRound, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtCell, fmtDate as fmtD } from "@/lib/date";
 
 /* Shared bits for contracts / warranty / depreciation / licenses. */
 
@@ -20,7 +21,7 @@ export const inrShort = (v: any) => {
   if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(2)} L`;
   return inr(n);
 };
-export const fmtDate = (d?: string | null) => d ? new Date(d.length === 10 ? d + "T00:00:00" : d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+export { fmtDate } from "@/lib/date";
 export const daysText = (d: number | null | undefined) => d === null || d === undefined ? "" : d < 0 ? `${-d} day${d === -1 ? "" : "s"} ago` : d === 0 ? "today" : `in ${d} day${d === 1 ? "" : "s"}`;
 
 const PILL: Record<string, string> = {
@@ -62,7 +63,7 @@ export function Tabs({ tabs, value, onChange }: { tabs: { key: string; label: st
 }
 
 export function downloadCsv(rows: any[], cols: [string, string | ((r: any) => any)][], filename: string) {
-  const e = (v: any) => { const s = String(v ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
+  const e = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
   const csv = [cols.map(c => c[0]).join(","), ...rows.map(r => cols.map(([, k]) => e(typeof k === "function" ? k(r) : r[k])).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" })), download: filename });
   a.click(); URL.revokeObjectURL(a.href);
@@ -85,7 +86,7 @@ export function AssetCoveragePanel({ assetId }: { assetId: number }) {
     <div className="space-y-3 text-sm">
       <Section icon={ShieldCheck} title="Warranty">
         <div className="flex items-center justify-between gap-2">
-          <div>{data.warranty.expiry ? <>Until <b>{fmtDate(data.warranty.expiry)}</b> <span className="text-muted-foreground">({daysText(data.warranty.warrantyDays)})</span></> : <span className="text-muted-foreground">Warranty expiry not recorded</span>}</div>
+          <div>{data.warranty.expiry ? <>Until <b>{fmtD(data.warranty.expiry)}</b> <span className="text-muted-foreground">({daysText(data.warranty.warrantyDays)})</span></> : <span className="text-muted-foreground">Warranty expiry not recorded</span>}</div>
           <Pill v={data.warranty.warranty} />
         </div>
       </Section>
@@ -94,14 +95,14 @@ export function AssetCoveragePanel({ assetId }: { assetId: number }) {
         {data.contracts.map((c: any) => (
           <div key={c.id} className="flex items-center justify-between gap-2">
             <div className="min-w-0"><span className="font-mono text-xs text-primary font-semibold">{c.contractNo}</span> <span className="text-foreground">{c.contractType}</span>
-              <div className="text-xs text-muted-foreground truncate">{c.vendorName || "—"} · {fmtDate(c.startDate)} – {fmtDate(c.endDate)}</div></div>
+              <div className="text-xs text-muted-foreground truncate">{c.vendorName || "—"} · {fmtD(c.startDate)} – {fmtD(c.endDate)}</div></div>
             <Pill v={c.state} />
           </div>
         ))}
       </Section>
       <Section icon={KeyRound} title="Software licenses on this device">
         {data.licenses.length === 0 ? <div className="text-muted-foreground">None assigned to this device.</div> :
-          data.licenses.map((l: any) => <div key={l.id} className="flex justify-between"><span>{l.productName}{l.edition ? ` ${l.edition}` : ""}</span><span className="text-xs text-muted-foreground">{l.expiryDate ? `expires ${fmtDate(l.expiryDate)}` : "perpetual"}</span></div>)}
+          data.licenses.map((l: any) => <div key={l.id} className="flex justify-between"><span>{l.productName}{l.edition ? ` ${l.edition}` : ""}</span><span className="text-xs text-muted-foreground">{l.expiryDate ? `expires ${fmtD(l.expiryDate)}` : "perpetual"}</span></div>)}
       </Section>
       <Section icon={TrendingDown} title="Depreciation">
         {d.missing ? <div className="text-muted-foreground">Needs {d.missing.join(" and ").toLowerCase()} to calculate. Rule for this type: {d.rule.method} over {Number(d.rule.usefulLifeYears)} years, {Number(d.rule.salvagePct)}% residual.</div> : (
@@ -130,7 +131,7 @@ export function DepScheduleDialog({ assetId, onClose }: { assetId: number; onClo
       <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Depreciation schedule {data?.asset ? `— ${data.asset.assetTag}` : ""}</DialogTitle>
-          <DialogDescription>{data?.input ? `${data.asset.name} · cost ${inr(data.input.cost)} from ${fmtDate(data.input.purchaseDate)} · ${data.input.method} over ${data.input.lifeYears} years · residual ${inr(data.input.salvage)}` : "Indian financial year (April–March), pro-rata by days."}</DialogDescription>
+          <DialogDescription>{data?.input ? `${data.asset.name} · cost ${inr(data.input.cost)} from ${fmtD(data.input.purchaseDate)} · ${data.input.method} over ${data.input.lifeYears} years · residual ${inr(data.input.salvage)}` : "Indian financial year (April–March), pro-rata by days."}</DialogDescription>
         </DialogHeader>
         {!data ? <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div> : data.missing ? <div className="text-sm text-muted-foreground py-6 text-center">Needs {data.missing.join(" and ").toLowerCase()} to calculate.</div> : (
           <table className="w-full text-sm">
@@ -140,7 +141,7 @@ export function DepScheduleDialog({ assetId, onClose }: { assetId: number; onClo
                 const current = r.from <= data.asOf && r.to >= data.asOf;
                 return (
                   <tr key={r.fy} className={cn("border-t", current && "bg-accent/60 font-semibold")}>
-                    <td className="py-1.5">{r.fy}</td><td className="text-xs text-muted-foreground">{fmtDate(r.from)} – {fmtDate(r.to)}{r.days < 365 ? ` (${r.days} d)` : ""}</td>
+                    <td className="py-1.5">{r.fy}</td><td className="text-xs text-muted-foreground">{fmtD(r.from)} – {fmtD(r.to)}{r.days < 365 ? ` (${r.days} d)` : ""}</td>
                     <td className="text-right tabular-nums">{inr(r.opening)}</td><td className="text-right tabular-nums">{inr(r.depreciation)}</td><td className="text-right tabular-nums">{inr(r.closing)}</td>
                   </tr>
                 );
@@ -160,12 +161,12 @@ const FIN_COLS: { header: string; key: string; width: number; rule: string }[] =
   { header: "Serial Number", key: "serialNumber", width: 18, rule: "Used when Asset Tag is blank." },
   { header: "Asset Name", key: "name", width: 26, rule: "For reference only — not updated." },
   { header: "Assigned To", key: "ownerName", width: 20, rule: "For reference only — not updated." },
-  { header: "Purchase Date", key: "purchaseDate", width: 14, rule: "YYYY-MM-DD. Depreciation starts from this date." },
+  { header: "Purchase Date", key: "purchaseDate", width: 14, rule: "dd-MMM-yyyy, e.g. 05-Nov-2026. Depreciation starts from this date." },
   { header: "PO Number", key: "purchaseOrderNo", width: 16, rule: "Optional." },
   { header: "Invoice No", key: "invoiceNo", width: 16, rule: "Optional." },
   { header: "Cost (INR)", key: "cost", width: 12, rule: "Number only. Capitalised cost incl. non-refundable taxes." },
-  { header: "Warranty Start", key: "warrantyStart", width: 14, rule: "YYYY-MM-DD. Optional (defaults to purchase date)." },
-  { header: "Warranty Expiry", key: "warrantyExpiry", width: 15, rule: "YYYY-MM-DD." },
+  { header: "Warranty Start", key: "warrantyStart", width: 14, rule: "dd-MMM-yyyy, e.g. 05-Nov-2026. Optional (defaults to purchase date)." },
+  { header: "Warranty Expiry", key: "warrantyExpiry", width: 15, rule: "dd-MMM-yyyy, e.g. 05-Nov-2026." },
   { header: "Depreciation Method", key: "depreciationMethod", width: 12, rule: "Optional: SLM, WDV or None. Blank = rule for the asset type." },
   { header: "Useful Life (Years)", key: "usefulLifeYears", width: 12, rule: "Optional. Blank = rule for the asset type." },
   { header: "Residual Value (INR)", key: "salvageValue", width: 12, rule: "Optional. Blank = rule's residual %." },
@@ -179,7 +180,7 @@ export async function downloadFinanceSheet(onlyMissing: boolean) {
   const assets = await apiFetch<any[]>("/assets");
   const list = assets.filter((a: any) => !["Disposed", "Lost / Stolen"].includes(a.status) && (!onlyMissing || !a.purchaseDate || !a.cost || !a.warrantyExpiry));
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([FIN_COLS.map(c => c.header), ...list.map((a: any) => FIN_COLS.map(c => c.key === "cost" || c.key === "salvageValue" || c.key === "usefulLifeYears" ? (a[c.key] ? Number(a[c.key]) : "") : a[c.key] ?? ""))]);
+  const ws = XLSX.utils.aoa_to_sheet([FIN_COLS.map(c => c.header), ...list.map((a: any) => FIN_COLS.map(c => c.key === "cost" || c.key === "salvageValue" || c.key === "usefulLifeYears" ? (a[c.key] ? Number(a[c.key]) : "") : fmtCell(a[c.key] ?? "")))]);
   ws["!cols"] = FIN_COLS.map(c => ({ wch: c.width }));
   ws["!freeze"] = { xSplit: 1, ySplit: 1 } as any;
   XLSX.utils.book_append_sheet(wb, ws, "Finance Data");

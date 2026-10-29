@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, PageOrientation, Footer, PageNumber, HeadingLevel, PageBreak } from "docx";
 import { CLOSED } from "./compliance-template";
 import { groupOf, courtOf } from "./compliance-status";
+import { fmtDate, fmtDateTime, nowStamp } from "./dates";
 
 /* Audit dashboard as Excel (several sheets) and as a printable report (Word → PDF via LibreOffice). */
 
@@ -34,19 +35,19 @@ export function dashboardData(audit: any, items: any[], users: Map<number, strin
       ["Shared, awaiting auditor review", check.filter(i => groupOf(i.status) === "submitted" && !!i.sharedAt).length],
       ["Under review", check.filter(i => groupOf(i.status) === "review").length],
     ] as [string, number][],
-    activity: activity.map(x => ({ When: new Date(x.at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }), By: String(x.author || "—").replace(/\s*<[^>]*>/, ""), Side: x.side === "auditor" ? "Auditor" : "Entity", Ref: x.refNo ? `${x.refNo}${x.seq > 1 ? "." + x.seq : ""}` : x.sheet || "", What: String(x.body || "").replace(/\s+/g, " ").slice(0, 300) })),
+    activity: activity.map(x => ({ When: fmtDateTime(x.at), By: String(x.author || "—").replace(/\s*<[^>]*>/, ""), Side: x.side === "auditor" ? "Auditor" : "Entity", Ref: x.refNo ? `${x.refNo}${x.seq > 1 ? "." + x.seq : ""}` : x.sheet || "", What: String(x.body || "").replace(/\s+/g, " ").slice(0, 300) })),
     groups: GROUPS.map(([l, f]) => ({ label: l, n: check.filter(i => f(i.status)).length })),
     policyGroups: [{ label: "Total", n: pol.length }, ...GROUPS.map(([l, f]) => ({ label: l, n: pol.filter(i => f(i.status)).length })), { label: "No owner", n: pol.filter(i => !i.ownerUserId).length }, { label: "No document linked", n: pol.filter(i => !i.evidenceCount).length }],
     areas: [...areas].map(([area, list]) => ({ area, ...row(list) })),
     owners: [...owners].map(([owner, list]) => ({ owner, checkpoints: list.filter(i => i.kind === "checklist").length, policies: list.filter(i => i.kind === "policy").length, open: list.filter(i => !CLOSED.includes(i.status)).length, overdue: list.filter(i => isOverdue(i, today)).length, closed: list.filter(i => CLOSED.includes(i.status)).length, total: list.length }))
       .sort((a, b) => (a.owner.startsWith("—") ? -1 : b.owner.startsWith("—") ? 1 : b.total - a.total)),
-    open: items.filter(i => !CLOSED.includes(i.status)).map(i => ({ Type: i.kind === "policy" ? "Policy" : "Checkpoint", Ref: ref(i), Area: i.area || i.sheet, Item: String(i.checkpoint).replace(/\s+/g, " ").slice(0, 300), Owner: i.ownerUserId ? users.get(i.ownerUserId) || "" : "", SPOC: i.spocUserId ? users.get(i.spocUserId) || "" : "", Target: i.targetDate ? String(i.targetDate).slice(0, 10) : "", Status: i.status, Overdue: isOverdue(i, today) ? "Yes" : "", Evidence: i.evidenceCount || 0, Shared: i.sharedAt ? "Yes" : "No" })),
+    open: items.filter(i => !CLOSED.includes(i.status)).map(i => ({ Type: i.kind === "policy" ? "Policy" : "Checkpoint", Ref: ref(i), Area: i.area || i.sheet, Item: String(i.checkpoint).replace(/\s+/g, " ").slice(0, 300), Owner: i.ownerUserId ? users.get(i.ownerUserId) || "" : "", SPOC: i.spocUserId ? users.get(i.spocUserId) || "" : "", Target: i.targetDate ? fmtDate(String(i.targetDate).slice(0, 10)) : "", Status: i.status, Overdue: isOverdue(i, today) ? "Yes" : "", Evidence: i.evidenceCount || 0, Shared: i.sharedAt ? "Yes" : "No" })),
   };
 }
 type D = ReturnType<typeof dashboardData>;
 
 /* Audit details (cover page / first sheet): company, engagement, scope, auditors */
-const dt = (x: any) => (x ? new Date(String(x).length === 10 ? x + "T00:00:00" : x).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }) : "—");
+const dt = (x: any) => fmtDate(x, "—");
 function details(a: any) {
   const c = a.company || {};
   const info: [string, string][] = [
@@ -66,13 +67,13 @@ function details(a: any) {
 export function dashboardXlsx(d: D) {
   const wb = XLSX.utils.book_new(); const a = d.audit;
   const x = details(a);
-  const s0 = XLSX.utils.aoa_to_sheet([["Audit details"], [`As on ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`], [], ["Field", "Value"], ...x.info,
+  const s0 = XLSX.utils.aoa_to_sheet([["Audit details"], [`As on ${nowStamp()}`], [], ["Field", "Value"], ...x.info,
     [], ["In-scope applications"], ["Application", "Category", "Hosting", "Notes"], ...(x.apps.length ? x.apps : [["None recorded"]]),
     [], ["Critical vendors"], ["Role", "Vendor", "System / service", "Notes"], ...(x.vendors.length ? x.vendors : [["None recorded"]]),
     [], ["External auditors (portal access)"], ["Name", "Email", "Firm", "Access period", "Rights", "Status", "Last active"], ...(x.auditors.length ? x.auditors : [["None invited"]])]);
   s0["!cols"] = [{ wch: 26 }, { wch: 44 }, { wch: 28 }, { wch: 28 }, { wch: 16 }, { wch: 14 }, { wch: 22 }];
   XLSX.utils.book_append_sheet(wb, s0, "Audit details");
-  const head = [["Audit dashboard"], [`${a.auditNo} — ${a.title}`], [`${a.companyName}${a.auditFirm ? " · " + a.auditFirm : ""}`], [`As on ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`], []];
+  const head = [["Audit dashboard"], [`${a.auditNo} — ${a.title}`], [`${a.companyName}${a.auditFirm ? " · " + a.auditFirm : ""}`], [`As on ${nowStamp()}`], []];
   const sum = [...head, ["Measure", "Value"], ["Total checkpoints", d.tot.total], ["Policies & procedures", d.policies], ["Closure %", d.closurePct / 100], ["Submitted to auditor %", d.submissionPct / 100],
     ["Pending with entity", d.tot.withEntity], ["Pending with auditor", d.tot.withAuditor], ["Closed / N.A.", d.tot.closed], ["Pending", d.tot.pending], ["In progress", d.tot.inprog], ["Submitted", d.tot.submitted], ["Under review", d.tot.review], ["Overdue", d.tot.overdue], ["No owner", d.tot.noOwner]];
   const s1 = XLSX.utils.aoa_to_sheet(sum); s1["!cols"] = [{ wch: 28 }, { wch: 14 }]; ["B9", "B10"].forEach(k => s1[k] && (s1[k].z = "0%"));
@@ -118,8 +119,8 @@ export async function dashboardDocx(d: D) {
   const children: any[] = [
     new Paragraph({ children: [new TextRun({ text: "Audit dashboard", bold: true, size: 36, color: BLUE, font: "Arial" })] }),
     p(`${a.auditNo} — ${a.title}`, { b: true, size: 22 }),
-    p(`${a.companyName}${a.auditFirm ? " · " + a.auditFirm : ""}${a.periodFrom ? ` · period ${String(a.periodFrom).slice(0, 10)} to ${String(a.periodTo || "").slice(0, 10)}` : ""}${a.targetDate ? ` · target ${String(a.targetDate).slice(0, 10)}` : ""}`, { color: "475467" }),
-    p(`As on ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`, { color: "667085", size: 16 }),
+    p(`${a.companyName}${a.auditFirm ? " · " + a.auditFirm : ""}${a.periodFrom ? ` · period ${fmtDate(String(a.periodFrom).slice(0, 10))} to ${fmtDate(String(a.periodTo || "").slice(0, 10))}` : ""}${a.targetDate ? ` · target ${fmtDate(String(a.targetDate).slice(0, 10))}` : ""}`, { color: "475467" }),
+    p(`As on ${nowStamp()}`, { color: "667085", size: 16 }),
     ...(() => { const x = details(a); const half = Math.ceil(x.info.length / 2); const L = x.info.slice(0, half), R = x.info.slice(half);
       return [
         h("Audit details"),
