@@ -1,3 +1,4 @@
+import { friendlyErrors } from "./lib/friendly-errors";
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -55,7 +56,7 @@ export function createProdApp(): Express {
     }),
   );
 
-  app.use("/api", router);
+  app.use("/api", friendlyErrors, router);
 
   // Serve the pre-built React frontend
   // __dirname is set by esbuild banner to the directory of this compiled file

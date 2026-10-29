@@ -482,20 +482,31 @@ sh AS (
 INSERT INTO cmp_comments (item_id, author, system, body, visibility)
 SELECT id, (SELECT by_name FROM _cfg), true, 'Shared with the auditor (bulk update)', 'internal' FROM sh;
 
--- Owner and SPOC: copy from the reference line (checklist 1a.1, first row of the audit) to every Submitted line.
--- Stored as user ids (owner_user_id / spoc_user_id → users.id); names are only looked up for display.
+-- Owner and SPOC (stored as user ids: owner_user_id / spoc_user_id -> users.id; names only for display)
+--   Submitted lines      : owner Sachin Bansode, SPOC Arunava Nandi
+--   all other lines      : owner Saurabh Jain,  SPOC Vinita Taparia
+CREATE TEMP TABLE _who ON COMMIT DROP AS SELECT
+  (SELECT id FROM users WHERE lower(email) = 'sachin.bansode@ashikagroup.com') AS sub_owner,
+  (SELECT id FROM users WHERE lower(email) = 'nandi@ashikagroup.com')          AS sub_spoc,
+  (SELECT id FROM users WHERE lower(email) = 'saurabh.jain@ashikamf.com')      AS oth_owner,
+  (SELECT id FROM users WHERE lower(email) = 'vinita.taparia@ashikamf.com')    AS oth_spoc;
+SELECT * FROM _who;  -- all four must have an id; a blank means that email is not in User Master
 WITH a AS (SELECT id FROM cmp_audits WHERE audit_no = (SELECT audit_no FROM _cfg)),
-src AS (SELECT i.owner_user_id, i.spoc_user_id FROM cmp_items i, a WHERE i.audit_id = a.id AND i.kind = 'checklist' AND i.sheet = 'Sys Audit Checklist' AND i.ref_no = '1a' AND i.seq = 1),
 ow AS (
-  UPDATE cmp_items i SET owner_user_id = src.owner_user_id, spoc_user_id = src.spoc_user_id, updated_at = now()
-  FROM src, a
-  WHERE i.audit_id = a.id AND i.status = 'Submitted' AND src.owner_user_id IS NOT NULL
-    AND (i.owner_user_id IS DISTINCT FROM src.owner_user_id OR i.spoc_user_id IS DISTINCT FROM src.spoc_user_id)
-  RETURNING i.id
+  UPDATE cmp_items i SET
+    owner_user_id = CASE WHEN i.status = 'Submitted' THEN w.sub_owner ELSE w.oth_owner END,
+    spoc_user_id  = CASE WHEN i.status = 'Submitted' THEN w.sub_spoc  ELSE w.oth_spoc  END, updated_at = now()
+  FROM _who w, a
+  WHERE i.audit_id = a.id AND w.sub_owner IS NOT NULL AND w.sub_spoc IS NOT NULL AND w.oth_owner IS NOT NULL AND w.oth_spoc IS NOT NULL
+    AND (i.owner_user_id IS DISTINCT FROM CASE WHEN i.status = 'Submitted' THEN w.sub_owner ELSE w.oth_owner END
+      OR i.spoc_user_id  IS DISTINCT FROM CASE WHEN i.status = 'Submitted' THEN w.sub_spoc  ELSE w.oth_spoc  END)
+  RETURNING i.id, i.owner_user_id, i.spoc_user_id
 )
 INSERT INTO cmp_comments (item_id, author, system, body, visibility)
-SELECT ow.id, (SELECT by_name FROM _cfg), true, 'Owner / SPOC set to ' || coalesce((SELECT name FROM users WHERE id = (SELECT owner_user_id FROM src)), '—') || ' / ' || coalesce((SELECT name FROM users WHERE id = (SELECT spoc_user_id FROM src)), '—') || ' (bulk update, same as 1a.1)', 'internal' FROM ow;
+SELECT ow.id, (SELECT by_name FROM _cfg), true,
+  'Owner / SPOC set to ' || coalesce((SELECT name FROM users WHERE id = ow.owner_user_id), '—') || ' / ' || coalesce((SELECT name FROM users WHERE id = ow.spoc_user_id), '—') || ' (bulk update)', 'internal'
+FROM ow;
 
-SELECT i.kind, count(*) FILTER (WHERE coalesce(btrim(i.management_reply), '') <> '') AS with_reply, count(*) FILTER (WHERE i.status = 'Submitted') AS submitted, count(*) FILTER (WHERE i.shared_at IS NOT NULL) AS shared, count(*) FILTER (WHERE i.owner_user_id IS NOT NULL) AS with_owner, count(*) AS total
+SELECT i.kind, count(*) FILTER (WHERE coalesce(btrim(i.management_reply), '') <> '') AS with_reply, count(*) FILTER (WHERE i.status = 'Submitted') AS submitted, count(*) FILTER (WHERE i.shared_at IS NOT NULL) AS shared, count(*) FILTER (WHERE i.owner_user_id IS NOT NULL) AS with_owner, count(*) FILTER (WHERE i.spoc_user_id IS NOT NULL) AS with_spoc, count(*) AS total
 FROM cmp_items i JOIN cmp_audits a ON a.id = i.audit_id WHERE a.audit_no = (SELECT audit_no FROM _cfg) GROUP BY i.kind ORDER BY 1;
 COMMIT;

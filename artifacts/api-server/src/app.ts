@@ -1,3 +1,4 @@
+import { friendlyErrors } from "./lib/friendly-errors";
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -81,7 +82,7 @@ export async function createApp(): Promise<Express> {
     },
   }));
 
-  app.use("/api", router);
+  app.use("/api", friendlyErrors, router);
 
   if (process.env.NODE_ENV === "production") {
     // Production: serve the pre-built React frontend as static files

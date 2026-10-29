@@ -108,6 +108,7 @@ export default function AdminUsers() {
         if (!form.designation.trim() || !form.employeeCode.trim() || !form.department.trim()) {
           toast({ title: "Designation, Department, and Employee Code are required", variant: "destructive" }); return;
         }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) { toast({ title: "Check the login email", description: `"${form.email}" is not a full email address — use the person's Ashika Portal / M365 email, e.g. name@ashikagroup.com`, variant: "destructive" }); return; }
         // Client-side unique emp code check
         const empCodeExists = users.some(u => u.employeeCode?.toLowerCase() === form.employeeCode.trim().toLowerCase());
         if (empCodeExists) { toast({ title: "Employee Code already exists", description: "Employee codes must be unique.", variant: "destructive" }); return; }
@@ -120,7 +121,7 @@ export default function AdminUsers() {
       setModalOpen(false);
       load();
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: "Could not save the user", description: err.message, variant: "destructive" });
     }
   };
 
@@ -361,7 +362,8 @@ export default function AdminUsers() {
             </div>
             <div className="space-y-1.5">
               <Label>Login Email <span className="text-red-500">*</span></Label>
-              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="user@company.com" />
+              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="name@ashikagroup.com" className={form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()) ? "border-red-500" : undefined} />
+              {form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()) && <p className="text-[11px] text-red-600 mt-0.5">Enter the full email address, e.g. {form.email.includes("@") ? "name@ashikagroup.com" : `${form.email.trim()}@ashikagroup.com`}</p>}
               <p className="text-[11px] text-muted-foreground">Must match the Ashika Portal / M365 email.</p>
             </div>
             <div className="space-y-1.5">
