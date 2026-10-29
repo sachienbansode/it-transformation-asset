@@ -207,7 +207,7 @@ router.get("/compliance-items/:id", wrap(async (req, res) => {
   const iid = id(req.params.id);
   const [i] = await q(sql`SELECT ${itemCols} FROM cmp_items i LEFT JOIN users ou ON ou.id = i.owner_user_id LEFT JOIN users su ON su.id = i.spoc_user_id WHERE i.id = ${iid}`);
   if (!i) return fail(res, 404, "Checkpoint not found");
-  const documents = (await q(sql`SELECT d.*, l.linked_by, l.linked_at, f.id AS file_id, f.file_name, f.version, f.file_size, f.uploaded_at FROM cmp_item_documents l JOIN cmp_documents d ON d.id = l.document_id
+  const documents = (await q(sql`SELECT d.*, l.linked_by, l.linked_at, f.id AS file_id, f.file_name, f.version, f.file_size, f.content_type, f.uploaded_at FROM cmp_item_documents l JOIN cmp_documents d ON d.id = l.document_id
     LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true WHERE l.item_id = ${iid} ORDER BY l.linked_at`)).map(camel);
   const comments = (await q(sql`SELECT * FROM cmp_comments WHERE item_id = ${iid} ORDER BY created_at`)).map(camel);
   // other lines of the same checkpoint (1b.1, 1b.2 …) for context

@@ -14,12 +14,13 @@ import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { Search, Upload, FileText, Eye, Download, Loader2, Archive, CalendarClock, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDocViewer } from "@/components/doc-viewer";
 import { useCompanies, uploadFile, fileUrl, fmtDate, fmtSize, d10, today, DOC_CATEGORIES, PersonPicker, refOf } from "@/components/compliance-shared";
 
 /* Evidence & policy library: one copy of each document, versioned, reused by any number of checkpoints and audits. */
 
 export default function ComplianceLibrary() {
-  const { canAccess } = useAuth(); const canEdit = canAccess("compliance", "write");
+  const { canAccess } = useAuth(); const canEdit = canAccess("compliance", "write"); const view = useDocViewer();
   const { data: companies = [] } = useCompanies();
   const [company, setCompany] = useState("all"); const [cat, setCat] = useState("all"); const [term, setTerm] = useState("");
   const { data: docs = [], isLoading } = useQuery<any[]>({ queryKey: ["compliance-documents", company, cat, term],
@@ -48,7 +49,7 @@ export default function ComplianceLibrary() {
                 <td className="px-2 text-xs">{d.category}</td><td className="px-2 text-xs">{d.companyName || "Group-wide"}</td><td className="px-2 text-xs">{d.ownerName || "—"}</td>
                 <td className={cn("px-2 text-xs", dueSoon(d) && "text-red-600 font-semibold")}>{d.nextReviewDate ? <span className="inline-flex items-center gap-1">{dueSoon(d) && <CalendarClock className="w-3 h-3" />}{fmtDate(d.nextReviewDate)}</span> : "—"}</td>
                 <td className="px-2 text-center text-xs">{d.linkCount}</td>
-                <td className="px-2" onClick={e => e.stopPropagation()}>{d.fileId && <div className="flex"><a href={fileUrl(d.fileId)} target="_blank" rel="noreferrer"><Button size="icon" variant="ghost" className="h-7 w-7"><Eye className="w-3.5 h-3.5" /></Button></a><a href={fileUrl(d.fileId, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a></div>}</td>
+                <td className="px-2" onClick={e => e.stopPropagation()}>{d.fileId && <div className="flex"><Button size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => view({ url: fileUrl(d.fileId), downloadUrl: fileUrl(d.fileId, true), name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" /></Button><a href={fileUrl(d.fileId, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a></div>}</td>
               </tr>))}
               {!isLoading && !docs.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">No documents yet.</td></tr>}
             </tbody>
@@ -107,7 +108,7 @@ function NewDocDialog({ onClose }: { onClose: () => void }) {
 }
 
 function DocDialog({ id, canEdit, onClose }: { id: number; canEdit: boolean; onClose: () => void }) {
-  const qc = useQueryClient(); const { toast } = useToast(); const { data: companies = [] } = useCompanies(); const ref = useRef<HTMLInputElement>(null);
+  const view = useDocViewer(); const qc = useQueryClient(); const { toast } = useToast(); const { data: companies = [] } = useCompanies(); const ref = useRef<HTMLInputElement>(null);
   const { data: d, refetch } = useQuery<any>({ queryKey: ["compliance-document", id], queryFn: () => apiFetch(`/compliance-documents/${id}`) });
   const [f, setF] = useState<any>(null); const [busy, setBusy] = useState(false); const [note, setNote] = useState("");
   React.useEffect(() => { if (d) setF({ ...d }); }, [d]);
@@ -133,7 +134,7 @@ function DocDialog({ id, canEdit, onClose }: { id: number; canEdit: boolean; onC
             <div className="divide-y rounded-[10px] border">{d.files.map((x: any) => (
               <div key={x.id} className="flex items-center gap-2 px-3 py-2 text-sm"><span className="font-mono text-xs w-8">v{x.version}</span>
                 <div className="flex-1 min-w-0"><div className="truncate">{x.fileName}</div><div className="text-[11px] text-muted-foreground">{fmtSize(x.fileSize)} · {x.uploadedBy} · {new Date(x.uploadedAt).toLocaleString("en-IN")}{x.note ? ` · ${x.note}` : ""}</div></div>
-                <a href={fileUrl(x.id)} target="_blank" rel="noreferrer"><Button size="icon" variant="ghost" className="h-7 w-7"><Eye className="w-3.5 h-3.5" /></Button></a><a href={fileUrl(x.id, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>
+                <Button size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => view({ url: fileUrl(x.id), downloadUrl: fileUrl(x.id, true), name: x.fileName, title: `${d.title} v${x.version}`, contentType: x.contentType })}><Eye className="w-3.5 h-3.5" /></Button><a href={fileUrl(x.id, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>
               </div>))}</div>
             {canEdit && <div className="flex gap-2 mt-2"><Input className="h-8 text-xs" placeholder="What changed (optional)" value={note} onChange={e => setNote(e.target.value)} />
               <input ref={ref} type="file" className="hidden" onChange={newVersion} /><Button size="sm" variant="outline" className="h-8 gap-1.5 shrink-0" disabled={busy} onClick={() => ref.current?.click()}><Upload className="w-3.5 h-3.5" />Upload new version</Button></div>}

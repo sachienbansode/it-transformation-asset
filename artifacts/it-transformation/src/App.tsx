@@ -52,6 +52,7 @@ import Compliance from "@/pages/compliance";
 import ComplianceAudit from "@/pages/compliance-audit";
 import ComplianceLibrary from "@/pages/compliance-library";
 import { AuditorLogin, AuditorSetup, AuditorApp } from "@/pages/auditor-portal";
+import { DocViewerProvider } from "@/components/doc-viewer";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Remember where the user was going (e.g. a scanned asset QR link) so login can send them back there
@@ -219,7 +220,7 @@ function App() {
         <CurrencyProvider>
           <TooltipProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <Router />
+              <DocViewerProvider><Router /></DocViewerProvider>
             </WouterRouter>
             <Toaster />
             <ConfirmDialogHost />

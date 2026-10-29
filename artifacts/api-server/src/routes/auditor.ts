@@ -159,9 +159,9 @@ router.get("/auditor-audits/:id", wrap(async (req, res) => {
 router.get("/auditor-audits/:id/items", wrap(async (req, res) => {
   const aid = id(req.params.id); await access(req, aid);
   res.json((await q(sql`SELECT i.id, i.kind, i.sheet, i.ref_no, i.seq, i.area, i.sub_area, i.checkpoint, i.evidence_required, i.doc_type, i.management_reply, i.auditor_remarks, i.status, i.target_date, i.last_review_date, i.shared_at, i.sort_order,
-    ou.name AS owner_name, (SELECT count(*)::int FROM cmp_item_documents d WHERE d.item_id = i.id) AS evidence_count,
+    ou.name AS owner_name, su.name AS spoc_name, (SELECT count(*)::int FROM cmp_item_documents d WHERE d.item_id = i.id) AS evidence_count,
     (SELECT count(*)::int FROM cmp_comments c WHERE c.item_id = i.id AND (c.visibility = 'auditor' OR c.is_external)) AS comment_count
-    FROM cmp_items i LEFT JOIN users ou ON ou.id = i.owner_user_id WHERE i.audit_id = ${aid} AND i.shared_at IS NOT NULL ORDER BY i.sort_order`)).map(camel));
+    FROM cmp_items i LEFT JOIN users ou ON ou.id = i.owner_user_id LEFT JOIN users su ON su.id = i.spoc_user_id WHERE i.audit_id = ${aid} AND i.shared_at IS NOT NULL ORDER BY i.sort_order`)).map(camel));
 }));
 async function itemDetail(iid: number) {
   const [i] = await q(sql`SELECT i.id, i.audit_id, i.kind, i.sheet, i.ref_no, i.seq, i.area, i.sub_area, i.checkpoint, i.evidence_required, i.doc_type, i.management_reply, i.auditor_remarks, i.status, i.target_date, i.last_review_date, ou.name AS owner_name, su.name AS spoc_name
@@ -215,7 +215,7 @@ async function tellTeam(iid: number, who: string, what: string, comment?: string
 router.get("/auditor-audits/:id/grids", wrap(async (req, res) => {
   const aid = id(req.params.id); await access(req, aid);
   const grids = (await q(sql`SELECT id, sheet, sort_order, grid, template_grid, status, updated_at FROM cmp_grids WHERE audit_id = ${aid} AND shared_at IS NOT NULL ORDER BY sort_order`)).map(camel);
-  for (const g of grids as any[]) g.documents = (await q(sql`SELECT d.id, d.title, d.category, f.id AS file_id, f.file_name, f.version, f.file_size FROM cmp_grid_documents l JOIN cmp_documents d ON d.id = l.document_id
+  for (const g of grids as any[]) g.documents = (await q(sql`SELECT d.id, d.title, d.category, f.id AS file_id, f.file_name, f.version, f.file_size, f.content_type FROM cmp_grid_documents l JOIN cmp_documents d ON d.id = l.document_id
     LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true WHERE l.grid_id = ${g.id}`)).map(camel);
   res.json(grids);
 }));
@@ -223,7 +223,7 @@ router.get("/auditor-audits/:id/grids", wrap(async (req, res) => {
 
 router.get("/auditor-audits/:id/references", wrap(async (req, res) => {
   const aid = id(req.params.id); await access(req, aid);
-  res.json((await q(sql`SELECT d.id, d.title, d.category, r.owner_type, f.id AS file_id, f.file_name, f.version, f.file_size FROM cmp_reference_docs r JOIN cmp_documents d ON d.id = r.document_id AND d.is_active
+  res.json((await q(sql`SELECT d.id, d.title, d.category, r.owner_type, f.id AS file_id, f.file_name, f.version, f.file_size, f.content_type FROM cmp_reference_docs r JOIN cmp_documents d ON d.id = r.document_id AND d.is_active
     LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true
     WHERE r.shared_with_auditor AND ((r.owner_type = 'audit' AND r.owner_id = ${aid}) OR (r.owner_type = 'template' AND r.owner_id = (SELECT template_id FROM cmp_audits WHERE id = ${aid}))) ORDER BY r.linked_at`)).map(camel));
 }));

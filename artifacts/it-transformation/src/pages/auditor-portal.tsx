@@ -13,7 +13,8 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
 import { ShieldCheck, Loader2, LogOut, Search, FileText, Eye, Download, Paperclip, MessageSquare, Send, ChevronLeft, ChevronRight, ArrowLeft, Table2, KeyRound, Mail, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { StatusBadge, Progress, fmtDate, fmtSize, refOf, AUDITOR_STATUSES, CLOSED } from "@/components/compliance-shared";
+import { StatusBadge, Progress, fmtDate, fmtSize, refOf, AUDITOR_STATUSES, CLOSED, DocsButton } from "@/components/compliance-shared";
+import { useDocViewer } from "@/components/doc-viewer";
 
 /* External auditor portal: sign-in (password + emailed code), set password from the invitation, and the audit review screens. */
 
@@ -159,17 +160,19 @@ function AuditView() {
 }
 
 function References({ auditId, canDownload }: { auditId: number; canDownload: boolean }) {
+  const view = useDocViewer();
   const { data: refs = [] } = useQuery<any[]>({ queryKey: ["auditor-refs", auditId], queryFn: () => apiFetch(`/auditor-audits/${auditId}/references`) });
   if (!refs.length) return null;
   return (
     <div className="rounded-[10px] border bg-card px-3 py-2"><div className="text-[11px] font-semibold uppercase text-muted-foreground mb-1">Circular & reference documents</div>
       <div className="flex flex-wrap gap-2">{refs.map(d => <div key={d.id} className="flex items-center gap-1.5 rounded-[8px] border px-2 py-1 text-sm"><FileText className="w-3.5 h-3.5 text-primary" /><span className="truncate max-w-[280px]">{d.title}</span>
-        {d.fileId && <a href={afile(d.fileId)} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">View</a>}{d.fileId && canDownload && <a href={afile(d.fileId, true)} className="text-xs text-muted-foreground hover:underline">Download</a>}</div>)}</div></div>
+        {d.fileId && <button type="button" onClick={() => view({ url: afile(d.fileId), downloadUrl: canDownload ? afile(d.fileId, true) : null, name: d.fileName, title: d.title, contentType: d.contentType })} className="text-primary text-xs hover:underline">View</button>}{d.fileId && canDownload && <a href={afile(d.fileId, true)} className="text-xs text-muted-foreground hover:underline">Download</a>}</div>)}</div></div>
   );
 }
 
 const PAGE = 50;
 function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string }) {
+  const view = useDocViewer();
   const [term, setTerm] = useState(""); const [status, setStatus] = useState("todo"); const [area, setArea] = useState("all"); const [page, setPage] = useState(0); const [open, setOpen] = useState<number | null>(null);
   const areas = useMemo(() => [...new Set(items.map(i => i.area).filter(Boolean))], [items]);
   const list = useMemo(() => { const t = term.toLowerCase(); return items.filter(i => (area === "all" || i.area === area) && (status === "all" || (status === "todo" ? !CLOSED.includes(i.status) : i.status === status)) &&
@@ -185,16 +188,17 @@ function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string 
         <span className="text-xs text-muted-foreground ml-auto">{list.length} of {items.length}</span>
       </div>
       <div className="rounded-[10px] border overflow-x-auto"><table className="w-full text-sm">
-        <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40"><th className="text-left px-2 py-2 w-16">Ref</th><th className="text-left px-2">{kind === "policy" ? "Particulars" : "Checkpoint"}</th><th className="text-left px-2 w-36">Owner</th><th className="text-left px-2 w-32">Status</th><th className="w-14"></th></tr></thead>
+        <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40"><th className="text-left px-2 py-2 w-16">Ref</th><th className="text-left px-2">{kind === "policy" ? "Particulars" : "Checkpoint"}</th><th className="text-left px-2 w-32">Owner</th><th className="text-left px-2 w-32">SPOC</th><th className="text-left px-2 w-32">Status</th><th className="w-14"></th></tr></thead>
         <tbody>{shown.map(i => (
           <tr key={i.id} className="border-t hover:bg-accent/40 cursor-pointer align-top" onClick={() => setOpen(i.id)}>
             <td className="px-2 py-2 font-mono text-xs text-primary whitespace-nowrap">{refOf(i)}</td>
             <td className="px-2 py-2"><div className="line-clamp-2 whitespace-pre-line">{kind === "policy" ? `${i.docType}: ${i.checkpoint}` : i.checkpoint}</div>{i.area && <div className="text-[11px] text-muted-foreground truncate">{[i.area, i.subArea].filter(Boolean).join(" › ")}</div>}</td>
             <td className="px-2 py-2 text-xs">{i.ownerName || "—"}</td>
+            <td className="px-2 py-2 text-xs">{i.spocName || "—"}</td>
             <td className="px-2 py-2"><StatusBadge s={i.status === "Submitted" ? "Submitted" : i.status} />{i.status === "In Progress" && <div className="text-[10px] text-muted-foreground">info requested</div>}</td>
-            <td className="px-2 py-2 text-[11px] text-muted-foreground whitespace-nowrap">{i.evidenceCount > 0 && <span className="inline-flex items-center gap-0.5 mr-1.5"><Paperclip className="w-3 h-3" />{i.evidenceCount}</span>}{i.commentCount > 0 && <span className="inline-flex items-center gap-0.5"><MessageSquare className="w-3 h-3" />{i.commentCount}</span>}</td>
+            <td className="px-2 py-2 text-[11px] text-muted-foreground whitespace-nowrap"><DocsButton count={i.evidenceCount} load={() => apiFetch<any>(`/auditor-items/${i.id}`).then(r => r.documents)} open={d => view({ url: afile(d.fileId), downloadUrl: audit.canDownload ? afile(d.fileId, true) : null, name: d.fileName, title: d.title, contentType: d.contentType })} />{i.commentCount > 0 && <span className="inline-flex items-center gap-0.5"><MessageSquare className="w-3 h-3" />{i.commentCount}</span>}</td>
           </tr>))}
-          {!shown.length && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">{items.length ? "Nothing matches the filters." : "Nothing has been shared with you yet."}</td></tr>}
+          {!shown.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">{items.length ? "Nothing matches the filters." : "Nothing has been shared with you yet."}</td></tr>}
         </tbody></table></div>
       {pages > 1 && <div className="flex items-center justify-end gap-2 text-xs"><Button size="sm" variant="outline" className="h-7" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft className="w-3.5 h-3.5" /></Button><span>Page {page + 1} of {pages}</span><Button size="sm" variant="outline" className="h-7" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}><ChevronRight className="w-3.5 h-3.5" /></Button></div>}
       {open && <Review itemId={open} audit={audit} order={list.map(i => i.id)} onNav={setOpen} onClose={() => setOpen(null)} />}
@@ -203,7 +207,7 @@ function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string 
 }
 
 function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audit: any; order: number[]; onNav: (id: number) => void; onClose: () => void }) {
-  const qc = useQueryClient(); const { toast } = useToast();
+  const qc = useQueryClient(); const { toast } = useToast(); const view = useDocViewer();
   const { data: it, refetch } = useQuery<any>({ queryKey: ["auditor-item", itemId], queryFn: () => apiFetch(`/auditor-items/${itemId}`) });
   const [status, setStatus] = useState(""); const [remarks, setRemarks] = useState(""); const [comment, setComment] = useState(""); const [busy, setBusy] = useState(false); const [loadedFor, setLoadedFor] = useState<number | null>(null);
   useEffect(() => { if (it && it.id === itemId && loadedFor !== itemId) { setStatus(it.status); setRemarks(it.auditorRemarks ?? ""); setComment(""); setLoadedFor(itemId); } }, [it, itemId]);
@@ -235,7 +239,7 @@ function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audi
             <div className="divide-y rounded-[10px] border">{it.documents.map((d: any) => (
               <div key={d.id} className="flex items-center gap-2 px-3 py-2 text-sm"><FileText className="w-4 h-4 text-primary shrink-0" />
                 <div className="flex-1 min-w-0"><div className="truncate font-medium">{d.title}</div><div className="text-[11px] text-muted-foreground truncate">{d.category} · {d.fileName} · v{d.version} · {fmtSize(d.fileSize)}{d.approvedBy ? ` · approved by ${d.approvedBy}${d.approvedOn ? " on " + fmtDate(d.approvedOn) : ""}` : ""}</div></div>
-                {d.fileId && <a href={afile(d.fileId)} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1"><Eye className="w-3.5 h-3.5" />View</Button></a>}
+                {d.fileId && <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => view({ url: afile(d.fileId), downloadUrl: audit.canDownload ? afile(d.fileId, true) : null, name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" />View</Button>}
                 {d.fileId && audit.canDownload && <a href={afile(d.fileId, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}
               </div>))}
               {!it.documents.length && <div className="px-3 py-3 text-xs text-muted-foreground">No evidence attached.</div>}</div></div>
@@ -264,6 +268,7 @@ function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audi
 }
 
 function Schedules({ auditId, canDownload }: { auditId: number; canDownload: boolean }) {
+  const view = useDocViewer();
   const { data: grids = [], isLoading } = useQuery<any[]>({ queryKey: ["auditor-grids", auditId], queryFn: () => apiFetch(`/auditor-audits/${auditId}/grids`) });
   const [open, setOpen] = useState<any>(null);
   return (
@@ -276,7 +281,7 @@ function Schedules({ auditId, canDownload }: { auditId: number; canDownload: boo
         <DialogHeader><DialogTitle>{open.sheet}</DialogTitle><DialogDescription>Read-only.</DialogDescription></DialogHeader>
         <div className="flex-1 overflow-auto rounded-[10px] border"><table className="text-xs border-collapse"><tbody>{open.grid.map((row: string[], r: number) => <tr key={r}>{row.map((c, ci) => <td key={ci} className={cn("border px-2 py-1 min-w-[120px] max-w-[320px] whitespace-pre-line align-top", open.templateGrid[r]?.[ci] && "bg-muted/60 font-medium")}>{c}</td>)}</tr>)}</tbody></table></div>
         {!!open.documents.length && <div className="divide-y rounded-[10px] border">{open.documents.map((d: any) => <div key={d.id} className="flex items-center gap-2 px-3 py-2 text-sm"><FileText className="w-4 h-4 text-primary" /><div className="flex-1 truncate">{d.title} <span className="text-[11px] text-muted-foreground">{d.fileName} v{d.version}</span></div>
-          {d.fileId && <a href={afile(d.fileId)} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1"><Eye className="w-3.5 h-3.5" />View</Button></a>}{d.fileId && canDownload && <a href={afile(d.fileId, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}</div>)}</div>}
+          {d.fileId && <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => view({ url: afile(d.fileId), downloadUrl: canDownload ? afile(d.fileId, true) : null, name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" />View</Button>}{d.fileId && canDownload && <a href={afile(d.fileId, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}</div>)}</div>}
       </DialogContent></Dialog>}
     </CardContent></Card>
   );

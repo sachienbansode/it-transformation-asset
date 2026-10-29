@@ -9,11 +9,12 @@ import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { Upload, Link2, Loader2, Eye, Download, Unlink, FileText, Search } from "lucide-react";
 import { uploadFile, fileUrl, fmtDate, fmtSize, DOC_CATEGORIES } from "@/components/compliance-shared";
+import { useDocViewer } from "@/components/doc-viewer";
 
 /* Evidence attached to a checkpoint or a schedule: upload new (goes into the library) or link an existing library document. */
 
 export function EvidencePanel({ target, companyId, docs, canEdit, defaultCategory = "Evidence", onChange }: { target: { itemId?: number; gridId?: number }; companyId: number; docs: any[]; canEdit: boolean; defaultCategory?: string; onChange: () => void }) {
-  const { toast } = useToast(); const ref = useRef<HTMLInputElement>(null);
+  const { toast } = useToast(); const ref = useRef<HTMLInputElement>(null); const view = useDocViewer();
   const [busy, setBusy] = useState(false); const [cat, setCat] = useState(defaultCategory); const [pick, setPick] = useState(false);
   const base = target.itemId ? `/compliance-items/${target.itemId}` : `/compliance-grids/${target.gridId}`;
   async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -49,7 +50,7 @@ export function EvidencePanel({ target, companyId, docs, canEdit, defaultCategor
             <FileText className="w-4 h-4 text-primary shrink-0" />
             <div className="flex-1 min-w-0"><div className="truncate font-medium">{d.title}</div>
               <div className="text-[11px] text-muted-foreground truncate">{d.category} · {d.fileName} · v{d.version} · {fmtSize(d.fileSize)} · {fmtDate(d.uploadedAt)}</div></div>
-            {d.fileId && <a href={fileUrl(d.fileId)} target="_blank" rel="noreferrer" title="View"><Button type="button" size="icon" variant="ghost" className="h-7 w-7"><Eye className="w-3.5 h-3.5" /></Button></a>}
+            {d.fileId && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => view({ url: fileUrl(d.fileId), downloadUrl: fileUrl(d.fileId, true), name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" /></Button>}
             {d.fileId && <a href={fileUrl(d.fileId, true)} title="Download"><Button type="button" size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}
             {canEdit && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Unlink" onClick={() => unlink(d)}><Unlink className="w-3.5 h-3.5 text-red-500" /></Button>}
           </div>

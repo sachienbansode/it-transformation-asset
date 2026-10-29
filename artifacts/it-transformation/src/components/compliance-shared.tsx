@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { Check, ChevronsUpDown, X, Paperclip, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -90,4 +90,22 @@ export function PersonPicker({ value, onChange, placeholder = "Choose person", c
 export function Progress({ value, className }: { value: number; className?: string }) {
   const v = Math.max(0, Math.min(100, value));
   return <div className={cn("h-2 rounded-full bg-muted overflow-hidden", className)}><div className={cn("h-full rounded-full", v >= 100 ? "bg-emerald-500" : "bg-primary")} style={{ width: `${v}%` }} /></div>;
+}
+
+/** Paperclip count in a listing: click to see the files and open them read-only, without opening the checkpoint. */
+export function DocsButton({ count, load, open, canDownload = true }: { count: number; load: () => Promise<any[]>; open: (d: any) => void; canDownload?: boolean }) {
+  const [docs, setDocs] = useState<any[] | null>(null); const [o, setO] = useState(false);
+  if (!count) return null;
+  return (
+    <Popover open={o} onOpenChange={v => { setO(v); if (v && !docs) load().then(setDocs).catch(() => setDocs([])); }}>
+      <PopoverTrigger asChild>
+        <button type="button" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-0.5 mr-1.5 rounded px-1 py-0.5 hover:bg-primary/10 hover:text-primary" title="Show documents"><Paperclip className="w-3 h-3" />{count}</button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-1" align="end" onClick={e => e.stopPropagation()}>
+        {!docs ? <div className="p-3 text-xs text-muted-foreground">Loading…</div> : !docs.length ? <div className="p-3 text-xs text-muted-foreground">No documents.</div> :
+          docs.map(d => <button key={d.id} type="button" disabled={!d.fileId} onClick={() => { setO(false); open(d); }} className="w-full text-left flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent text-sm">
+            <Eye className="w-3.5 h-3.5 text-primary shrink-0" /><div className="min-w-0"><div className="truncate">{d.title}</div><div className="text-[11px] text-muted-foreground truncate">{d.category} · {d.fileName} · v{d.version}</div></div></button>)}
+      </PopoverContent>
+    </Popover>
+  );
 }

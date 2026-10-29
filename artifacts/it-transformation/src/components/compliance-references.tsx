@@ -8,12 +8,13 @@ import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { Upload, Loader2, Eye, Download, Trash2, FileText, Share2 } from "lucide-react";
 import { uploadFile, fileUrl, fmtDate, fmtSize } from "@/components/compliance-shared";
+import { useDocViewer } from "@/components/doc-viewer";
 
 /* Reference documents — the base circular, engagement letter, scope letter — on a template (every audit made from it) or one audit. */
 
 const CATS = ["Circular", "Engagement Letter", "Report", "Policy", "Other"];
 export function ReferencesPanel({ ownerType, ownerId, canEdit }: { ownerType: "template" | "audit"; ownerId: number; canEdit: boolean }) {
-  const qc = useQueryClient(); const { toast } = useToast(); const ref = useRef<HTMLInputElement>(null);
+  const qc = useQueryClient(); const { toast } = useToast(); const ref = useRef<HTMLInputElement>(null); const view = useDocViewer();
   const key = ["compliance-references", ownerType, ownerId];
   const { data: docs = [], isLoading } = useQuery<any[]>({ queryKey: key, queryFn: () => apiFetch(`/compliance-references/${ownerType}/${ownerId}`) });
   const [cat, setCat] = useState("Circular"); const [title, setTitle] = useState(""); const [busy, setBusy] = useState(false);
@@ -41,7 +42,7 @@ export function ReferencesPanel({ ownerType, ownerId, canEdit }: { ownerType: "t
             <div className="flex-1 min-w-0"><div className="truncate font-medium">{d.title}</div>
               <div className="text-[11px] text-muted-foreground truncate">{d.category} · {d.fileName} · {fmtSize(d.fileSize)} · {fmtDate(d.uploadedAt)}{!mine(d) ? " · from the template" : ""}{d.sharedWithAuditor ? " · visible to auditor" : " · internal only"}</div></div>
             {canEdit && mine(d) && <label className="text-[11px] flex items-center gap-1 text-muted-foreground" title="Visible in the auditor portal"><input type="checkbox" checked={d.sharedWithAuditor} onChange={async e => { await apiFetch(`/compliance-references/${ownerType}/${ownerId}/${d.id}`, { method: "PATCH", body: JSON.stringify({ sharedWithAuditor: e.target.checked }) }); refresh(); }} /><Share2 className="w-3 h-3" />Auditor</label>}
-            {d.fileId && <a href={fileUrl(d.fileId)} target="_blank" rel="noreferrer"><Button type="button" size="icon" variant="ghost" className="h-7 w-7"><Eye className="w-3.5 h-3.5" /></Button></a>}
+            {d.fileId && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => view({ url: fileUrl(d.fileId), downloadUrl: fileUrl(d.fileId, true), name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" /></Button>}
             {d.fileId && <a href={fileUrl(d.fileId, true)}><Button type="button" size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}
             {canEdit && mine(d) && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={async () => { if (await confirmDialog(`Remove "${d.title}" from the references? It stays in the Evidence Library.`, { title: "Remove reference", confirmText: "Remove" })) { await apiFetch(`/compliance-references/${ownerType}/${ownerId}/${d.id}`, { method: "DELETE" }); refresh(); } }}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>}
           </div>))}

@@ -13,8 +13,9 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
 import { ArrowLeft, Download, Pencil, Loader2, Search, Paperclip, MessageSquare, CalendarClock, Save, ChevronLeft, ChevronRight, Plus, Table2, History, Send, Share2, EyeOff, Gavel } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople } from "@/components/compliance-shared";
+import { DocsButton, fileUrl, STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople } from "@/components/compliance-shared";
 import { EvidencePanel } from "@/components/compliance-evidence";
+import { useDocViewer } from "@/components/doc-viewer";
 import { AuditorsTab } from "@/components/compliance-auditors";
 import { ReferencesPanel } from "@/components/compliance-references";
 import { AuditDialog } from "@/pages/compliance";
@@ -28,6 +29,8 @@ export default function ComplianceAudit() {
   const { data: items = [] } = useQuery<any[]>({ queryKey: ["compliance-items", id], queryFn: () => apiFetch(`/compliance-audits/${id}/items`) });
   const [tab, setTab] = useState<Tab>("overview"); const [edit, setEdit] = useState(false);
   const [areaFilter, setAreaFilter] = useState<string>("all");
+  const [preset, setPreset] = useState<Preset>({}); const [presetKey, setPresetKey] = useState(0);
+  const go = (kind: "checklist" | "policy", p: Preset = {}) => { setPreset(p); setAreaFilter(p.area ?? "all"); setTab(kind); setPresetKey(k => k + 1); };
   if (isLoading || !a) return <div className="text-sm text-muted-foreground">Loading…</div>;
   const s = a.stats; const pct = s.checkpoints ? Math.round((s.closed / s.checkpoints) * 100) : 0;
   const cnt = (st: string) => items.filter(i => i.kind === "checklist" && i.status === st).length;
@@ -44,22 +47,23 @@ export default function ComplianceAudit() {
           {canEdit && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEdit(true)}><Pencil className="w-4 h-4" />Edit audit</Button>}
         </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
-        <Tile label="Closure" value={`${pct}%`} sub={`${s.closed}/${s.checkpoints}`} className="xl:col-span-2"><Progress value={pct} className="mt-1.5" /></Tile>
-        <Tile label="Pending" value={cnt("Pending")} />
-        <Tile label="In progress" value={cnt("In Progress") + cnt("Partially Closed")} />
-        <Tile label="Awaiting review" value={items.filter(i => i.status === "Submitted" && !i.sharedAt).length} sub={`${items.filter(i => i.sharedAt).length} shared`} tone="text-indigo-600" />
-        <Tile label="Under review" value={s.underReview} tone="text-amber-600" />
-        <Tile label="Overdue" value={s.overdue} tone={s.overdue ? "text-red-600" : ""} />
-        <Tile label="No owner" value={s.unassigned} tone={s.unassigned ? "text-orange-600" : ""} />
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-2">
+        <Tile label="Total checkpoints" value={s.checkpoints} sub={`+ ${s.policies} policies`} onClick={() => go("checklist")} />
+        <Tile label="Closure" value={`${pct}%`} sub={`${s.closed}/${s.checkpoints}`} className="xl:col-span-2" onClick={() => go("checklist", { status: "closedAll" })}><Progress value={pct} className="mt-1.5" /></Tile>
+        <Tile label="Pending" value={cnt("Pending")} onClick={() => go("checklist", { status: "Pending" })} />
+        <Tile label="In progress" value={cnt("In Progress") + cnt("Partially Closed")} onClick={() => go("checklist", { status: "inprog" })} />
+        <Tile label="Awaiting review" value={items.filter(i => i.kind === "checklist" && i.status === "Submitted" && !i.sharedAt).length} sub={`${items.filter(i => i.kind === "checklist" && i.sharedAt).length} shared`} tone="text-indigo-600" onClick={() => go("checklist", { share: "review" })} />
+        <Tile label="Under review" value={s.underReview} tone="text-amber-600" onClick={() => go("checklist", { status: "Under Review" })} />
+        <Tile label="Overdue" value={s.overdue} tone={s.overdue ? "text-red-600" : ""} onClick={() => go("checklist", { overdue: true })} />
+        <Tile label="No owner" value={s.unassigned} tone={s.unassigned ? "text-orange-600" : ""} onClick={() => go("checklist", { owner: "none" })} />
       </div>
       <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px] flex-wrap">
         {([["overview", "Overview"], ["checklist", `Checklist (${s.checkpoints})`], ["policy", `Policies & procedures (${s.policies})`], ["schedules", "Schedules"], ["scope", "Scope & circular"], ["auditors", "Auditors & access log"]] as const).map(([k, l]) =>
           <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
       </div>
-      {tab === "overview" && <Overview a={a} onArea={ar => { setAreaFilter(ar); setTab("checklist"); }} />}
-      {tab === "checklist" && <ItemsTable audit={a} items={items.filter(i => i.kind === "checklist")} kind="checklist" canEdit={canEdit} area={areaFilter} setArea={setAreaFilter} />}
-      {tab === "policy" && <ItemsTable audit={a} items={items.filter(i => i.kind === "policy")} kind="policy" canEdit={canEdit} area="all" setArea={() => {}} />}
+      {tab === "overview" && <Overview items={items} go={go} />}
+      {tab === "checklist" && <ItemsTable key={`c${presetKey}`} preset={preset} audit={a} items={items.filter(i => i.kind === "checklist")} kind="checklist" canEdit={canEdit} area={areaFilter} setArea={setAreaFilter} />}
+      {tab === "policy" && <ItemsTable key={`p${presetKey}`} preset={preset} audit={a} items={items.filter(i => i.kind === "policy")} kind="policy" canEdit={canEdit} area="all" setArea={() => {}} />}
       {tab === "schedules" && <Schedules audit={a} canEdit={canEdit} />}
       {tab === "scope" && <Scope a={a} canEdit={canEdit} onEdit={() => setEdit(true)} />}
       {tab === "auditors" && <AuditorsTab audit={a} canEdit={canEdit} />}
@@ -68,48 +72,101 @@ export default function ComplianceAudit() {
   );
 }
 
-function Tile({ label, value, sub, tone, className, children }: { label: string; value: React.ReactNode; sub?: string; tone?: string; className?: string; children?: React.ReactNode }) {
-  return <div className={cn("rounded-[10px] border bg-card px-3 py-2", className)}><div className="text-[11px] text-muted-foreground">{label}</div><div className={cn("text-xl font-semibold leading-tight", tone)}>{value}{sub && <span className="text-xs text-muted-foreground font-normal ml-1.5">{sub}</span>}</div>{children}</div>;
+type Preset = { status?: string; owner?: string; overdue?: boolean; share?: string; area?: string };
+function Tile({ label, value, sub, tone, className, children, onClick }: { label: string; value: React.ReactNode; sub?: string; tone?: string; className?: string; children?: React.ReactNode; onClick?: () => void }) {
+  return <div role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onClick={onClick} onKeyDown={e => { if (onClick && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onClick(); } }} title={onClick ? "Open the list" : undefined}
+    className={cn("rounded-[10px] border bg-card px-3 py-2", onClick && "cursor-pointer hover:border-primary/60 hover:shadow-sm transition", className)}><div className="text-[11px] text-muted-foreground">{label}</div><div className={cn("text-xl font-semibold leading-tight", tone)}>{value}{sub && <span className="text-xs text-muted-foreground font-normal ml-1.5">{sub}</span>}</div>{children}</div>;
 }
 
-function Overview({ a, onArea }: { a: any; onArea: (area: string) => void }) {
+const OPEN = (st: string) => !CLOSED.includes(st);
+const GROUPS: { key: string; label: string; match: (st: string) => boolean; color: string; preset: Preset }[] = [
+  { key: "pending", label: "Pending", match: st => st === "Pending", color: "bg-slate-300 dark:bg-slate-500", preset: { status: "Pending" } },
+  { key: "inprog", label: "In progress", match: st => st === "In Progress" || st === "Partially Closed", color: "bg-blue-400", preset: { status: "inprog" } },
+  { key: "submitted", label: "Submitted", match: st => st === "Submitted", color: "bg-indigo-500", preset: { status: "Submitted" } },
+  { key: "review", label: "Under review", match: st => st === "Under Review", color: "bg-amber-400", preset: { status: "Under Review" } },
+  { key: "closed", label: "Closed / N.A.", match: st => CLOSED.includes(st), color: "bg-emerald-500", preset: { status: "closedAll" } },
+];
+function Num({ n, onClick, tone }: { n: number; onClick: () => void; tone?: string }) {
+  if (!n) return <span className="text-muted-foreground/50">–</span>;
+  return <button type="button" onClick={onClick} className={cn("font-medium hover:underline underline-offset-2 hover:text-primary", tone)}>{n}</button>;
+}
+function Overview({ items, go }: { items: any[]; go: (kind: "checklist" | "policy", p?: Preset) => void }) {
+  const check = items.filter(i => i.kind === "checklist"), pol = items.filter(i => i.kind === "policy");
+  const areas = useMemo(() => { const m = new Map<string, any[]>(); check.forEach(i => { const k = i.area || i.sheet; m.set(k, [...(m.get(k) || ([] as any[])), i]); }); return [...m]; }, [items]);
+  const owners = useMemo(() => { const m = new Map<string, { id: number | null; name: string; list: any[] }>(); /* owner rows */ items.forEach(i => { const k = String(i.ownerUserId ?? "none"); const e = m.get(k) || { id: i.ownerUserId ?? null, name: i.ownerName || "— No owner —", list: [] as any[] }; e.list.push(i); m.set(k, e); });
+    return [...m.values()].sort((x, y) => (x.id === null ? -1 : y.id === null ? 1 : y.list.length - x.list.length)); }, [items]);
+  const row = (list: any[]) => ({ total: list.length, pending: list.filter(i => i.status === "Pending").length, inprog: list.filter(i => i.status === "In Progress" || i.status === "Partially Closed").length, submitted: list.filter(i => i.status === "Submitted").length,
+    review: list.filter(i => i.status === "Under Review").length, closed: list.filter(i => CLOSED.includes(i.status)).length, overdue: list.filter(isOverdue).length, noOwner: list.filter(i => !i.ownerUserId).length, open: list.filter(i => OPEN(i.status)).length });
+  const tot = row(check);
+  const Cells = ({ r, p }: { r: ReturnType<typeof row>; p: Preset }) => <>
+    <td className="text-center"><Num n={r.total} onClick={() => go("checklist", p)} /></td>
+    <td className="text-center"><Num n={r.pending} onClick={() => go("checklist", { ...p, status: "Pending" })} /></td>
+    <td className="text-center"><Num n={r.inprog} onClick={() => go("checklist", { ...p, status: "inprog" })} tone="text-blue-600" /></td>
+    <td className="text-center"><Num n={r.submitted} onClick={() => go("checklist", { ...p, status: "Submitted" })} tone="text-indigo-600" /></td>
+    <td className="text-center"><Num n={r.review} onClick={() => go("checklist", { ...p, status: "Under Review" })} tone="text-amber-600" /></td>
+    <td className="text-center"><Num n={r.overdue} onClick={() => go("checklist", { ...p, overdue: true })} tone="text-red-600" /></td>
+    <td className="text-center"><Num n={r.noOwner} onClick={() => go("checklist", { ...p, owner: "none" })} tone="text-orange-600" /></td>
+    <td className="px-3"><button type="button" onClick={() => go("checklist", { ...p, status: "closedAll" })} className="w-full flex items-center gap-2 group"><Progress value={r.total ? (r.closed / r.total) * 100 : 0} className="flex-1" /><span className="text-xs w-14 text-right group-hover:text-primary">{r.closed}/{r.total}</span></button></td>
+  </>;
+  const head = <tr className="text-[11px] uppercase tracking-wider text-muted-foreground"><th className="text-left px-4 py-2">Area</th><th className="px-2">Total</th><th className="px-2">Pending</th><th className="px-2">In progress</th><th className="px-2">Submitted</th><th className="px-2">Under review</th><th className="px-2">Overdue</th><th className="px-2">No owner</th><th className="px-3 w-44 text-left">Closed</th></tr>;
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <Card className="lg:col-span-2"><CardContent className="p-0">
-        <div className="px-4 py-3 font-semibold text-sm border-b">By audit area</div>
-        <table className="w-full text-sm">
-          <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground"><th className="text-left px-4 py-2">Area</th><th className="px-2">Total</th><th className="px-2">Pending</th><th className="px-2">Under review</th><th className="px-2">Overdue</th><th className="px-2 w-40 text-left">Closed</th></tr></thead>
-          <tbody>{a.byArea.map((r: any) => { const p = r.total ? Math.round((r.closed / r.total) * 100) : 0; return (
-            <tr key={r.area} className="border-t hover:bg-accent/40 cursor-pointer" onClick={() => onArea(r.area)}>
-              <td className="px-4 py-2 font-medium">{r.area}</td><td className="text-center">{r.total}</td><td className="text-center">{r.pending}</td><td className="text-center text-amber-600">{r.underReview || ""}</td>
-              <td className={cn("text-center", r.overdue && "text-red-600 font-semibold")}>{r.overdue || ""}</td>
-              <td className="px-2"><div className="flex items-center gap-2"><Progress value={p} className="flex-1" /><span className="text-xs w-16 text-right">{r.closed}/{r.total}</span></div></td>
-            </tr>); })}</tbody>
+    <div className="space-y-4">
+      <Card><CardContent className="p-4 space-y-2">
+        <div className="flex items-center justify-between"><div className="font-semibold text-sm">Checkpoint status</div><div className="text-xs text-muted-foreground">{check.length} checkpoints · click a segment to open the list</div></div>
+        <div className="flex h-4 rounded-full overflow-hidden bg-muted">{GROUPS.map(g => { const n = check.filter(i => g.match(i.status)).length; return n ? <button key={g.key} type="button" title={`${g.label}: ${n}`} onClick={() => go("checklist", g.preset)} className={cn(g.color, "h-full hover:opacity-80")} style={{ width: `${(n / Math.max(1, check.length)) * 100}%` }} /> : null; })}</div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">{GROUPS.map(g => { const n = check.filter(i => g.match(i.status)).length; return <button key={g.key} type="button" onClick={() => go("checklist", g.preset)} className="inline-flex items-center gap-1.5 hover:text-primary"><span className={cn("w-2.5 h-2.5 rounded-sm", g.color)} />{g.label} <b>{n}</b> <span className="text-muted-foreground">({check.length ? Math.round((n / check.length) * 100) : 0}%)</span></button>; })}</div>
+      </CardContent></Card>
+      <Card><CardContent className="p-0 overflow-x-auto">
+        <div className="px-4 py-3 font-semibold text-sm border-b">By audit area <span className="text-xs font-normal text-muted-foreground">— click any number to open those checkpoints</span></div>
+        <table className="w-full text-sm min-w-[860px]">
+          <thead>{head}</thead>
+          <tbody>
+            {areas.map(([area, list]) => <tr key={area} className="border-t hover:bg-accent/30"><td className="px-4 py-2"><button type="button" onClick={() => go("checklist", { area })} className="font-medium text-left hover:text-primary">{area}</button></td><Cells r={row(list)} p={{ area }} /></tr>)}
+            <tr className="border-t-2 bg-muted/40 font-semibold"><td className="px-4 py-2">Total</td><Cells r={tot} p={{}} /></tr>
+          </tbody>
         </table>
       </CardContent></Card>
-      <Card><CardContent className="p-0">
-        <div className="px-4 py-3 font-semibold text-sm border-b">By owner</div>
-        <div className="divide-y">{a.byOwner.map((r: any) => (
-          <div key={r.owner} className="px-4 py-2 text-sm flex items-center gap-2">
-            <div className="flex-1 min-w-0 truncate">{r.owner}</div>
-            {r.overdue > 0 && <span className="text-[11px] text-red-600 flex items-center gap-0.5"><CalendarClock className="w-3 h-3" />{r.overdue}</span>}
-            <span className="text-xs text-muted-foreground w-14 text-right">{r.closed}/{r.total}</span>
-          </div>))}</div>
-      </CardContent></Card>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2"><CardContent className="p-0 overflow-x-auto">
+          <div className="px-4 py-3 font-semibold text-sm border-b">By owner <span className="text-xs font-normal text-muted-foreground">— checkpoints and policies</span></div>
+          <table className="w-full text-sm">
+            <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground"><th className="text-left px-4 py-2">Owner</th><th className="px-2">Checkpoints</th><th className="px-2">Policies</th><th className="px-2">Open</th><th className="px-2">Overdue</th><th className="px-3 w-40 text-left">Closed</th></tr></thead>
+            <tbody>
+              {owners.map(o => { const c = o.list.filter(i => i.kind === "checklist"), pp = o.list.filter(i => i.kind === "policy"); const r = row(o.list); const ow = o.id === null ? "none" : String(o.id); return (
+                <tr key={ow} className="border-t hover:bg-accent/30">
+                  <td className={cn("px-4 py-2", o.id === null && "text-orange-600")}>{o.name}</td>
+                  <td className="text-center"><Num n={c.length} onClick={() => go("checklist", { owner: ow })} /></td>
+                  <td className="text-center"><Num n={pp.length} onClick={() => go("policy", { owner: ow })} /></td>
+                  <td className="text-center"><Num n={c.filter(i => OPEN(i.status)).length} onClick={() => go("checklist", { owner: ow, status: "open" })} /></td>
+                  <td className="text-center"><Num n={c.filter(isOverdue).length} onClick={() => go("checklist", { owner: ow, overdue: true })} tone="text-red-600" /></td>
+                  <td className="px-3"><div className="flex items-center gap-2"><Progress value={r.total ? (r.closed / r.total) * 100 : 0} className="flex-1" /><span className="text-xs w-14 text-right">{r.closed}/{r.total}</span></div></td>
+                </tr>); })}
+              <tr className="border-t-2 bg-muted/40 font-semibold"><td className="px-4 py-2">Total</td><td className="text-center">{check.length}</td><td className="text-center">{pol.length}</td><td className="text-center">{check.filter(i => OPEN(i.status)).length}</td><td className="text-center">{check.filter(isOverdue).length}</td><td className="px-3 text-xs text-right">{items.filter(i => CLOSED.includes(i.status)).length}/{items.length}</td></tr>
+            </tbody>
+          </table>
+        </CardContent></Card>
+        <Card><CardContent className="p-0">
+          <div className="px-4 py-3 font-semibold text-sm border-b">Policies & procedures</div>
+          <div className="divide-y">
+            {[{ l: "Total", p: {} as Preset, n: pol.length }, ...GROUPS.map(g => ({ l: g.label, p: g.preset, n: pol.filter(i => g.match(i.status)).length })), { l: "No owner", p: { owner: "none" } as Preset, n: pol.filter(i => !i.ownerUserId).length }, { l: "No document linked", p: { status: "nodoc" } as Preset, n: pol.filter(i => !i.evidenceCount).length }].map(r =>
+              <button key={r.l} type="button" onClick={() => go("policy", r.p)} className="w-full flex items-center justify-between px-4 py-2 text-sm hover:bg-accent/40"><span>{r.l}</span><span className="font-semibold">{r.n}</span></button>)}
+          </div>
+        </CardContent></Card>
+      </div>
     </div>
   );
 }
 
 const PAGE = 50;
-function ItemsTable({ audit, items, kind, canEdit, area, setArea }: { audit: any; items: any[]; kind: "checklist" | "policy"; canEdit: boolean; area: string; setArea: (v: string) => void }) {
-  const qc = useQueryClient(); const { toast } = useToast(); const { user } = useAuth();
-  const [term, setTerm] = useState(""); const [share, setShare] = useState("all"); const [status, setStatus] = useState("all"); const [owner, setOwner] = useState("all"); const [sheet, setSheet] = useState("all"); const [overdue, setOverdue] = useState(false);
+function ItemsTable({ audit, items, kind, canEdit, area, setArea, preset = {} }: { audit: any; items: any[]; kind: "checklist" | "policy"; canEdit: boolean; area: string; setArea: (v: string) => void; preset?: Preset }) {
+  const qc = useQueryClient(); const { toast } = useToast(); const { user } = useAuth(); const view = useDocViewer();
+  const [term, setTerm] = useState(""); const [share, setShare] = useState(preset.share ?? "all"); const [status, setStatus] = useState(preset.status ?? "all"); const [owner, setOwner] = useState(preset.owner ?? "all"); const [sheet, setSheet] = useState("all"); const [overdue, setOverdue] = useState(!!preset.overdue);
   const [page, setPage] = useState(0); const [sel, setSel] = useState<Set<number>>(new Set()); const [open, setOpen] = useState<number | null>(null);
   const sheets = useMemo(() => [...new Set(items.map(i => i.sheet))], [items]);
   const areas = useMemo(() => [...new Set(items.filter(i => sheet === "all" || i.sheet === sheet).map(i => i.area).filter(Boolean))], [items, sheet]);
   const owners = useMemo(() => { const m = new Map<number, string>(); items.forEach(i => i.ownerUserId && m.set(i.ownerUserId, i.ownerName)); return [...m].sort((x, y) => x[1].localeCompare(y[1])); }, [items]);
   const list = useMemo(() => { const t = term.toLowerCase(); return items.filter(i =>
-    (sheet === "all" || i.sheet === sheet) && (area === "all" || i.area === area) && (status === "all" || (status === "open" ? !CLOSED.includes(i.status) : i.status === status)) &&
+    (sheet === "all" || i.sheet === sheet) && (area === "all" || i.area === area) && (status === "all" || (status === "open" ? !CLOSED.includes(i.status) : status === "closedAll" ? CLOSED.includes(i.status) : status === "inprog" ? (i.status === "In Progress" || i.status === "Partially Closed") : status === "nodoc" ? !i.evidenceCount : i.status === status)) &&
     (share === "all" || (share === "shared" ? !!i.sharedAt : share === "review" ? (i.status === "Submitted" && !i.sharedAt) : !i.sharedAt)) && (owner === "all" || (owner === "none" ? !i.ownerUserId : owner === "me" ? (i.ownerUserId === user?.id || i.spocUserId === user?.id) : String(i.ownerUserId) === owner)) && (!overdue || isOverdue(i)) &&
     (!t || [i.refNo, i.checkpoint, i.evidenceRequired, i.subArea, i.managementReply].some(x => x && String(x).toLowerCase().includes(t)))); }, [items, term, status, owner, sheet, area, overdue, user, share]);
   useEffect(() => setPage(0), [term, status, owner, sheet, area, overdue, share]);
@@ -124,7 +181,7 @@ function ItemsTable({ audit, items, kind, canEdit, area, setArea }: { audit: any
         <div className="relative w-60"><Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" /><Input className="pl-8 h-9" placeholder="Search ref, text, reply…" value={term} onChange={e => setTerm(e.target.value)} /></div>
         {sheets.length > 1 && <Select value={sheet} onValueChange={v => { setSheet(v); setArea("all"); }}><SelectTrigger className="h-9 w-52"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All sheets</SelectItem>{sheets.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select>}
         {kind === "checklist" && <Select value={area} onValueChange={setArea}><SelectTrigger className="h-9 w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All areas</SelectItem>{areas.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select>}
-        <Select value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="open">All open</SelectItem>{STATUSES.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select>
+        <Select value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="open">All open</SelectItem><SelectItem value="inprog">In progress (incl. partially closed)</SelectItem><SelectItem value="closedAll">Closed / N.A. (all)</SelectItem>{kind === "policy" && <SelectItem value="nodoc">No document linked</SelectItem>}{STATUSES.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select>
         <Select value={owner} onValueChange={setOwner}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All owners</SelectItem><SelectItem value="me">Mine (owner / SPOC)</SelectItem><SelectItem value="none">No owner</SelectItem>{owners.map(([oid, n]) => <SelectItem key={oid} value={String(oid)}>{n}</SelectItem>)}</SelectContent></Select>
         <Select value={share} onValueChange={setShare}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Shared or not</SelectItem><SelectItem value="review">Awaiting review (to share)</SelectItem><SelectItem value="shared">Shared with auditor</SelectItem><SelectItem value="not">Not shared</SelectItem></SelectContent></Select>
         <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={overdue} onChange={e => setOverdue(e.target.checked)} />Overdue only</label>
@@ -136,19 +193,20 @@ function ItemsTable({ audit, items, kind, canEdit, area, setArea }: { audit: any
           <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40">
             {canEdit && <th className="w-8 px-2"><input type="checkbox" checked={allShown} onChange={() => setSel(p => { const n = new Set(p); shown.forEach(i => (allShown ? n.delete(i.id) : n.add(i.id))); return n; })} /></th>}
             <th className="text-left px-2 py-2 w-16">Ref</th>{kind === "policy" && <th className="text-left px-2 w-24">Type</th>}<th className="text-left px-2">{kind === "policy" ? "Particulars" : "Checkpoint"}</th>
-            <th className="text-left px-2 w-36">Owner</th><th className="text-left px-2 w-28">Target</th><th className="text-left px-2 w-32">Status</th><th className="px-2 w-16"></th></tr></thead>
+            <th className="text-left px-2 w-32">Owner</th><th className="text-left px-2 w-32">SPOC</th><th className="text-left px-2 w-28">Target</th><th className="text-left px-2 w-32">Status</th><th className="px-2 w-16"></th></tr></thead>
           <tbody>{shown.map(i => (
             <tr key={i.id} className="border-t hover:bg-accent/40 cursor-pointer align-top" onClick={() => setOpen(i.id)}>
               {canEdit && <td className="px-2 py-2" onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(i.id)} onChange={() => toggle(i.id)} /></td>}
               <td className="px-2 py-2 font-mono text-xs text-primary whitespace-nowrap">{refOf(i)}</td>
               {kind === "policy" && <td className="px-2 py-2 text-xs">{i.docType}</td>}
               <td className="px-2 py-2"><div className="line-clamp-2 whitespace-pre-line">{i.checkpoint}</div>{kind === "checklist" && <div className="text-[11px] text-muted-foreground truncate">{[i.area, i.subArea].filter(Boolean).join(" › ")}</div>}</td>
-              <td className="px-2 py-2 text-xs">{i.ownerName || <span className="text-orange-600">—</span>}{i.spocName && <div className="text-muted-foreground">SPOC {i.spocName}</div>}</td>
+              <td className="px-2 py-2 text-xs">{i.ownerName || <span className="text-orange-600">—</span>}</td>
+              <td className="px-2 py-2 text-xs">{i.spocName || <span className="text-muted-foreground">—</span>}</td>
               <td className={cn("px-2 py-2 text-xs whitespace-nowrap", isOverdue(i) && "text-red-600 font-semibold")}>{fmtDate(i.targetDate)}</td>
               <td className="px-2 py-2"><StatusBadge s={i.status} />{i.sharedAt && <div className="text-[10px] text-emerald-600 mt-0.5 flex items-center gap-0.5"><Share2 className="w-2.5 h-2.5" />shared</div>}</td>
-              <td className="px-2 py-2 text-[11px] text-muted-foreground whitespace-nowrap">{i.evidenceCount > 0 && <span className="inline-flex items-center gap-0.5 mr-1.5"><Paperclip className="w-3 h-3" />{i.evidenceCount}</span>}{i.commentCount > 0 && <span className="inline-flex items-center gap-0.5"><MessageSquare className="w-3 h-3" />{i.commentCount}</span>}</td>
+              <td className="px-2 py-2 text-[11px] text-muted-foreground whitespace-nowrap"><DocsButton count={i.evidenceCount} load={() => apiFetch<any>(`/compliance-items/${i.id}`).then(r => r.documents)} open={d => view({ url: fileUrl(d.fileId), downloadUrl: fileUrl(d.fileId, true), name: d.fileName, title: d.title, contentType: d.contentType })} />{i.commentCount > 0 && <span className="inline-flex items-center gap-0.5"><MessageSquare className="w-3 h-3" />{i.commentCount}</span>}</td>
             </tr>))}
-            {!shown.length && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Nothing matches the filters.</td></tr>}
+            {!shown.length && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Nothing matches the filters.</td></tr>}
           </tbody>
         </table>
       </div>
