@@ -15,6 +15,7 @@ export interface AuthUser {
   effectivePermissions?: Record<string, string>;
   defaultDashboard?: string;
   photoUrl?: string | null;
+  auditor?: boolean;
 }
 
 export type AccessLevel = "read" | "write" | "admin";

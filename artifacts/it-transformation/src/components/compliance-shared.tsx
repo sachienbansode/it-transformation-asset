@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 
 export const STATUSES = ["Pending", "In Progress", "Submitted", "Under Review", "Partially Closed", "Closed", "Closed-Obs", "Not Applicable"];
 export const CLOSED = ["Closed", "Closed-Obs", "Not Applicable"];
+export const TEAM_STATUSES = ["Pending", "In Progress", "Submitted"];
+export const AUDITOR_STATUSES = ["Under Review", "Partially Closed", "Closed", "Closed-Obs", "Not Applicable"];
 export const AUDIT_STATUSES = ["Planning", "Fieldwork", "Reporting", "Closed"];
 export const DOC_CATEGORIES = ["Policy", "Procedure", "Evidence", "Report", "Agreement", "Other"];
 

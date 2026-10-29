@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
+const rowsOfAny = (r: any) => (r?.rows ?? r ?? []) as any[];
 import { db, usersTable, settingsTable, userRolesTable, rolePermissionsTable, rolesTable } from "@workspace/db";
 import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
@@ -101,7 +102,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
   // Admin always gets /
   if (user.role === "admin") defaultDashboard = "/";
   const central = (req.session as any).central;
-  res.json({ ...user, effectivePermissions, defaultDashboard, identitySource: central ? "central" : "local", portalRole: central?.portalRole ?? null, ...(central ? { mfaEnabled: true } : {}) });
+  res.json({ ...user, auditor: (req.session as any).auditor === true, effectivePermissions, defaultDashboard, identitySource: central ? "central" : "local", portalRole: central?.portalRole ?? null, ...(central ? { mfaEnabled: true } : {}) });
 });
 
 // POST /auth/login
@@ -125,6 +126,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
   if (!user.passwordHash) {
     res.status(401).json({ error: cc.enabled ? "This account signs in through the Ashika Portal." : "This account uses SSO. Please sign in with Microsoft." });
+    return;
+  }
+  // External auditors sign in through the auditor portal (password + emailed code), never here
+  if (user.userType === "external" && rowsOfAny(await db.execute(sql`SELECT 1 FROM cmp_audit_access WHERE user_id = ${user.id} LIMIT 1`).catch(() => ({ rows: [] }))).length) {
+    res.status(403).json({ error: "Auditors sign in at /auditor/login" });
     return;
   }
   const valid = await bcrypt.compare(body.data.password, user.passwordHash);

@@ -11,13 +11,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
-import { ArrowLeft, Download, Pencil, Loader2, Search, Paperclip, MessageSquare, CalendarClock, Save, ChevronLeft, ChevronRight, Plus, Table2, History, Send } from "lucide-react";
+import { ArrowLeft, Download, Pencil, Loader2, Search, Paperclip, MessageSquare, CalendarClock, Save, ChevronLeft, ChevronRight, Plus, Table2, History, Send, Share2, EyeOff, Gavel } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople } from "@/components/compliance-shared";
+import { STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople } from "@/components/compliance-shared";
 import { EvidencePanel } from "@/components/compliance-evidence";
+import { AuditorsTab } from "@/components/compliance-auditors";
 import { AuditDialog } from "@/pages/compliance";
 
-type Tab = "overview" | "checklist" | "policy" | "schedules" | "scope";
+type Tab = "overview" | "checklist" | "policy" | "schedules" | "scope" | "auditors";
 
 export default function ComplianceAudit() {
   const { id } = useParams<{ id: string }>();
@@ -46,13 +47,13 @@ export default function ComplianceAudit() {
         <Tile label="Closure" value={`${pct}%`} sub={`${s.closed}/${s.checkpoints}`} className="xl:col-span-2"><Progress value={pct} className="mt-1.5" /></Tile>
         <Tile label="Pending" value={cnt("Pending")} />
         <Tile label="In progress" value={cnt("In Progress") + cnt("Partially Closed")} />
-        <Tile label="Submitted" value={cnt("Submitted")} tone="text-indigo-600" />
+        <Tile label="Awaiting review" value={items.filter(i => i.status === "Submitted" && !i.sharedAt).length} sub={`${items.filter(i => i.sharedAt).length} shared`} tone="text-indigo-600" />
         <Tile label="Under review" value={s.underReview} tone="text-amber-600" />
         <Tile label="Overdue" value={s.overdue} tone={s.overdue ? "text-red-600" : ""} />
         <Tile label="No owner" value={s.unassigned} tone={s.unassigned ? "text-orange-600" : ""} />
       </div>
       <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px] flex-wrap">
-        {([["overview", "Overview"], ["checklist", `Checklist (${s.checkpoints})`], ["policy", `Policies & procedures (${s.policies})`], ["schedules", "Schedules"], ["scope", "Scope"]] as const).map(([k, l]) =>
+        {([["overview", "Overview"], ["checklist", `Checklist (${s.checkpoints})`], ["policy", `Policies & procedures (${s.policies})`], ["schedules", "Schedules"], ["scope", "Scope"], ["auditors", "Auditors & access log"]] as const).map(([k, l]) =>
           <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
       </div>
       {tab === "overview" && <Overview a={a} onArea={ar => { setAreaFilter(ar); setTab("checklist"); }} />}
@@ -60,6 +61,7 @@ export default function ComplianceAudit() {
       {tab === "policy" && <ItemsTable audit={a} items={items.filter(i => i.kind === "policy")} kind="policy" canEdit={canEdit} area="all" setArea={() => {}} />}
       {tab === "schedules" && <Schedules audit={a} canEdit={canEdit} />}
       {tab === "scope" && <Scope a={a} canEdit={canEdit} onEdit={() => setEdit(true)} />}
+      {tab === "auditors" && <AuditorsTab audit={a} canEdit={canEdit} />}
       {edit && <AuditDialog audit={a} onClose={() => setEdit(false)} />}
     </div>
   );
@@ -100,16 +102,16 @@ function Overview({ a, onArea }: { a: any; onArea: (area: string) => void }) {
 const PAGE = 50;
 function ItemsTable({ audit, items, kind, canEdit, area, setArea }: { audit: any; items: any[]; kind: "checklist" | "policy"; canEdit: boolean; area: string; setArea: (v: string) => void }) {
   const qc = useQueryClient(); const { toast } = useToast(); const { user } = useAuth();
-  const [term, setTerm] = useState(""); const [status, setStatus] = useState("all"); const [owner, setOwner] = useState("all"); const [sheet, setSheet] = useState("all"); const [overdue, setOverdue] = useState(false);
+  const [term, setTerm] = useState(""); const [share, setShare] = useState("all"); const [status, setStatus] = useState("all"); const [owner, setOwner] = useState("all"); const [sheet, setSheet] = useState("all"); const [overdue, setOverdue] = useState(false);
   const [page, setPage] = useState(0); const [sel, setSel] = useState<Set<number>>(new Set()); const [open, setOpen] = useState<number | null>(null);
   const sheets = useMemo(() => [...new Set(items.map(i => i.sheet))], [items]);
   const areas = useMemo(() => [...new Set(items.filter(i => sheet === "all" || i.sheet === sheet).map(i => i.area).filter(Boolean))], [items, sheet]);
   const owners = useMemo(() => { const m = new Map<number, string>(); items.forEach(i => i.ownerUserId && m.set(i.ownerUserId, i.ownerName)); return [...m].sort((x, y) => x[1].localeCompare(y[1])); }, [items]);
   const list = useMemo(() => { const t = term.toLowerCase(); return items.filter(i =>
     (sheet === "all" || i.sheet === sheet) && (area === "all" || i.area === area) && (status === "all" || (status === "open" ? !CLOSED.includes(i.status) : i.status === status)) &&
-    (owner === "all" || (owner === "none" ? !i.ownerUserId : owner === "me" ? (i.ownerUserId === user?.id || i.spocUserId === user?.id) : String(i.ownerUserId) === owner)) && (!overdue || isOverdue(i)) &&
-    (!t || [i.refNo, i.checkpoint, i.evidenceRequired, i.subArea, i.managementReply].some(x => x && String(x).toLowerCase().includes(t)))); }, [items, term, status, owner, sheet, area, overdue, user]);
-  useEffect(() => setPage(0), [term, status, owner, sheet, area, overdue]);
+    (share === "all" || (share === "shared" ? !!i.sharedAt : share === "review" ? (i.status === "Submitted" && !i.sharedAt) : !i.sharedAt)) && (owner === "all" || (owner === "none" ? !i.ownerUserId : owner === "me" ? (i.ownerUserId === user?.id || i.spocUserId === user?.id) : String(i.ownerUserId) === owner)) && (!overdue || isOverdue(i)) &&
+    (!t || [i.refNo, i.checkpoint, i.evidenceRequired, i.subArea, i.managementReply].some(x => x && String(x).toLowerCase().includes(t)))); }, [items, term, status, owner, sheet, area, overdue, user, share]);
+  useEffect(() => setPage(0), [term, status, owner, sheet, area, overdue, share]);
   const shown = list.slice(page * PAGE, page * PAGE + PAGE); const pages = Math.max(1, Math.ceil(list.length / PAGE));
   const toggle = (iid: number) => setSel(p => { const n = new Set(p); n.has(iid) ? n.delete(iid) : n.add(iid); return n; });
   const allShown = shown.length > 0 && shown.every(i => sel.has(i.id));
@@ -123,6 +125,7 @@ function ItemsTable({ audit, items, kind, canEdit, area, setArea }: { audit: any
         {kind === "checklist" && <Select value={area} onValueChange={setArea}><SelectTrigger className="h-9 w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All areas</SelectItem>{areas.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select>}
         <Select value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="open">All open</SelectItem>{STATUSES.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select>
         <Select value={owner} onValueChange={setOwner}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All owners</SelectItem><SelectItem value="me">Mine (owner / SPOC)</SelectItem><SelectItem value="none">No owner</SelectItem>{owners.map(([oid, n]) => <SelectItem key={oid} value={String(oid)}>{n}</SelectItem>)}</SelectContent></Select>
+        <Select value={share} onValueChange={setShare}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Shared or not</SelectItem><SelectItem value="review">Awaiting review (to share)</SelectItem><SelectItem value="shared">Shared with auditor</SelectItem><SelectItem value="not">Not shared</SelectItem></SelectContent></Select>
         <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={overdue} onChange={e => setOverdue(e.target.checked)} />Overdue only</label>
         <span className="text-xs text-muted-foreground ml-auto">{list.length} of {items.length}</span>
       </div>
@@ -141,7 +144,7 @@ function ItemsTable({ audit, items, kind, canEdit, area, setArea }: { audit: any
               <td className="px-2 py-2"><div className="line-clamp-2 whitespace-pre-line">{i.checkpoint}</div>{kind === "checklist" && <div className="text-[11px] text-muted-foreground truncate">{[i.area, i.subArea].filter(Boolean).join(" › ")}</div>}</td>
               <td className="px-2 py-2 text-xs">{i.ownerName || <span className="text-orange-600">—</span>}{i.spocName && <div className="text-muted-foreground">SPOC {i.spocName}</div>}</td>
               <td className={cn("px-2 py-2 text-xs whitespace-nowrap", isOverdue(i) && "text-red-600 font-semibold")}>{fmtDate(i.targetDate)}</td>
-              <td className="px-2 py-2"><StatusBadge s={i.status} /></td>
+              <td className="px-2 py-2"><StatusBadge s={i.status} />{i.sharedAt && <div className="text-[10px] text-emerald-600 mt-0.5 flex items-center gap-0.5"><Share2 className="w-2.5 h-2.5" />shared</div>}</td>
               <td className="px-2 py-2 text-[11px] text-muted-foreground whitespace-nowrap">{i.evidenceCount > 0 && <span className="inline-flex items-center gap-0.5 mr-1.5"><Paperclip className="w-3 h-3" />{i.evidenceCount}</span>}{i.commentCount > 0 && <span className="inline-flex items-center gap-0.5"><MessageSquare className="w-3 h-3" />{i.commentCount}</span>}</td>
             </tr>))}
             {!shown.length && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Nothing matches the filters.</td></tr>}
@@ -167,14 +170,25 @@ function BulkBar({ ids, onDone }: { ids: number[]; onDone: () => void }) {
     try { await apiFetch("/compliance-items/bulk", { method: "POST", body: JSON.stringify({ ids, set }) }); toast({ title: `${ids.length} updated`, description: owner || spoc ? "Owners / SPOCs have been emailed" : undefined }); onDone(); }
     catch (e: any) { toast({ title: "Could not update", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
   }
+  async function share(shared: boolean) {
+    setBusy(true);
+    try {
+      const r = await apiFetch<any>("/compliance-items/share", { method: "POST", body: JSON.stringify({ ids, shared }) });
+      toast({ title: shared ? `${r.done} shared with the auditor` : `${r.done} withdrawn from the auditor`, description: r.skipped.length ? `${r.skipped.length} skipped — ${r.skipped.slice(0, 3).map((x: any) => `${x.ref}: ${x.reason}`).join("; ")}${r.skipped.length > 3 ? " …" : ""}` : undefined, variant: r.skipped.length && !r.done ? "destructive" : undefined });
+      onDone();
+    } catch (e: any) { toast({ title: "Could not share", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-[10px] border border-primary/30 bg-accent/50 px-3 py-2">
       <div className="text-sm font-semibold self-center mr-1">{ids.length} selected</div>
       <div className="w-48"><Label className="text-[11px]">Owner</Label><PersonPicker value={owner} onChange={setOwner} placeholder="Keep" /></div>
       <div className="w-48"><Label className="text-[11px]">SPOC</Label><PersonPicker value={spoc} onChange={setSpoc} placeholder="Keep" /></div>
       <div><Label className="text-[11px]">Target date</Label><Input type="date" className="h-9 w-40" value={date} onChange={e => setDate(e.target.value)} /></div>
-      <div><Label className="text-[11px]">Status</Label><Select value={status || "__keep"} onValueChange={v => setStatus(v === "__keep" ? "" : v)}><SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__keep">Keep</SelectItem>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label className="text-[11px]">Status</Label><Select value={status || "__keep"} onValueChange={v => setStatus(v === "__keep" ? "" : v)}><SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__keep">Keep</SelectItem>{TEAM_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
       <Button size="sm" className="h-9 gap-1.5" disabled={busy} onClick={apply}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Apply</Button>
+      <div className="w-px self-stretch bg-border mx-1" />
+      <Button size="sm" variant="outline" className="h-9 gap-1.5" disabled={busy} onClick={() => share(true)} title="Reviewed — make visible to the auditor"><Share2 className="w-4 h-4" />Share with auditor</Button>
+      <Button size="sm" variant="ghost" className="h-9 gap-1.5" disabled={busy} onClick={() => share(false)}><EyeOff className="w-4 h-4" />Withdraw</Button>
     </div>
   );
 }
@@ -182,31 +196,42 @@ function BulkBar({ ids, onDone }: { ids: number[]; onDone: () => void }) {
 function ItemDialog({ itemId, audit, canEdit, order, onNav, onClose }: { itemId: number; audit: any; canEdit: boolean; order: number[]; onNav: (id: number) => void; onClose: () => void }) {
   const { toast } = useToast(); const qc = useQueryClient();
   const { data: it, refetch } = useQuery<any>({ queryKey: ["compliance-item", itemId], queryFn: () => apiFetch(`/compliance-items/${itemId}`) });
-  const [f, setF] = useState<any>(null); const [busy, setBusy] = useState(false); const [comment, setComment] = useState(""); const [history, setHistory] = useState(false);
-  useEffect(() => { if (it && it.id === itemId && f?.__id !== itemId) setF({ __id: itemId, ownerUserId: it.ownerUserId, spocUserId: it.spocUserId, targetDate: d10(it.targetDate), status: it.status, managementReply: it.managementReply ?? "", auditorRemarks: it.auditorRemarks ?? "", lastReviewDate: d10(it.lastReviewDate) }); }, [it, itemId]); // only on open / navigation — keeps unsaved edits when evidence or comments refresh
+  const [f, setF] = useState<any>(null); const [busy, setBusy] = useState(false); const [comment, setComment] = useState(""); const [toAuditor, setToAuditor] = useState(false); const [history, setHistory] = useState(false);
+  const [record, setRecord] = useState(false); const [reason, setReason] = useState("");
+  useEffect(() => { if (it && it.id === itemId && f?.__id !== itemId) { setF({ __id: itemId, ownerUserId: it.ownerUserId, spocUserId: it.spocUserId, targetDate: d10(it.targetDate), status: it.status, managementReply: it.managementReply ?? "", auditorRemarks: it.auditorRemarks ?? "", lastReviewDate: d10(it.lastReviewDate) }); setRecord(false); setReason(""); setToAuditor(false); } }, [it, itemId]); // only on open / navigation — keeps unsaved edits when evidence or comments refresh
   const dirty = it && f && (f.ownerUserId !== it.ownerUserId || f.spocUserId !== it.spocUserId || f.targetDate !== d10(it.targetDate) || f.status !== it.status || f.managementReply !== (it.managementReply ?? "") || f.auditorRemarks !== (it.auditorRemarks ?? "") || f.lastReviewDate !== d10(it.lastReviewDate));
+  const auditorOwned = it && f && (f.status !== it.status && (AUDITOR_STATUSES.includes(f.status) || AUDITOR_STATUSES.includes(it.status)) || f.auditorRemarks !== (it.auditorRemarks ?? ""));
   const pos = order.indexOf(itemId);
+  const refreshList = () => ["compliance-items", "compliance-audit"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
   async function save(next?: number) {
     if (dirty) {
+      if (auditorOwned && reason.trim().length < 5) { toast({ title: "Give the reason", description: "Recording the auditor's decision or remarks needs a reason (e.g. confirmed by auditor email).", variant: "destructive" }); return; }
       setBusy(true);
-      try { await apiFetch(`/compliance-items/${itemId}`, { method: "PATCH", body: JSON.stringify({ ...f, __id: undefined, targetDate: f.targetDate || null, lastReviewDate: f.lastReviewDate || null, managementReply: f.managementReply || null, auditorRemarks: f.auditorRemarks || null }) }); await refetch(); toast({ title: `${refOf(it)} saved` }); qc.invalidateQueries({ queryKey: ["compliance-items"] }); }
+      try { await apiFetch(`/compliance-items/${itemId}`, { method: "PATCH", body: JSON.stringify({ ...f, __id: undefined, targetDate: f.targetDate || null, lastReviewDate: f.lastReviewDate || null, managementReply: f.managementReply || null, auditorRemarks: f.auditorRemarks || null, overrideReason: auditorOwned ? reason : undefined }) }); await refetch(); toast({ title: `${refOf(it)} saved` }); refreshList(); setRecord(false); setReason(""); }
       catch (e: any) { toast({ title: "Could not save", description: e.message, variant: "destructive" }); setBusy(false); return; }
       setBusy(false);
     }
     if (next) onNav(next);
   }
+  async function share(shared: boolean) {
+    setBusy(true);
+    try { const r = await apiFetch<any>("/compliance-items/share", { method: "POST", body: JSON.stringify({ ids: [itemId], shared }) }); if (r.skipped.length) toast({ title: "Not shared", description: r.skipped[0].reason, variant: "destructive" }); else toast({ title: shared ? "Shared with the auditor" : "Withdrawn from the auditor" }); await refetch(); refreshList(); }
+    catch (e: any) { toast({ title: "Could not share", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
   async function post() {
     if (!comment.trim()) return;
-    try { await apiFetch(`/compliance-items/${itemId}/comments`, { method: "POST", body: JSON.stringify({ body: comment }) }); setComment(""); refetch(); } catch (e: any) { toast({ title: "Could not post", description: e.message, variant: "destructive" }); }
+    try { await apiFetch(`/compliance-items/${itemId}/comments`, { method: "POST", body: JSON.stringify({ body: comment, toAuditor }) }); setComment(""); refetch(); } catch (e: any) { toast({ title: "Could not post", description: e.message, variant: "destructive" }); }
   }
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
-  const comments = (it?.comments || []).filter((c: any) => history || !c.system);
+  const comments = (it?.comments || []).filter((c: any) => history || !c.system || c.isExternal);
+  const isAuditorStatus = it && AUDITOR_STATUSES.includes(f?.status ?? it.status);
   return (
     <Dialog open onOpenChange={o => { if (!o && !busy) onClose(); }}>
       <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">{it ? <><span className="font-mono text-primary">{refOf(it)}</span><span className="truncate">{it.kind === "policy" ? `${it.docType}: ${it.checkpoint}` : it.subArea || it.area}</span>{f && <StatusBadge s={it.status} />}</> : "Loading…"}</DialogTitle>
-          {it && <DialogDescription>{it.kind === "policy" ? "Policy & procedure register" : `${it.sheet} · ${it.area ?? ""}`}</DialogDescription>}
+          <DialogTitle className="flex items-center gap-2">{it ? <><span className="font-mono text-primary">{refOf(it)}</span><span className="truncate">{it.kind === "policy" ? `${it.docType}: ${it.checkpoint}` : it.subArea || it.area}</span>{f && <StatusBadge s={it.status} />}
+            {it.sharedAt ? <span className="text-[11px] font-normal text-emerald-600 inline-flex items-center gap-1"><Share2 className="w-3 h-3" />shared with auditor</span> : <span className="text-[11px] font-normal text-muted-foreground inline-flex items-center gap-1"><EyeOff className="w-3 h-3" />not shared</span>}</> : "Loading…"}</DialogTitle>
+          {it && <DialogDescription>{it.kind === "policy" ? "Policy & procedure register" : `${it.sheet} · ${it.area ?? ""}`}{it.sharedAt ? ` · shared by ${it.sharedBy} on ${fmtDate(it.sharedAt)}` : ""}</DialogDescription>}
         </DialogHeader>
         {it && f && <div className="flex-1 overflow-y-auto pr-1 space-y-4">
           {it.kind === "checklist" && <div className="grid md:grid-cols-2 gap-3">
@@ -218,28 +243,40 @@ function ItemDialog({ itemId, audit, canEdit, order, onNav, onClose }: { itemId:
             <div><Label>Owner</Label><PersonPicker disabled={!canEdit} value={f.ownerUserId} onChange={v => set("ownerUserId", v)} /></div>
             <div><Label>SPOC</Label><PersonPicker disabled={!canEdit} value={f.spocUserId} onChange={v => set("spocUserId", v)} /></div>
             <div><Label>Target date</Label><Input disabled={!canEdit} type="date" value={f.targetDate} onChange={e => set("targetDate", e.target.value)} /></div>
-            <div><Label>Status</Label><Select disabled={!canEdit} value={f.status} onValueChange={v => set("status", v)}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Status</Label>
+              <Select disabled={!canEdit || (!record && AUDITOR_STATUSES.includes(it.status))} value={f.status} onValueChange={v => set("status", v)}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>{(record ? STATUSES : TEAM_STATUSES.concat(AUDITOR_STATUSES.includes(it.status) ? [it.status] : [])).map(s => <SelectItem key={s} value={s}>{s}{AUDITOR_STATUSES.includes(s) ? " (auditor)" : ""}</SelectItem>)}</SelectContent></Select>
+              {canEdit && !record && <button type="button" onClick={() => setRecord(true)} className="text-[11px] text-primary hover:underline mt-1 inline-flex items-center gap-1"><Gavel className="w-3 h-3" />Record auditor decision…</button>}
+              {isAuditorStatus && !record && <div className="text-[11px] text-muted-foreground mt-1">Set by the auditor</div>}
+            </div>
             {it.kind === "policy" && <div><Label>Last review date</Label><Input disabled={!canEdit} type="date" value={f.lastReviewDate} onChange={e => set("lastReviewDate", e.target.value)} /></div>}
           </div>
+          {record && <div className="rounded-[10px] border border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 p-3 space-y-1.5">
+            <div className="text-xs font-semibold text-amber-800 dark:text-amber-300">Recording on the auditor's behalf — auditor statuses and remarks are normally set by the auditor in the portal. The reason is kept in the history.</div>
+            <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason, e.g. confirmed by auditor email on 12-Nov" />
+          </div>}
           <div className="grid md:grid-cols-2 gap-3">
             <div><Label>Management reply</Label><Textarea disabled={!canEdit} rows={5} value={f.managementReply} onChange={e => set("managementReply", e.target.value)} placeholder="How the control works, where the evidence is, and any gap with its fix date" /></div>
-            <div><Label>Auditor remarks</Label><Textarea disabled={!canEdit} rows={5} value={f.auditorRemarks} onChange={e => set("auditorRemarks", e.target.value)} placeholder={"Walkthrough:\n\nEvidence:"} /></div>
+            <div><Label>Auditor remarks{!record && <span className="text-[11px] font-normal text-muted-foreground"> — written by the auditor</span>}</Label><Textarea disabled={!canEdit || !record} rows={5} value={f.auditorRemarks} onChange={e => set("auditorRemarks", e.target.value)} placeholder={"Walkthrough:\n\nEvidence:"} /></div>
           </div>
-          <div><div className="text-sm font-semibold mb-1.5 flex items-center gap-1.5"><Paperclip className="w-4 h-4" />Evidence ({it.documents.length})</div>
+          <div><div className="text-sm font-semibold mb-1.5 flex items-center gap-1.5"><Paperclip className="w-4 h-4" />Evidence ({it.documents.length}){it.sharedAt && <span className="text-[11px] font-normal text-muted-foreground">— the auditor sees the current version of each file</span>}</div>
             <EvidencePanel target={{ itemId: it.id }} companyId={audit.companyId} docs={it.documents} canEdit={canEdit} defaultCategory={it.kind === "policy" ? (it.docType === "Procedure" ? "Procedure" : "Policy") : "Evidence"} onChange={() => { refetch(); qc.invalidateQueries({ queryKey: ["compliance-items"] }); }} /></div>
           <div>
             <div className="flex items-center justify-between mb-1.5"><div className="text-sm font-semibold flex items-center gap-1.5"><MessageSquare className="w-4 h-4" />Comments</div>
               <label className="text-xs flex items-center gap-1.5 text-muted-foreground"><input type="checkbox" checked={history} onChange={e => setHistory(e.target.checked)} /><History className="w-3.5 h-3.5" />Show history</label></div>
             <div className="space-y-2">
-              {comments.map((c: any) => <div key={c.id} className={cn("rounded-[10px] px-3 py-2 text-sm", c.system ? "bg-muted/40 text-muted-foreground text-xs" : c.isExternal ? "bg-amber-50 dark:bg-amber-500/10 border border-amber-500/30" : "bg-accent/50")}>
-                <div className="text-[11px] text-muted-foreground mb-0.5">{c.author}{c.isExternal ? " (auditor)" : ""} · {new Date(c.createdAt).toLocaleString("en-IN")}</div><div className="whitespace-pre-line">{c.body}</div></div>)}
+              {comments.map((c: any) => <div key={c.id} className={cn("rounded-[10px] px-3 py-2 text-sm", c.system && !c.isExternal ? "bg-muted/40 text-muted-foreground text-xs" : c.isExternal ? "bg-amber-50 dark:bg-amber-500/10 border border-amber-500/30" : c.visibility === "auditor" ? "bg-blue-50 dark:bg-blue-500/10 border border-blue-500/30" : "bg-accent/50")}>
+                <div className="text-[11px] text-muted-foreground mb-0.5">{c.author}{c.isExternal ? " (auditor)" : c.visibility === "auditor" ? " → to auditor" : c.system ? "" : " · internal note"} · {new Date(c.createdAt).toLocaleString("en-IN")}</div><div className="whitespace-pre-line">{c.body}</div></div>)}
               {!comments.length && <div className="text-xs text-muted-foreground">No comments yet.</div>}
-              {canEdit && <div className="flex gap-2"><Textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a comment…" /><Button type="button" size="sm" className="self-end gap-1.5" disabled={!comment.trim()} onClick={post}><Send className="w-3.5 h-3.5" />Post</Button></div>}
+              {canEdit && <div className="space-y-1.5"><div className="flex gap-2"><Textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder={toAuditor ? "Reply to the auditor…" : "Internal note (not visible to the auditor)…"} /><Button type="button" size="sm" className="self-end gap-1.5" disabled={!comment.trim()} onClick={post}><Send className="w-3.5 h-3.5" />Post</Button></div>
+                <label className={cn("text-xs flex items-center gap-1.5", !it.sharedAt && "opacity-50")}><input type="checkbox" disabled={!it.sharedAt} checked={toAuditor} onChange={e => setToAuditor(e.target.checked)} />Send to the auditor{!it.sharedAt && " (share the checkpoint first)"}</label></div>}
             </div>
           </div>
         </div>}
-        <div className="flex items-center gap-2 pt-3 border-t">
+        <div className="flex items-center gap-2 pt-3 border-t flex-wrap">
           {canEdit && <Button onClick={() => save()} disabled={busy || !dirty} className="gap-1.5">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save</Button>}
+          {canEdit && it && (it.sharedAt ? <Button variant="ghost" disabled={busy} onClick={() => share(false)} className="gap-1.5"><EyeOff className="w-4 h-4" />Withdraw</Button>
+            : <Button variant="outline" disabled={busy || dirty || !["Submitted", ...AUDITOR_STATUSES].includes(it.status)} title={dirty ? "Save first" : it.status === "Submitted" ? "Reviewed — make it visible to the auditor" : "Set the status to Submitted first"} onClick={() => share(true)} className="gap-1.5"><Share2 className="w-4 h-4" />Share with auditor</Button>)}
           <Button variant="outline" onClick={onClose} disabled={busy}>Close</Button>
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
             {pos >= 0 && <span>{pos + 1} of {order.length}</span>}
@@ -264,7 +301,7 @@ function Schedules({ audit, canEdit }: { audit: any; canEdit: boolean }) {
         return (
           <button key={g.id} type="button" onClick={() => setOpen(g)} className="w-full text-left flex items-center gap-3 px-3 py-2.5 hover:bg-accent/40">
             <Table2 className="w-4 h-4 text-primary shrink-0" />
-            <div className="flex-1 min-w-0"><div className="font-medium text-sm">{g.sheet}</div><div className="text-xs text-muted-foreground">{g.grid.length} rows · {filled} cell(s) filled · {g.ownerName || "no owner"}{g.evidenceCount ? ` · ${g.evidenceCount} file(s)` : ""}</div></div>
+            <div className="flex-1 min-w-0"><div className="font-medium text-sm">{g.sheet}</div><div className="text-xs text-muted-foreground">{g.grid.length} rows · {filled} cell(s) filled · {g.ownerName || "no owner"}{g.evidenceCount ? ` · ${g.evidenceCount} file(s)` : ""}{g.sharedAt ? " · shared with auditor" : ""}</div></div>
             <StatusBadge s={g.status} />
           </button>); })}</div>
       {open && <GridDialog g={open} audit={audit} canEdit={canEdit} onClose={() => setOpen(null)} />}
@@ -275,13 +312,13 @@ function Schedules({ audit, canEdit }: { audit: any; canEdit: boolean }) {
 function GridDialog({ g, audit, canEdit, onClose }: { g: any; audit: any; canEdit: boolean; onClose: () => void }) {
   const qc = useQueryClient(); const { toast } = useToast();
   const [grid, setGrid] = useState<string[][]>(() => g.grid.map((r: string[]) => [...r]));
-  const [status, setStatus] = useState(g.status); const [owner, setOwner] = useState<number | null>(g.ownerUserId); const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(g.status); const [owner, setOwner] = useState<number | null>(g.ownerUserId); const [busy, setBusy] = useState(false); const [shared, setShared] = useState(!!g.sharedAt);
   const { data: docs = [], refetch } = useQuery<any[]>({ queryKey: ["compliance-grid-docs", g.id], queryFn: () => apiFetch(`/compliance-grids/${g.id}/documents`) });
   const locked = (r: number, c: number) => !!g.templateGrid[r]?.[c];
   const width = Math.max(...grid.map(r => r.length), 1);
   async function save() {
     setBusy(true);
-    try { await apiFetch(`/compliance-grids/${g.id}`, { method: "PATCH", body: JSON.stringify({ grid, status, ownerUserId: owner }) }); qc.invalidateQueries({ queryKey: ["compliance-grids"] }); qc.invalidateQueries({ queryKey: ["compliance-audit"] }); toast({ title: `${g.sheet} saved` }); onClose(); }
+    try { await apiFetch(`/compliance-grids/${g.id}`, { method: "PATCH", body: JSON.stringify({ grid, status, ownerUserId: owner }) }); if (shared !== !!g.sharedAt) await apiFetch(`/compliance-grids/${g.id}/share`, { method: "POST", body: JSON.stringify({ shared }) }); qc.invalidateQueries({ queryKey: ["compliance-grids"] }); qc.invalidateQueries({ queryKey: ["compliance-audit"] }); toast({ title: `${g.sheet} saved` }); onClose(); }
     catch (e: any) { toast({ title: "Could not save", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
   }
   return (
@@ -290,6 +327,7 @@ function GridDialog({ g, audit, canEdit, onClose }: { g: any; audit: any; canEdi
         <DialogHeader><DialogTitle>{g.sheet}</DialogTitle><DialogDescription>Grey cells come from the auditor's template and cannot be changed. Fill the white cells; add rows for more entries.</DialogDescription></DialogHeader>
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-52"><Label className="text-[11px]">Owner</Label><PersonPicker disabled={!canEdit} value={owner} onChange={setOwner} /></div>
+          {canEdit && <label className="flex items-center gap-2 text-sm self-center pb-1"><input type="checkbox" checked={shared} onChange={e => setShared(e.target.checked)} /><Share2 className="w-4 h-4 text-emerald-600" />Shared with the auditor (read-only)</label>}
           <div><Label className="text-[11px]">Status</Label><Select disabled={!canEdit} value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
         </div>
         <div className="flex-1 overflow-auto rounded-[10px] border">

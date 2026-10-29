@@ -187,6 +187,20 @@ function Companies() {
   );
 }
 
+const BUSINESS_LINES = ["Stock Broking", "Depository Participant", "Mutual Fund / AMC", "AIF", "PMS", "Investment Banking", "Research Analyst", "Investment Adviser", "NBFC", "Insurance Broking"];
+const REGULATORS = ["SEBI", "RBI", "IRDAI", "PFRDA", "NSE", "BSE", "MCX", "NSDL", "CDSL", "AMFI"];
+/** Multi-pick as toggle chips; stored as comma-separated text. Values not in the list are kept as extra chips. */
+function Chips({ options, value, onChange }: { options: string[]; value?: string | null; onChange: (v: string | null) => void }) {
+  const cur = String(value ?? "").split(",").map(x => x.trim()).filter(Boolean);
+  const all = [...options, ...cur.filter(c => !options.includes(c))];
+  const toggle = (o: string) => { const n = cur.includes(o) ? cur.filter(x => x !== o) : [...cur, o]; onChange(n.length ? all.filter(x => n.includes(x)).join(", ") : null); };
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1">
+      {all.map(o => <button key={o} type="button" onClick={() => toggle(o)} className={cn("rounded-full border px-2.5 py-1 text-xs transition-colors", cur.includes(o) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent text-muted-foreground")}>{o}</button>)}
+    </div>
+  );
+}
+
 function CompanyDialog({ c, onClose }: { c: any; onClose: () => void }) {
   const qc = useQueryClient(); const { toast } = useToast();
   const [f, setF] = useState<any>({ ...c }); const [busy, setBusy] = useState(false);
@@ -206,9 +220,9 @@ function CompanyDialog({ c, onClose }: { c: any; onClose: () => void }) {
         <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-2 gap-3">
           <div className="col-span-2"><Label>Legal name *</Label><Input value={f.name} onChange={e => set("name", e.target.value)} /></div>
           <div><Label>Short name</Label><Input value={f.shortName ?? ""} onChange={e => set("shortName", e.target.value)} /></div>
-          <div><Label>Business line</Label><Input value={f.businessLine ?? ""} onChange={e => set("businessLine", e.target.value)} placeholder="Mutual Fund / AMC, Broking, AIF …" /></div>
-          <div><Label>Regulator</Label><Input value={f.regulator ?? ""} onChange={e => set("regulator", e.target.value)} placeholder="SEBI" /></div>
-          <div><Label>Registration no.</Label><Input value={f.registrationNo ?? ""} onChange={e => set("registrationNo", e.target.value)} /></div>
+          <div><Label>Registration no.</Label><Input value={f.registrationNo ?? ""} onChange={e => set("registrationNo", e.target.value)} placeholder="e.g. SEBI / CIN number" /></div>
+          <div className="col-span-2"><Label>Business lines</Label><Chips options={BUSINESS_LINES} value={f.businessLine} onChange={v => set("businessLine", v)} /></div>
+          <div className="col-span-2"><Label>Regulators</Label><Chips options={REGULATORS} value={f.regulator} onChange={v => set("regulator", v)} /></div>
           <div className="col-span-2"><Label>Address</Label><Textarea rows={2} value={f.address ?? ""} onChange={e => set("address", e.target.value)} /></div>
           {c.id && <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={!!f.isActive} onChange={e => set("isActive", e.target.checked)} />Active</label>}
         </div>

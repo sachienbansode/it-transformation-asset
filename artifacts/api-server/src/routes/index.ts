@@ -32,6 +32,7 @@ import dataArchiveRouter from "./data-archive";
 import itsmRouter from "./itsm";
 import itsmSetupRouter from "./itsm-setup";
 import complianceRouter from "./compliance";
+import { authRouter as auditorAuthRouter, router as auditorRouter, auditorFence } from "./auditor";
 import { seedAssetAndItsmModules, seedExtendedItsmData } from "./seed-modules";
 import docsExportRouter from "./docs-export";
 import { requireAuth, requireAdmin } from "./auth";
@@ -43,6 +44,7 @@ const router: IRouter = Router();
 router.use(centralAuthRouter);
 router.use(centralSessionGuard);   // re-validates Ashika Portal sessions (live role / disabled user)
 router.use(authRouter);
+router.use(auditorAuthRouter);   // auditor portal sign-in (public)
 router.use(healthRouter);
 
 // Seed on startup (idempotent)
@@ -58,6 +60,9 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/business-units" && req.method === "GET") return next();
   requireAuth(req, res, next);
 });
+
+// Auditor sessions (external auditors) reach only the auditor portal API
+router.use(auditorFence);
 
 // IT Asset Management: module-level RBAC (read / write per module; local roles or Ashika Portal permissions)
 router.use(assetRbac);
@@ -121,6 +126,7 @@ router.use(dataArchiveRouter);
 router.use(assetsRouter);
 router.use(itsmSetupRouter);
 router.use(complianceRouter);
+router.use(auditorRouter);
 router.use(itsmRouter);
 router.use(docsExportRouter);
 

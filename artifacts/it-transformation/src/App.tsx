@@ -51,12 +51,14 @@ import ItsmSetup from "@/pages/itsm-setup";
 import Compliance from "@/pages/compliance";
 import ComplianceAudit from "@/pages/compliance-audit";
 import ComplianceLibrary from "@/pages/compliance-library";
+import { AuditorLogin, AuditorSetup, AuditorApp } from "@/pages/auditor-portal";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Remember where the user was going (e.g. a scanned asset QR link) so login can send them back there
 function LoginRedirect() {
   const [location] = useLocation();
   try { if (location && location !== "/" && location !== "/login") sessionStorage.setItem("ashika-after-login", location); } catch { /* ignore */ }
+  if (location.startsWith("/auditor")) return <Redirect to="/auditor/login" />;
   return <Redirect to="/login" />;
 }
 
@@ -129,9 +131,13 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/auditor/login">{user?.auditor ? <Redirect to="/auditor" /> : <AuditorLogin />}</Route>
+      <Route path="/auditor/setup" component={AuditorSetup} />
       <Route>
         {!user ? (
           <LoginRedirect />
+        ) : user.auditor ? (
+          <AuditorApp />
         ) : (
           <Layout>
             <Switch>

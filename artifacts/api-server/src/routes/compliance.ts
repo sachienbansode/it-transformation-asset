@@ -6,6 +6,11 @@ import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { readObject } from "./storage";
 import { parseWorkbook, exportWorkbook, STATUSES, CLOSED } from "../lib/compliance-template";
+import { getAccess } from "../lib/rbac";
+import crypto from "crypto";
+
+export const TEAM_STATUSES = ["Pending", "In Progress", "Submitted"];
+export const AUDITOR_STATUSES = ["Under Review", "Partially Closed", "Closed", "Closed-Obs", "Not Applicable"];
 
 /*
  * Audit & Compliance (module key "compliance", enforced by lib/rbac.ts: GET = read, writes = write).
@@ -201,17 +206,25 @@ router.get("/compliance-items/:id", wrap(async (req, res) => {
   res.json({ ...camel(i), documents, comments, siblings });
 }));
 const itemPatch = z.object({ ownerUserId: z.coerce.number().int().positive().nullable().optional(), spocUserId: z.coerce.number().int().positive().nullable().optional(), targetDate: dateS,
-  managementReply: txt(), auditorRemarks: txt(), status: z.enum(STATUSES as [string, ...string[]]).optional(), lastReviewDate: dateS });
-async function addComment(itemId: number, req: Request, body: string, system = false) {
-  await q(sql`INSERT INTO cmp_comments (item_id, user_id, author, system, body) VALUES (${itemId}, ${uid(req) ?? null}, ${await who(req)}, ${system}, ${body})`);
+  managementReply: txt(), auditorRemarks: txt(), status: z.enum(STATUSES as [string, ...string[]]).optional(), lastReviewDate: dateS,
+  overrideReason: z.string().trim().max(1000).optional() });
+async function addComment(itemId: number, req: Request, body: string, system = false, visibility: "internal" | "auditor" = "internal") {
+  await q(sql`INSERT INTO cmp_comments (item_id, user_id, author, system, body, visibility) VALUES (${itemId}, ${uid(req) ?? null}, ${await who(req)}, ${system}, ${body}, ${visibility})`);
 }
 async function userName(uId: number | null | undefined) { if (!uId) return "—"; const [u] = await q(sql`SELECT name FROM users WHERE id = ${uId}`); return u?.name ?? `#${uId}`; }
 async function checkUser(uId: number | null | undefined) { if (uId && !(await q(sql`SELECT 1 FROM users WHERE id = ${uId} AND is_active`)).length) throw new Bad("Choose an active user"); }
 async function applyItemPatch(req: Request, iid: number, v: z.infer<typeof itemPatch>) {
   const [o] = await q(sql`SELECT * FROM cmp_items WHERE id = ${iid}`); if (!o) throw Object.assign(new Bad("Checkpoint not found"), { status: 404 });
   await checkUser(v.ownerUserId); await checkUser(v.spocUserId);
-  const m: any = { ...camel(o) }; for (const [k, val] of Object.entries(v)) if (val !== undefined) m[k] = val;
+  const m: any = { ...camel(o) }; for (const [k, val] of Object.entries(v)) if (val !== undefined && k !== "overrideReason") m[k] = val;
+  // Auditor decisions belong to the auditor. The team may record one on the auditor's behalf (e.g. given by email) with a reason.
+  const reason = v.overrideReason?.trim();
+  const statusChange = m.status !== o.status, remarksChange = v.auditorRemarks !== undefined && (v.auditorRemarks ?? null) !== (o.auditor_remarks ?? null);
+  if (statusChange && (AUDITOR_STATUSES.includes(m.status) || AUDITOR_STATUSES.includes(o.status)) && (!reason || reason.length < 5))
+    throw new Bad(`"${AUDITOR_STATUSES.includes(m.status) ? m.status : o.status}" is the auditor's decision. To record it on the auditor's behalf, give the reason (e.g. "confirmed by auditor email 12-Nov").`);
+  if (remarksChange && (!reason || reason.length < 5)) throw new Bad("Auditor remarks are written by the auditor. To record them on the auditor's behalf, give the reason.");
   const by = await who(req);
+  if (statusChange && m.status === "Submitted") await q(sql`UPDATE cmp_items SET submitted_by_user_id = ${uid(req) ?? null}, submitted_at = now() WHERE id = ${iid}`);
   await q(sql`UPDATE cmp_items SET owner_user_id = ${m.ownerUserId ?? null}, spoc_user_id = ${m.spocUserId ?? null}, target_date = ${m.targetDate ?? null}, management_reply = ${m.managementReply ?? null},
     auditor_remarks = ${m.auditorRemarks ?? null}, status = ${m.status}, last_review_date = ${m.lastReviewDate ?? null}, updated_by = ${by}, updated_at = now() WHERE id = ${iid}`);
   const notes: string[] = [];
@@ -222,7 +235,7 @@ async function applyItemPatch(req: Request, iid: number, v: z.infer<typeof itemP
   if ((m.targetDate ?? null) !== oldT && v.targetDate !== undefined) notes.push(`Target date ${oldT ?? "—"} → ${m.targetDate ?? "—"}`);
   if (v.managementReply !== undefined && (v.managementReply ?? null) !== (o.management_reply ?? null)) notes.push("Management reply updated");
   if (v.auditorRemarks !== undefined && (v.auditorRemarks ?? null) !== (o.auditor_remarks ?? null)) notes.push("Auditor remarks updated");
-  if (notes.length) await addComment(iid, req, notes.join(" · "), true);
+  if (notes.length) await addComment(iid, req, notes.join(" · ") + (reason && (statusChange || remarksChange) ? ` — recorded for the auditor: ${reason}` : ""), true);
   const assigned = [m.ownerUserId !== o.owner_user_id ? m.ownerUserId : null, m.spocUserId !== o.spoc_user_id ? m.spocUserId : null].filter(Boolean) as number[];
   return { o, m, assigned, notes };
 }
@@ -234,8 +247,15 @@ router.patch("/compliance-items/:id", wrap(async (req, res) => {
   res.json(camel(i));
 }));
 router.post("/compliance-items/bulk", wrap(async (req, res) => {
-  const v = parse(z.object({ ids: z.array(z.coerce.number().int().positive()).min(1).max(1000), set: itemPatch.pick({ ownerUserId: true, spocUserId: true, targetDate: true, status: true }) }), req.body);
-  if (!Object.values(v.set).some(x => x !== undefined)) throw new Bad("Nothing to change");
+  const v = parse(z.object({ ids: z.array(z.coerce.number().int().positive()).min(1).max(1000), set: itemPatch.pick({ ownerUserId: true, spocUserId: true, targetDate: true, status: true, overrideReason: true }) }), req.body);
+  if (!Object.entries(v.set).some(([k, x]) => x !== undefined && k !== "overrideReason")) throw new Bad("Nothing to change");
+  if (v.set.status) {
+    const reason = (v.set.overrideReason || "").trim();
+    const cur = await q(sql`SELECT status FROM cmp_items WHERE id IN (${sql.join(v.ids.map(x => sql`${x}`), sql`, `)})`);
+    if (cur.length !== new Set(v.ids).size) throw new Bad("Some checkpoints were not found");
+    if (reason.length < 5 && (AUDITOR_STATUSES.includes(v.set.status) || cur.some(c => AUDITOR_STATUSES.includes(c.status) && c.status !== v.set.status)))
+      throw new Bad(`Auditor decisions (${AUDITOR_STATUSES.join(", ")}) can only be recorded with a reason`);
+  }
   const perUser = new Map<number, number[]>();
   for (const iid of v.ids) { const r = await applyItemPatch(req, iid, v.set); for (const u of r.assigned) perUser.set(u, [...(perUser.get(u) || []), iid]); }
   for (const [u, ids] of perUser) void emailAssignment([u], ids);
@@ -245,9 +265,10 @@ router.post("/compliance-items/bulk", wrap(async (req, res) => {
 }));
 router.post("/compliance-items/:id/comments", wrap(async (req, res) => {
   const iid = id(req.params.id);
-  const v = parse(z.object({ body: z.string().trim().min(1, "Write a comment").max(4000) }), req.body);
-  if (!(await q(sql`SELECT 1 FROM cmp_items WHERE id = ${iid}`)).length) return fail(res, 404, "Checkpoint not found");
-  await addComment(iid, req, v.body);
+  const v = parse(z.object({ body: z.string().trim().min(1, "Write a comment").max(4000), toAuditor: z.boolean().optional() }), req.body);
+  const [it] = await q(sql`SELECT shared_at FROM cmp_items WHERE id = ${iid}`); if (!it) return fail(res, 404, "Checkpoint not found");
+  if (v.toAuditor && !it.shared_at) throw new Bad("Share the checkpoint with the auditor first");
+  await addComment(iid, req, v.body, false, v.toAuditor ? "auditor" : "internal");
   res.status(201).json({ ok: true });
 }));
 
@@ -385,6 +406,15 @@ router.delete("/compliance-grids/:id/documents/:docId", wrap(async (req, res) =>
   res.json({ ok: true });
 }));
 
+/** Send an evidence file. Active content (HTML, SVG, XML, JS) is never rendered in the app's origin: shown as plain text. */
+export function sendFile(res: Response, buf: Buffer, type: string, name: string, download: boolean) {
+  const risky = /html|svg|xml|javascript|ecmascript/i.test(type || "") || /\.(html?|svg|xml|xhtml|js|mjs)$/i.test(name || "");
+  res.setHeader("Content-Type", risky && !download ? "text/plain; charset=utf-8" : type || "application/octet-stream");
+  res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${String(name).replace(/["\r\n]/g, "")}"`);
+  res.setHeader("Cache-Control", "private, no-store"); res.setHeader("X-Content-Type-Options", "nosniff");
+  res.send(buf);
+}
+
 /* Files: served only here, every view / download logged */
 router.get("/compliance-files/:id", wrap(async (req, res) => {
   const fid = id(req.params.id);
@@ -393,10 +423,117 @@ router.get("/compliance-files/:id", wrap(async (req, res) => {
   const obj = await readObject(f.object_path).catch(() => null); if (!obj) return fail(res, 404, "File is missing from storage");
   const download = req.query.download === "1";
   await q(sql`INSERT INTO cmp_access_log (user_id, user_name, action, document_id, file_id, ip) VALUES (${uid(req) ?? null}, ${await who(req)}, ${download ? "download" : "view"}, ${f.document_id}, ${fid}, ${req.ip ?? null})`);
-  res.setHeader("Content-Type", f.content_type || obj.contentType);
-  res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${String(f.file_name).replace(/["\r\n]/g, "")}"`);
-  res.setHeader("Cache-Control", "private, no-store");
-  res.send(obj.buffer);
+  sendFile(res, obj.buffer, f.content_type || obj.contentType, f.file_name, download);
+}));
+
+
+/* ─── Internal review → share with the auditor ──────────────────────────── */
+// An item is visible to the auditor only once shared. Sharing needs status Submitted (or an auditor status) and,
+// unless you are a base-role Admin, someone other than the person who submitted it (maker-checker).
+router.post("/compliance-items/share", wrap(async (req, res) => {
+  const v = parse(z.object({ ids: z.array(z.coerce.number().int().positive()).min(1).max(1000), shared: z.boolean() }), req.body);
+  const a = await getAccess(req); const me = uid(req); const by = await who(req);
+  const rows = await q(sql`SELECT id, ref_no, seq, status, shared_at, submitted_by_user_id FROM cmp_items WHERE id IN (${sql.join(v.ids.map(x => sql`${x}`), sql`, `)})`);
+  const skipped: { id: number; ref: string; reason: string }[] = []; let done = 0;
+  for (const r of rows) {
+    const ref = `${r.ref_no ?? ""}${r.seq > 1 ? "." + r.seq : ""}`;
+    if (v.shared) {
+      if (r.shared_at) continue;
+      if (!["Submitted", ...AUDITOR_STATUSES].includes(r.status)) { skipped.push({ id: r.id, ref, reason: `status is ${r.status} — set it to Submitted first` }); continue; }
+      if (r.submitted_by_user_id && r.submitted_by_user_id === me && !a?.isAdmin) { skipped.push({ id: r.id, ref, reason: "you submitted it — another reviewer must share it" }); continue; }
+      await q(sql`UPDATE cmp_items SET shared_at = now(), shared_by = ${by} WHERE id = ${r.id}`);
+      await addComment(r.id, req, "Reviewed and shared with the auditor", true);
+    } else {
+      if (!r.shared_at) continue;
+      await q(sql`UPDATE cmp_items SET shared_at = NULL, shared_by = NULL WHERE id = ${r.id}`);
+      await addComment(r.id, req, "Withdrawn from the auditor (unshared)", true);
+    }
+    done++;
+  }
+  if (done) await audit({ entityType: "compliance_item", action: v.shared ? "share" : "unshare", performedBy: by, summary: `${done} checkpoint(s) ${v.shared ? "shared with" : "withdrawn from"} the auditor` });
+  res.json({ done, skipped });
+}));
+router.post("/compliance-grids/:id/share", wrap(async (req, res) => {
+  const gid = id(req.params.id); const v = parse(z.object({ shared: z.boolean() }), req.body); const by = await who(req);
+  const [g] = await q(sql`SELECT * FROM cmp_grids WHERE id = ${gid}`); if (!g) return fail(res, 404, "Schedule not found");
+  await q(v.shared ? sql`UPDATE cmp_grids SET shared_at = now(), shared_by = ${by} WHERE id = ${gid}` : sql`UPDATE cmp_grids SET shared_at = NULL, shared_by = NULL WHERE id = ${gid}`);
+  await audit({ entityType: "compliance_grid", entityId: gid, action: v.shared ? "share" : "unshare", performedBy: by, summary: `Schedule ${g.sheet} ${v.shared ? "shared with" : "withdrawn from"} the auditor` });
+  res.json({ ok: true });
+}));
+
+/* ─── Auditor access (invite / revoke) ──────────────────────────────────── */
+const appUrl = () => { try { return process.env.APP_URL || (process.env.CENTRAL_SSO_REDIRECT_URI ? new URL(process.env.CENTRAL_SSO_REDIRECT_URI).origin : ""); } catch { return ""; } };
+export const sha256 = (t: string) => crypto.createHash("sha256").update(t).digest("hex");
+async function newSetupLink(userId: number) {
+  const token = crypto.randomBytes(32).toString("base64url");
+  await q(sql`UPDATE cmp_auditor_tokens SET used_at = now() WHERE user_id = ${userId} AND used_at IS NULL`);
+  await q(sql`INSERT INTO cmp_auditor_tokens (user_id, token_hash, expires_at) VALUES (${userId}, ${sha256(token)}, now() + interval '72 hours')`);
+  return `${appUrl()}/auditor/setup?token=${token}`;
+}
+async function emailInvite(to: string, name: string, audit: any, link: string, validUntil: string, isNew: boolean) {
+  const { sendDirect, htmlTable } = await import("../lib/mailer");
+  const html = `<p>Dear ${name},</p><p>You have been given read-only access to the evidence for the audit below in the IT Hub auditor portal. You can review the evidence, comment and record your review status for each checkpoint.</p>
+    ${htmlTable([["Audit", `${audit.auditNo} — ${audit.title}`], ["Company", audit.companyName], ["Access valid until", new Date(validUntil + "T00:00:00").toLocaleDateString("en-IN")]])}
+    <p>${isNew ? "Set your password using this link (valid for 72 hours):" : "Use this link to set or reset your password (valid for 72 hours):"}<br><a href="${link}">${link}</a></p>
+    <p>Each sign-in also needs a one-time code sent to this email address.</p><p>Regards,</p>`;
+  await sendDirect("compliance_auditor", [to], `Auditor access: ${audit.auditNo} — ${audit.companyName}`, html);
+}
+router.get("/compliance-audits/:id/auditors", wrap(async (req, res) => {
+  const aid = id(req.params.id);
+  res.json((await q(sql`SELECT x.*, u.name, u.email, u.is_active AS user_active, (u.password_hash IS NOT NULL) AS has_password,
+    (x.is_active AND u.is_active AND x.valid_from <= (now() AT TIME ZONE 'Asia/Kolkata')::date AND x.valid_until >= (now() AT TIME ZONE 'Asia/Kolkata')::date) AS live
+    FROM cmp_audit_access x JOIN users u ON u.id = x.user_id WHERE x.audit_id = ${aid} ORDER BY x.is_active DESC, u.name`)).map(camel));
+}));
+const accessSchema = z.object({ email: z.string().trim().toLowerCase().email(), name: z.string().trim().min(2).max(120), firm: txt(160), validUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), canDownload: z.boolean().optional() });
+router.post("/compliance-audits/:id/auditors", wrap(async (req, res) => {
+  const aid = id(req.params.id); const v = parse(accessSchema, req.body); const by = await who(req);
+  const au = await getAudit(aid); if (!au) return fail(res, 404, "Audit not found");
+  const todayIst = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  if (v.validUntil < todayIst) throw new Bad("Access end date is in the past");
+  let [u] = await q(sql`SELECT id, user_type, is_active, name, password_hash FROM users WHERE lower(email) = ${v.email}`);
+  if (u && u.user_type !== "external") throw new Bad(`${v.email} is an internal user — auditors must be external accounts`);
+  const isNew = !u;
+  if (!u) [u] = await q(sql`INSERT INTO users (email, name, user_type, role, is_active, status, department) VALUES (${v.email}, ${v.name}, 'external', 'user', true, 'active', ${v.firm ?? null}) RETURNING id, user_type, is_active, name, password_hash`);
+  else if (!u.is_active) await q(sql`UPDATE users SET is_active = true, status = 'active' WHERE id = ${u.id}`);
+  const [x] = await q(sql`INSERT INTO cmp_audit_access (audit_id, user_id, firm, can_download, valid_until, invited_by) VALUES (${aid}, ${u.id}, ${v.firm ?? null}, ${v.canDownload ?? false}, ${v.validUntil}, ${by})
+    ON CONFLICT (audit_id, user_id) DO UPDATE SET firm = EXCLUDED.firm, can_download = EXCLUDED.can_download, valid_until = EXCLUDED.valid_until, is_active = true, revoked_at = NULL, revoked_by = NULL RETURNING *`);
+  const link = await newSetupLink(u.id);
+  await emailInvite(v.email, v.name, au, link, v.validUntil, isNew || !u.password_hash);
+  await audit_({ aid, req, action: "invite", detail: `${v.email} until ${v.validUntil}${v.canDownload ? ", downloads allowed" : ", view only"}` });
+  await audit({ entityType: "compliance_audit", entityId: aid, action: "auditor_invite", performedBy: by, summary: `Auditor ${v.email} given access to ${au.auditNo} until ${v.validUntil}` });
+  res.status(201).json({ ...camel(x), setupLink: link });
+}));
+async function audit_(o: { aid: number | null; req: Request; action: string; detail?: string; documentId?: number | null; fileId?: number | null }) {
+  await q(sql`INSERT INTO cmp_access_log (user_id, user_name, action, audit_id, document_id, file_id, detail, ip) VALUES (${uid(o.req) ?? null}, ${await who(o.req)}, ${o.action}, ${o.aid}, ${o.documentId ?? null}, ${o.fileId ?? null}, ${o.detail ?? null}, ${o.req.ip ?? null})`);
+}
+router.patch("/compliance-auditor-access/:id", wrap(async (req, res) => {
+  const xid = id(req.params.id); const by = await who(req);
+  const v = parse(z.object({ validUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), canDownload: z.boolean().optional(), isActive: z.boolean().optional(), firm: txt(160) }), req.body);
+  const [o] = await q(sql`SELECT x.*, u.email FROM cmp_audit_access x JOIN users u ON u.id = x.user_id WHERE x.id = ${xid}`); if (!o) return fail(res, 404, "Access not found");
+  const until = v.validUntil ?? new Date(o.valid_until).toISOString().slice(0, 10);
+  const active = v.isActive ?? o.is_active;
+  await q(sql`UPDATE cmp_audit_access SET valid_until = ${until}, can_download = ${v.canDownload ?? o.can_download}, firm = ${v.firm === undefined ? o.firm : v.firm}, is_active = ${active},
+    revoked_at = ${active ? null : sql`coalesce(revoked_at, now())`}, revoked_by = ${active ? null : by} WHERE id = ${xid}`);
+  const what = [v.isActive === false ? "revoked" : v.isActive === true ? "restored" : null, v.validUntil ? `until ${v.validUntil}` : null, v.canDownload !== undefined ? (v.canDownload ? "downloads allowed" : "view only") : null].filter(Boolean).join(", ");
+  await audit_({ aid: o.audit_id, req, action: v.isActive === false ? "revoke" : "access_change", detail: `${o.email}: ${what}` });
+  await audit({ entityType: "compliance_audit", entityId: o.audit_id, action: "auditor_access", performedBy: by, summary: `Auditor ${o.email}: ${what}` });
+  res.json({ ok: true });
+}));
+router.post("/compliance-auditor-access/:id/resend", wrap(async (req, res) => {
+  const xid = id(req.params.id);
+  const [o] = await q(sql`SELECT x.*, u.email, u.name, u.password_hash FROM cmp_audit_access x JOIN users u ON u.id = x.user_id WHERE x.id = ${xid}`); if (!o) return fail(res, 404, "Access not found");
+  if (!o.is_active) throw new Bad("Access is revoked — restore it first");
+  const audit = await getAudit(o.audit_id);
+  const link = await newSetupLink(o.user_id);
+  await emailInvite(o.email, o.name, audit, link, new Date(o.valid_until).toISOString().slice(0, 10), !o.password_hash);
+  await audit_({ aid: o.audit_id, req, action: "resend_invite", detail: o.email });
+  res.json({ setupLink: link });
+}));
+router.get("/compliance-audits/:id/access-log", wrap(async (req, res) => {
+  const aid = id(req.params.id);
+  res.json((await q(sql`SELECT l.*, d.title AS document_title, u.user_type FROM cmp_access_log l LEFT JOIN cmp_documents d ON d.id = l.document_id LEFT JOIN users u ON u.id = l.user_id
+    WHERE l.audit_id = ${aid} OR (l.audit_id IS NULL AND l.document_id IN (SELECT document_id FROM cmp_item_documents x JOIN cmp_items i ON i.id = x.item_id WHERE i.audit_id = ${aid}))
+    ORDER BY l.at DESC LIMIT 500`)).map(camel));
 }));
 
 /* ─── Export (auditor's workbook layout) ─────────────────────────────────── */
