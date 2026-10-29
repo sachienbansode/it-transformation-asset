@@ -6,6 +6,8 @@ import { Readable } from "stream";
 import { z } from "zod/v4";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { ObjectPermission } from "../lib/objectAcl";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
 
 const RequestUploadUrlBody = z.object({
   name: z.string(),
@@ -133,6 +135,9 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
     const objectPath = `/objects/${wildcardPath}`;
+    // Audit evidence is served only by /compliance-files (access-checked and logged)
+    const guarded: any = await db.execute(sql`SELECT 1 FROM cmp_document_files WHERE object_path = ${objectPath} UNION ALL SELECT 1 FROM cmp_templates WHERE source_object = ${objectPath} LIMIT 1`).catch(() => ({ rows: [] }));
+    if ((guarded.rows ?? guarded).length) { res.status(403).json({ error: "Open this file from Audit & Compliance" }); return; }
     if (DRIVER === "local") {
       const id = wildcardPath.split("/").pop() || "";
       const file = path.join(UPLOAD_DIR, id), metaFile = path.join(UPLOAD_DIR, `${id}.json`);

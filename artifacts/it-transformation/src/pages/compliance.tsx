@@ -280,7 +280,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
               <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /><span>{res.checkpoints} checkpoints in {res.areas.length} areas · {res.policies} policy / procedure lines · {res.grids.length} schedules ({res.grids.join(", ")}){res.skipped.length ? ` · skipped: ${res.skipped.join(", ")}` : ""}</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2"><Label>Template name *</Label><Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
+              <div className="col-span-2"><Label>Template name *</Label><Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. SEBI MF System Audit" />{f.name.trim().length < 3 && <div className="text-[11px] text-amber-600 mt-0.5">At least 3 characters</div>}</div>
               <div><Label>Framework</Label><Input value={f.framework} onChange={e => setF({ ...f, framework: e.target.value })} placeholder="e.g. SEBI MF System Audit" /></div>
               <div><Label>Version</Label><Input value={f.version} onChange={e => setF({ ...f, version: e.target.value })} placeholder="e.g. 2026" /></div>
               <div className="col-span-2"><Label>Description</Label><Textarea rows={2} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>

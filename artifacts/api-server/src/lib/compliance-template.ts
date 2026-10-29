@@ -32,6 +32,8 @@ export function parseWorkbook(buf: Buffer) {
   let order = 0;
   wb.SheetNames.forEach((name, si) => {
     const ws = wb.Sheets[name];
+    // a text cell typed starting with "=" or "=-" becomes a broken formula (#NAME? in Excel) — keep its text
+    for (const k of Object.keys(ws)) { const c: any = (ws as any)[k]; if (k[0] !== "!" && c && c.t === "e" && c.f) { c.t = "s"; c.v = c.w = String(c.f).replace(/^=+\s*/, ""); delete c.f; } }
     const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false, blankrows: true });
     if (/^(index|summary|cover)$/i.test(name.trim())) { skipped.push(name); return; }
     const ch = findHeader(aoa, c => c.some(x => x === "audit checklist" || x === "checkpoint" || x === "control"));

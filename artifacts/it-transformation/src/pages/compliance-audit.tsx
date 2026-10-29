@@ -183,13 +183,13 @@ function ItemDialog({ itemId, audit, canEdit, order, onNav, onClose }: { itemId:
   const { toast } = useToast(); const qc = useQueryClient();
   const { data: it, refetch } = useQuery<any>({ queryKey: ["compliance-item", itemId], queryFn: () => apiFetch(`/compliance-items/${itemId}`) });
   const [f, setF] = useState<any>(null); const [busy, setBusy] = useState(false); const [comment, setComment] = useState(""); const [history, setHistory] = useState(false);
-  useEffect(() => { if (it) setF({ ownerUserId: it.ownerUserId, spocUserId: it.spocUserId, targetDate: d10(it.targetDate), status: it.status, managementReply: it.managementReply ?? "", auditorRemarks: it.auditorRemarks ?? "", lastReviewDate: d10(it.lastReviewDate) }); }, [it]);
+  useEffect(() => { if (it && it.id === itemId && f?.__id !== itemId) setF({ __id: itemId, ownerUserId: it.ownerUserId, spocUserId: it.spocUserId, targetDate: d10(it.targetDate), status: it.status, managementReply: it.managementReply ?? "", auditorRemarks: it.auditorRemarks ?? "", lastReviewDate: d10(it.lastReviewDate) }); }, [it, itemId]); // only on open / navigation — keeps unsaved edits when evidence or comments refresh
   const dirty = it && f && (f.ownerUserId !== it.ownerUserId || f.spocUserId !== it.spocUserId || f.targetDate !== d10(it.targetDate) || f.status !== it.status || f.managementReply !== (it.managementReply ?? "") || f.auditorRemarks !== (it.auditorRemarks ?? "") || f.lastReviewDate !== d10(it.lastReviewDate));
   const pos = order.indexOf(itemId);
   async function save(next?: number) {
     if (dirty) {
       setBusy(true);
-      try { await apiFetch(`/compliance-items/${itemId}`, { method: "PATCH", body: JSON.stringify({ ...f, targetDate: f.targetDate || null, lastReviewDate: f.lastReviewDate || null, managementReply: f.managementReply || null, auditorRemarks: f.auditorRemarks || null }) }); await refetch(); toast({ title: `${refOf(it)} saved` }); qc.invalidateQueries({ queryKey: ["compliance-items"] }); }
+      try { await apiFetch(`/compliance-items/${itemId}`, { method: "PATCH", body: JSON.stringify({ ...f, __id: undefined, targetDate: f.targetDate || null, lastReviewDate: f.lastReviewDate || null, managementReply: f.managementReply || null, auditorRemarks: f.auditorRemarks || null }) }); await refetch(); toast({ title: `${refOf(it)} saved` }); qc.invalidateQueries({ queryKey: ["compliance-items"] }); }
       catch (e: any) { toast({ title: "Could not save", description: e.message, variant: "destructive" }); setBusy(false); return; }
       setBusy(false);
     }
