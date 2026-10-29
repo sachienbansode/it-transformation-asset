@@ -182,4 +182,18 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   }
 });
 
+/** Read a stored object (used by modules that serve files through their own access checks, e.g. Audit & Compliance). */
+export async function readObject(objectPath: string): Promise<{ buffer: Buffer; contentType: string; name: string | null }> {
+  const id = String(objectPath).split("/").pop() || "";
+  if (DRIVER === "local") {
+    const file = path.join(UPLOAD_DIR, id), metaFile = path.join(UPLOAD_DIR, `${id}.json`);
+    if (!ID_RE.test(id) || !fs.existsSync(file)) throw new ObjectNotFoundError();
+    const meta = fs.existsSync(metaFile) ? JSON.parse(fs.readFileSync(metaFile, "utf8")) : {};
+    return { buffer: fs.readFileSync(file), contentType: meta.contentType || "application/octet-stream", name: meta.name || null };
+  }
+  const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+  const r = await objectStorageService.downloadObject(objectFile);
+  return { buffer: Buffer.from(await r.arrayBuffer()), contentType: r.headers.get("content-type") || "application/octet-stream", name: null };
+}
+
 export default router;

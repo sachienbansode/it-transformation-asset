@@ -42,6 +42,7 @@ export const can = (a: Access, module: string, level: "read" | "write") => a.isA
 /* Path → module. First match wins; null = any signed-in user (still subject to the route's own checks). */
 const RULES: [RegExp, string | null][] = [
   [/^\/my-assets(\/|$)/, null],
+  [/^\/compliance-/, "compliance"],          // Audit & Compliance
   [/^\/asset-lifecycle\/model$/, null],
   [/^\/assets\/by-tag\//, null],             // QR sticker look-up
   [/^\/asset-comments\//, "asset_registry"],

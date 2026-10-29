@@ -10,6 +10,7 @@ import {
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
   Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop, ScanLine, FileSignature, TrendingDown,
+  ClipboardCheck, FolderOpen,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -72,6 +73,11 @@ const ITSM_ITEMS = [
   { href: "/itsm-my-approvals", label: "My Approvals", icon: CheckSquare, module: "itsm_my_approvals" },
   { href: "/itsm-approval", label: "Approval Workflow", icon: GitMerge, module: "itsm_approval" },
   { href: "/itsm-setup", label: "ITSM Setup", icon: Wrench, module: "itsm_setup" },
+];
+
+const COMPLIANCE_ITEMS = [
+  { href: "/compliance", label: "Audits", icon: ClipboardCheck, module: "compliance" },
+  { href: "/compliance-library", label: "Evidence Library", icon: FolderOpen, module: "compliance" },
 ];
 
 const ADMIN_ITEMS = [
@@ -211,12 +217,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const visibleAssetItems = ASSET_ITEMS.filter(item => canAccess(item.module));
   const { data: myApprovals } = useQuery({ queryKey: ["my-approvals-count"], queryFn: () => apiFetch<{ count: number }>("/my-approvals/count"), refetchInterval: 120_000, enabled: !!user });
   const anyItsm = ITSM_ITEMS.some(i => i.module.startsWith("itsm_") && i.module !== "itsm_my_approvals" && canAccess(i.module));
+  const visibleComplianceItems = COMPLIANCE_ITEMS.filter(item => canAccess(item.module));
   const visibleItsmItems = ITSM_ITEMS.filter(item => item.module === "itsm_my_approvals" ? (anyItsm || (myApprovals?.count || 0) > 0) : canAccess(item.module));
 
   // Longest matching href wins (so "/itsm-incidents" is not shown as "/itsm" ITSM Dashboard)
   const best = (items: { href: string; label: string }[]) => items.filter(i => i.href === "/" ? location === "/" : (location === i.href || location.startsWith(i.href + "/") || location.startsWith(i.href + "?"))).sort((a, b) => b.href.length - a.href.length)[0]?.label;
   const currentPage =
-    best(ITSM_ITEMS) ?? best(ASSET_ITEMS) ?? best(KPI_ITEMS) ??
+    best(ITSM_ITEMS) ?? best(COMPLIANCE_ITEMS) ?? best(ASSET_ITEMS) ?? best(KPI_ITEMS) ??
     DRISHTI_ITEMS.find(i => i.href === "/" ? location === "/" : location.startsWith(i.href))?.label
     ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ASSET_ITEMS.find(i => location.startsWith(i.href))?.label
@@ -362,6 +369,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     active={location === item.href || location.startsWith(item.href + "/")}
                     collapsed={isCollapsed}
                     badge={item.module === "itsm_my_approvals" ? myApprovals?.count : undefined}
+                  />
+                ))}
+              </>
+            )}
+            {visibleComplianceItems.length > 0 && (
+              <>
+                <SectionLabel
+                  collapsed={isCollapsed}
+                  open={sectionsOpen.compliance ?? true}
+                  onToggle={() => toggleSection("compliance")}
+                >
+                  Audit & Compliance
+                </SectionLabel>
+                {(isCollapsed || (sectionsOpen.compliance ?? true)) && visibleComplianceItems.map(item => (
+                  <NavItem
+                    key={item.href}
+                    href={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    active={location === item.href || location.startsWith(item.href + "/")}
+                    collapsed={isCollapsed}
                   />
                 ))}
               </>
