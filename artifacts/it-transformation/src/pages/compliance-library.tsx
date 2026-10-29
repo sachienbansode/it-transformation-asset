@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
-import { Search, Upload, FileText, Eye, Download, Loader2, Archive, CalendarClock, Save } from "lucide-react";
+import { Search, Upload, FileText, Eye, Download, Loader2, Archive, CalendarClock, Save, Link2, Link2Off, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDocViewer } from "@/components/doc-viewer";
 import { Pager, useCompanies, uploadFile, fileUrl, fmtDate, fmtSize, d10, today, DOC_CATEGORIES, PersonPicker, refOf } from "@/components/compliance-shared";
@@ -20,13 +20,14 @@ import { Pager, useCompanies, uploadFile, fileUrl, fmtDate, fmtSize, d10, today,
 /* Evidence & policy library: one copy of each document, versioned, reused by any number of checkpoints and audits. */
 
 export default function ComplianceLibrary() {
+  const [, nav] = useLocation();
   const { canAccess } = useAuth(); const canEdit = canAccess("compliance", "write"); const view = useDocViewer();
   const { data: companies = [] } = useCompanies();
-  const [company, setCompany] = useState("all"); const [cat, setCat] = useState("all"); const [term, setTerm] = useState("");
-  const { data: docs = [], isLoading } = useQuery<any[]>({ queryKey: ["compliance-documents", company, cat, term],
-    queryFn: () => apiFetch(`/compliance-documents?${new URLSearchParams({ ...(company !== "all" ? { companyId: company } : {}), ...(cat !== "all" ? { category: cat } : {}), ...(term ? { q: term } : {}) })}`) });
+  const [company, setCompany] = useState("all"); const [cat, setCat] = useState("all"); const [term, setTerm] = useState(""); const [linked, setLinked] = useState("all");
+  const { data: docs = [], isLoading } = useQuery<any[]>({ queryKey: ["compliance-documents", company, cat, term, linked],
+    queryFn: () => apiFetch(`/compliance-documents?${new URLSearchParams({ ...(company !== "all" ? { companyId: company } : {}), ...(cat !== "all" ? { category: cat } : {}), ...(term ? { q: term } : {}), ...(linked !== "all" ? { linked } : {}) })}`) });
   const [open, setOpen] = useState<number | null>(null); const [add, setAdd] = useState(false); const [page, setPage] = useState(0);
-  React.useEffect(() => setPage(0), [company, cat, term]);
+  React.useEffect(() => setPage(0), [company, cat, term, linked]);
   const dueSoon = (d: any) => d.nextReviewDate && d10(d.nextReviewDate) <= new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10);
   return (
     <div className="space-y-4">
@@ -39,17 +40,18 @@ export default function ComplianceLibrary() {
           <div className="relative w-64"><Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" /><Input className="pl-8 h-9" placeholder="Search title, description, file…" value={term} onChange={e => setTerm(e.target.value)} /></div>
           <Select value={company} onValueChange={setCompany}><SelectTrigger className="h-9 w-60"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All companies</SelectItem>{companies.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name} (+ group-wide)</SelectItem>)}</SelectContent></Select>
           <Select value={cat} onValueChange={setCat}><SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{DOC_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select>
+          <Select value={linked} onValueChange={setLinked}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Linked or not</SelectItem><SelectItem value="Linked">Linked</SelectItem><SelectItem value="Un-linked">Un-linked (removed)</SelectItem><SelectItem value="Not linked">Never linked</SelectItem></SelectContent></Select>
           <span className="text-xs text-muted-foreground ml-auto self-center">{docs.length} document(s)</span>
         </div>
         <div className="rounded-[10px] border overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40"><th className="text-left px-3 py-2">Document</th><th className="text-left px-2 w-24">Category</th><th className="text-left px-2 w-44">Company</th><th className="text-left px-2 w-32">Owner</th><th className="text-left px-2 w-28">Next review</th><th className="px-2 w-16">Used</th><th className="w-20"></th></tr></thead>
+            <thead><tr className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40"><th className="text-left px-3 py-2">Document</th><th className="text-left px-2 w-24">Category</th><th className="text-left px-2 w-44">Company</th><th className="text-left px-2 w-32">Owner</th><th className="text-left px-2 w-28">Next review</th><th className="text-left px-2 w-36">Status</th><th className="w-20"></th></tr></thead>
             <tbody>{docs.slice(page * 10, page * 10 + 10).map(d => (
               <tr key={d.id} className="border-t hover:bg-accent/40 cursor-pointer" onClick={() => setOpen(d.id)}>
                 <td className="px-3 py-2"><div className="font-medium">{d.title}</div><div className="text-[11px] text-muted-foreground">{d.fileName} · v{d.version} · {fmtSize(d.fileSize)} · {fmtDate(d.uploadedAt)}</div></td>
                 <td className="px-2 text-xs">{d.category}</td><td className="px-2 text-xs">{d.companyName || "Group-wide"}</td><td className="px-2 text-xs">{d.ownerName || "—"}</td>
                 <td className={cn("px-2 text-xs", dueSoon(d) && "text-red-600 font-semibold")}>{d.nextReviewDate ? <span className="inline-flex items-center gap-1">{dueSoon(d) && <CalendarClock className="w-3 h-3" />}{fmtDate(d.nextReviewDate)}</span> : "—"}</td>
-                <td className="px-2 text-center text-xs">{d.linkCount}</td>
+                <td className="px-2 text-xs" onClick={e => e.stopPropagation()}><LinkBadge d={d} />{(d.firstLink || d.firstGridLink) && (() => { const l = d.firstLink || d.firstGridLink; return <button type="button" title="Open the checkpoint / schedule" onClick={() => nav(linkHref(l))} className="mt-0.5 flex items-center gap-0.5 text-[11px] font-mono text-primary hover:underline">{l.auditNo} · {l.itemId ? refOf(l) : l.refNo}{d.linkCount > 1 ? ` +${d.linkCount - 1}` : ""}<ArrowRight className="w-3 h-3" /></button>; })()}</td>
                 <td className="px-2" onClick={e => e.stopPropagation()}>{d.fileId && <div className="flex"><Button size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => view({ url: fileUrl(d.fileId), downloadUrl: fileUrl(d.fileId, true), name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" /></Button><a href={fileUrl(d.fileId, true)}><Button size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a></div>}</td>
               </tr>))}
               {!isLoading && !docs.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">No documents yet.</td></tr>}
@@ -63,6 +65,14 @@ export default function ComplianceLibrary() {
     </div>
   );
 }
+
+export function LinkBadge({ d }: { d: any }) {
+  if (d.linkStatus === "Linked") return <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"><Link2 className="w-3 h-3" />Linked · {d.linkCount}</span>;
+  if (d.linkStatus === "Un-linked") return <span title={d.lastUnlinkedAt ? `Un-linked ${new Date(d.lastUnlinkedAt).toLocaleString("en-IN")}` : undefined} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"><Link2Off className="w-3 h-3" />Un-linked</span>;
+  return <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-zinc-100 text-zinc-500 dark:bg-zinc-500/15">Not linked</span>;
+}
+const linkHref = (l: { auditId: number; type?: string; itemId?: number | null; gridId?: number | null; id?: number }) =>
+  `/compliance/${l.auditId}?${l.type === "grid" || (l.gridId && !l.itemId) ? `grid=${l.gridId ?? l.id}` : `item=${l.itemId ?? l.id}`}`;
 
 function MetaFields({ f, set, companies }: { f: any; set: (k: string, v: any) => void; companies: any[] }) {
   return (
@@ -110,6 +120,7 @@ function NewDocDialog({ onClose }: { onClose: () => void }) {
 }
 
 function DocDialog({ id, canEdit, onClose }: { id: number; canEdit: boolean; onClose: () => void }) {
+  const [, nav] = useLocation(); const go = (href: string) => { onClose(); nav(href); };
   const view = useDocViewer(); const qc = useQueryClient(); const { toast } = useToast(); const { data: companies = [] } = useCompanies(); const ref = useRef<HTMLInputElement>(null);
   const { data: d, refetch } = useQuery<any>({ queryKey: ["compliance-document", id], queryFn: () => apiFetch(`/compliance-documents/${id}`) });
   const [f, setF] = useState<any>(null); const [busy, setBusy] = useState(false); const [note, setNote] = useState("");
@@ -141,10 +152,22 @@ function DocDialog({ id, canEdit, onClose }: { id: number; canEdit: boolean; onC
             {canEdit && <div className="flex gap-2 mt-2"><Input className="h-8 text-xs" placeholder="What changed (optional)" value={note} onChange={e => setNote(e.target.value)} />
               <input ref={ref} type="file" className="hidden" onChange={newVersion} /><Button size="sm" variant="outline" className="h-8 gap-1.5 shrink-0" disabled={busy} onClick={() => ref.current?.click()}><Upload className="w-3.5 h-3.5" />Upload new version</Button></div>}
           </div>
-          <div><div className="text-sm font-semibold mb-1.5">Used in ({d.links.length})</div>
+          <div><div className="text-sm font-semibold mb-1.5 flex items-center gap-2">Used in ({d.links.length}) <LinkBadge d={d} /></div>
             <div className="divide-y rounded-[10px] border">{d.links.map((l: any) => (
-              <Link key={l.id} href={`/compliance/${l.auditId}`} className="block px-3 py-2 text-sm hover:bg-accent/40"><span className="font-mono text-xs text-primary mr-2">{l.auditNo} · {refOf(l)}</span><span className="line-clamp-1">{l.checkpoint}</span></Link>))}
-              {!d.links.length && <div className="px-3 py-3 text-xs text-muted-foreground">Not linked to any checkpoint yet.</div>}</div></div>
+              <button key={`${l.type}${l.id}`} type="button" onClick={() => go(linkHref(l))} className="w-full text-left flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent/40 group">
+                <span className="font-mono text-xs text-primary shrink-0">{l.auditNo} · {l.type === "grid" ? "Schedule" : refOf(l)}</span>
+                <span className="flex-1 min-w-0 line-clamp-1">{l.checkpoint}</span>
+                <span className="text-[11px] text-muted-foreground shrink-0">{l.status}</span><ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary shrink-0" /></button>))}
+              {!d.links.length && <div className="px-3 py-3 text-xs text-muted-foreground">{d.linkStatus === "Un-linked" ? "Not linked to any checkpoint now — see the history below." : "Not linked to any checkpoint yet."}</div>}</div></div>
+          {d.history?.length > 0 && <div><div className="text-sm font-semibold mb-1.5">Link history</div>
+            <div className="divide-y rounded-[10px] border max-h-56 overflow-y-auto">{d.history.map((h: any, i: number) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                {h.action === "link" ? <Link2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <Link2Off className="w-3.5 h-3.5 text-amber-600 shrink-0" />}
+                <span className="w-16 shrink-0">{h.action === "link" ? "Linked" : "Un-linked"}</span>
+                {h.auditId ? <button type="button" className="font-mono text-primary hover:underline shrink-0" onClick={() => go(linkHref({ auditId: h.auditId, itemId: h.itemId, gridId: h.gridId }))}>{h.auditNo} · {h.gridId ? h.refNo : refOf(h)}</button> : <span className="text-muted-foreground">(removed)</span>}
+                <span className="flex-1 min-w-0 truncate text-muted-foreground">{h.checkpoint}</span>
+                <span className="text-muted-foreground shrink-0">{h.byName || "—"} · {new Date(h.at).toLocaleString("en-IN")}</span>
+              </div>))}</div></div>}
         </div>}
         <div className="flex gap-2 pt-3 border-t">
           {canEdit && <Button onClick={save} disabled={busy || !f} className="gap-1.5">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save</Button>}

@@ -36,3 +36,13 @@ export async function refreshStatuses(force = false) {
 export const statusRows = () => rows;
 export const autoShareOn = () => autoShare;
 export const groupOf = (s: string) => rows.find(r => r.name === s)?.grp ?? (CLOSED.includes(s) ? "closed" : s === "Submitted" ? "submitted" : s === "Under Review" ? "review" : s === "Pending" ? "pending" : "inprog");
+
+/** Whose action is pending: the entity (team), the auditor, or nobody (closed).
+ *  With the auditor = shared and Submitted, or Under Review. Everything else open is with the entity
+ *  (not started, in progress, information requested by the auditor, partially closed, submitted but not yet shared). */
+export function courtOf(status: string, sharedAt?: unknown): "entity" | "auditor" | "closed" {
+  const g = groupOf(status);
+  if (g === "closed") return "closed";
+  if (g === "review" || (g === "submitted" && !!sharedAt)) return "auditor";
+  return "entity";
+}

@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch, API } from "@/lib/api";
 import { ArrowLeft, Download, Pencil, Loader2, Search, Paperclip, MessageSquare, CalendarClock, Save, ChevronLeft, ChevronRight, Plus, Table2, History, Send, Share2, EyeOff, Gavel, FileDown, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Pager, DocsButton, fileUrl, STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople, useStatusMaster, groupOf, offered, StatusFilter, StatusSelect, matchStatus, DOT, statusRows } from "@/components/compliance-shared";
+import { Pager, DocsButton, fileUrl, STATUSES, TEAM_STATUSES, AUDITOR_STATUSES, CLOSED, StatusBadge, PersonPicker, Progress, fmtDate, d10, isOverdue, refOf, usePeople, useStatusMaster, groupOf, offered, StatusFilter, StatusSelect, matchStatus, DOT, statusRows, courtOf, ago, stamp } from "@/components/compliance-shared";
 import { EvidencePanel } from "@/components/compliance-evidence";
 import { useDocViewer } from "@/components/doc-viewer";
 import { GridTable } from "@/components/compliance-grid";
@@ -33,6 +33,13 @@ export default function ComplianceAudit() {
   const [areaFilter, setAreaFilter] = useState<string>("all");
   const [preset, setPreset] = useState<Preset>({}); const [presetKey, setPresetKey] = useState(0);
   const go = (kind: "checklist" | "policy", p: Preset = {}) => { setPreset(p); setAreaFilter(p.area ?? "all"); setTab(kind); setPresetKey(k => k + 1); };
+  // deep link from the Evidence Library: /compliance/:id?item=123 or ?grid=45 opens that checkpoint / schedule
+  const [deep, setDeep] = useState(() => { const sp = new URLSearchParams(window.location.search); return { item: Number(sp.get("item")) || null, grid: Number(sp.get("grid")) || null }; });
+  const [openGrid, setOpenGrid] = useState<number | null>(null);
+  React.useEffect(() => {
+    if (deep.item && items.length) { const it = items.find(i => i.id === deep.item); if (it) go(it.kind === "policy" ? "policy" : "checklist", { open: it.id }); setDeep({ item: null, grid: null }); window.history.replaceState(null, "", window.location.pathname); }
+    else if (deep.grid) { setTab("schedules"); setOpenGrid(deep.grid); setDeep({ item: null, grid: null }); window.history.replaceState(null, "", window.location.pathname); }
+  }, [deep, items]);
   if (isLoading || !a) return <div className="text-sm text-muted-foreground">Loading…</div>;
   const s = a.stats; const pct = s.checkpoints ? Math.round((s.closed / s.checkpoints) * 100) : 0;
   const cnt = (g: string) => items.filter(i => i.kind === "checklist" && groupOf(i.status) === g).length;
@@ -52,24 +59,27 @@ export default function ComplianceAudit() {
           {canEdit && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEdit(true)}><Pencil className="w-4 h-4" />Edit audit</Button>}
         </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-2">
-        <Tile label="Total checkpoints" value={s.checkpoints} sub={`+ ${s.policies} policies`} onClick={() => go("checklist")} />
-        <Tile label="Closure" value={`${pct}%`} sub={`${s.closed}/${s.checkpoints}`} className="xl:col-span-2" onClick={() => go("checklist", { status: "g:closed" })}><Progress value={pct} className="mt-1.5" /></Tile>
-        <Tile label="Pending" value={cnt("pending")} onClick={() => go("checklist", { status: "g:pending" })} />
-        <Tile label="In progress" value={cnt("inprog")} onClick={() => go("checklist", { status: "g:inprog" })} />
-        <Tile label="Submitted" value={cnt("submitted")} sub={`${items.filter(i => i.kind === "checklist" && i.sharedAt).length} shared`} tone="text-indigo-600" onClick={() => go("checklist", { status: "g:submitted" })} />
-        <Tile label="Under review" value={cnt("review")} tone="text-amber-600" onClick={() => go("checklist", { status: "g:review" })} />
-        <Tile label="Overdue" value={s.overdue} tone={s.overdue ? "text-red-600" : ""} onClick={() => go("checklist", { overdue: true })} />
-        <Tile label="No owner" value={s.unassigned} tone={s.unassigned ? "text-orange-600" : ""} onClick={() => go("checklist", { owner: "none" })} />
-      </div>
+      {(() => { const ck = items.filter(i => i.kind === "checklist"); const T = ck.length || s.checkpoints || 0;
+        const ent = ck.filter(i => courtOf(i) === "entity").length, aud = ck.filter(i => courtOf(i) === "auditor").length, clo = ck.filter(i => courtOf(i) === "closed").length;
+        const subPct = T ? Math.round(((aud + clo) / T) * 100) : 0;
+        return (
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-2">
+          <Tile label="Total checkpoints" value={s.checkpoints} sub={`+ ${s.policies} policies`} onClick={() => go("checklist")} />
+          <Tile label="Submission progress" value={`${subPct}%`} sub={`${aud + clo}/${T} sent to auditor`} tone="text-indigo-600" className="xl:col-span-2" onClick={() => go("checklist", { share: "court:sent" })}><Progress value={subPct} className="mt-1.5" /></Tile>
+          <Tile label="Closure" value={`${pct}%`} sub={`${s.closed}/${s.checkpoints} closed by auditor`} tone="text-emerald-600" className="xl:col-span-2" onClick={() => go("checklist", { status: "g:closed" })}><Progress value={pct} className="mt-1.5" /></Tile>
+          <Tile label="Pending with entity" value={ent} tone="text-orange-600" onClick={() => go("checklist", { share: "court:entity" })} />
+          <Tile label="Pending with auditor" value={aud} tone="text-violet-600" onClick={() => go("checklist", { share: "court:auditor" })} />
+          <Tile label="Overdue" value={s.overdue} tone={s.overdue ? "text-red-600" : ""} onClick={() => go("checklist", { overdue: true })} />
+          <Tile label="No owner" value={s.unassigned} tone={s.unassigned ? "text-orange-600" : ""} onClick={() => go("checklist", { owner: "none" })} />
+        </div>); })()}
       <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px] flex-wrap">
         {([["overview", "Overview"], ["checklist", `Checklist (${s.checkpoints})`], ["policy", `Policies & procedures (${s.policies})`], ["schedules", "Schedules"], ["scope", "Scope & circular"], ["auditors", "Auditors & access log"]] as const).map(([k, l]) =>
           <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
       </div>
-      {tab === "overview" && <Overview items={items} go={go} />}
+      {tab === "overview" && <Overview items={items} go={go} auditId={a.id} />}
       {tab === "checklist" && <ItemsTable key={`c${presetKey}`} preset={preset} audit={a} items={items.filter(i => i.kind === "checklist")} kind="checklist" canEdit={canEdit} area={areaFilter} setArea={setAreaFilter} />}
       {tab === "policy" && <ItemsTable key={`p${presetKey}`} preset={preset} audit={a} items={items.filter(i => i.kind === "policy")} kind="policy" canEdit={canEdit} area="all" setArea={() => {}} />}
-      {tab === "schedules" && <Schedules audit={a} canEdit={canEdit} />}
+      {tab === "schedules" && <Schedules audit={a} canEdit={canEdit} openId={openGrid} onOpened={() => setOpenGrid(null)} />}
       {tab === "scope" && <Scope a={a} canEdit={canEdit} onEdit={() => setEdit(true)} />}
       {tab === "auditors" && <AuditorsTab audit={a} canEdit={canEdit} />}
       {edit && <AuditDialog audit={a} onClose={() => setEdit(false)} />}
@@ -77,7 +87,7 @@ export default function ComplianceAudit() {
   );
 }
 
-type Preset = { status?: string; owner?: string; overdue?: boolean; share?: string; area?: string };
+type Preset = { status?: string; owner?: string; overdue?: boolean; share?: string; area?: string; open?: number };
 function Tile({ label, value, sub, tone, className, children, onClick }: { label: string; value: React.ReactNode; sub?: string; tone?: string; className?: string; children?: React.ReactNode; onClick?: () => void }) {
   return <div role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onClick={onClick} onKeyDown={e => { if (onClick && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onClick(); } }} title={onClick ? "Open the list" : undefined}
     className={cn("rounded-[10px] border bg-card px-3 py-2", onClick && "cursor-pointer hover:border-primary/60 hover:shadow-sm transition", className)}><div className="text-[11px] text-muted-foreground">{label}</div><div className={cn("text-xl font-semibold leading-tight", tone)}>{value}{sub && <span className="text-xs text-muted-foreground font-normal ml-1.5">{sub}</span>}</div>{children}</div>;
@@ -91,17 +101,88 @@ const GROUPS: { key: string; label: string; match: (st: string) => boolean; colo
   { key: "review", label: "Under review", match: st => groupOf(st) === "review", color: "bg-amber-400", preset: { status: "g:review" } },
   { key: "closed", label: "Closed / N.A.", match: st => groupOf(st) === "closed", color: "bg-emerald-500", preset: { status: "g:closed" } },
 ];
+/* Whose turn: the work waiting with the entity (team) vs with the auditor, and what is closed */
+function Turn({ check, go }: { check: any[]; go: (kind: "checklist" | "policy", p?: Preset) => void }) {
+  const T = Math.max(1, check.length);
+  const ent = check.filter(i => courtOf(i) === "entity"), aud = check.filter(i => courtOf(i) === "auditor"), clo = check.filter(i => courtOf(i) === "closed");
+  const E: [string, number, Preset][] = [
+    ["Not started", ent.filter(i => groupOf(i.status) === "pending").length, { status: "g:pending" }],
+    ["In progress", ent.filter(i => groupOf(i.status) === "inprog" && !i.auditorUpdatedAt).length, { status: "g:inprog" }],
+    ["Info requested / partly closed by auditor", ent.filter(i => groupOf(i.status) === "inprog" && !!i.auditorUpdatedAt).length, { status: "g:inprog" }],
+    ["Submitted, not yet shared", ent.filter(i => groupOf(i.status) === "submitted").length, { share: "review" }],
+  ];
+  const A: [string, number, Preset][] = [
+    ["Shared, awaiting review", aud.filter(i => groupOf(i.status) === "submitted").length, { status: "g:submitted", share: "shared" }],
+    ["Under review", aud.filter(i => groupOf(i.status) === "review").length, { status: "g:review" }],
+  ];
+  const seg = (n: number, cls: string, p: Preset, label: string) => n ? <button type="button" title={`${label}: ${n}`} onClick={() => go("checklist", p)} className={cn(cls, "h-full hover:opacity-80 transition")} style={{ width: `${(n / T) * 100}%` }} /> : null;
+  const Side = ({ title, n, tone, bg, rows, p }: { title: string; n: number; tone: string; bg: string; rows: [string, number, Preset][]; p: Preset }) => (
+    <div className={cn("rounded-[10px] border p-3", bg)}>
+      <button type="button" onClick={() => go("checklist", p)} className="w-full flex items-baseline justify-between group"><span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-primary">{title}</span><span className={cn("text-2xl font-bold", tone)}>{n}</span></button>
+      <div className="mt-1.5 space-y-0.5">{rows.map(([l, c, pp]) => <button key={l} type="button" onClick={() => go("checklist", pp)} disabled={!c} className="w-full flex justify-between text-xs py-0.5 hover:text-primary disabled:opacity-50 disabled:hover:text-inherit"><span className="text-left">{l}</span><b>{c}</b></button>)}</div>
+    </div>);
+  return (
+    <Card className="lg:col-span-3"><CardContent className="p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2"><div className="font-semibold text-sm">Whose action is pending</div><div className="text-xs text-muted-foreground">{check.length} checkpoints · click to open the list</div></div>
+      <div className="flex h-5 rounded-full overflow-hidden bg-muted">{seg(ent.length, "bg-orange-400", { share: "court:entity" }, "With entity")}{seg(aud.length, "bg-violet-500", { share: "court:auditor" }, "With auditor")}{seg(clo.length, "bg-emerald-500", { status: "g:closed" }, "Closed")}</div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-400" />With entity <b>{ent.length}</b> ({Math.round((ent.length / T) * 100)}%)</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500" />With auditor <b>{aud.length}</b> ({Math.round((aud.length / T) * 100)}%)</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />Closed <b>{clo.length}</b> ({Math.round((clo.length / T) * 100)}%)</span>
+      </div>
+      <div className="grid sm:grid-cols-3 gap-2">
+        <Side title="With entity" n={ent.length} tone="text-orange-600" bg="bg-orange-50/60 dark:bg-orange-500/5" rows={E} p={{ share: "court:entity" }} />
+        <Side title="With auditor" n={aud.length} tone="text-violet-600" bg="bg-violet-50/60 dark:bg-violet-500/5" rows={A} p={{ share: "court:auditor" }} />
+        <Side title="Closed" n={clo.length} tone="text-emerald-600" bg="bg-emerald-50/60 dark:bg-emerald-500/5" rows={statusRows().filter(r => r.grp === "closed").map(r => [r.name, clo.filter(i => i.status === r.name).length, { status: r.name }] as [string, number, Preset])} p={{ status: "g:closed" }} />
+      </div>
+    </CardContent></Card>
+  );
+}
+
+/* Latest activity — entity users and auditors in one feed, newest first */
+function Activity({ auditId }: { auditId: number }) {
+  const [side, setSide] = useState<"all" | "entity" | "auditor">("all"); const [limit, setLimit] = useState(30);
+  const { data } = useQuery<any>({ queryKey: ["compliance-activity", auditId, side, limit], queryFn: () => apiFetch(`/compliance-audits/${auditId}/activity?limit=${limit}${side !== "all" ? `&side=${side}` : ""}`), refetchInterval: 60_000 });
+  const rows: any[] = data?.rows || [];
+  return (
+    <Card className="lg:col-span-2"><CardContent className="p-0 flex flex-col h-full max-h-[420px]">
+      <div className="px-4 pt-3 pb-2 border-b space-y-2">
+        <div className="flex items-center justify-between gap-2"><div className="font-semibold text-sm">Latest activity</div>
+          <div className="inline-flex bg-muted rounded-[8px] p-[2px] gap-[2px]">{(["all", "entity", "auditor"] as const).map(k => <button key={k} type="button" onClick={() => setSide(k)} className={cn("px-2 py-0.5 rounded-[6px] text-[11px]", side === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{k === "all" ? "All" : k === "entity" ? "Entity" : "Auditor"}</button>)}</div></div>
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="rounded-[8px] bg-orange-50 dark:bg-orange-500/10 px-2 py-1"><span className="text-muted-foreground">Entity last active</span><div className="font-semibold">{ago(data?.lastEntity)}</div></div>
+          <div className="rounded-[8px] bg-violet-50 dark:bg-violet-500/10 px-2 py-1"><span className="text-muted-foreground">Auditor last active</span><div className="font-semibold">{ago(data?.lastAuditor)}</div></div>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto divide-y">
+        {rows.map((r, i) => (
+          <div key={i} className="px-4 py-2 text-xs flex gap-2">
+            <span className={cn("mt-1 w-2 h-2 rounded-full shrink-0", r.side === "auditor" ? "bg-violet-500" : "bg-orange-400")} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2"><span className="font-medium truncate">{String(r.author || "—").replace(/\s*<[^>]*>/, "")} <span className={cn("ml-1 rounded px-1 py-px text-[10px] font-normal", r.side === "auditor" ? "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300" : "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300")}>{r.side === "auditor" ? "Auditor" : "Entity"}</span></span>
+                <span className="text-muted-foreground whitespace-nowrap" title={new Date(r.at).toLocaleString("en-IN")}>{stamp(r.at)}</span></div>
+              <div className="text-muted-foreground line-clamp-2">{r.refNo ? <span className="font-mono text-primary mr-1">{r.refNo}{r.seq > 1 ? "." + r.seq : ""}</span> : null}{r.body}</div>
+            </div>
+          </div>))}
+        {!rows.length && <div className="px-4 py-6 text-center text-xs text-muted-foreground">No activity yet.</div>}
+      </div>
+      {rows.length >= limit && <button type="button" onClick={() => setLimit(l => l + 50)} className="border-t px-4 py-1.5 text-xs text-primary hover:bg-accent/40">Show more</button>}
+    </CardContent></Card>
+  );
+}
+
 function Num({ n, onClick, tone }: { n: number; onClick: () => void; tone?: string }) {
   if (!n) return <span className="text-muted-foreground/50">–</span>;
   return <button type="button" onClick={onClick} className={cn("font-medium hover:underline underline-offset-2 hover:text-primary", tone)}>{n}</button>;
 }
-function Overview({ items, go }: { items: any[]; go: (kind: "checklist" | "policy", p?: Preset) => void }) {
+function Overview({ items, go, auditId }: { items: any[]; go: (kind: "checklist" | "policy", p?: Preset) => void; auditId: number }) {
   const check = items.filter(i => i.kind === "checklist"), pol = items.filter(i => i.kind === "policy");
   const areas = useMemo(() => { const m = new Map<string, any[]>(); check.forEach(i => { const k = i.area || i.sheet; m.set(k, [...(m.get(k) || ([] as any[])), i]); }); return [...m]; }, [items]);
   const owners = useMemo(() => { const m = new Map<string, { id: number | null; name: string; list: any[] }>(); /* owner rows */ items.forEach(i => { const k = String(i.ownerUserId ?? "none"); const e = m.get(k) || { id: i.ownerUserId ?? null, name: i.ownerName || "— No owner —", list: [] as any[] }; e.list.push(i); m.set(k, e); });
     return [...m.values()].sort((x, y) => (x.id === null ? -1 : y.id === null ? 1 : y.list.length - x.list.length)); }, [items]);
   const row = (list: any[]) => ({ total: list.length, pending: list.filter(i => groupOf(i.status) === "pending").length, inprog: list.filter(i => groupOf(i.status) === "inprog").length, submitted: list.filter(i => groupOf(i.status) === "submitted").length,
-    review: list.filter(i => groupOf(i.status) === "review").length, closed: list.filter(i => CLOSED.includes(i.status)).length, overdue: list.filter(isOverdue).length, noOwner: list.filter(i => !i.ownerUserId).length, open: list.filter(i => OPEN(i.status)).length });
+    review: list.filter(i => groupOf(i.status) === "review").length, closed: list.filter(i => CLOSED.includes(i.status)).length, overdue: list.filter(isOverdue).length, noOwner: list.filter(i => !i.ownerUserId).length, open: list.filter(i => OPEN(i.status)).length,
+    entity: list.filter(i => courtOf(i) === "entity").length, auditor: list.filter(i => courtOf(i) === "auditor").length });
   const tot = row(check);
   const Cells = ({ r, p }: { r: ReturnType<typeof row>; p: Preset }) => <>
     <td className="text-center"><Num n={r.total} onClick={() => go("checklist", p)} /></td>
@@ -109,13 +190,19 @@ function Overview({ items, go }: { items: any[]; go: (kind: "checklist" | "polic
     <td className="text-center"><Num n={r.inprog} onClick={() => go("checklist", { ...p, status: "g:inprog" })} tone="text-blue-600" /></td>
     <td className="text-center"><Num n={r.submitted} onClick={() => go("checklist", { ...p, status: "g:submitted" })} tone="text-indigo-600" /></td>
     <td className="text-center"><Num n={r.review} onClick={() => go("checklist", { ...p, status: "g:review" })} tone="text-amber-600" /></td>
+    <td className="text-center"><Num n={r.entity} onClick={() => go("checklist", { ...p, share: "court:entity" })} tone="text-orange-600" /></td>
+    <td className="text-center"><Num n={r.auditor} onClick={() => go("checklist", { ...p, share: "court:auditor" })} tone="text-violet-600" /></td>
     <td className="text-center"><Num n={r.overdue} onClick={() => go("checklist", { ...p, overdue: true })} tone="text-red-600" /></td>
     <td className="text-center"><Num n={r.noOwner} onClick={() => go("checklist", { ...p, owner: "none" })} tone="text-orange-600" /></td>
     <td className="px-3"><button type="button" onClick={() => go("checklist", { ...p, status: "g:closed" })} className="w-full flex items-center gap-2 group"><Progress value={r.total ? (r.closed / r.total) * 100 : 0} className="flex-1" /><span className="text-xs w-14 text-right group-hover:text-primary">{r.closed}/{r.total}</span></button></td>
   </>;
-  const head = <tr className="text-[11px] uppercase tracking-wider text-muted-foreground"><th className="text-left px-4 py-2">Area</th><th className="px-2">Total</th><th className="px-2">Pending</th><th className="px-2">In progress</th><th className="px-2">Submitted</th><th className="px-2">Under review</th><th className="px-2">Overdue</th><th className="px-2">No owner</th><th className="px-3 w-44 text-left">Closed</th></tr>;
+  const head = <tr className="text-[11px] uppercase tracking-wider text-muted-foreground"><th className="text-left px-4 py-2">Area</th><th className="px-2">Total</th><th className="px-2">Pending</th><th className="px-2">In progress</th><th className="px-2">Submitted</th><th className="px-2">Under review</th><th className="px-2 text-orange-600">With entity</th><th className="px-2 text-violet-600">With auditor</th><th className="px-2">Overdue</th><th className="px-2">No owner</th><th className="px-3 w-44 text-left">Closed</th></tr>;
   return (
     <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Turn check={check} go={go} />
+        <Activity auditId={auditId} />
+      </div>
       <Card><CardContent className="p-4 space-y-2">
         <div className="flex items-center justify-between"><div className="font-semibold text-sm">Checkpoint status</div><div className="text-xs text-muted-foreground">{check.length} checkpoints · click a segment to open the list</div></div>
         <div className="flex h-4 rounded-full overflow-hidden bg-muted">{GROUPS.map(g => { const n = check.filter(i => g.match(i.status)).length; return n ? <button key={g.key} type="button" title={`${g.label}: ${n}`} onClick={() => go("checklist", g.preset)} className={cn(g.color, "h-full hover:opacity-80")} style={{ width: `${(n / Math.max(1, check.length)) * 100}%` }} /> : null; })}</div>
@@ -123,7 +210,7 @@ function Overview({ items, go }: { items: any[]; go: (kind: "checklist" | "polic
       </CardContent></Card>
       <Card><CardContent className="p-0 overflow-x-auto">
         <div className="px-4 py-3 font-semibold text-sm border-b">By audit area <span className="text-xs font-normal text-muted-foreground">— click any number to open those checkpoints</span></div>
-        <table className="w-full text-sm min-w-[860px]">
+        <table className="w-full text-sm min-w-[1040px]">
           <thead>{head}</thead>
           <tbody>
             {areas.map(([area, list]) => <tr key={area} className="border-t hover:bg-accent/30"><td className="px-4 py-2"><button type="button" onClick={() => go("checklist", { area })} className="font-medium text-left hover:text-primary">{area}</button></td><Cells r={row(list)} p={{ area }} /></tr>)}
@@ -166,13 +253,13 @@ const PAGE = 10;
 function ItemsTable({ audit, items, kind, canEdit, area, setArea, preset = {} }: { audit: any; items: any[]; kind: "checklist" | "policy"; canEdit: boolean; area: string; setArea: (v: string) => void; preset?: Preset }) {
   const qc = useQueryClient(); const { toast } = useToast(); const { user } = useAuth(); const view = useDocViewer();
   const [term, setTerm] = useState(""); const [share, setShare] = useState(preset.share ?? "all"); const [status, setStatus] = useState(preset.status ?? "all"); const [owner, setOwner] = useState(preset.owner ?? "all"); const [sheet, setSheet] = useState("all"); const [overdue, setOverdue] = useState(!!preset.overdue);
-  const [page, setPage] = useState(0); const [sel, setSel] = useState<Set<number>>(new Set()); const [open, setOpen] = useState<number | null>(null);
+  const [page, setPage] = useState(0); const [sel, setSel] = useState<Set<number>>(new Set()); const [open, setOpen] = useState<number | null>(preset.open ?? null);
   const sheets = useMemo(() => [...new Set(items.map(i => i.sheet))], [items]);
   const areas = useMemo(() => [...new Set(items.filter(i => sheet === "all" || i.sheet === sheet).map(i => i.area).filter(Boolean))], [items, sheet]);
   const owners = useMemo(() => { const m = new Map<number, string>(); items.forEach(i => i.ownerUserId && m.set(i.ownerUserId, i.ownerName)); return [...m].sort((x, y) => x[1].localeCompare(y[1])); }, [items]);
   const list = useMemo(() => { const t = term.toLowerCase(); return items.filter(i =>
     (sheet === "all" || i.sheet === sheet) && (area === "all" || i.area === area) && (status === "nodoc" ? !i.evidenceCount : matchStatus(status, i.status)) &&
-    (share === "all" || (share === "shared" ? !!i.sharedAt : share === "review" ? (groupOf(i.status) === "submitted" && !i.sharedAt) : !i.sharedAt)) && (owner === "all" || (owner === "none" ? !i.ownerUserId : owner === "me" ? (i.ownerUserId === user?.id || i.spocUserId === user?.id) : String(i.ownerUserId) === owner)) && (!overdue || isOverdue(i)) &&
+    (share === "all" || (share === "court:entity" ? courtOf(i) === "entity" : share === "court:auditor" ? courtOf(i) === "auditor" : share === "court:sent" ? courtOf(i) !== "entity" : share === "shared" ? !!i.sharedAt : share === "review" ? (groupOf(i.status) === "submitted" && !i.sharedAt) : !i.sharedAt)) && (owner === "all" || (owner === "none" ? !i.ownerUserId : owner === "me" ? (i.ownerUserId === user?.id || i.spocUserId === user?.id) : String(i.ownerUserId) === owner)) && (!overdue || isOverdue(i)) &&
     (!t || [i.refNo, i.checkpoint, i.evidenceRequired, i.subArea, i.managementReply].some(x => x && String(x).toLowerCase().includes(t)))); }, [items, term, status, owner, sheet, area, overdue, user, share]);
   useEffect(() => setPage(0), [term, status, owner, sheet, area, overdue, share]);
   const shown = list.slice(page * PAGE, page * PAGE + PAGE); const pages = Math.max(1, Math.ceil(list.length / PAGE));
@@ -188,7 +275,7 @@ function ItemsTable({ audit, items, kind, canEdit, area, setArea, preset = {} }:
         {kind === "checklist" && <Select value={area} onValueChange={setArea}><SelectTrigger className="h-9 w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All areas</SelectItem>{areas.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select>}
         <StatusFilter value={status} onChange={setStatus} extra={kind === "policy" ? [["nodoc", "No document linked"]] : []} />
         <Select value={owner} onValueChange={setOwner}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All owners</SelectItem><SelectItem value="me">Mine (owner / SPOC)</SelectItem><SelectItem value="none">No owner</SelectItem>{owners.map(([oid, n]) => <SelectItem key={oid} value={String(oid)}>{n}</SelectItem>)}</SelectContent></Select>
-        <Select value={share} onValueChange={setShare}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Shared or not</SelectItem><SelectItem value="review">Awaiting review (to share)</SelectItem><SelectItem value="shared">Shared with auditor</SelectItem><SelectItem value="not">Not shared</SelectItem></SelectContent></Select>
+        <Select value={share} onValueChange={setShare}><SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Anyone's turn</SelectItem><SelectItem value="court:entity">Pending with entity</SelectItem><SelectItem value="court:auditor">Pending with auditor</SelectItem><SelectItem value="court:sent">Sent to auditor (incl. closed)</SelectItem><SelectItem value="review">Awaiting review (to share)</SelectItem><SelectItem value="shared">Shared with auditor</SelectItem><SelectItem value="not">Not shared</SelectItem></SelectContent></Select>
         <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={overdue} onChange={e => setOverdue(e.target.checked)} />Overdue only</label>
         <span className="text-xs text-muted-foreground ml-auto">{list.length} of {items.length}</span>
       </div>
@@ -352,9 +439,10 @@ function ItemDialog({ itemId, audit, canEdit, order, onNav, onClose }: { itemId:
   );
 }
 
-function Schedules({ audit, canEdit }: { audit: any; canEdit: boolean }) {
+function Schedules({ audit, canEdit, openId, onOpened }: { audit: any; canEdit: boolean; openId?: number | null; onOpened?: () => void }) {
   const { data: grids = [], isLoading } = useQuery<any[]>({ queryKey: ["compliance-grids", audit.id], queryFn: () => apiFetch(`/compliance-audits/${audit.id}/grids`) });
   const [open, setOpen] = useState<any>(null);
+  React.useEffect(() => { if (openId && grids.length) { const g = grids.find(x => x.id === openId); if (g) setOpen(g); onOpened?.(); } }, [openId, grids]);
   return (
     <Card><CardContent className="p-3 space-y-2">
       <div className="text-xs text-muted-foreground">Information the auditor asks for in table form (IT environment, in-scope applications, vendor agreements, password settings, samples). Fill the cells, or upload the data as evidence.</div>

@@ -151,6 +151,8 @@ const statsSql = sql`count(*) FILTER (WHERE i.kind = 'checklist')::int AS checkp
   count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'inprog'))::int AS in_progress,
   count(*) FILTER (WHERE i.kind = 'checklist' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'submitted'))::int AS submitted,
   count(*) FILTER (WHERE i.kind = 'checklist' AND i.shared_at IS NOT NULL)::int AS shared,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND (i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'review') OR (i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'submitted') AND i.shared_at IS NOT NULL)))::int AS with_auditor,
+  count(*) FILTER (WHERE i.kind = 'checklist' AND i.status NOT IN (SELECT name FROM cmp_statuses WHERE grp IN ('closed', 'review')) AND NOT (i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'submitted') AND i.shared_at IS NOT NULL))::int AS with_entity,
   count(*) FILTER (WHERE i.kind = 'policy' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'submitted'))::int AS policies_submitted,
   count(*) FILTER (WHERE i.kind = 'policy')::int AS policies,
   count(*) FILTER (WHERE i.kind = 'policy' AND i.status IN (SELECT name FROM cmp_statuses WHERE grp = 'closed'))::int AS policies_closed`;
@@ -359,22 +361,36 @@ const fileSchema = z.object({ objectPath: z.string().min(1).max(300), fileName: 
 const docSchema = z.object({ companyId: z.coerce.number().int().positive().nullable().optional(), category: z.enum(["Policy", "Procedure", "Evidence", "Report", "Agreement", "Circular", "Engagement Letter", "Other"]).default("Evidence"),
   title: z.string().trim().min(2).max(250), description: txt(2000), ownerUserId: z.coerce.number().int().positive().nullable().optional(), approvedBy: txt(160), approvedOn: dateS,
   lastReviewDate: dateS, nextReviewDate: dateS, confidential: z.boolean().optional() });
-const docCols = sql`d.*, c.name AS company_name, u.name AS owner_name, f.id AS file_id, f.file_name, f.version, f.file_size, f.content_type, f.uploaded_at, f.uploaded_by,
+const linkLog = (docId: number, o: { itemId?: number | null; gridId?: number | null }, action: "link" | "unlink", by: string) =>
+  q(sql`INSERT INTO cmp_document_link_log (document_id, item_id, grid_id, action, by_name) VALUES (${docId}, ${o.itemId ?? null}, ${o.gridId ?? null}, ${action}, ${by})`).catch(() => {});
+// Linked = used by at least one checkpoint / schedule now; Un-linked = was used before, not any more; Not linked = never used
+const linkState = sql`CASE WHEN (SELECT count(*) FROM cmp_item_documents l WHERE l.document_id = d.id) + (SELECT count(*) FROM cmp_grid_documents l WHERE l.document_id = d.id) > 0 THEN 'Linked'
+  WHEN EXISTS (SELECT 1 FROM cmp_document_link_log g WHERE g.document_id = d.id) THEN 'Un-linked' ELSE 'Not linked' END AS link_status,
+  (SELECT max(g.at) FROM cmp_document_link_log g WHERE g.document_id = d.id AND g.action = 'unlink') AS last_unlinked_at,
+  (SELECT json_build_object('itemId', i.id, 'auditId', i.audit_id, 'auditNo', a.audit_no, 'refNo', i.ref_no, 'seq', i.seq) FROM cmp_item_documents l JOIN cmp_items i ON i.id = l.item_id JOIN cmp_audits a ON a.id = i.audit_id WHERE l.document_id = d.id ORDER BY l.linked_at LIMIT 1) AS first_link,
+  (SELECT json_build_object('gridId', g.id, 'auditId', g.audit_id, 'auditNo', a.audit_no, 'refNo', g.sheet) FROM cmp_grid_documents l JOIN cmp_grids g ON g.id = l.grid_id JOIN cmp_audits a ON a.id = g.audit_id WHERE l.document_id = d.id ORDER BY l.linked_at LIMIT 1) AS first_grid_link`;
+const docCols = sql`d.*, c.name AS company_name, u.name AS owner_name, f.id AS file_id, f.file_name, f.version, f.file_size, f.content_type, f.uploaded_at, f.uploaded_by, ${linkState},
   (SELECT count(*)::int FROM cmp_item_documents l WHERE l.document_id = d.id) + (SELECT count(*)::int FROM cmp_grid_documents l WHERE l.document_id = d.id) AS link_count`;
 const docJoin = sql`FROM cmp_documents d LEFT JOIN cmp_companies c ON c.id = d.company_id LEFT JOIN users u ON u.id = d.owner_user_id LEFT JOIN LATERAL (SELECT * FROM cmp_document_files x WHERE x.document_id = d.id ORDER BY version DESC LIMIT 1) f ON true`;
 router.get("/compliance-documents", wrap(async (req, res) => {
   const company = req.query.companyId ? id(req.query.companyId) : null;
   const cat = typeof req.query.category === "string" && req.query.category ? req.query.category : null;
   const term = typeof req.query.q === "string" && req.query.q.trim() ? `%${req.query.q.trim().toLowerCase()}%` : null;
-  res.json((await q(sql`SELECT ${docCols} ${docJoin} WHERE d.is_active ${company ? sql`AND (d.company_id = ${company} OR d.company_id IS NULL)` : sql``} ${cat ? sql`AND d.category = ${cat}` : sql``}
-    ${term ? sql`AND (lower(d.title) LIKE ${term} OR lower(coalesce(d.description,'')) LIKE ${term} OR lower(coalesce(f.file_name,'')) LIKE ${term})` : sql``} ORDER BY d.updated_at DESC LIMIT 1000`)).map(camel));
+  const linked = ["Linked", "Un-linked", "Not linked"].includes(String(req.query.linked)) ? String(req.query.linked) : null;
+  res.json((await q(sql`SELECT * FROM (SELECT ${docCols} ${docJoin} WHERE d.is_active ${company ? sql`AND (d.company_id = ${company} OR d.company_id IS NULL)` : sql``} ${cat ? sql`AND d.category = ${cat}` : sql``}
+    ${term ? sql`AND (lower(d.title) LIKE ${term} OR lower(coalesce(d.description,'')) LIKE ${term} OR lower(coalesce(f.file_name,'')) LIKE ${term})` : sql``}) x ${linked ? sql`WHERE x.link_status = ${linked}` : sql``} ORDER BY x.updated_at DESC LIMIT 1000`)).map(camel));
 }));
 router.get("/compliance-documents/:id", wrap(async (req, res) => {
   const did = id(req.params.id);
   const [d] = await q(sql`SELECT ${docCols} ${docJoin} WHERE d.id = ${did}`); if (!d) return fail(res, 404, "Document not found");
   const files = (await q(sql`SELECT * FROM cmp_document_files WHERE document_id = ${did} ORDER BY version DESC`)).map(camel);
-  const links = (await q(sql`SELECT i.id, i.ref_no, i.seq, i.kind, i.checkpoint, a.id AS audit_id, a.audit_no, a.title FROM cmp_item_documents l JOIN cmp_items i ON i.id = l.item_id JOIN cmp_audits a ON a.id = i.audit_id WHERE l.document_id = ${did} ORDER BY a.id, i.sort_order`)).map(camel);
-  res.json({ ...camel(d), files, links });
+  const links = (await q(sql`SELECT 'item' AS type, i.id, i.ref_no, i.seq, i.kind, i.sheet, i.status, i.checkpoint, a.id AS audit_id, a.audit_no, a.title, l.linked_by, l.linked_at FROM cmp_item_documents l JOIN cmp_items i ON i.id = l.item_id JOIN cmp_audits a ON a.id = i.audit_id WHERE l.document_id = ${did}
+    UNION ALL SELECT 'grid', g.id, NULL, 1, 'schedule', g.sheet, g.status, g.sheet, a.id, a.audit_no, a.title, l.linked_by, l.linked_at FROM cmp_grid_documents l JOIN cmp_grids g ON g.id = l.grid_id JOIN cmp_audits a ON a.id = g.audit_id WHERE l.document_id = ${did}
+    ORDER BY 9, 2`)).map(camel);
+  const history = (await q(sql`SELECT h.action, h.by_name, h.at, h.item_id, h.grid_id, coalesce(i.ref_no, g.sheet) AS ref_no, i.seq, i.kind, coalesce(i.checkpoint, g.sheet) AS checkpoint, coalesce(ai.id, ag.id) AS audit_id, coalesce(ai.audit_no, ag.audit_no) AS audit_no
+    FROM cmp_document_link_log h LEFT JOIN cmp_items i ON i.id = h.item_id LEFT JOIN cmp_audits ai ON ai.id = i.audit_id LEFT JOIN cmp_grids g ON g.id = h.grid_id LEFT JOIN cmp_audits ag ON ag.id = g.audit_id
+    WHERE h.document_id = ${did} ORDER BY h.at DESC LIMIT 200`)).map(camel);
+  res.json({ ...camel(d), files, links, history });
 }));
 router.post("/compliance-documents", wrap(async (req, res) => {
   const v = parse(docSchema.extend({ file: fileSchema, itemId: z.coerce.number().int().positive().optional(), gridId: z.coerce.number().int().positive().optional() }), req.body);
@@ -389,7 +405,8 @@ router.post("/compliance-documents", wrap(async (req, res) => {
     if (v.gridId) await tx.execute(sql`INSERT INTO cmp_grid_documents (grid_id, document_id, linked_by) VALUES (${v.gridId}, ${d.id}, ${by}) ON CONFLICT DO NOTHING`);
     return d.id as number;
   });
-  if (v.itemId) await addComment(v.itemId, req, `Evidence uploaded: ${v.title} (${v.file.fileName})`, true);
+  if (v.itemId) { await addComment(v.itemId, req, `Evidence uploaded: ${v.title} (${v.file.fileName})`, true); await linkLog(did, { itemId: v.itemId }, "link", by); }
+  if (v.gridId) await linkLog(did, { gridId: v.gridId }, "link", by);
   await audit({ entityType: "compliance_document", entityId: did, action: "create", performedBy: by, summary: `${v.category} ${v.title} uploaded (${v.file.fileName})` });
   const [d] = await q(sql`SELECT ${docCols} ${docJoin} WHERE d.id = ${did}`);
   res.status(201).json(camel(d));
@@ -425,6 +442,7 @@ router.post("/compliance-items/:id/documents", wrap(async (req, res) => {
   const [d] = await q(sql`SELECT title FROM cmp_documents WHERE id = ${v.documentId} AND is_active`); if (!d) throw new Bad("Document not found");
   if (!(await q(sql`SELECT 1 FROM cmp_items WHERE id = ${iid}`)).length) return fail(res, 404, "Checkpoint not found");
   const ins = await q(sql`INSERT INTO cmp_item_documents (item_id, document_id, linked_by) VALUES (${iid}, ${v.documentId}, ${by}) ON CONFLICT DO NOTHING RETURNING item_id`);
+  if (ins.length) await linkLog(v.documentId, { itemId: iid }, "link", by);
   if (ins.length) await addComment(iid, req, `Evidence linked from library: ${d.title}`, true);
   res.status(201).json({ ok: true });
 }));
@@ -432,7 +450,7 @@ router.delete("/compliance-items/:id/documents/:docId", wrap(async (req, res) =>
   const iid = id(req.params.id), did = id(req.params.docId);
   const [d] = await q(sql`SELECT title FROM cmp_documents WHERE id = ${did}`);
   const del = await q(sql`DELETE FROM cmp_item_documents WHERE item_id = ${iid} AND document_id = ${did} RETURNING item_id`);
-  if (del.length) await addComment(iid, req, `Evidence unlinked: ${d?.title ?? did} (kept in the library)`, true);
+  if (del.length) { await addComment(iid, req, `Evidence unlinked: ${d?.title ?? did} (kept in the library)`, true); await linkLog(did, { itemId: iid }, "unlink", await who(req)); }
   res.json({ ok: true });
 }));
 router.get("/compliance-grids/:id/documents", wrap(async (req, res) => {
@@ -441,11 +459,14 @@ router.get("/compliance-grids/:id/documents", wrap(async (req, res) => {
 }));
 router.post("/compliance-grids/:id/documents", wrap(async (req, res) => {
   const gid = id(req.params.id); const v = parse(linkSchema, req.body); const by = await who(req);
-  await q(sql`INSERT INTO cmp_grid_documents (grid_id, document_id, linked_by) VALUES (${gid}, ${v.documentId}, ${by}) ON CONFLICT DO NOTHING`);
+  const gins = await q(sql`INSERT INTO cmp_grid_documents (grid_id, document_id, linked_by) VALUES (${gid}, ${v.documentId}, ${by}) ON CONFLICT DO NOTHING RETURNING grid_id`);
+  if (gins.length) await linkLog(v.documentId, { gridId: gid }, "link", by);
   res.status(201).json({ ok: true });
 }));
 router.delete("/compliance-grids/:id/documents/:docId", wrap(async (req, res) => {
-  await q(sql`DELETE FROM cmp_grid_documents WHERE grid_id = ${id(req.params.id)} AND document_id = ${id(req.params.docId)}`);
+  const gid = id(req.params.id), did = id(req.params.docId);
+  const gdel = await q(sql`DELETE FROM cmp_grid_documents WHERE grid_id = ${gid} AND document_id = ${did} RETURNING grid_id`);
+  if (gdel.length) await linkLog(did, { gridId: gid }, "unlink", await who(req));
   res.json({ ok: true });
 }));
 
@@ -666,13 +687,37 @@ router.get("/compliance-audits/:id/access-log", wrap(async (req, res) => {
 }));
 
 /* ─── Dashboard download (Excel / PDF / Word) ─────────────────────────────── */
+/* Latest activity on an audit — entity users and auditors in one feed (comments, status / owner changes, auditor sign-ins and file views) */
+async function activityOf(aid: number, limit: number, side?: "entity" | "auditor") {
+  const rows = await q(sql`SELECT * FROM (
+      SELECT c.created_at AS at, c.author, CASE WHEN c.is_external THEN 'auditor' ELSE 'entity' END AS side, c.system, c.body, c.visibility,
+             i.id AS item_id, NULL::int AS grid_id, i.ref_no, i.seq, i.kind, i.sheet
+        FROM cmp_comments c JOIN cmp_items i ON i.id = c.item_id WHERE i.audit_id = ${aid}
+      UNION ALL
+      SELECT l.at, l.user_name, 'auditor', true, CASE l.action WHEN 'login' THEN 'Signed in to the auditor portal' WHEN 'view' THEN 'Viewed ' || coalesce(d.title, 'a file') WHEN 'download' THEN 'Downloaded ' || coalesce(d.title, 'a file') ELSE l.action END,
+             'auditor', NULL, NULL, NULL, NULL, NULL, NULL
+        FROM cmp_access_log l JOIN users u ON u.id = l.user_id AND u.user_type = 'external' LEFT JOIN cmp_documents d ON d.id = l.document_id
+       WHERE l.audit_id = ${aid} AND l.action IN ('login', 'view', 'download')
+    ) x ${side ? sql`WHERE x.side = ${side}` : sql``} ORDER BY x.at DESC LIMIT ${limit}`);
+  return rows.map(camel);
+}
+router.get("/compliance-audits/:id/activity", wrap(async (req, res) => {
+  const aid = id(req.params.id); const side = req.query.side === "auditor" || req.query.side === "entity" ? (req.query.side as "entity" | "auditor") : undefined;
+  const limit = Math.min(500, Math.max(10, Number(req.query.limit) || 50));
+  const rows = await activityOf(aid, limit, side);
+  const [last] = await q(sql`SELECT
+    (SELECT max(c.created_at) FROM cmp_comments c JOIN cmp_items i ON i.id = c.item_id WHERE i.audit_id = ${aid} AND NOT c.is_external) AS last_entity,
+    (SELECT greatest((SELECT max(c.created_at) FROM cmp_comments c JOIN cmp_items i ON i.id = c.item_id WHERE i.audit_id = ${aid} AND c.is_external),
+                     (SELECT max(last_access_at) FROM cmp_audit_access WHERE audit_id = ${aid}))) AS last_auditor`);
+  res.json({ rows, lastEntity: last?.last_entity ?? null, lastAuditor: last?.last_auditor ?? null });
+}));
 router.get("/compliance-audits/:id/dashboard", wrap(async (req, res) => {
   const aid = id(req.params.id); const fmt = String(req.query.format || "xlsx");
   if (!["xlsx", "pdf", "docx"].includes(fmt)) throw new Bad("format must be xlsx, pdf or docx");
   const a = await getAudit(aid); if (!a) return fail(res, 404, "Audit not found");
   const items = (await q(sql`SELECT i.*, (SELECT count(*)::int FROM cmp_item_documents d WHERE d.item_id = i.id) AS evidence_count FROM cmp_items i WHERE i.audit_id = ${aid} ORDER BY i.sort_order`)).map(camel);
   const users = new Map((await q(sql`SELECT id, name FROM users`)).map(u => [u.id as number, u.name as string]));
-  const d = dashboardData(a, items, users);
+  const d = dashboardData(a, items, users, await activityOf(aid, 200));
   const base = `${a.auditNo}_Dashboard_${new Date().toISOString().slice(0, 10)}`;
   let buf: Buffer, type: string;
   if (fmt === "xlsx") { buf = dashboardXlsx(d); type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; }

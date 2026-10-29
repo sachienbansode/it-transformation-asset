@@ -93,7 +93,15 @@ function AuditCard({ a }: { a: any }) {
             {days !== null && a.status !== "Closed" && <div className={cn("text-[10px]", days < 0 ? "text-red-600" : days <= 7 ? "text-amber-600" : "text-muted-foreground")}>{days < 0 ? `${-days} day(s) late` : days === 0 ? "due today" : `${days} day(s) left`}</div>}</div>
         </div>
         <div>
-          <div className="flex justify-between text-xs mb-1.5"><span className="text-muted-foreground">Checkpoints · closure</span><span className="font-semibold">{a.closed}/{total} · {pct}%</span></div>
+          <div className="grid grid-cols-2 gap-3 mb-2">
+            <div><div className="flex justify-between text-[11px] mb-1"><span className="text-muted-foreground">Submitted to auditor</span><span className="font-semibold text-indigo-600">{total ? Math.round(((total - (a.withEntity ?? 0)) / total) * 100) : 0}%</span></div><Progress value={total ? ((total - (a.withEntity ?? 0)) / total) * 100 : 0} /></div>
+            <div><div className="flex justify-between text-[11px] mb-1"><span className="text-muted-foreground">Closed</span><span className="font-semibold text-emerald-600">{a.closed}/{total} · {pct}%</span></div><Progress value={pct} /></div>
+          </div>
+          <div className="flex gap-2 mb-2 text-[11px]">
+            <span className="flex-1 rounded-[8px] bg-orange-50 dark:bg-orange-500/10 px-2 py-1"><span className="text-muted-foreground">With entity</span> <b className="text-orange-600 ml-1">{a.withEntity ?? 0}</b></span>
+            <span className="flex-1 rounded-[8px] bg-violet-50 dark:bg-violet-500/10 px-2 py-1"><span className="text-muted-foreground">With auditor</span> <b className="text-violet-600 ml-1">{a.withAuditor ?? 0}</b></span>
+          </div>
+          <div className="flex justify-between text-xs mb-1.5"><span className="text-muted-foreground">Status</span></div>
           <div className="flex h-2.5 rounded-full overflow-hidden bg-muted">{SEG.map(g => { const n = g.n(a) || 0; return n ? <div key={g.k} title={`${g.label}: ${n}`} className={cn(g.cls, "h-full")} style={{ width: `${(n / Math.max(1, total)) * 100}%` }} /> : null; })}</div>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px]">{SEG.map(g => <span key={g.k} className="inline-flex items-center gap-1"><span className={cn("w-2 h-2 rounded-sm", g.cls)} />{g.label} <b>{g.n(a) || 0}</b></span>)}</div>
         </div>
