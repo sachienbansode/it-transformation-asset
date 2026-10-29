@@ -8,30 +8,37 @@ CREATE TEMP TABLE _cfg AS SELECT 'AUD-2026-0001'::text AS audit_no, false AS ove
 CREATE TEMP TABLE _r (kind text, sheet text, ref_no text, n int, reply text) ON COMMIT DROP;  -- n = seq for checkpoints, source row for policy lines
 INSERT INTO _r VALUES
   ('checklist', 'Sys Audit Checklist', '1a', 1, 'IT governance framework defined in the IT Policy: Board, IT Strategy Committee, Technology Committee and Risk Management Committee with defined roles.
+Committees: IT Strategy Committee, Technology Committee, Risk Management Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.3 IT governance.
 Evidence: Board-approved IT Policy; IT organisation chart; committee terms of reference.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '1b', 1, 'IT Strategy Committee constituted with Board representation and senior IT / business management; meets at least twice a year and reports to the Board.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.3.1.
 Evidence: Board resolution constituting the committee; composition; terms of reference; minutes of last two meetings.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '1b', 3, 'IT Strategy Committee constituted with Board representation and senior IT / business management; meets at least twice a year and reports to the Board.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.3.1.
 Evidence: Board resolution constituting the committee; composition; terms of reference; minutes of last two meetings.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '1b', 4, 'IT Strategy Committee constituted with Board representation and senior IT / business management; meets at least twice a year and reports to the Board.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.3.1.
 Evidence: Board resolution constituting the committee; composition; terms of reference; minutes of last two meetings.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '1c', 1, 'IT and information security risks are assessed at least yearly and on major change, recorded in the risk register with owners and treatment plans, and reported to the IT Strategy Committee.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.3.3; IS-01 Information Security Policy and Framework s.4.
 Evidence: Risk assessment report; risk register; committee minutes.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '1c', 2, 'IT and information security risks are assessed at least yearly and on major change, recorded in the risk register with owners and treatment plans, and reported to the IT Strategy Committee.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.3.3; IS-01 Information Security Policy and Framework s.4.
 Evidence: Risk assessment report; risk register; committee minutes.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '1c', 3, 'IT and information security risks are assessed at least yearly and on major change, recorded in the risk register with owners and treatment plans, and reported to the IT Strategy Committee.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.3.3; IS-01 Information Security Policy and Framework s.4.
 Evidence: Risk assessment report; risk register; committee minutes.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
@@ -56,18 +63,22 @@ Policy reference: IT-01 Information Technology Policy s.3.2.
 Evidence: Organisation chart; role descriptions.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '1f', 1, 'Controls are independently reviewed by Internal Audit and the annual SEBI system audit; findings are tracked to closure and reported to the IT Strategy Committee.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IS-01 Information Security Policy and Framework s.4 and Compliance section; IT-01 Information Technology Policy Compliance section.
 Evidence: Internal audit plan / IS audit reports; finding tracker.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '2a', 1, 'Information security function headed by a CISO, distinct from IT operations, with a quarterly Information Security Steering Committee.
+Committees: Information Security Steering Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IS-01 Information Security Policy and Framework s.3.
 Evidence: CISO appointment letter; organisation chart; committee minutes.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '2a', 2, 'Information security function headed by a CISO, distinct from IT operations, with a quarterly Information Security Steering Committee.
+Committees: Information Security Steering Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IS-01 Information Security Policy and Framework s.3.
 Evidence: CISO appointment letter; organisation chart; committee minutes.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '2a', 3, 'Information security function headed by a CISO, distinct from IT operations, with a quarterly Information Security Steering Committee.
+Committees: Information Security Steering Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IS-01 Information Security Policy and Framework s.3.
 Evidence: CISO appointment letter; organisation chart; committee minutes.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
@@ -164,6 +175,7 @@ Policy reference: IS-09 Vendor Management and Outsourcing Framework; IS-04 Third
 Evidence: Vendor register; due-diligence records; agreements; annual vendor reviews.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '2j', 1, 'Compliance with policies monitored by the CISO and Head of IT, reviewed by Internal Audit; exceptions recorded and reported to the IT Strategy Committee quarterly.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IS-01 Information Security Policy and Framework Compliance section; IT-01 Information Technology Policy Compliance section.
 Evidence: Compliance reviews; exception register; committee reports.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
@@ -212,14 +224,17 @@ Policy reference: IT-01 Information Technology Policy s.5.3.
 Evidence: IT Policy s.5.3; change procedure.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '4b', 2, 'All production changes logged in the ITSM tool with approvals, test and UAT evidence; emergency changes ratified by the CAB.
+Committees: Change Advisory Board (CAB) constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.5.3.
 Evidence: Change register; sample change records with approvals and UAT sign-off.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '4b', 6, 'All production changes logged in the ITSM tool with approvals, test and UAT evidence; emergency changes ratified by the CAB.
+Committees: Change Advisory Board (CAB) constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.5.3.
 Evidence: Change register; sample change records with approvals and UAT sign-off.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '4b', 8, 'All production changes logged in the ITSM tool with approvals, test and UAT evidence; emergency changes ratified by the CAB.
+Committees: Change Advisory Board (CAB) constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-01 Information Technology Policy s.5.3.
 Evidence: Change register; sample change records with approvals and UAT sign-off.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
@@ -264,18 +279,22 @@ Policy reference: IT-01 Information Technology Policy s.5.5; IS-01 Information S
 Evidence: Job register; scheduler access list; job failure logs.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '8a', 1, 'Crisis Management Team provides BCP oversight; BCP & DR Policy drafted and placed for Board approval.
+Committees: Crisis Management Team constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-03 Business Continuity and Disaster Recovery Policy s.6.
 Evidence: BCP & DR Policy; Crisis Management Team composition.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '8a', 2, 'Crisis Management Team provides BCP oversight; BCP & DR Policy drafted and placed for Board approval.
+Committees: Crisis Management Team constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-03 Business Continuity and Disaster Recovery Policy s.6.
 Evidence: BCP & DR Policy; Crisis Management Team composition.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '8a', 3, 'Crisis Management Team provides BCP oversight; BCP & DR Policy drafted and placed for Board approval.
+Committees: Crisis Management Team constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-03 Business Continuity and Disaster Recovery Policy s.6.
 Evidence: BCP & DR Policy; Crisis Management Team composition.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '8a', 4, 'Crisis Management Team provides BCP oversight; BCP & DR Policy drafted and placed for Board approval.
+Committees: Crisis Management Team constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-03 Business Continuity and Disaster Recovery Policy s.6.
 Evidence: BCP & DR Policy; Crisis Management Team composition.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
@@ -308,10 +327,12 @@ Policy reference: IT-03 Business Continuity and Disaster Recovery Policy s.3.
 Evidence: BIA report.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '8d', 1, 'BCP reviewed yearly; DR drills twice a year and BCP exercise yearly; results and gaps reported to the IT Strategy Committee.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-03 Business Continuity and Disaster Recovery Policy s.7.
 Evidence: DR drill reports; BCP exercise report.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
   ('checklist', 'Sys Audit Checklist', '8d', 2, 'BCP reviewed yearly; DR drills twice a year and BCP exercise yearly; results and gaps reported to the IT Strategy Committee.
+Committees: IT Strategy Committee constituted; constitution, members and terms of reference available at the SharePoint site.
 Policy reference: IT-03 Business Continuity and Disaster Recovery Policy s.7.
 Evidence: DR drill reports; BCP exercise report.
 Policy documents: https://ashikagroup1.sharepoint.com/sites/AMC-System-Audit-Oct-2026'),
@@ -426,12 +447,28 @@ upd AS (
   FROM _r r, a
   WHERE i.audit_id = a.id AND i.kind = r.kind AND i.sheet = r.sheet
     AND ((r.kind = 'checklist' AND i.ref_no = r.ref_no AND i.seq = r.n) OR (r.kind = 'policy' AND i.source_row = r.n))
-    AND ((SELECT overwrite FROM _cfg) OR coalesce(btrim(i.management_reply), '') = '')
+    AND i.management_reply IS DISTINCT FROM r.reply
+    -- fills empty replies and refreshes ones written by this bulk script; replies typed by the team are kept
+    AND ((SELECT overwrite FROM _cfg) OR coalesce(btrim(i.management_reply), '') = '' OR i.updated_by = (SELECT by_name FROM _cfg))
   RETURNING i.id
 )
 INSERT INTO cmp_comments (item_id, author, system, body, visibility)
-SELECT id, (SELECT by_name FROM _cfg), true, 'Management reply filled with policy reference and SharePoint link (bulk update)', 'internal' FROM upd;
+SELECT id, (SELECT by_name FROM _cfg), true, 'Management reply filled / refreshed with policy reference, committee status and SharePoint link (bulk update)', 'internal' FROM upd;
 
-SELECT i.kind, count(*) FILTER (WHERE coalesce(btrim(i.management_reply), '') <> '') AS with_reply, count(*) AS total
+-- Status -> Submitted for the applicable lines that have a reply. Only moves Pending / In Progress forward;
+-- Submitted and auditor statuses (Under Review, Closed, ...) are never touched. Sharing to the auditor stays a separate step.
+WITH a AS (SELECT id FROM cmp_audits WHERE audit_no = (SELECT audit_no FROM _cfg)),
+st AS (
+  UPDATE cmp_items i SET status = 'Submitted', submitted_at = now(), updated_at = now()
+  FROM _r r, a
+  WHERE i.audit_id = a.id AND i.kind = r.kind AND i.sheet = r.sheet
+    AND ((r.kind = 'checklist' AND i.ref_no = r.ref_no AND i.seq = r.n) OR (r.kind = 'policy' AND i.source_row = r.n))
+    AND i.status IN ('Pending', 'In Progress') AND coalesce(btrim(i.management_reply), '') <> ''
+  RETURNING i.id
+)
+INSERT INTO cmp_comments (item_id, author, system, body, visibility)
+SELECT id, (SELECT by_name FROM _cfg), true, 'Status changed to Submitted (bulk update)', 'internal' FROM st;
+
+SELECT i.kind, count(*) FILTER (WHERE coalesce(btrim(i.management_reply), '') <> '') AS with_reply, count(*) FILTER (WHERE i.status = 'Submitted') AS submitted, count(*) AS total
 FROM cmp_items i JOIN cmp_audits a ON a.id = i.audit_id WHERE a.audit_no = (SELECT audit_no FROM _cfg) GROUP BY i.kind ORDER BY 1;
 COMMIT;
