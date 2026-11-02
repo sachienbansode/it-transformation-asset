@@ -55,7 +55,7 @@ async function disposalPL(asset: any, date: string, sale: number) {
 }
 async function safeLog(p: Parameters<typeof logAudit>[0]) { try { await logAudit(p); } catch { /* non-fatal */ } }
 const s = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10); // India date
 
 async function actor(req: Request) {
   const userId = (req.session as any)?.userId as number | undefined;
@@ -119,10 +119,18 @@ router.get("/asset-people", requireAuth, async (_req, res) => {
 
 type Employee = { userId: number; userName: string; email: string | null; employeeCode: string; userType: string; designation?: string | null; department?: string | null; location?: string | null };
 
+const realDay = (d: string) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false; const t = new Date(d + "T00:00:00Z"); return !isNaN(+t) && t.toISOString().slice(0, 10) === d; };
+const dmy = (d: string) => { const [y, m, dd] = d.split("-"); return `${dd}-${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+m - 1]}-${y}`; };
+
 async function issueOne(tx: any, assetId: number, emp: Employee, h: any, who: { performedBy: string; name: string }) {
   const [asset] = await tx.select().from(assetsTable).where(and(eq(assetsTable.id, assetId), eq(assetsTable.isActive, true)));
   if (!asset) throw new Error(`Asset #${assetId} not found`);
   if (!canMove(asset.status, "Allocated")) throw new Error(`${asset.assetTag} is "${asset.status}" — only assets In Stock can be issued`);
+  { const issue = s(h.startDate) || today(); const exp = s(h.expectedReturnDate);
+    if (!realDay(issue)) throw new Error(`Issue date "${issue}" is not a valid date`);
+    if (issue > today()) throw new Error("Issue date cannot be in the future");
+    if (exp && !realDay(exp)) throw new Error(`Expected return date "${exp}" is not a valid date`);
+    if (exp && exp < issue) throw new Error(`Expected return date (${dmy(exp)}) cannot be before the issue date (${dmy(issue)})`); }
   const [al] = await tx.insert(assetAllocationsTable).values({
     assetId, userId: emp.userId, userName: emp.userName, email: emp.email ?? null, employeeCode: emp.employeeCode, holderType: emp.userType,
     designation: emp.designation ?? null, department: emp.department ?? null, location: emp.location ?? asset.location ?? null,
@@ -218,10 +226,14 @@ router.post("/assets/:id/return", requireAuth, async (req, res) => {
     const al = await activeAllocation(id);
     // An issued asset can be returned straight from repair as well
     if (asset.status !== "Allocated" && !(asset.status === "Under Maintenance" && al)) return fail(res, 400, `${asset.assetTag} is "${asset.status}", not issued to anyone`);
+    const rd = s(req.body.returnDate) || today();
+    if (!realDay(rd)) return fail(res, 400, `Return date "${rd}" is not a valid date`);
+    if (rd > today()) return fail(res, 400, "Return date cannot be in the future");
+    if (al?.startDate && rd < String(al.startDate).slice(0, 10)) return fail(res, 400, `Return date (${dmy(rd)}) cannot be before the issue date (${dmy(String(al.startDate).slice(0, 10))}) of ${al.handoverNo || "this handover"}`);
     const who = await actor(req);
     await db.transaction(async tx => {
       if (al) await tx.update(assetAllocationsTable).set({
-        status: "Returned", endDate: s(req.body.returnDate) || today(), returnCondition: condition,
+        status: "Returned", endDate: rd, returnCondition: condition,
         returnAccessories: s(req.body.accessoriesReturned), returnRemarks: s(req.body.remarks), receivedBy: who.name, returnedAt: new Date(),
       }).where(eq(assetAllocationsTable.id, al.id));
       await tx.update(assetsTable).set({
@@ -467,6 +479,9 @@ router.post("/asset-handovers/bulk-assign", requireAuth, async (req, res) => {
       if (!CONDITIONS.includes(cond)) { err("Condition", `Use one of: ${CONDITIONS.join(", ")}`); continue; }
       for (const f of ["startDate", "expectedReturnDate"]) if (s(raw[f]) && !/^\d{4}-\d{2}-\d{2}$/.test(raw[f])) err(f === "startDate" ? "Issue Date" : "Expected Return", `"${raw[f]}" is not a valid date — use dd-MMM-yyyy, e.g. 05-Nov-2026`);
       if (type !== "Permanent" && !s(raw.expectedReturnDate)) { err("Expected Return", "Required for temporary / loaner"); continue; }
+      { const st = s(raw.startDate) || today(), ex = s(raw.expectedReturnDate);
+        if (s(raw.startDate) && (!realDay(st) || st > today())) { err("Issue Date", `"${raw.startDate}" is not a valid issue date (real date, not in the future)`); continue; }
+        if (ex && (!realDay(ex) || ex < st)) { err("Expected Return", `"${ex}" must be a real date on or after the issue date`); continue; } }
       const same = asset.status === "Allocated" && (asset.ownerEmployeeCode || "").toLowerCase() === emp.employeeCode.toLowerCase();
       plan.push({ row, asset, emp: { ...emp, location: s(raw.location) }, action: same ? "Unchanged" : asset.status === "Allocated" ? "Reassign" : "Issue",
         from: asset.status === "Allocated" ? `${asset.ownerName || "—"}${asset.ownerEmployeeCode ? ` (${asset.ownerEmployeeCode})` : ""}` : undefined,

@@ -35,6 +35,7 @@ import AssetHandovers from "@/pages/asset-handovers";
 import AssetEmployees from "@/pages/asset-employees";
 import MyAssets from "@/pages/my-assets";
 import AssetScan from "@/pages/asset-scan";
+import AssetScanCamera from "@/pages/asset-scan-camera";
 import AssetAudits from "@/pages/asset-audits";
 import AssetAuditDetail from "@/pages/asset-audit-detail";
 import MaintenanceRecords from "@/pages/maintenance-records";
@@ -174,6 +175,7 @@ function Router() {
               <Route path="/asset-employees" component={G.employees} />
               <Route path="/my-assets" component={MyAssets} />
               <Route path="/a/:tag" component={AssetScan} />
+              <Route path="/asset-scan" component={AssetScanCamera} />
               <Route path="/asset-audits/:id" component={G.auditDetail} />
               <Route path="/asset-audits" component={G.audits} />
               <Route path="/maintenance-records" component={MaintenanceRecords} />

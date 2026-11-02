@@ -77,7 +77,28 @@ export async function pendingFor(kind: string, key: string, value: unknown) {
 export const fyEndOf = fyEnd;
 
 /** Email the configured recipients that a request was submitted or decided (event asset_finance_approval). */
+/** People who can approve finance changes: base admins and anyone with write / admin on Depreciation (asset_depreciation). */
+export async function financeApprovers(): Promise<{ id: number; name: string; email: string | null }[]> {
+  return rowsOf(await db.execute(sql`SELECT DISTINCT u.id, u.name, u.email FROM users u
+    WHERE u.is_active AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id
+      WHERE ur.user_id = u.id AND rp.module = 'asset_depreciation' AND rp.access_level IN ('write', 'admin'))) ORDER BY u.name`)) as any[];
+}
 export async function notifyRequest(id: number) {
+  // in-app bell: approvers when a change is raised, the requester when it is approved / rejected
+  try {
+    const [q] = rowsOf(await db.execute(sql`SELECT * FROM asset_finance_requests WHERE id = ${id}`));
+    if (q) {
+      if (q.status === "Pending") {
+        for (const a of await financeApprovers()) if (a.id !== q.requested_by_user_id)
+          await db.execute(sql`INSERT INTO notifications (user_id, title, message, type, link) VALUES (${a.id}, ${`Approval needed: ${q.request_no}`}, ${`${q.title} — raised by ${q.requested_by}`}, 'warning', '/asset-depreciation?tab=approvals')`);
+      } else if (q.requested_by_user_id) {
+        await db.execute(sql`INSERT INTO notifications (user_id, title, message, type, link) VALUES (${q.requested_by_user_id}, ${`${q.request_no} ${String(q.status).toLowerCase()}`}, ${`${q.title} — ${String(q.status).toLowerCase()} by ${q.decided_by}${q.decision_note ? `: ${q.decision_note}` : ""}`}, ${q.status === "Approved" ? "success" : "error"}, '/asset-depreciation?tab=approvals')`);
+        const [ru] = rowsOf(await db.execute(sql`SELECT email FROM users WHERE id = ${q.requested_by_user_id}`));
+        if (ru?.email) { const { sendDirect, esc } = await import("./mailer"); await sendDirect("asset_finance_approval", [ru.email], `${q.request_no} ${String(q.status).toLowerCase()} — ${q.title}`,
+          `<p>Your finance change <b>${esc(q.request_no)}</b> (${esc(q.title)}) was <b>${esc(String(q.status).toLowerCase())}</b> by ${esc(q.decided_by || "")}.</p>${q.decision_note ? `<p>Note: ${esc(q.decision_note)}</p>` : ""}<p>Regards,</p>`).catch(() => {}); }
+      }
+    }
+  } catch (e) { console.error("finance in-app notification failed", e); }
   try {
     const { notify, htmlTable, esc } = await import("./mailer");
     const [r] = rowsOf(await db.execute(sql`SELECT * FROM asset_finance_requests WHERE id = ${id}`));
@@ -92,4 +113,20 @@ export async function notifyRequest(id: number) {
         ${sample.length ? `<p style="margin-top:12px"><b>Changes</b>${changes.length > sample.length ? ` (first ${sample.length} of ${changes.length})` : ""}:</p><ul>${sample.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}`,
     });
   } catch (e) { console.error("notifyRequest failed", e); }
+}
+
+/** Finance changes waiting for approval, per asset: asset edits (cost / dates / depreciation) and finance uploads.
+ *  Used to show "change pending" on the asset and to stop a second request for the same asset. */
+export async function pendingByAsset(): Promise<{ byId: Record<number, any[]>; byTag: Record<string, any[]> }> {
+  const rows = rowsOf(await db.execute(sql`SELECT r.id, r.request_no, r.kind, r.title, r.requested_by, r.requested_at AS created_at, r.payload, r.preview FROM asset_finance_requests r WHERE r.status = 'Pending' AND r.kind IN ('asset_edit', 'finance_upload')`));
+  const byId: Record<number, any[]> = {}, byTag: Record<string, any[]> = {};
+  for (const r of rows) {
+    const info = { requestNo: r.request_no, kind: r.kind, title: r.title, requestedBy: r.requested_by, at: r.created_at };
+    if (r.kind === "asset_edit" && r.payload?.assetId) (byId[Number(r.payload.assetId)] ||= []).push(info);
+    if (r.kind === "finance_upload") {
+      const tags = new Set<string>([...((r.payload?.rows || []) as any[]).map(x => String(x.assetTag ?? x["Asset Tag"] ?? "").trim().toUpperCase()), ...((r.preview?.changes || []) as any[]).map(x => String(x.assetTag || "").toUpperCase())].filter(Boolean));
+      for (const t of tags) (byTag[t] ||= []).push(info);
+    }
+  }
+  return { byId, byTag };
 }

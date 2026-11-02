@@ -7,7 +7,8 @@ import { snapshotRegister, archiveAssetUpload, ASSET_TABLES, createBatch, batchW
 import { missingMasters, ensureMasters } from "../lib/masters-auto";
 import { notify, htmlTable } from "../lib/mailer";
 
-import { getLock, createRequest, pendingFor, notifyRequest, assertOpenDate, LockError } from "../lib/finance-controls";
+import { assetFieldErrors } from "../lib/asset-validate";
+import { getLock, createRequest, pendingFor, notifyRequest, assertOpenDate, LockError, pendingByAsset } from "../lib/finance-controls";
 
 const router = Router();
 
@@ -83,6 +84,7 @@ router.post("/assets", requireAuth, async (req, res) => {
     for (const f of ["id", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive"]) delete req.body[f];
     if (!norm(req.body.name)) { res.status(400).json({ error: "Asset name is required" }); return; }
     if (!norm(req.body.type)) { res.status(400).json({ error: "Asset type is required" }); return; }
+    { const fe = assetFieldErrors(req.body, { requireCostPositive: true }); if (Object.keys(fe).length) { res.status(400).json({ error: Object.values(fe).join(" · "), fields: fe }); return; } }
     if (!norm(req.body.assetTag)) req.body.assetTag = (await nextTag(req.body.type)).tag;
     else {
       const [dupTag] = await db.select({ id: assetsTable.id }).from(assetsTable).where(sql`lower(asset_tag) = lower(${req.body.assetTag})`);
@@ -108,6 +110,10 @@ router.post("/assets", requireAuth, async (req, res) => {
   } catch (e) { handleError(res, e); }
 });
 
+// Cost / purchase / depreciation changes waiting in Depreciation › Approvals, per asset (shown as "change pending")
+router.get("/assets/pending-finance", requireAuth, async (_req, res) => {
+  try { res.json(await pendingByAsset()); } catch (e) { handleError(res, e); }
+});
 router.get("/assets/:id", requireAuth, async (req, res, next) => {
   if (!/^\d+$/.test(String(req.params.id))) return next();
   try {
@@ -126,6 +132,14 @@ router.patch("/assets/:id", requireAuth, async (req, res) => {
     for (const f of LIFECYCLE_FIELDS) delete req.body[f];
     const comment = norm(req.body.comment); delete req.body.comment;
     for (const f of ["id", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive"]) delete req.body[f];
+    { const merged: any = { ...old, ...req.body }; for (const k of ["purchaseDate", "warrantyStart", "warrantyExpiry"]) if (merged[k] instanceof Date) merged[k] = merged[k].toISOString().slice(0, 10);
+      const fe = assetFieldErrors(merged, { requireCostPositive: req.body.cost !== undefined && String(req.body.cost) !== String(old.cost ?? "") });
+      // only complain about fields this edit touches (old data may predate the rules)
+      const touched = Object.fromEntries(Object.entries(fe).filter(([k]) => req.body[k] !== undefined && String(req.body[k] ?? "") !== String((old as any)[k] ?? "") || (k === "warrantyExpiry" && (req.body.warrantyStart !== undefined || req.body.purchaseDate !== undefined)) || (k === "salvageValue" && req.body.cost !== undefined)));
+      if (Object.keys(touched).length) { res.status(400).json({ error: Object.values(touched).join(" · "), fields: touched }); return; } }
+    // Type is fixed once the tag is issued (the tag prefix and the printed QR label depend on it)
+    if (req.body.type !== undefined && req.body.type !== old.type) { res.status(400).json({ error: `Asset type can't be changed after the tag is issued (${old.assetTag} is a ${old.type}). If it was registered with the wrong type, delete it (or retire it if it has history) and register it again with the right type.`, fields: { type: "Type can't be changed" } }); return; }
+    if (req.body.assetTag !== undefined && req.body.assetTag !== old.assetTag) { res.status(400).json({ error: "Asset tag is system-assigned and can't be changed." }); return; }
     const allChanges = diffAsset(old, { ...old, ...req.body });
     if (!allChanges.length) { res.json(old); return; }
     if (!comment || comment.length < 3) { res.status(400).json({ error: "Please add a comment explaining the change (reason / reference)." }); return; }
@@ -136,7 +150,7 @@ router.patch("/assets/:id", requireAuth, async (req, res) => {
     let financeRequest: { id: number; requestNo: string } | null = null;
     if (finChanges.length) {
       const dup = await pendingFor("asset_edit", "assetId", id);
-      if (dup) { res.status(409).json({ error: `A cost / depreciation change for ${old.assetTag} is already waiting for approval (${dup.request_no}).` }); return; }
+      if (dup) { res.status(409).json({ error: `A cost / depreciation change for ${old.assetTag} is already waiting for approval (${dup.request_no}). Ask Finance to approve or reject it in Depreciation › Approvals before changing these fields again. Other fields can still be edited.` }); return; }
       const set = Object.fromEntries(finChanges.map(c => [c.field, c.to === null ? null : ["cost", "salvageValue"].includes(c.field) ? Number(c.to).toFixed(2) : ["usefulLifeYears"].includes(c.field) ? String(Number(c.to)) : c.to]));
       const { lockedFinanceChange } = await import("../lib/finance-controls");
       const locked = lockedFinanceChange(old, { ...old, ...set }, await getLock());
@@ -172,6 +186,9 @@ router.delete("/assets/:id", requireAuth, async (req, res) => {
     const [old] = await db.select().from(assetsTable).where(eq(assetsTable.id, id));
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     if (old && ["Allocated"].includes(old.status)) { res.status(400).json({ error: `${old.assetTag} is issued to ${old.ownerName} — return it before deleting` }); return; }
+    // Assets with history are disposed / written off, not deleted (keeps the audit trail and the fixed asset register right)
+    if (old) { const u = await assetUsage(id); const parts = [u.handovers && `${u.handovers} handover(s)`, u.contracts && `${u.contracts} AMC / contract link(s)`, u.licenses && `${u.licenses} licence seat(s)`, u.maintenance && `${u.maintenance} maintenance record(s)`, u.pending_approvals && `${u.pending_approvals} pending finance approval(s)`].filter(Boolean);
+      if (parts.length) { res.status(409).json({ error: `${old.assetTag} has ${parts.join(", ")} — it cannot be deleted. Use Retire / Dispose instead so its history is kept.`, usage: u }); return; } }
     const lock = await getLock();
     if (old && lock && Number(old.cost) > 0 && old.purchaseDate && old.purchaseDate <= lock.lockDate) { res.status(409).json({ error: `${old.assetTag} is in the closed ${lock.label} fixed asset register — dispose of it or write it off instead of deleting.` }); return; }
     await db.update(assetsTable).set({ isActive: false }).where(eq(assetsTable.id, id));
@@ -268,8 +285,10 @@ router.post("/assets/import", requireAuth, async (req, res) => {
         else { r.ownerEmployeeCode = p.code; r.ownerName = p.name; r.ownerEmail = p.email; r.ownerId = p.id; r.holderType = p.type === "external" ? "external" : "internal"; }
       }
       if (!r.vendorName) err("Vendor", "Required");
-      for (const [f, label] of [["purchaseDate", "Purchase Date"], ["warrantyExpiry", "Warranty Expiry"]] as const) {
-        if (r[f] && !DATE_RE.test(r[f])) err(label, `"${r[f]}" is not a valid date — use dd-MMM-yyyy, e.g. 05-Nov-2026`);
+      { // same rules as the Add Asset form: real dates, not in the future, warranty after purchase, cost / IP / MAC formats
+        const fe = assetFieldErrors(r);
+        const L: Record<string, string> = { purchaseDate: "Purchase Date", warrantyStart: "Warranty Start", warrantyExpiry: "Warranty Expiry", cost: "Cost", salvageValue: "Residual Value", usefulLifeYears: "Useful Life", ipAddress: "IP Address", macAddress: "MAC Address" };
+        for (const [f, m] of Object.entries(fe)) err(L[f] || f, m);
       }
       if (r.cost) {
         const n = Number(String(r.cost).replace(/[,₹\s]/g, ""));
@@ -420,15 +439,60 @@ router.delete("/asset-categories/:id", requireAuth, async (req, res) => {
 
 /* ─── VENDORS ────────────────────────────────────────────────────────────── */
 
+const istToday = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+/* Vendor rules: name unique (ignoring case / spaces / Ltd-Pvt suffixes), valid email / phone, end after start, rating 1–5. */
+const vendorKey = (n: string) => String(n || "").toLowerCase().replace(/[.,]/g, " ").replace(/\b(private|pvt|limited|ltd|llp|inc|corp|corporation|co)\b/g, "").replace(/\s+/g, " ").trim();
+async function vendorErrors(v: any, selfId?: number): Promise<string | null> {
+  const name = norm(v.name);
+  if (v.name !== undefined || !selfId) {
+    if (!name) return "Vendor name is required";
+    const all = await db.select({ id: assetVendorsTable.id, name: assetVendorsTable.name }).from(assetVendorsTable).where(eq(assetVendorsTable.isActive, true));
+    const dup = all.find(x => x.id !== selfId && vendorKey(x.name) === vendorKey(name));
+    if (dup) return `Vendor "${dup.name}" already exists — use it instead of adding "${name}"`;
+  }
+  if (norm(v.email) && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v.email).trim())) return `"${v.email}" is not a valid email address`;
+  if (norm(v.phone) && !/^\+?[\d\s\-()]{7,20}$/.test(String(v.phone).trim())) return `"${v.phone}" is not a valid phone number (digits, spaces, +, - only)`;
+  const real = (d: any) => { const t = new Date(String(d) + "T00:00:00Z"); return /^\d{4}-\d{2}-\d{2}$/.test(String(d)) && !isNaN(+t) && t.toISOString().slice(0, 10) === String(d); };
+  if (norm(v.contractStart) && !real(v.contractStart)) return "Contract start is not a valid date";
+  if (norm(v.contractEnd) && !real(v.contractEnd)) return "Contract end is not a valid date";
+  if (norm(v.contractStart) && norm(v.contractEnd) && v.contractEnd <= v.contractStart) return "Contract end must be after the contract start";
+  if (v.rating !== undefined && v.rating !== null && String(v.rating) !== "") { const r = Number(v.rating); if (!Number.isInteger(r) || r < 1 || r > 5) return "Rating must be a whole number from 1 to 5"; }
+  return null;
+}
+/* Shown status: a vendor whose contract end date has passed is "Expired" (stored status kept for Inactive / Blacklisted) */
+const vendorView = (v: any) => ({ ...v, storedStatus: v.status, status: v.status === "Active" && v.contractEnd && String(v.contractEnd) < istToday() ? "Expired" : v.status });
+
 router.get("/asset-vendors", requireAuth, async (_req, res) => {
   try {
     const items = await db.select().from(assetVendorsTable).where(eq(assetVendorsTable.isActive, true)).orderBy(assetVendorsTable.name);
-    res.json(items);
+    res.json(items.map(vendorView));
   } catch (e) { handleError(res, e); }
 });
 
+/* What uses a vendor / an asset — shown before delete, and deletion is blocked while anything active is linked */
+async function vendorUsage(id: number) {
+  const [r] = (await db.execute(sql`SELECT
+    (SELECT count(*) FROM assets WHERE vendor_id = ${id} AND is_active)::int AS assets,
+    (SELECT count(*) FROM asset_licenses WHERE vendor_id = ${id} AND is_active)::int AS licenses,
+    (SELECT count(*) FROM asset_contracts WHERE vendor_id = ${id} AND is_active)::int AS contracts`) as any).rows ?? [];
+  return r as { assets: number; licenses: number; contracts: number };
+}
+async function assetUsage(id: number) {
+  const [r] = (await db.execute(sql`SELECT
+    (SELECT count(*) FROM asset_allocations WHERE asset_id = ${id})::int AS handovers,
+    (SELECT count(*) FROM asset_contract_assets WHERE asset_id = ${id})::int AS contracts,
+    (SELECT count(*) FROM asset_license_assignments WHERE asset_id = ${id} AND revoked_at IS NULL)::int AS licenses,
+    (SELECT count(*) FROM maintenance_records WHERE asset_id = ${id})::int AS maintenance,
+    (SELECT count(*) FROM asset_finance_requests WHERE status = 'Pending' AND kind = 'asset_edit' AND payload ->> 'assetId' = ${String(id)})::int AS pending_approvals`) as any).rows ?? [];
+  return r as Record<string, number>;
+}
+router.get("/asset-vendors/:id/usage", requireAuth, async (req, res) => { try { res.json(await vendorUsage(Number(req.params.id))); } catch (e) { handleError(res, e); } });
+router.get("/assets/:id/usage", requireAuth, async (req, res) => { try { res.json(await assetUsage(Number(req.params.id))); } catch (e) { handleError(res, e); } });
+
 router.post("/asset-vendors", requireAuth, async (req, res) => {
   try {
+    { const err = await vendorErrors(req.body); if (err) { res.status(400).json({ error: err }); return; } }
+    if (req.body.rating === "" ) req.body.rating = null;
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     const [item] = await db.insert(assetVendorsTable).values({ ...req.body, createdBy: performedBy }).returning();
     await safeLog({ entityType: "asset_vendor", entityId: item.id, action: "create", performedBy, summary: `Created vendor: ${item.name}`, newValues: item, context: buildContext(req, "Vendors") });
@@ -439,6 +503,9 @@ router.post("/asset-vendors", requireAuth, async (req, res) => {
 router.patch("/asset-vendors/:id", requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    { const [cur] = await db.select().from(assetVendorsTable).where(eq(assetVendorsTable.id, id));
+      const err = await vendorErrors({ ...cur, ...req.body, name: req.body.name ?? cur?.name }, id); if (err) { res.status(400).json({ error: err }); return; } }
+    delete req.body.storedStatus; if (req.body.status === "Expired") delete req.body.status;
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     const [item] = await db.update(assetVendorsTable).set({ ...req.body, updatedBy: performedBy, updatedAt: new Date() }).where(eq(assetVendorsTable.id, id)).returning();
     await safeLog({ entityType: "asset_vendor", entityId: id, action: "update", performedBy, summary: `Updated vendor: ${item.name}`, newValues: item, context: buildContext(req, "Vendors") });
@@ -450,6 +517,8 @@ router.delete("/asset-vendors/:id", requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const [old] = await db.select().from(assetVendorsTable).where(eq(assetVendorsTable.id, id));
+    const u = await vendorUsage(id);
+    if (u.assets || u.licenses || u.contracts) { res.status(409).json({ error: `${old?.name || "This vendor"} is used by ${[u.assets && `${u.assets} asset(s)`, u.licenses && `${u.licenses} licence(s)`, u.contracts && `${u.contracts} contract(s)`].filter(Boolean).join(", ")} — it cannot be deleted. Set its status to Inactive instead.`, usage: u }); return; }
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     await db.update(assetVendorsTable).set({ isActive: false }).where(eq(assetVendorsTable.id, id));
     await safeLog({ entityType: "asset_vendor", entityId: id, action: "delete", performedBy, summary: `Deleted vendor: ${old?.name || id}`, context: buildContext(req, "Vendors") });

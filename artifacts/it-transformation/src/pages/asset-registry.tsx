@@ -22,6 +22,7 @@ import { AssetCoveragePanel } from "@/components/asset-finance";
 import { MasterField } from "@/components/master-field";
 import { StickerDialog } from "@/components/asset-sticker";
 import { fmtCell, fmtDate } from "@/lib/date";
+import { assetFieldErrors } from "@/lib/asset-validate";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -37,7 +38,7 @@ export default function AssetRegistry() {
   const { toast } = useToast();
   const { isAdmin: isSysAdmin, user, canAccess } = useAuth();
   const isAdmin = canAccess("asset_registry", "write");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
   const [filterType, setFilterType] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDept, setFilterDept] = useState("");
@@ -56,6 +57,9 @@ export default function AssetRegistry() {
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => apiFetch<any[]>("/assets") });
   const { data: lcModel } = useLifecycleModel();
   const STATUS_FILTERS = lcModel?.states || ASSET_STATUSES;
+  const { data: pend } = useQuery({ queryKey: ["assets-pending-finance"], queryFn: () => apiFetch<{ byId: Record<number, any[]>; byTag: Record<string, any[]> }>("/assets/pending-finance"), staleTime: 30_000 });
+  const pendingOf = (a: any) => [...(pend?.byId?.[a.id] || []), ...(pend?.byTag?.[String(a.assetTag || "").toUpperCase()] || [])];
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { data: stats } = useQuery({ queryKey: ["assets-stats"], queryFn: () => apiFetch<any>("/assets/stats") });
   const { data: vendors = [] } = useQuery({ queryKey: ["asset-vendors"], queryFn: () => apiFetch<any[]>("/asset-vendors") });
 
@@ -66,7 +70,8 @@ export default function AssetRegistry() {
   const departments = [...new Set(assets.map((a: any) => a.department).filter(Boolean))];
   const filtered = useMemo(() => {
     let list = assets;
-    if (search) list = list.filter((a: any) => [a.name, a.assetTag, a.ownerName, a.ownerEmployeeCode, a.ownerEmail, a.serialNumber, a.department].some(v => v?.toLowerCase().includes(search.toLowerCase())));
+    const t = search.trim().replace(/\s+/g, " ").toLowerCase();
+    if (t) list = list.filter((a: any) => [a.name, a.assetTag, a.ownerName, a.ownerEmployeeCode, a.ownerEmail, a.serialNumber, a.department, a.location, a.vendorName].some(v => v?.toLowerCase().includes(t)));
     if (filterType) list = list.filter((a: any) => a.type === filterType);
     if (filterStatus) list = list.filter((a: any) => a.status === filterStatus);
     if (filterDept) list = list.filter((a: any) => a.department === filterDept);
@@ -93,7 +98,7 @@ export default function AssetRegistry() {
   function openCreate() {
     setEditingItem(null);
     setFormData({ status: "In Stock", vendorSelect: "" });
-    setFormErrors({});
+    setFormErrors({}); setSaveError(null);
     setIsModalOpen(true);
   }
 
@@ -124,12 +129,21 @@ export default function AssetRegistry() {
     if (!formData.vendorSelect) errors.vendor = "Vendor is required";
     if (editingItem && (formData.comment || "").trim().length < 3) errors.comment = "Please explain the change — it is recorded in the asset's history";
     if (formData.vendorSelect === "__others__" && !formData.vendorOthersName?.trim()) errors.vendor = "Vendor is required — please enter the vendor name below";
+    // same field rules as the server: real dates, warranty after purchase, cost > 0, residual ≤ cost, IP / MAC format
+    { const fe = assetFieldErrors(formData, { requireCostPositive: !editingItem || String(formData.cost ?? "") !== String(editingItem.cost ?? "") });
+      for (const [k, v] of Object.entries(fe)) if (!editingItem || String(formData[k] ?? "") !== String(editingItem[k] ?? "") || k === "warrantyExpiry" || k === "salvageValue") errors[k] = v; }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   }
 
   async function handleSave() {
-    if (!validateForm()) return;
+    setSaveError(null);
+    if (!validateForm()) {
+      // say what is missing and jump to it (the comment box is at the bottom of a long form)
+      setTimeout(() => { const el = document.querySelector('[role="dialog"] .text-red-500'); el?.scrollIntoView({ behavior: "smooth", block: "center" }); }, 50);
+      toast({ title: "Please complete the highlighted fields", description: editingItem && (formData.comment || "").trim().length < 3 ? "A comment explaining the change is required (bottom of the form)." : undefined, variant: "destructive" });
+      return;
+    }
     if (!await confirmDialog(editingItem ? `Save changes to asset "${formData.name}" (${formData.assetTag || editingItem.assetTag})?` : `Register asset "${formData.name}"${formData.assetTag ? ` as ${formData.assetTag}` : ""}?`, { title: editingItem ? "Update asset" : "Register asset", confirmText: editingItem ? "Save changes" : "Register" })) return;
     const vendorId = formData.vendorSelect && formData.vendorSelect !== "__others__" ? parseInt(formData.vendorSelect) : undefined;
     const vendorObj = vendors.find((v: any) => v.id === vendorId);
@@ -165,15 +179,21 @@ export default function AssetRegistry() {
     try {
       if (editingItem) {
         const r: any = await updateAsset.mutateAsync({ id: editingItem.id, ...payload });
-        if (r?.financeRequest) toast({ title: `Cost / depreciation change sent for approval — ${r.financeRequest.requestNo}`, description: "Finance approves it in Depreciation › Approvals. Other changes were saved." });
-        else toast({ title: "Asset updated successfully" });
+        if (r?.financeRequest) {
+          queryClient.invalidateQueries({ queryKey: ["assets-pending-finance"] });
+          setIsModalOpen(false);
+          await confirmDialog(`The cost / purchase / depreciation change on ${editingItem.assetTag} has been sent to Finance for approval as ${r.financeRequest.requestNo}.\n\nThe asset keeps its current values until it is approved in Depreciation › Approvals; until then it shows "Change pending". Any other changes you made were saved now.`, { title: "Sent for approval", confirmText: "OK", cancelText: "" });
+          return;
+        }
+        toast({ title: "Asset updated successfully" });
       } else {
         await createAsset.mutateAsync(payload);
         toast({ title: "Asset registered", description: `Tag: ${payload.assetTag}` });
       }
       setIsModalOpen(false);
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      setSaveError(e.message);
+      toast({ title: "Not saved", description: e.message, variant: "destructive" });
     }
   }
 
@@ -194,7 +214,10 @@ export default function AssetRegistry() {
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!await confirmDialog(`Delete asset "${name}"? This action cannot be undone.`)) return;
+    const u: any = await apiFetch(`/assets/${id}/usage`).catch(() => null);
+    const parts = u ? [u.handovers && `${u.handovers} handover(s)`, u.contracts && `${u.contracts} AMC / contract link(s)`, u.licenses && `${u.licenses} licence seat(s)`, u.maintenance && `${u.maintenance} maintenance record(s)`, u.pending_approvals && `${u.pending_approvals} pending finance approval(s)`].filter(Boolean) : [];
+    if (parts.length) { await confirmDialog(`"${name}" has ${parts.join(", ")}, so it cannot be deleted.\n\nUse Retire, then Dispose, instead — the asset leaves the active register and its history stays on record.`, { title: "Asset has history", confirmText: "OK", cancelText: "" }); return; }
+    if (!await confirmDialog(`Delete asset "${name}"? It has no handovers, contracts, licences or approvals. This cannot be undone.`, { title: "Delete asset", confirmText: "Delete", destructive: true })) return;
     try {
       await deleteAsset.mutateAsync(id);
       toast({ title: "Asset deleted" });
@@ -209,7 +232,7 @@ export default function AssetRegistry() {
           <p className="text-sm text-muted-foreground">Manage all IT hardware and equipment — {user?.name}</p>
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(assets, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Employee Code",key:"ownerEmployeeCode"},{label:"Owner Email",key:"ownerEmail"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"cost"},{label:"Vendor",key:"vendorName"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], "asset-registry.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
+          <Button variant="outline" size="sm" title="Exports the assets matching the search and filters on screen" onClick={() => exportToCsv(filtered, [{label:"Asset Tag",key:"assetTag"},{label:"Name",key:"name"},{label:"Type",key:"type"},{label:"Serial No",key:"serialNumber"},{label:"Status",key:"status"},{label:"Owner",key:"ownerName"},{label:"Employee Code",key:"ownerEmployeeCode"},{label:"Owner Email",key:"ownerEmail"},{label:"Department",key:"department"},{label:"Location",key:"location"},{label:"Cost (₹)",key:"cost"},{label:"Vendor",key:"vendorName"},{label:"Warranty Expiry",key:"warrantyExpiry"},{label:"Purchase Date",key:"purchaseDate"}], `asset-registry${filtered.length !== assets.length ? "-filtered" : ""}.csv`)} className="gap-1.5"><Download className="w-4 h-4" />Export CSV{filtered.length !== assets.length ? ` (${filtered.length})` : ""}</Button>
           {isSysAdmin && <Button variant="outline" size="sm" onClick={handlePurge} disabled={purging} className="gap-1.5 text-red-600 hover:text-red-700 border-red-500/30">{purging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eraser className="w-4 h-4" />}Clear All Data</Button>}
           <Button variant="outline" size="sm" onClick={() => filtered.length && setStickerAssets(filtered)} disabled={!filtered.length} className="gap-1.5" title="QR stickers for the assets currently listed"><Tag className="w-4 h-4" />QR Stickers ({filtered.length})</Button>
           <Button variant="outline" size="sm" onClick={downloadAssetTemplate} className="gap-1.5"><FileSpreadsheet className="w-4 h-4" />Template</Button>
@@ -270,7 +293,7 @@ export default function AssetRegistry() {
               )}
               {paged.map((a: any) => (
                 <TableRow key={a.id} className={a.status === "Retired" || a.status === "Disposed" ? "opacity-50" : ""}>
-                  <TableCell className="font-mono text-xs font-semibold text-[#1B63D6]">{a.assetTag}</TableCell>
+                  <TableCell className="font-mono text-xs font-semibold text-[#1B63D6]">{a.assetTag}{pendingOf(a).length > 0 && <div title={pendingOf(a).map(x => `${x.requestNo}: ${x.title}`).join("\n")} className="mt-0.5 w-fit rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 px-1.5 py-px text-[10px] font-sans font-medium whitespace-nowrap">Change pending</div>}</TableCell>
                   <TableCell className="font-medium">{a.name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{a.type}</Badge></TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{a.serialNumber || "—"}</TableCell>
@@ -385,6 +408,8 @@ export default function AssetRegistry() {
               {editingItem ? `Edit Asset — ${editingItem.assetTag}` : "Register New Asset"}
             </DialogTitle>
           </DialogHeader>
+          {editingItem && pendingOf(editingItem).length > 0 && <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+            <b>Waiting for Finance approval:</b> {pendingOf(editingItem).map(x => `${x.requestNo} (${x.title}, by ${x.requestedBy})`).join("; ")}. Cost, purchase date and depreciation can't be changed again until it is approved or rejected in Depreciation › Approvals. Other fields can be edited.</div>}
 
           <div className="grid grid-cols-2 gap-4">
 
@@ -393,6 +418,7 @@ export default function AssetRegistry() {
               <Label className="text-xs font-medium">Asset Type <span className="text-red-500">*</span></Label>
               <Select
                 value={formData.type || ""}
+                disabled={!!editingItem}
                 onValueChange={v => {
                   setField("type", v);
                   if (!editingItem) fetchNextTag(v);
@@ -402,6 +428,7 @@ export default function AssetRegistry() {
                 <SelectContent>{ASSET_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
               </Select>
               {formErrors.type && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.type}</p>}
+              {editingItem && <p className="text-[10px] text-muted-foreground mt-0.5">Fixed once the tag is issued. Wrong type? Delete (or retire) and register again.</p>}
             </div>
 
             {/* Auto-generated Asset Tag */}
@@ -523,19 +550,19 @@ export default function AssetRegistry() {
             {/* Purchase Date */}
             <div>
               <Label className="text-xs font-medium">Purchase Date</Label>
-              <Input type="date" value={formData.purchaseDate || ""} onChange={e => setField("purchaseDate", e.target.value)} />
+              <Input type="date" value={formData.purchaseDate || ""} onChange={e => setField("purchaseDate", e.target.value)} />{formErrors.purchaseDate && <p className="text-xs text-red-500 mt-1">{formErrors.purchaseDate}</p>}
             </div>
 
             {/* Cost */}
             <div>
               <Label className="text-xs font-medium">Cost (₹)</Label>
-              <Input type="number" value={formData.cost || ""} onChange={e => setField("cost", e.target.value)} placeholder="0" />
+              <Input type="number" min={0} value={formData.cost || ""} onChange={e => setField("cost", e.target.value)} placeholder="0" className={formErrors.cost ? "border-red-500" : undefined} />{formErrors.cost && <p className="text-xs text-red-500 mt-1">{formErrors.cost}</p>}
             </div>
 
             {/* Warranty Expiry */}
             <div>
               <Label className="text-xs font-medium">Warranty Expiry</Label>
-              <Input type="date" value={formData.warrantyExpiry || ""} onChange={e => setField("warrantyExpiry", e.target.value)} />
+              <Input type="date" value={formData.warrantyExpiry || ""} onChange={e => setField("warrantyExpiry", e.target.value)} />{formErrors.warrantyExpiry && <p className="text-xs text-red-500 mt-1">{formErrors.warrantyExpiry}</p>}
             </div>
 
             {/* PO Number */}
@@ -551,7 +578,7 @@ export default function AssetRegistry() {
             </div>
             <div>
               <Label className="text-xs font-medium">Warranty Start</Label>
-              <Input type="date" value={formData.warrantyStart || ""} onChange={e => setField("warrantyStart", e.target.value)} />
+              <Input type="date" value={formData.warrantyStart || ""} onChange={e => setField("warrantyStart", e.target.value)} />{formErrors.warrantyStart && <p className="text-xs text-red-500 mt-1">{formErrors.warrantyStart}</p>}
             </div>
 
             {/* Depreciation overrides (blank = rule for the asset type) */}
@@ -571,24 +598,24 @@ export default function AssetRegistry() {
               </div>
               <div>
                 <Label className="text-xs font-medium">Useful life (yrs)</Label>
-                <Input type="number" min={0} step="0.5" value={formData.usefulLifeYears ?? ""} onChange={e => setField("usefulLifeYears", e.target.value)} placeholder="Rule" />
+                <Input type="number" min={0} step="0.5" value={formData.usefulLifeYears ?? ""} onChange={e => setField("usefulLifeYears", e.target.value)} placeholder="Rule" />{formErrors.usefulLifeYears && <p className="text-xs text-red-500 mt-1">{formErrors.usefulLifeYears}</p>}
               </div>
               <div>
                 <Label className="text-xs font-medium">Residual value (₹)</Label>
-                <Input type="number" min={0} value={formData.salvageValue ?? ""} onChange={e => setField("salvageValue", e.target.value)} placeholder="Rule %" />
+                <Input type="number" min={0} value={formData.salvageValue ?? ""} onChange={e => setField("salvageValue", e.target.value)} placeholder="Rule %" />{formErrors.salvageValue && <p className="text-xs text-red-500 mt-1">{formErrors.salvageValue}</p>}
               </div>
             </div>
 
             {/* IP Address */}
             <div>
               <Label className="text-xs font-medium">IP Address</Label>
-              <Input value={formData.ipAddress || ""} onChange={e => setField("ipAddress", e.target.value)} placeholder="192.168.x.x" className="font-mono" />
+              <Input value={formData.ipAddress || ""} onChange={e => setField("ipAddress", e.target.value)} placeholder="192.168.x.x" className="font-mono" />{formErrors.ipAddress && <p className="text-xs text-red-500 mt-1">{formErrors.ipAddress}</p>}
             </div>
 
             {/* MAC Address */}
             <div>
               <Label className="text-xs font-medium">MAC Address</Label>
-              <Input value={formData.macAddress || ""} onChange={e => setField("macAddress", e.target.value)} placeholder="XX:XX:XX:XX:XX:XX" className="font-mono" />
+              <Input value={formData.macAddress || ""} onChange={e => setField("macAddress", e.target.value)} placeholder="XX:XX:XX:XX:XX:XX" className="font-mono" />{formErrors.macAddress && <p className="text-xs text-red-500 mt-1">{formErrors.macAddress}</p>}
             </div>
 
             {/* OS Version */}
@@ -617,6 +644,7 @@ export default function AssetRegistry() {
             {formErrors.comment && <p className="text-xs text-red-500 mt-1">{formErrors.comment}</p>}
           </div>
 
+          {saveError && <div className="rounded-md border border-red-300 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300"><b>Not saved:</b> {saveError}</div>}
           <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button

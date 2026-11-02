@@ -14,7 +14,7 @@ const fmt = (d?: string | null) => d ? fmtDate(d) : "—";
 
 export default function AssetEmployees() {
   const { data: holders = [], isLoading } = useQuery({ queryKey: ["asset-holders"], queryFn: () => apiFetch<any[]>("/asset-holders") });
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
   const [onlyActive, setOnlyActive] = useState(true);
   const [open, setOpen] = useState<any>(null);
 

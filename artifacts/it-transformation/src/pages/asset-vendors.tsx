@@ -16,7 +16,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
-import { fmtCell } from "@/lib/date";
+import { fmtCell, fmtDate } from "@/lib/date";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -31,7 +31,7 @@ export default function AssetVendors() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user, canAccess } = useAuth(); const isAdmin = canAccess("asset_vendors", "write");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
   const [filterStatus, setFilterStatus] = useState("");
   const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -47,7 +47,8 @@ export default function AssetVendors() {
 
   const filtered = useMemo(() => {
     let list = vendors;
-    if (search) list = list.filter((v: any) => [v.name, v.contactPerson, v.email].some(val => val?.toLowerCase().includes(search.toLowerCase())));
+    const t = search.trim().toLowerCase();
+    if (t) list = list.filter((v: any) => [v.name, v.contactPerson, v.email].some(val => val?.toLowerCase().includes(t)));
     if (filterStatus) list = list.filter((v: any) => v.status === filterStatus);
     return list;
   }, [vendors, search, filterStatus]);
@@ -56,17 +57,32 @@ export default function AssetVendors() {
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const activeVendors = vendors.filter((v: any) => v.status === "Active").length;
-  const avgRating = vendors.length > 0 ? (vendors.reduce((s: number, v: any) => s + (v.rating || 0), 0) / vendors.length).toFixed(1) : "—";
+  // average of vendors that have a rating (unrated ones are not counted as 0)
+  const rated = vendors.filter((v: any) => Number(v.rating) > 0);
+  const avgRating = rated.length ? (rated.reduce((s: number, v: any) => s + Number(v.rating), 0) / rated.length).toFixed(1) : "—";
   const expiringSoon = vendors.filter((v: any) => {
     if (!v.contractEnd) return false;
     const diff = new Date(v.contractEnd).getTime() - Date.now();
     return diff > 0 && diff < 90 * 86400000;
   }).length;
 
-  function openCreate() { setEditingItem(null); setFormData({ status: "Active", rating: 3 }); setIsModalOpen(true); }
-  function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
+  function openCreate() { setEditingItem(null); setFormData({ status: "Active", rating: null }); setIsModalOpen(true); }
+  function openEdit(item: any) { setEditingItem(item); setFormData({ ...item, status: item.storedStatus || item.status }); setIsModalOpen(true); }
+
+  function vendorError(): string | null {
+    const f = formData; const name = String(f.name || "").trim();
+    if (!name) return "Vendor name is required";
+    const key = (n: string) => String(n || "").toLowerCase().replace(/[.,]/g, " ").replace(/\b(private|pvt|limited|ltd|llp|inc|corp|corporation|co)\b/g, "").replace(/\s+/g, " ").trim();
+    const dup = vendors.find((v: any) => v.id !== editingItem?.id && key(v.name) === key(name)); if (dup) return `Vendor "${dup.name}" already exists — use it instead`;
+    if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(f.email).trim())) return `"${f.email}" is not a valid email address`;
+    if (f.phone && !/^\+?[\d\s\-()]{7,20}$/.test(String(f.phone).trim())) return `"${f.phone}" is not a valid phone number`;
+    if (f.contractStart && f.contractEnd && f.contractEnd <= f.contractStart) return "Contract end must be after the contract start";
+    if (f.rating !== null && f.rating !== undefined && f.rating !== "" && !(Number.isInteger(Number(f.rating)) && Number(f.rating) >= 1 && Number(f.rating) <= 5)) return "Rating must be from 1 to 5";
+    return null;
+  }
 
   async function handleSave() {
+    { const err = vendorError(); if (err) { toast({ title: "Please check the vendor details", description: err, variant: "destructive" }); return; } }
     if (!await confirmDialog(editingItem ? `Save changes to vendor "${formData.name || editingItem.name}"?` : `Create vendor "${formData.name || ""}"?`, { title: editingItem ? "Update vendor" : "Create vendor", confirmText: editingItem ? "Save changes" : "Create" })) return;
     try {
       if (editingItem) { await updateVendor.mutateAsync({ id: editingItem.id, ...formData }); toast({ title: "Vendor updated" }); }
@@ -76,7 +92,9 @@ export default function AssetVendors() {
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!await confirmDialog(`Delete vendor "${name}"?`)) return;
+    const u: any = await apiFetch(`/asset-vendors/${id}/usage`).catch(() => null);
+    if (u && (u.assets || u.licenses || u.contracts)) { await confirmDialog(`"${name}" is used by ${[u.assets && `${u.assets} asset(s)`, u.licenses && `${u.licenses} licence(s)`, u.contracts && `${u.contracts} contract(s)`].filter(Boolean).join(", ")}, so it cannot be deleted.\n\nSet its status to Inactive instead — it then stops appearing for new assets but its history is kept.`, { title: "Vendor in use", confirmText: "OK", cancelText: "" }); return; }
+    if (!await confirmDialog(`Delete vendor "${name}"? It is not linked to any asset, licence or contract.`, { title: "Delete vendor", confirmText: "Delete", destructive: true })) return;
     try { await deleteVendor.mutateAsync(id); toast({ title: "Vendor deleted" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }
@@ -97,7 +115,7 @@ export default function AssetVendors() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard icon={Package} label="Total Vendors" value={vendors.length} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
         <StatCard icon={CheckCircle2} label="Active" value={activeVendors} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600" borderColor="border-l-emerald-500" />
-        <StatCard icon={Star} label="Avg Rating" value={avgRating} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
+        <StatCard icon={Star} label="Avg Rating" value={avgRating} sub={`${rated.length} of ${vendors.length} rated`} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
         <StatCard icon={Clock} label="Contracts Expiring" value={expiringSoon} iconBg="bg-red-100 dark:bg-red-900/30" iconColor="text-red-600" borderColor="border-l-red-500" sub="Within 90 days" />
       </div>
 
@@ -110,7 +128,7 @@ export default function AssetVendors() {
             </div>
             <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[140px]"><SelectValue placeholder="All Statuses" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Statuses</SelectItem><SelectItem value="Active">Active</SelectItem><SelectItem value="Inactive">Inactive</SelectItem></SelectContent>
+              <SelectContent><SelectItem value="all">All Statuses</SelectItem><SelectItem value="Active">Active</SelectItem><SelectItem value="Expired">Expired (contract ended)</SelectItem><SelectItem value="Inactive">Inactive</SelectItem></SelectContent>
             </Select>
           </div>
           <Table>
@@ -127,9 +145,9 @@ export default function AssetVendors() {
                   <TableCell>{v.contactPerson || "—"}</TableCell>
                   <TableCell className="text-sm">{v.email || "—"}</TableCell>
                   <TableCell className="text-sm">{v.phone || "—"}</TableCell>
-                  <TableCell className="text-xs">{v.contractStart && v.contractEnd ? `${v.contractStart} — ${v.contractEnd}` : "—"}</TableCell>
+                  <TableCell className="text-xs">{v.contractStart && v.contractEnd ? `${fmtDate(v.contractStart)} — ${fmtDate(v.contractEnd)}` : "—"}</TableCell>
                   <TableCell><div className="flex gap-0.5">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`w-3 h-3 ${i < (v.rating || 0) ? "fill-amber-400 text-amber-400" : "text-gray-300"}`} />)}</div></TableCell>
-                  <TableCell><Badge variant="outline" className={v.status === "Active" ? "border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10" : "border-gray-400/30 text-gray-500 bg-gray-50"}>{v.status}</Badge></TableCell>
+                  <TableCell><Badge variant="outline" className={v.status === "Active" ? "border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-400/10" : v.status === "Expired" ? "border-red-400/40 text-red-600 bg-red-50 dark:bg-red-400/10" : "border-gray-400/30 text-gray-500 bg-gray-50"}>{v.status}</Badge></TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(v)} className="p-1.5 rounded hover:bg-muted" title="View"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
@@ -174,8 +192,8 @@ export default function AssetVendors() {
               </Select>
             </div>
             <div><Label>Contract Start</Label><Input type="date" value={formData.contractStart || ""} onChange={e => setFormData({ ...formData, contractStart: e.target.value })} /></div>
-            <div><Label>Contract End</Label><Input type="date" value={formData.contractEnd || ""} onChange={e => setFormData({ ...formData, contractEnd: e.target.value })} /></div>
-            <div><Label>Rating (1-5)</Label><Input type="number" min="1" max="5" value={formData.rating || 3} onChange={e => setFormData({ ...formData, rating: parseInt(e.target.value) })} /></div>
+            <div><Label>Contract End</Label><Input type="date" min={formData.contractStart || undefined} value={formData.contractEnd || ""} onChange={e => setFormData({ ...formData, contractEnd: e.target.value })} /></div>
+            <div><Label>Rating (1-5)</Label><Select value={formData.rating ? String(formData.rating) : "none"} onValueChange={v => setFormData({ ...formData, rating: v === "none" ? null : Number(v) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Not rated</SelectItem>{[5, 4, 3, 2, 1].map(r => <SelectItem key={r} value={String(r)}>{"★".repeat(r)} {r}</SelectItem>)}</SelectContent></Select></div>
             <div className="col-span-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={e => setFormData({ ...formData, notes: e.target.value })} rows={2} /></div>
           </div>
           <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">

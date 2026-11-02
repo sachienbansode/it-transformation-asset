@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useRef } from "react";
+import { useCurrency } from "@/contexts/currency-context";
+import { inrShort } from "@/components/asset-finance";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -129,6 +131,7 @@ function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => voi
 
 /* ─── Main Component ─────────────────────────────────────────────────────── */
 export default function AssetManagement() {
+  useCurrency(); // re-render amounts when the header ₹ unit changes
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { isAdmin } = useAuth();
@@ -286,7 +289,7 @@ export default function AssetManagement() {
             <StatCard icon={Box} label="Total Assets" value={stats?.total || 0} />
             <StatCard icon={Package} label="Active Vendors" value={vendors.length} />
             <StatCard icon={HardDrive} label="Software Licenses" value={licenses.length} />
-            <StatCard icon={TrendingUp} label="Total Asset Value" value={`₹${(Number(stats?.totalCost || 0) / 100000).toFixed(1)}L`} />
+            <StatCard icon={TrendingUp} label="Total Asset Value" value={inrShort(stats?.totalCost)} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="p-4">
@@ -459,6 +462,7 @@ export default function AssetManagement() {
               <Label className="text-xs font-medium">Asset Type <span className="text-red-500">*</span></Label>
               <Select
                 value={formData.type || ""}
+                disabled={!!editingItem}
                 onValueChange={v => {
                   setField("type", v);
                   if (!editingItem) fetchNextTag(v);
@@ -468,6 +472,7 @@ export default function AssetManagement() {
                 <SelectContent>{ASSET_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
               </Select>
               {formErrors.type && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.type}</p>}
+              {editingItem && <p className="text-[10px] text-muted-foreground mt-0.5">Fixed once the tag is issued. Wrong type? Delete (or retire) and register again.</p>}
             </div>
 
             {/* Auto-generated Asset Tag */}

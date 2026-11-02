@@ -20,7 +20,8 @@ router.get("/asset-dashboard", requireAuth, async (_req, res) => {
     const monthStart = on.slice(0, 8) + "01";
     const fy = fyOf(on);
     const assets = await db.select().from(assetsTable).where(eq(assetsTable.isActive, true));
-    const live = assets.filter(a => !GONE.includes(a.status));
+    const live = assets.filter(a => !GONE.includes(a.status));            // still on the books (incl. Retired, until disposed)
+    const inService = live.filter(a => a.status !== "Retired");             // in use / in stock / in repair
     const rules = await loadRules();
     const cover = await coverageMap(on);
 
@@ -31,12 +32,13 @@ router.get("/asset-dashboard", requireAuth, async (_req, res) => {
     const expiringList: any[] = [];
     for (const a of assets) inc(byStatus, a.status);
     for (const a of live) {
-      inc(byType, a.type); inc(byLocation, a.location); inc(byDept, a.department);
+      const serving = a.status !== "Retired";
+      if (serving) { inc(byType, a.type); inc(byLocation, a.location); inc(byDept, a.department); }
       if (a.status === "In Stock") inc(spare, a.type);
-      if (a.purchaseDate && /^\d{4}-\d{2}-\d{2}$/.test(a.purchaseDate)) {
+      if (serving && a.purchaseDate && /^\d{4}-\d{2}-\d{2}$/.test(a.purchaseDate)) {
         const yrs = (Date.parse(on) - Date.parse(a.purchaseDate)) / (365.25 * 86_400_000);
         age[yrs < 1 ? "< 1 yr" : yrs < 2 ? "1–2 yrs" : yrs < 3 ? "2–3 yrs" : yrs < 4 ? "3–4 yrs" : "4+ yrs"]++;
-      } else age.Unknown++;
+      } else if (serving) age.Unknown++;
       const { input } = resolveInput(a, rules);
       if (input) {
         const acc = accumulated(input, on);
@@ -45,6 +47,7 @@ router.get("/asset-dashboard", requireAuth, async (_req, res) => {
         depFy += acc - before;
         if (input.method !== "None" && input.cost - acc - input.salvage < 0.01) pastLife++;
       } else missingFinance++;
+      if (!serving) continue; // retired assets: on the books (above) but not counted for age, warranty or AMC
       const ws = warrantyState(a.warrantyExpiry, on);
       const amc = cover.get(a.id) || [];
       if (amc.length) w.underAmc++;
@@ -105,7 +108,7 @@ router.get("/asset-dashboard", requireAuth, async (_req, res) => {
     res.json({
       asOf: on, fyLabel: fyLabel(fy),
       inventory: {
-        total: live.length, all: assets.length,
+        total: inService.length, all: assets.length,
         deployed: live.filter(a => a.status === "Allocated" || a.status === "In Use").length,
         inStock: live.filter(a => a.status === "In Stock").length,
         maintenance: live.filter(a => a.status === "Under Maintenance").length,

@@ -15,13 +15,16 @@ import { fmtCell, fmtDate as fmtD } from "@/lib/date";
 /* Shared bits for contracts / warranty / depreciation / licenses. */
 
 export const inr = (v: any, dp = 0) => v === null || v === undefined || v === "" || Number.isNaN(Number(v)) ? "—" : `₹${Number(v).toLocaleString("en-IN", { maximumFractionDigits: dp, minimumFractionDigits: dp })}`;
+/** Short rupee amount in the unit picked in the header (₹ Lakh / Crore / Million). Small amounts stay in full rupees. */
 export const inrShort = (v: any) => {
-  const n = Number(v || 0);
-  if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
-  if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(2)} L`;
-  return inr(n);
+  const n = Number(v || 0), u = currentUnit();
+  if (Math.abs(n) < 1e5) return inr(n);
+  if (u === "crores") return `₹${(n / 1e7).toFixed(2)} Cr`;
+  if (u === "millions") return `₹${(n / 1e6).toFixed(2)} M`;
+  return `₹${(n / 1e5).toFixed(2)} L`;
 };
 export { fmtDate } from "@/lib/date";
+import { currentUnit } from "@/contexts/currency-context";
 export const daysText = (d: number | null | undefined) => d === null || d === undefined ? "" : d < 0 ? `${-d} day${d === -1 ? "" : "s"} ago` : d === 0 ? "today" : `in ${d} day${d === 1 ? "" : "s"}`;
 
 const PILL: Record<string, string> = {
@@ -190,7 +193,7 @@ export async function downloadFinanceSheet(onlyMissing: boolean) {
   return list.length;
 }
 
-type FinResult = { total: number; matched: number; toUpdate: number; unchanged: number; fieldsChanged: number; errors: { row: number; field: string; message: string }[]; updated: number; preview?: any[] };
+type FinResult = { total: number; matched: number; toUpdate: number; unchanged: number; fieldsChanged: number; errors: { row: number; field: string; message: string }[]; warnings?: { row: number; field: string; message: string }[]; updated: number; preview?: any[] };
 
 export function FinanceUploadDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
@@ -280,6 +283,9 @@ export function FinanceUploadDialog({ open, onClose }: { open: boolean; onClose:
                   </tbody></table></div>
                 </div>
               )}
+              {!!result.warnings?.length && !result.errors.length && <div className="rounded-[10px] border border-amber-300 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 space-y-0.5">
+                <div className="font-semibold">{result.warnings.length} warning(s) — you can still submit</div>
+                {result.warnings.slice(0, 20).map((w, i) => <div key={i}>Row {w.row}: {w.message}</div>)}{result.warnings.length > 20 && <div>… and {result.warnings.length - 20} more</div>}</div>}
               {!!result.preview?.length && !result.errors.length && (
                 <div className="rounded-[10px] border text-xs divide-y">
                   {result.preview.map((p: any) => <div key={p.assetTag} className="px-3 py-1.5"><span className="font-mono font-semibold text-primary">{p.assetTag}</span> {p.changes.map((c: any) => `${c.label}: ${c.from ?? "—"} → ${c.to}`).join(" · ")}</div>)}
@@ -303,7 +309,7 @@ export function AssetPicker({ value, onChange, exclude = [] }: { value: number[]
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => apiFetch<any[]>("/assets") });
   const [q, setQ] = useState(""); const [loc, setLoc] = useState(""); const [type, setType] = useState("");
   const ex = new Set(exclude);
-  const pool = assets.filter((a: any) => !ex.has(a.id) && !["Disposed", "Lost / Stolen"].includes(a.status));
+  const pool = assets.filter((a: any) => !ex.has(a.id) && !["Retired", "Disposed", "Lost / Stolen"].includes(a.status));
   const locs = [...new Set(pool.map((a: any) => a.location).filter(Boolean))].sort() as string[];
   const types = [...new Set(pool.map((a: any) => a.type).filter(Boolean))].sort() as string[];
   const t = q.trim().toLowerCase();

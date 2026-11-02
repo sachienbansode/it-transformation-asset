@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useCurrency } from "@/contexts/currency-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const refreshKeys = ["asset-licenses", "asset-license-compliance", "asset-license-assignments", "asset-dashboard", "asset-coverage"];
 
 export default function AssetLicenses() {
+  useCurrency(); // re-render amounts when the header ₹ unit changes
   const initial = new URLSearchParams(window.location.search).get("tab");
   const [tab, setTab] = useState<"licenses" | "compliance">(initial === "compliance" ? "compliance" : "licenses");
   const { canAccess } = useAuth(); const isAdmin = canAccess("asset_licenses", "write");
@@ -62,7 +64,7 @@ function SeatBar({ l }: { l: any }) {
 
 function LicenseList({ onOpen }: { onOpen: (id: number) => void }) {
   const { data: rows = [], isLoading } = useQuery({ queryKey: ["asset-licenses"], queryFn: () => apiFetch<any[]>("/asset-licenses") });
-  const [f, setF] = useState<string>("all"); const [q, setQ] = useState(""); const [page, setPage] = useState(1);
+  const [f, setF] = useState<string>("all"); const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") || ""); const [page, setPage] = useState(1);
   const counts: Record<string, number> = {
     all: rows.length, issues: rows.filter(r => r.compliance === "Under-licensed" || r.compliance === "Expired – in use").length,
     expiring: rows.filter(r => r.status === "Expiring Soon").length, expired: rows.filter(r => r.status === "Expired").length, idle: rows.filter(r => r.compliance === "Over-licensed").length,

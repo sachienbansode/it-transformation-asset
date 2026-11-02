@@ -11,6 +11,8 @@ import { notify, htmlTable } from "../lib/mailer";
 import { DATE_RE, DepRule, resolveInput, schedule, accumulated, registerLine, fyOf, fyLabel, fyStart, fyEnd, today } from "../lib/depreciation";
 import { getLock, loadCarries, closedRegister, lockedFinanceChange, createRequest, pendingFor, notifyRequest, type Lock } from "../lib/finance-controls";
 import { can, getAccess } from "../lib/rbac";
+import { realDate } from "../lib/asset-validate";
+import { pendingByAsset } from "../lib/finance-controls";
 
 /*
  * Asset finance: contracts / AMC / extended warranty, warranty tracking, depreciation (Schedule II, Indian FY)
@@ -19,7 +21,7 @@ import { can, getAccess } from "../lib/rbac";
 
 const router = Router();
 const fail = (res: Response, code: number, error: string) => { res.status(code).json({ error }); };
-const handleError = (res: Response, e: unknown) => fail(res, 500, e instanceof Error ? e.message : String(e));
+const handleError = (res: Response, e: unknown) => fail(res, (e as any)?.status && (e as any).status < 500 ? (e as any).status : 500, e instanceof Error ? e.message : String(e));
 const s = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
 async function safeLog(p: Parameters<typeof logAudit>[0]) { try { await logAudit(p); } catch { /* non-fatal */ } }
 async function who(req: Request) {
@@ -116,7 +118,11 @@ async function addAssets(tx: any, c: { id: number; contractNo: string; contractT
   if (!ids.length) return 0;
   const existing = await tx.select({ assetId: assetContractAssetsTable.assetId }).from(assetContractAssetsTable).where(and(eq(assetContractAssetsTable.contractId, c.id), inArray(assetContractAssetsTable.assetId, ids)));
   const have = new Set(existing.map((x: any) => x.assetId));
-  const valid = await tx.select({ id: assetsTable.id }).from(assetsTable).where(and(inArray(assetsTable.id, ids), eq(assetsTable.isActive, true)));
+  const found = await tx.select({ id: assetsTable.id, tag: assetsTable.assetTag, status: assetsTable.status }).from(assetsTable).where(and(inArray(assetsTable.id, ids), eq(assetsTable.isActive, true)));
+  // retired / disposed / lost assets cannot be put under AMC or warranty cover
+  const out = found.filter((x: any) => ["Retired", "Disposed", "Lost / Stolen"].includes(x.status));
+  if (out.length) throw Object.assign(new Error(`${out.map((x: any) => `${x.tag} (${x.status})`).join(", ")} ${out.length > 1 ? "are" : "is"} out of service and cannot be added to a contract`), { status: 400 });
+  const valid = found;
   const add = valid.map((v: any) => v.id).filter((id: number) => !have.has(id));
   if (!add.length) return 0;
   await tx.insert(assetContractAssetsTable).values(add.map((assetId: number) => ({ contractId: c.id, assetId, addedBy: userName })));
@@ -228,7 +234,7 @@ router.post("/asset-contracts/:id/renew", requireAuth, async (req, res) => {
       await tx.update(assetContractsTable).set({ status: "Renewed", updatedBy: u.performedBy }).where(eq(assetContractsTable.id, id));
       const ids = (await tx.select({ a: assetContractAssetsTable.assetId }).from(assetContractAssetsTable)
         .innerJoin(assetsTable, eq(assetsTable.id, assetContractAssetsTable.assetId))
-        .where(and(eq(assetContractAssetsTable.contractId, id), eq(assetsTable.isActive, true), sql`${assetsTable.status} NOT IN ('Disposed', 'Lost / Stolen')`))).map(r => r.a);
+        .where(and(eq(assetContractAssetsTable.contractId, id), eq(assetsTable.isActive, true), sql`${assetsTable.status} NOT IN ('Retired', 'Disposed', 'Lost / Stolen')`))).map(r => r.a);
       if (ids.length) await tx.insert(assetContractAssetsTable).values(ids.map(assetId => ({ contractId: c2.id, assetId, addedBy: u.name })));
       await trail(tx, ids, "Contract", `${old.contractNo} renewed as ${contractNo} (${startDate} to ${endDate})`, u.name);
       return { ...c2, carried: ids.length };
@@ -451,8 +457,10 @@ export async function validateFinanceRows(rows: any[]) {
   const bySerial = new Map<string, any[]>();
   for (const a of assets) if (a.serialNumber) { const k = a.serialNumber.toLowerCase(); bySerial.set(k, [...(bySerial.get(k) || []), a]); }
   const errors: { row: number; field: string; message: string }[] = [];
+  const warnings: { row: number; field: string; message: string }[] = [];
   const updates: { asset: any; set: any; changes: any[] }[] = [];
   const seen = new Set<number>();
+  const pend = await pendingByAsset();
   rows.forEach((raw, i): void => {
     const rowNo = Number(raw?.__row) || i + 2;
     const err = (field: string, message: string): void => { errors.push({ row: rowNo, field, message }); };
@@ -462,14 +470,20 @@ export async function validateFinanceRows(rows: any[]) {
     if (!a) return err("Asset Tag", tag ? `"${tag}" not found` : "Asset Tag or Serial Number is required");
     if (seen.has(a.id)) return err("Asset Tag", `${a.assetTag} appears more than once in the file`);
     seen.add(a.id);
+    // one request per asset at a time: approving two overlapping sheets would silently keep whichever was approved last
+    { const p = [...(pend.byId[a.id] || []), ...(pend.byTag[String(a.assetTag).toUpperCase()] || [])];
+      if (p.length) return err("Asset Tag", `${a.assetTag} already has a change waiting for approval (${[...new Set(p.map((x: any) => x.requestNo))].join(", ")}) — approve or reject it first, or remove this row`); }
     const set: any = {};
-    for (const f of ["purchaseDate", "warrantyStart", "warrantyExpiry"]) { const v = s(raw[f]); if (v === null) continue; if (!DATE_RE.test(v)) err(FIN_FIELDS[f], `"${v}" is not a valid date — use dd-MMM-yyyy, e.g. 05-Nov-2026`); else set[f] = v; }
+    for (const f of ["purchaseDate", "warrantyStart", "warrantyExpiry"]) { const v = s(raw[f]); if (v === null) continue; if (!realDate(v)) err(FIN_FIELDS[f], `"${v}" is not a valid date — use dd-MMM-yyyy, e.g. 05-Nov-2026`); else set[f] = v; }
     for (const f of ["purchaseOrderNo", "invoiceNo"]) { const v = s(raw[f]); if (v !== null) set[f] = v; }
-    for (const f of ["cost", "salvageValue"]) { const v = s(raw[f]); if (v === null) continue; const n = Number(v.replace(/[,₹\s]/g, "")); if (!Number.isFinite(n) || n < 0) err(FIN_FIELDS[f], `"${v}" is not a valid amount`); else set[f] = n.toFixed(2); }
+    for (const f of ["cost", "salvageValue"]) { const v = s(raw[f]); if (v === null) continue; const n = Number(v.replace(/[,₹\s]/g, "")); if (!Number.isFinite(n) || n < 0) err(FIN_FIELDS[f], `"${v}" is not a valid amount`); else if (f === "cost" && n === 0) err(FIN_FIELDS[f], "Cost must be more than 0 — leave it blank if not known"); else set[f] = n.toFixed(2); }
+    { const c = Number(set.cost ?? a.cost), sv = Number(set.salvageValue ?? a.salvageValue);
+      if ((set.cost !== undefined || set.salvageValue !== undefined) && Number.isFinite(c) && c > 0 && Number.isFinite(sv) && sv > c) err(FIN_FIELDS.salvageValue, `Residual value (₹${sv.toLocaleString("en-IN")}) cannot be more than the cost (₹${c.toLocaleString("en-IN")})`); }
     { const v = s(raw.depreciationMethod); if (v !== null) { const m = ["SLM", "WDV", "None"].find(x => x.toLowerCase() === v.toLowerCase()); if (!m) err(FIN_FIELDS.depreciationMethod, `"${v}" — use SLM, WDV or None`); else set.depreciationMethod = m; } }
     { const v = s(raw.usefulLifeYears); if (v !== null) { const n = Number(v); if (!(n > 0 && n <= 60)) err(FIN_FIELDS.usefulLifeYears, `"${v}" is not a valid number of years`); else set.usefulLifeYears = String(n); } }
     const pd = set.purchaseDate ?? a.purchaseDate, ws = set.warrantyStart ?? a.warrantyStart, we = set.warrantyExpiry ?? a.warrantyExpiry;
-    if (pd && pd > today()) err("Purchase Date", "Cannot be in the future");
+    if (pd && realDate(pd) && pd > today()) err("Purchase Date", "Cannot be in the future");
+    if ((set.cost !== undefined) && !pd) warnings.push({ row: rowNo, field: "Purchase Date", message: `${a.assetTag}: cost given but no purchase date — the asset stays out of the depreciation register until a purchase date is added` });
     if (ws && we && we < ws) err("Warranty Expiry", "Is before the warranty start");
     if (pd && we && we < pd) err("Warranty Expiry", "Is before the purchase date");
     const changes = Object.entries(set).filter(([f, v]) => String(a[f] ?? "") !== String(v ?? "") && !(f === "cost" || f === "salvageValue" ? Number(a[f]) === Number(v) : false))
@@ -478,7 +492,7 @@ export async function validateFinanceRows(rows: any[]) {
     if (locked) err("Cost / Purchase Date", locked);
     if (changes.length) updates.push({ asset: a, set: Object.fromEntries(changes.map(c => [c.field, c.to])), changes });
   });
-  return { errors, updates, seen, summary: { total: rows.length, matched: seen.size, toUpdate: updates.length, unchanged: seen.size - updates.length, fieldsChanged: updates.reduce((t, u) => t + u.changes.length, 0), errors } };
+  return { errors, updates, seen, summary: { total: rows.length, matched: seen.size, toUpdate: updates.length, unchanged: seen.size - updates.length, fieldsChanged: updates.reduce((t, u) => t + u.changes.length, 0), errors, warnings } };
 }
 
 /** Who may submit a finance sheet: edit access to the Asset Registry or to Depreciation. */

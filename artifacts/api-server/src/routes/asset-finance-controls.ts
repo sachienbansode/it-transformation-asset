@@ -1,3 +1,4 @@
+import { financeApprovers } from "../lib/finance-controls";
 import { Router, Request, Response } from "express";
 import { db, assetsTable, assetTransactionsTable, assetDepreciationRulesTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
@@ -44,7 +45,9 @@ router.get("/asset-finance-requests", requireAuth, async (req, res) => {
         requested_at AS "requestedAt", request_note AS "requestNote", decided_by AS "decidedBy", decided_at AS "decidedAt", decision_note AS "decisionNote", result
       FROM asset_finance_requests ${status && status !== "all" ? sql`WHERE status = ${status}` : sql``} ORDER BY (status = 'Pending') DESC, requested_at DESC LIMIT 300`));
     const canApprove = !!u.access && can(u.access, "asset_depreciation", "write");
-    res.json({ requests: list.map(r => ({ ...r, kindLabel: KIND_LABEL[r.kind] || r.kind, mine: r.requestedByUserId === u.userId, canDecide: canApprove && r.status === "Pending" && r.requestedByUserId !== u.userId })),
+    const approvers = await financeApprovers();
+    res.json({ requests: list.map(r => ({ ...r, kindLabel: KIND_LABEL[r.kind] || r.kind, mine: r.requestedByUserId === u.userId, canDecide: canApprove && r.status === "Pending" && r.requestedByUserId !== u.userId,
+        approvers: r.status === "Pending" ? approvers.filter(a => a.id !== r.requestedByUserId).map(a => a.name) : [] })),
       pending: list.filter(r => r.status === "Pending").length, canApprove });
   } catch (e) { handleError(res, e); }
 });

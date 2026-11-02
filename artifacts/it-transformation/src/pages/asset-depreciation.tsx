@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useCurrency } from "@/contexts/currency-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils";
 const PAGE = 15;
 
 export default function AssetDepreciation() {
+  useCurrency(); // re-render amounts when the header ₹ unit changes
   const TABS = ["register", "approvals", "close", "disposals", "journal", "missing", "rules"] as const;
   const initial = new URLSearchParams(window.location.search).get("tab") as any;
   const [tab, setTab] = useState<typeof TABS[number]>(TABS.includes(initial) ? initial : "register");

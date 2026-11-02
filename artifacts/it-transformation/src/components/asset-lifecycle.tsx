@@ -265,8 +265,8 @@ export function IssueDialog({ assets, onClose, onDone }: { assets: any[]; onClos
               <SelectContent>{(model?.allocationTypes || []).map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div><Label className={field}>Issue date *</Label><Input type="date" value={f.startDate} onChange={e => set("startDate", e.target.value)} /></div>
-          {temp && <div><Label className={field}>Expected return date *</Label><Input type="date" value={f.expectedReturnDate || ""} onChange={e => set("expectedReturnDate", e.target.value)} /></div>}
+          <div><Label className={field}>Issue date *</Label><Input type="date" max={new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10)} value={f.startDate} onChange={e => set("startDate", e.target.value)} /></div>
+          {temp && <div><Label className={field}>Expected return date *</Label><Input type="date" min={f.startDate || undefined} value={f.expectedReturnDate || ""} onChange={e => set("expectedReturnDate", e.target.value)} />{f.expectedReturnDate && f.startDate && f.expectedReturnDate < f.startDate && <p className="text-xs text-red-500 mt-1">Cannot be before the issue date</p>}</div>}
           <div>
             <Label className={field}>Condition at issue *</Label>
             <Select value={f.condition} onValueChange={v => set("condition", v)}>
@@ -292,7 +292,7 @@ export function ReturnDialog({ asset, onClose, onDone }: { asset: any; onClose: 
   const { data: model } = useLifecycleModel();
   const { toast } = useToast();
   const invalidate = useInvalidateAssets();
-  const [f, setF] = useState<any>({ nextStatus: "In Stock", returnDate: new Date().toISOString().slice(0, 10) });
+  const [f, setF] = useState<any>({ nextStatus: "In Stock", returnDate: new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10) });
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: any) => setF((p: any) => ({ ...p, [k]: v }));
 
@@ -315,7 +315,7 @@ export function ReturnDialog({ asset, onClose, onDone }: { asset: any; onClose: 
           <DialogDescription>From {asset.ownerName}{asset.ownerEmployeeCode ? ` (${asset.ownerEmployeeCode})` : ""}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <div><Label className={field}>Return date *</Label><Input type="date" value={f.returnDate} onChange={e => set("returnDate", e.target.value)} /></div>
+          <div><Label className={field}>Return date *</Label><Input type="date" min={asset?.allocation?.startDate || asset?.currentAllocation?.startDate || undefined} max={new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10)} value={f.returnDate} onChange={e => set("returnDate", e.target.value)} /></div>
           <div>
             <Label className={field}>Condition *</Label>
             <Select value={f.condition || ""} onValueChange={v => set("condition", v)}>
@@ -437,6 +437,7 @@ export function ReviewHandoverDialog({ h, onClose, onDone }: { h: any; onClose: 
   const { toast } = useToast();
   const [mode, setMode] = useState<"review" | "issue">("review");
   const [reason, setReason] = useState(""); const [note, setNote] = useState(""); const [busy, setBusy] = useState(false);
+  const [tried, setTried] = useState(false);
   const reasons = model?.handoverIssues || ["Wrong asset (tag / serial does not match)", "Damaged or faulty", "Accessories missing", "Not received", "Other"];
   async function go(path: string, body: any, ok: string) {
     setBusy(true);
@@ -461,9 +462,11 @@ export function ReviewHandoverDialog({ h, onClose, onDone }: { h: any; onClose: 
         ) : (
           <div className="space-y-3">
             <div className="space-y-1.5"><Label className={field}>What is wrong? *</Label>
-              <div className="flex flex-wrap gap-1.5">{reasons.map(r => <button key={r} type="button" onClick={() => setReason(r)} className={cn("px-2.5 py-1 rounded-full border text-xs", reason === r ? "bg-red-600 text-white border-red-600" : "bg-card hover:bg-accent")}>{r}</button>)}</div>
+              <div className={cn("flex flex-wrap gap-1.5 rounded-md", tried && !reason && "ring-2 ring-red-400 ring-offset-2 p-1")}>{reasons.map(r => <button key={r} type="button" onClick={() => setReason(r)} className={cn("px-2.5 py-1 rounded-full border text-xs", reason === r ? "bg-red-600 text-white border-red-600" : "bg-card hover:bg-accent")}>{r}</button>)}</div>
+              <p className={cn("text-[11px]", tried && !reason ? "text-red-600 font-medium" : "text-muted-foreground")}>{tried && !reason ? "Choose one of the options above" : "Tap the option that fits best"}</p>
             </div>
-            <div className="space-y-1.5"><Label className={field}>Details for IT *</Label><Textarea rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Serial on the laptop is 5CD1234, not H25CJP3; screen has a crack on the left corner" /></div>
+            <div className="space-y-1.5"><Label className={field}>Details for IT *</Label><Textarea rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Serial on the laptop is 5CD1234, not H25CJP3; screen has a crack on the left corner" className={cn(tried && note.trim().length < 5 && "border-red-500")} />
+              {tried && note.trim().length < 5 && <p className="text-[11px] text-red-600 font-medium">Describe the problem (at least 5 characters)</p>}</div>
           </div>
         )}
         <DialogFooter className="sm:justify-between gap-2">
@@ -474,7 +477,7 @@ export function ReviewHandoverDialog({ h, onClose, onDone }: { h: any; onClose: 
             <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
             {mode === "review"
               ? <Button className="gap-1.5" disabled={busy} onClick={() => go("acknowledge", {}, "Thank you — handover acknowledged")}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}I acknowledge</Button>
-              : <Button className="gap-1.5 bg-red-600 hover:bg-red-700" disabled={busy || !reason || note.trim().length < 5} onClick={() => go("report-issue", { reason, note: note.trim() }, "Sent back to IT for review")}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send back to IT</Button>}
+              : <Button className="gap-1.5 bg-red-600 hover:bg-red-700" disabled={busy} onClick={() => { setTried(true); if (!reason || note.trim().length < 5) return; go("report-issue", { reason, note: note.trim() }, "Sent back to IT for review"); }}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}Send back to IT</Button>}
           </div>
         </DialogFooter>
       </DialogContent>

@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { Search, X, CheckSquare, Map, Server, BrainCircuit, ShieldCheck } from "lucide-react";
+import { Search, X, CheckSquare, Map, Server, BrainCircuit, ShieldCheck, HardDrive, Users, Truck, KeyRound, FileText, ArrowLeftRight } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface SearchResult {
-  id: number;
+  id: number; tag?: string; code?: string;
   title: string;
   sub?: string;
   business?: string;
@@ -20,9 +20,16 @@ interface SearchResults {
   applications: SearchResult[];
   aibom: SearchResult[];
   sbom: SearchResult[];
+  assets: SearchResult[]; people: SearchResult[]; vendors: SearchResult[]; licenses: SearchResult[]; contracts: SearchResult[]; handovers: SearchResult[];
 }
 
-const MODULE_META: Record<keyof SearchResults, { label: string; icon: React.ElementType; href: string; color: string }> = {
+const MODULE_META: Record<keyof SearchResults, { label: string; icon: React.ElementType; href: string; color: string; to?: (i: SearchResult, q: string) => string }> = {
+  assets: { label: "Assets", icon: HardDrive, href: "/asset-registry", color: "text-sky-600", to: i => `/a/${encodeURIComponent(i.tag || "")}` },
+  people: { label: "Employees (asset holders)", icon: Users, href: "/asset-employees", color: "text-teal-600", to: i => `/asset-employees?q=${encodeURIComponent(i.code || i.title)}` },
+  handovers: { label: "Handovers", icon: ArrowLeftRight, href: "/asset-allocations", color: "text-indigo-600", to: i => `/asset-allocations?q=${encodeURIComponent(i.code || "")}` },
+  vendors: { label: "Vendors", icon: Truck, href: "/asset-vendors", color: "text-amber-600", to: i => `/asset-vendors?q=${encodeURIComponent(i.title)}` },
+  licenses: { label: "Licenses", icon: KeyRound, href: "/asset-licenses", color: "text-fuchsia-600", to: i => `/asset-licenses?q=${encodeURIComponent(i.title)}` },
+  contracts: { label: "Contracts & AMC", icon: FileText, href: "/asset-contracts", color: "text-lime-700", to: i => `/asset-contracts?q=${encodeURIComponent(i.title)}` },
   checklist: { label: "Checklist", icon: CheckSquare, href: "/checklist", color: "text-blue-500" },
   roadmap: { label: "Roadmap", icon: Map, href: "/roadmap", color: "text-violet-500" },
   applications: { label: "Applications", icon: Server, href: "/applications", color: "text-emerald-500" },
@@ -68,9 +75,9 @@ export function SearchModal({ open, onClose }: { open: boolean; onClose: () => v
   }, [open]);
 
   useEffect(() => {
-    if (!debouncedQuery || debouncedQuery.length < 2) { setResults(null); return; }
+    if (!debouncedQuery || debouncedQuery.trim().length < 2) { setResults(null); return; }
     setLoading(true);
-    apiFetch<SearchResults>(`/search?q=${encodeURIComponent(debouncedQuery)}`)
+    apiFetch<SearchResults>(`/search?q=${encodeURIComponent(debouncedQuery.trim())}`)
       .then(r => setResults(r))
       .catch(() => setResults(null))
       .finally(() => setLoading(false));
@@ -89,22 +96,19 @@ export function SearchModal({ open, onClose }: { open: boolean; onClose: () => v
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden gap-0">
         {/* Search Input */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2 pl-4 pr-12 py-3 border-b border-border">
           <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search checklist, roadmap, applications, BOM…"
+            placeholder="Search assets, employees, vendors, licenses, applications…"
             className="flex-1 bg-transparent text-sm outline-none text-foreground placeholder:text-muted-foreground"
             onKeyDown={e => e.key === "Escape" && onClose()}
           />
           {query && (
-            <button onClick={() => setQuery("")} className="text-muted-foreground hover:text-foreground transition-colors">
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <button onClick={() => { setQuery(""); inputRef.current?.focus(); }} className="text-[11px] text-muted-foreground hover:text-foreground border rounded px-1.5 py-0.5">Clear</button>
           )}
-          <kbd className="text-[10px] text-muted-foreground border border-border rounded px-1 py-0.5 hidden sm:block">ESC</kbd>
         </div>
 
         {/* Results */}
@@ -137,8 +141,8 @@ export function SearchModal({ open, onClose }: { open: boolean; onClose: () => v
                     </div>
                     {items.map(item => (
                       <button
-                        key={item.id}
-                        onClick={() => handleNavigate(meta.href)}
+                        key={`${module}-${item.id}`}
+                        onClick={() => handleNavigate(meta.to ? meta.to(item, query) : meta.href)}
                         className="w-full px-4 py-2 flex items-center gap-3 hover:bg-muted/60 transition-colors text-left"
                       >
                         <Icon className={cn("h-4 w-4 flex-shrink-0 opacity-50", meta.color)} />
@@ -166,7 +170,7 @@ export function SearchModal({ open, onClose }: { open: boolean; onClose: () => v
 
           {!loading && !results && !query && (
             <div className="px-4 py-6 text-center">
-              <p className="text-xs text-muted-foreground">Type to search across all modules</p>
+              <p className="text-xs text-muted-foreground">Type 2+ letters: asset tag, serial, model, employee name / code, location, vendor, license, contract, handover no., application… · Esc to close</p>
               <div className="flex flex-wrap justify-center gap-2 mt-3">
                 {(Object.keys(MODULE_META) as (keyof SearchResults)[]).map(m => {
                   const meta = MODULE_META[m];

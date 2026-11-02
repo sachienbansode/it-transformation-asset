@@ -100,7 +100,7 @@ export function Approvals() {
                       {r.canDecide && <Button size="sm" className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700" disabled={busy === r.id} onClick={() => approve(r)}>{busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}Approve</Button>}
                       {r.canDecide && <Button size="sm" variant="outline" className="h-8 gap-1 text-red-600" onClick={() => setRejecting(r)}><X className="w-3.5 h-3.5" />Reject</Button>}
                       {r.mine && <Button size="sm" variant="ghost" className="h-8 gap-1" onClick={() => cancel(r)}><Ban className="w-3.5 h-3.5" />Withdraw</Button>}
-                      {r.mine && !r.canDecide && <span className="text-[11px] text-muted-foreground self-center">needs another approver</span>}
+                      {r.status === "Pending" && r.approvers?.length > 0 && <span className="text-[11px] text-muted-foreground self-center">Waiting for: {r.approvers.join(", ")}</span>}
                     </div>}
                   </TableCell>
                 </TableRow>

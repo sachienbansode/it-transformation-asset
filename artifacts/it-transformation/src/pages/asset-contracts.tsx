@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useCurrency } from "@/contexts/currency-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ const addYears = (d: string, n: number) => { const x = new Date(d + "T00:00:00Z"
 const nextDay = (d: string) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
 
 export default function AssetContracts() {
+  useCurrency(); // re-render amounts when the header ₹ unit changes
   const initial = (new URLSearchParams(window.location.search).get("tab") as any) || "contracts";
   const [tab, setTab] = useState<"contracts" | "warranty">(initial === "warranty" ? "warranty" : "contracts");
   return (
@@ -48,7 +50,7 @@ function ContractsTab() {
   const { canAccess } = useAuth(); const isAdmin = canAccess("asset_contracts", "write");
   const { data: rows = [], isLoading } = useQuery({ queryKey: ["asset-contracts"], queryFn: () => apiFetch<any[]>("/asset-contracts") });
   const [f, setF] = useState<"all" | "Active" | "Expiring" | "Expired" | "Upcoming" | "closed">("all");
-  const [q, setQ] = useState(""); const [page, setPage] = useState(1);
+  const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") || ""); const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<any>(null); const [view, setView] = useState<number | null>(null);
   const counts = useMemo(() => ({
     all: rows.length, Active: rows.filter(r => r.state === "Active").length, Expiring: rows.filter(r => r.state === "Expiring").length,

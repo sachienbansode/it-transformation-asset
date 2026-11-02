@@ -2,6 +2,11 @@ import React, { createContext, useContext, useState } from "react";
 
 export type CurrencyUnit = "lakhs" | "crores" | "millions";
 
+/* Current header unit, readable outside React (used by inrShort for rupee amounts). */
+const KEY = "currencyUnit";
+let current: CurrencyUnit = (() => { try { const v = localStorage.getItem(KEY); return v === "crores" || v === "millions" ? v : "lakhs"; } catch { return "lakhs"; } })();
+export const currentUnit = () => current;
+
 interface CurrencyContextValue {
   unit: CurrencyUnit;
   setUnit: (u: CurrencyUnit) => void;
@@ -15,10 +20,10 @@ interface CurrencyContextValue {
 const CurrencyContext = createContext<CurrencyContextValue | null>(null);
 
 export function CurrencyProvider({ children }: { children: React.ReactNode }) {
-  const [unit, setUnit] = useState<CurrencyUnit>("lakhs");
+  const [unit, setUnitState] = useState<CurrencyUnit>(current);
+  const setUnit = (u: CurrencyUnit) => { current = u; try { localStorage.setItem(KEY, u); } catch { /* ignore */ } setUnitState(u); };
 
-  const cycle = () =>
-    setUnit(u => u === "lakhs" ? "crores" : u === "crores" ? "millions" : "lakhs");
+  const cycle = () => setUnit(unit === "lakhs" ? "crores" : unit === "crores" ? "millions" : "lakhs");
 
   const format = (lakhs: number, decimals = 2): string => {
     if (unit === "crores") {

@@ -64,7 +64,7 @@ export function ConfirmDialogHost() {
           </div>
         )}
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => done(false)}>{cur?.cancelText ?? "Cancel"}</AlertDialogCancel>
+          {cur?.cancelText !== "" && <AlertDialogCancel onClick={() => done(false)}>{cur?.cancelText ?? "Cancel"}</AlertDialogCancel>}
           <AlertDialogAction
             className={destructive ? buttonVariants({ variant: "destructive" }) : undefined}
             disabled={!!cur?.input && text.trim().length < (cur?.input?.min ?? 0)}

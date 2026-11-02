@@ -46,7 +46,7 @@ export default function AssetHandovers() {
   const { data: rows = [], isLoading } = useQuery({ queryKey: ["asset-handovers"], queryFn: () => apiFetch<any[]>("/asset-handovers") });
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => apiFetch<any[]>("/assets") });
   const [tab, setTab] = useState<typeof TABS[number]["key"]>("active");
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
   const [page, setPage] = useState(1);
   const [pickOpen, setPickOpen] = useState(false);
   const [issueAssets, setIssueAssets] = useState<any[] | null>(null);
@@ -175,7 +175,7 @@ export default function AssetHandovers() {
 function PickAssets({ assets, onClose, onPick }: { assets: any[]; onClose: () => void; onPick: (a: any[]) => void }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<number[]>([]);
-  const list = assets.filter(a => !q.trim() || [a.assetTag, a.name, a.serialNumber, a.type].some((v: string) => v?.toLowerCase().includes(q.toLowerCase())));
+  const list = assets.filter(a => !q.trim() || [a.assetTag, a.name, a.serialNumber, a.type].some((v: string) => v?.toLowerCase().includes(q.trim().toLowerCase())));
   const toggle = (id: number) => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>

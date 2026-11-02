@@ -1,4 +1,5 @@
 import React from "react";
+import { useCurrency } from "@/contexts/currency-context";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -59,6 +60,7 @@ function Mini({ k, v, cls }: { k: string; v: React.ReactNode; cls?: string }) {
 }
 
 export default function AssetDashboard() {
+  useCurrency(); // re-render amounts when the header ₹ unit changes
   const { data: d, isLoading } = useQuery({ queryKey: ["asset-dashboard"], queryFn: () => apiFetch<any>("/asset-dashboard") });
 
   if (isLoading || !d) return <div className="py-20 text-center text-sm text-muted-foreground">Loading dashboard…</div>;

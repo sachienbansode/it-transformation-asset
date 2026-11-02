@@ -15,7 +15,7 @@ import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
 
 const router = Router();
 const fail = (res: Response, code: number, error: string) => { res.status(code).json({ error }); };
-const handleError = (res: Response, e: unknown) => fail(res, 500, e instanceof Error ? e.message : String(e));
+const handleError = (res: Response, e: unknown) => fail(res, (e as any)?.status && (e as any).status < 500 ? (e as any).status : 500, e instanceof Error ? e.message : String(e));
 const s = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -165,6 +165,8 @@ router.post("/asset-licenses/:id/assignments", requireAuth, async (req, res) => 
         if (!ids.length) throw Object.assign(new Error("Choose at least one device"), { status: 400 });
         const have = new Set(active.filter(a => a.assetId).map(a => a.assetId));
         const assets = await tx.select().from(assetsTable).where(and(inArray(assetsTable.id, ids), eq(assetsTable.isActive, true)));
+        const out = assets.filter(a => ["Retired", "Disposed", "Lost / Stolen"].includes(a.status));
+        if (out.length) throw Object.assign(new Error(`${out.map(a => `${a.assetTag} (${a.status})`).join(", ")} ${out.length > 1 ? "are" : "is"} out of service — licences can only be assigned to devices in use or in stock`), { status: 400 });
         for (const a of assets) {
           if (have.has(a.id)) { skipped.push(`${a.assetTag} (already assigned)`); continue; }
           await tx.insert(assetLicenseAssignmentsTable).values({ licenseId: id, assigneeType: "Device", assetId: a.id, userName: a.ownerName, userEmail: a.ownerEmail, employeeCode: a.ownerEmployeeCode, department: a.department, assignedBy: u.name, notes });
