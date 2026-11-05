@@ -127,4 +127,73 @@ router.get("/asset-dashboard", requireAuth, async (_req, res) => {
   } catch (e) { handleError(res, e); }
 });
 
+/*
+ * Inventory analytics for the dashboard: one row per asset on the books with a stock bucket and a condition, plus
+ * people / login analytics. The page groups and drills down (type, location, department, holder) in the browser.
+ *  Buckets: Assigned · Available (good, unassigned) · Needs repair (unassigned, damaged / not working) · Under repair
+ *           · Retired (awaiting disposal) · Lost / Stolen · Disposed
+ *  Condition: latest known (return / issue condition, open maintenance, agent health) → Good / Fair / Damaged.
+ */
+router.get("/asset-analytics", requireAuth, async (_req, res) => {
+  try {
+    const rowsOf = (r: any) => (r.rows ?? r) as any[];
+    const rows = rowsOf(await db.execute(sql`
+      WITH last_alloc AS (
+        SELECT DISTINCT ON (asset_id) asset_id, status, issue_condition, return_condition, start_date, end_date, user_id, user_name, email, employee_code
+        FROM asset_allocations ORDER BY asset_id, created_at DESC, id DESC),
+      open_maint AS (SELECT asset_id, count(*)::int AS n FROM maintenance_records WHERE status IN ('Scheduled', 'In Progress') GROUP BY asset_id),
+      agent AS (SELECT DISTINCT ON (asset_id) asset_id, health_state, last_user, last_seen_at, hostname, user_id,
+                  (SELECT max(day) FROM asset_usage_daily u WHERE u.agent_id = g.id AND u.active_mins >= 15) AS last_active_day
+                FROM asset_agents g WHERE status = 'Active' AND asset_id IS NOT NULL ORDER BY asset_id, last_seen_at DESC NULLS LAST)
+      SELECT s.id, s.asset_tag AS "assetTag", s.name, s.type, s.status, coalesce(nullif(s.location, ''), 'Not set') AS location, coalesce(nullif(s.department, ''), 'Not set') AS department,
+             s.owner_name AS "ownerName", s.owner_email AS "ownerEmail", s.owner_employee_code AS "ownerCode", s.serial_number AS "serialNumber", s.vendor_name AS vendor,
+             s.purchase_date AS "purchaseDate", s.warranty_expiry AS "warrantyExpiry", s.cost::float AS cost,
+             la.issue_condition AS "issueCondition", la.return_condition AS "returnCondition", la.status AS "allocStatus", la.start_date AS "holdingSince",
+             coalesce(om.n, 0) AS "openMaintenance",
+             ag.health_state AS "deviceHealth", ag.last_user AS "deviceUser", ag.last_seen_at AS "deviceSeenAt", ag.hostname, ag.last_active_day AS "lastActiveDay",
+             u.is_active AS "holderActive", u.last_login_at AS "holderLastLogin", u.name AS "holderUserName"
+      FROM assets s
+      LEFT JOIN last_alloc la ON la.asset_id = s.id
+      LEFT JOIN open_maint om ON om.asset_id = s.id
+      LEFT JOIN agent ag ON ag.asset_id = s.id
+      LEFT JOIN users u ON u.id = coalesce(la.user_id, s.owner_id) OR (la.user_id IS NULL AND s.owner_id IS NULL AND s.owner_email IS NOT NULL AND lower(u.email) = lower(s.owner_email))
+      WHERE s.is_active`));
+    const on = today();
+    const bad = (c: any) => /damaged|not working/i.test(String(c || ""));
+    const assigned = (st: string) => st === "Allocated" || st === "In Use";
+    const norm = (x: string) => String(x || "").toLowerCase().replace(/^.*\\/, "").replace(/@.*$/, "").replace(/[^a-z0-9]/g, "");
+    const out = rows.map(r => {
+      const lastCond = r.allocStatus && r.allocStatus !== "Active" ? r.returnCondition : r.issueCondition;
+      const condition = r.status === "Under Maintenance" || r.openMaintenance > 0 || bad(lastCond) ? "Damaged / in repair" : r.deviceHealth === "Critical" ? "Health issue" : /fair/i.test(String(lastCond || "")) ? "Fair" : "Good";
+      const bucket = ["Disposed"].includes(r.status) ? "Disposed" : r.status === "Lost / Stolen" ? "Lost / Stolen" : r.status === "Retired" ? "Retired" : r.status === "Under Maintenance" ? "Under repair"
+        : assigned(r.status) ? "Assigned" : r.status === "In Stock" ? (condition === "Damaged / in repair" ? "Needs repair" : "Available") : r.status;
+      const ageYears = r.purchaseDate && /^\d{4}-\d{2}-\d{2}$/.test(r.purchaseDate) ? Math.floor((Date.parse(on) - Date.parse(r.purchaseDate)) / (365.25 * 86_400_000)) : null;
+      // device signed-in user vs the person it is assigned to
+      let mismatch = false;
+      if (assigned(r.status) && r.deviceUser) {
+        const du = norm(r.deviceUser), keys = [norm(r.ownerEmail || ""), norm(r.ownerCode || ""), ...String(r.ownerName || "").toLowerCase().split(/\s+/).map(norm)].filter(k => k.length >= 3);
+        mismatch = !keys.some(k => du.includes(k) || k.includes(du));
+      }
+      const idleDays = r.lastActiveDay ? Math.floor((Date.parse(on) - Date.parse(String(r.lastActiveDay).slice(0, 10))) / 86_400_000) : null;
+      return { ...r, condition, bucket, ageYears, ageBand: ageYears === null ? "Unknown" : ageYears < 1 ? "< 1 yr" : ageYears < 3 ? "1–3 yrs" : ageYears < 5 ? "3–5 yrs" : "5+ yrs",
+        warranty: !r.warrantyExpiry ? "Unknown" : r.warrantyExpiry < on ? "Expired" : r.warrantyExpiry <= new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10) ? "Expiring" : "In warranty",
+        mismatch, idleDays, holderInactive: assigned(r.status) && r.holderActive === false };
+    });
+    // people & logins
+    const [p] = rowsOf(await db.execute(sql`SELECT count(*) FILTER (WHERE is_active)::int AS active, count(*) FILTER (WHERE NOT is_active)::int AS inactive,
+        count(*) FILTER (WHERE is_active AND last_login_at > now() - interval '7 days')::int AS "login7d", count(*) FILTER (WHERE is_active AND last_login_at > now() - interval '30 days')::int AS "login30d",
+        count(*) FILTER (WHERE is_active AND last_login_at IS NULL)::int AS "neverLoggedIn", count(*) FILTER (WHERE is_active AND coalesce(user_type, 'internal') = 'external')::int AS external FROM users`));
+    const holders = rowsOf(await db.execute(sql`SELECT lower(coalesce(nullif(owner_employee_code, ''), nullif(owner_email, ''), owner_name)) AS k, max(owner_name) AS name, count(*)::int AS n,
+        string_agg(asset_tag || ' (' || type || ')', ', ' ORDER BY asset_tag) AS assets
+      FROM assets WHERE is_active AND status IN ('Allocated', 'In Use') AND coalesce(owner_name, owner_email) IS NOT NULL GROUP BY 1 ORDER BY n DESC`));
+    const loginTrend = rowsOf(await db.execute(sql`SELECT to_char(d, 'YYYY-MM-DD') AS day, (SELECT count(DISTINCT performed_by)::int FROM audit_logs a WHERE a.action = 'login' AND (a.performed_at AT TIME ZONE 'Asia/Kolkata')::date = d) AS users
+      FROM generate_series((now() AT TIME ZONE 'Asia/Kolkata')::date - 29, (now() AT TIME ZONE 'Asia/Kolkata')::date, interval '1 day') d`).catch(() => [] as any));
+    const multi = holders.filter(h => h.n > 1);
+    res.json({ asOf: on, assets: out,
+      people: { ...p, holders: holders.length, multiAssetHolders: multi.length, multi: multi.slice(0, 25), loginTrend,
+        inactiveHolders: out.filter(a => a.holderInactive).map(a => ({ assetTag: a.assetTag, type: a.type, ownerName: a.ownerName })),
+        mismatches: out.filter(a => a.mismatch).map(a => ({ assetTag: a.assetTag, type: a.type, ownerName: a.ownerName, deviceUser: a.deviceUser, hostname: a.hostname })) } });
+  } catch (e) { handleError(res, e); }
+});
+
 export default router;

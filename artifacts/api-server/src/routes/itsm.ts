@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, usersTable, itsmIncidentsTable, itsmProblemsTable, itsmChangesTable, itsmSlaPoliciesTable, itsmTicketHistoryTable, itsmKnowledgeBaseTable, itsmServiceRequestsTable, itsmApprovalMatrixTable, itsmApprovalsTable, itsmAttachmentsTable, settingsTable } from "@workspace/db";
+import { db, usersTable, itsmIncidentsTable, itsmProblemsTable, itsmChangesTable, itsmSlaPoliciesTable, itsmTicketHistoryTable, itsmKnowledgeBaseTable, itsmServiceRequestsTable, itsmApprovalMatrixTable, itsmApprovalsTable, itsmAttachmentsTable, itsmApprovalDelegatesTable, settingsTable } from "@workspace/db";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
@@ -7,6 +7,7 @@ import { getAccess, can } from "../lib/rbac";
 import { route, RoutingError, isMember, teamIdsOf, teamByName, teamById, userByName, emailsOfTeam } from "../lib/itsm-routing";
 import { z } from "zod";
 import { fmtDateTime } from "../lib/dates";
+import { slaConfig, slaInfo, slaColumns, pauseColumns, clearSlaCache } from "../lib/itsm-sla";
 
 /*
  * IT Service Management API.
@@ -41,6 +42,7 @@ const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: 
 };
 class Bad extends Error { status = 400; }
 class Forbidden extends Error { status = 403; }
+class NotFound extends Error { status = 404; }
 const s = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
 
 export async function actor(req: Request) {
@@ -52,7 +54,8 @@ const audit = (p: Parameters<typeof logAudit>[0]) => logAudit(p).catch(() => { /
 
 /** Server-owned fields are never taken from the browser. */
 const SERVER_OWNED = ["expectedClosureDate", "requesterUserId", "firstResponseAt", "dueDate", "id", "ticketNo", "problemNo", "changeNo", "requestNo", "slaBreachAt", "slaId", "resolvedAt", "closedAt", "completedAt", "isActive",
-  "createdBy", "updatedBy", "createdAt", "updatedAt", "approvalStatus", "approvedBy", "views", "authorName", "slaStatus"];
+  "createdBy", "updatedBy", "createdAt", "updatedAt", "approvalStatus", "approvedBy", "views", "authorName", "slaStatus", "sla",
+  "responseDueAt", "slaPausedAt", "slaPausedMins", "slaWarnSentAt", "slaBreachSentAt", "responseBreachSentAt"];
 function clean(body: any, extra: string[] = []) {
   const out: any = {};
   for (const [k, v] of Object.entries(body || {})) if (!SERVER_OWNED.includes(k) && !extra.includes(k)) out[k] = typeof v === "string" ? (v.trim() === "" ? null : v.trim()) : v;
@@ -108,28 +111,17 @@ async function allowed(req: Request, kind: string, level: "read" | "write" | "ad
   return LV.indexOf(a.perms[MODULE_OF[kind]] || "none") >= LV.indexOf(level);
 }
 
-/* ─── SLA ────────────────────────────────────────────────────────────────── */
-async function computeSlaBreachAt(ticketType: string, priority: string, createdAt: Date): Promise<Date | null> {
-  const [sla] = await db.select().from(itsmSlaPoliciesTable)
-    .where(and(eq(itsmSlaPoliciesTable.isActive, true), eq(itsmSlaPoliciesTable.ticketType, ticketType), eq(itsmSlaPoliciesTable.priority, priority)));
-  return sla ? new Date(createdAt.getTime() + sla.resolutionTimeHours * 3600 * 1000) : null;
-}
-function computeSlaStatus(slaBreachAt: Date | null, status: string): string {
-  if (!slaBreachAt || status === "Resolved" || status === "Closed") return "ok";
-  const hoursLeft = (new Date(slaBreachAt).getTime() - Date.now()) / 3600000;
-  return hoursLeft < 0 ? "breached" : hoursLeft < 4 ? "warning" : "ok";
+/* ─── SLA (lib/itsm-sla.ts): response + resolution targets, business hours, pause on hold ─── */
+const SLA_KINDS = ["incident", "request"];
+async function withSla(kind: string, rows: any[]) {
+  if (!SLA_KINDS.includes(kind)) return rows;
+  const cfg = await slaConfig(); const now = new Date();
+  return rows.map(r => { const sla = slaInfo(kind, r, cfg, now); return { ...r, sla, slaStatus: sla.state === "Breached" ? "breached" : sla.state === "At risk" ? "warning" : "ok" }; });
 }
 async function computeSlaBreachCount() {
-  const slas = await db.select().from(itsmSlaPoliciesTable).where(eq(itsmSlaPoliciesTable.isActive, true));
-  const incidents = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true));
-  let breached = 0;
-  for (const inc of incidents) {
-    if (inc.status === "Closed" || inc.status === "Resolved") continue;
-    if (inc.slaBreachAt) { if (Date.now() > new Date(inc.slaBreachAt).getTime()) breached++; continue; }
-    const sla = slas.find(x => x.ticketType === "Incident" && x.priority === inc.priority);
-    if (sla && (Date.now() - new Date(inc.createdAt).getTime()) / 3600000 > sla.resolutionTimeHours) breached++;
-  }
-  return breached;
+  const cfg = await slaConfig(); const now = new Date();
+  const rows = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true));
+  return rows.filter(r => !["Resolved", "Closed"].includes(r.status) && slaInfo("incident", r, cfg, now).state === "Breached").length;
 }
 
 /* ─── Approvals: created from the matrix, actioned in order, outcome applied to the ticket ─── */
@@ -143,6 +135,12 @@ function ruleMatches(cond: string | null, t: TicketFacts) {
   return vals.includes(val.toLowerCase());
 }
 
+async function autoApproveRules(): Promise<{ lowPriority: boolean; standardChange: boolean }> {
+  const [r] = await db.select().from(settingsTable).where(eq(settingsTable.key, "itsm.autoApprove"));
+  let v: any = r?.value; if (typeof v === "string") { try { v = JSON.parse(v); } catch { v = null; } }
+  return { lowPriority: v?.lowPriority !== false, standardChange: v?.standardChange !== false };
+}
+
 /** Returns the number of approvals still pending (0 = nothing to approve). Emails the first level's approvers. */
 async function createApprovalRecords(kind: string, ticketId: number, t: TicketFacts, by: string) {
   const ticketType = TYPE_NAME[kind];
@@ -150,7 +148,8 @@ async function createApprovalRecords(kind: string, ticketId: number, t: TicketFa
     .where(and(eq(itsmApprovalMatrixTable.ticketType, ticketType), eq(itsmApprovalMatrixTable.isActive, true)))
     .orderBy(itsmApprovalMatrixTable.sequence)).filter(r => ruleMatches(r.condition, t));
   if (!rules.length) return 0;
-  const auto = (t.priority === "Low" && kind !== "change") || (kind === "change" && t.type === "Standard");
+  const aa = await autoApproveRules();
+  const auto = (aa.lowPriority && t.priority === "Low" && kind !== "change") || (aa.standardChange && kind === "change" && t.type === "Standard");
   await db.insert(itsmApprovalsTable).values(rules.map((r, i) => ({
     ticketId, ticketType, approverLevel: r.approverLevel, approverRole: r.approverRole,
     approverRoleId: r.approverRoleId ?? null, approverUserIds: r.approverUserIds || [],
@@ -176,14 +175,29 @@ async function approversOf(ap: { approverUserIds?: number[] | null; approverRole
   if (!ids.size) return [];
   return db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable).where(and(inArray(usersTable.id, [...ids]), eq(usersTable.isActive, true)));
 }
+/** Active delegations today: approver → delegates (out-of-office cover). */
+const todayIst = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+async function activeDelegations() {
+  const d = todayIst();
+  return db.select().from(itsmApprovalDelegatesTable).where(and(eq(itsmApprovalDelegatesTable.isActive, true), sql`${itsmApprovalDelegatesTable.startDate} <= ${d} AND ${itsmApprovalDelegatesTable.endDate} >= ${d}`));
+}
+/** Approvers plus anyone covering for them today. */
+async function approversWithDelegates(ap: any) {
+  const base = await approversOf(ap);
+  const dl = (await activeDelegations()).filter(x => base.some(b => b.id === x.userId));
+  const extra = dl.length ? await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable).where(and(inArray(usersTable.id, dl.map(x => x.delegateUserId)), eq(usersTable.isActive, true))) : [];
+  return { base, delegates: extra.map(u => ({ ...u, forNames: dl.filter(x => x.delegateUserId === u.id).map(x => base.find(b => b.id === x.userId)?.name).filter(Boolean) as string[] })) };
+}
 const rowsOf = (r: any) => (r.rows ?? r) as any[];
 
 /** Can the signed-in user decide this step? Base-role Admin may override (recorded as such). */
-async function canDecide(req: Request, ap: any): Promise<{ ok: boolean; override: boolean }> {
+async function canDecide(req: Request, ap: any): Promise<{ ok: boolean; override: boolean; onBehalfOf?: string | null }> {
   const a = await getAccess(req);
   if (!a) return { ok: false, override: false };
-  const list = await approversOf(ap);
-  if (list.some(u => u.id === a.userId)) return { ok: true, override: false };
+  const { base, delegates } = await approversWithDelegates(ap);
+  if (base.some(u => u.id === a.userId)) return { ok: true, override: false };
+  const d = delegates.find(u => u.id === a.userId);
+  if (d) return { ok: true, override: false, onBehalfOf: d.forNames.join(", ") };
   if (a.isAdmin) return { ok: true, override: true };
   return { ok: false, override: false };
 }
@@ -197,13 +211,21 @@ async function ticketBrief(kind: Kind, id: number) {
   return t ? { t, no: t[NO[kind][3]], requester: kind === "request" ? t.requestedBy : kind === "change" ? t.requestedBy : t.reportedBy || null } : null;
 }
 
+/** In-app bell notifications. Never throws. */
+export async function inApp(userIds: (number | null | undefined)[], title: string, message: string, type: "info" | "warning" | "error" | "success", link: string) {
+  try { for (const id of [...new Set(userIds.filter(Boolean))]) await db.execute(sql`INSERT INTO notifications (user_id, title, message, type, link) VALUES (${id}, ${title}, ${message}, ${type}, ${link})`); }
+  catch (e) { console.error("inApp notification failed", e); }
+}
+
 async function emailNextApprovers(kind: Kind, ticketId: number) {
   try {
     const { sendDirect, notify, htmlTable } = await import("../lib/mailer");
     const st = await approvalState(kind, ticketId);
     if (!st.next) return;
     const b = await ticketBrief(kind, ticketId); if (!b) return;
-    const people = await approversOf(st.next);
+    const { base, delegates } = await approversWithDelegates(st.next);
+    const people = [...base, ...delegates];
+    await inApp(people.map(p => p.id), `Approval needed: ${b.no}`, `${b.t.title} — ${st.next.approverLevel} ${st.next.approverRole}`, "warning", "/itsm-my-approvals");
     const html = `<p>A ${TYPE_NAME[kind].toLowerCase()} is waiting for your approval (${st.next.approverLevel} — ${st.next.approverRole}).</p>${htmlTable([["Ticket", b.no], ["Title", b.t.title], ["Priority", b.t.priority || b.t.riskLevel || "—"], ["Raised by", b.requester || b.t.createdBy || "—"], ["Raised on", fmtDateTime(b.t.createdAt)], ["Level", `${st.next.approverLevel} of ${st.rows.length}`]])}<p>Approve or reject it in <b>IT Hub › ITSM › My Approvals</b>${appUrl() ? ` (${appUrl()}/itsm-my-approvals)` : ""}.</p><p>Regards,</p>`;
     await sendDirect("itsm_approval_request", people.map(p => p.email).filter(Boolean) as string[], `Approval needed: ${b.no} — ${b.t.title}`, html);
     void notify("itsm_approvals", { subject: `Approval requested: ${b.no} (${st.next.approverLevel} ${st.next.approverRole})`, html });
@@ -218,6 +240,7 @@ async function emailDecision(kind: Kind, ticketId: number, outcome: string, by: 
     if (b.requester) { const [u] = await db.select({ email: usersTable.email }).from(usersTable).where(sql`lower(${usersTable.name}) = lower(${b.requester})`); if (u?.email) to.push(u.email); }
     const html = `<p>Your ${TYPE_NAME[kind].toLowerCase()} <b>${b.no}</b> was <b>${outcome.toLowerCase()}</b>.</p>${htmlTable([["Title", b.t.title], ["Decision", outcome], ["Last decision by", by], ["Notes", notes || "—"]])}<p>${outcome === "Approved" ? "Work on it can now start." : "It will not proceed. Raise a new request if needed."}</p><p>Regards,</p>`;
     await sendDirect("itsm_approval_decision", [...new Set(to)], `${b.no} ${outcome.toLowerCase()} — ${b.t.title}`, html);
+    await inApp([b.t.requesterUserId], `${b.no} ${outcome.toLowerCase()}`, `${b.t.title} — by ${by}${notes ? `: ${notes}` : ""}`, outcome === "Approved" ? "success" : "error", PAGE_OF[kind]);
     void notify("itsm_approvals", { subject: `${b.no} ${outcome.toLowerCase()}`, html });
   } catch (e) { console.error("emailDecision failed", e); }
 }
@@ -277,8 +300,9 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
       values.assignedTo = u.name; values.firstResponseAt = createdAt; notifyAssignee = u.email;
     } else values.assignedTo = null;
   } else if (body.assignedTo !== undefined || body.assignedGroup !== undefined) await validateAssignment(body.assignedTo, body.assignedGroup);
-  if (kind === "incident") { values.status = "Open"; values.reportedBy ||= who.name; values.slaBreachAt = await computeSlaBreachAt("Incident", values.priority, createdAt); }
+  if (kind === "incident") { values.status = "Open"; values.reportedBy ||= who.name; }
   if (kind === "request") { values.status = "Open"; values.requestedBy ||= who.name; }
+  if (SLA_KINDS.includes(kind)) Object.assign(values, slaColumns(kind, values, await slaConfig()));
   if (kind === "problem") values.status = "Open";
   if (kind === "change") { values.status = "Draft"; values.approvalStatus = "Pending"; values.requestedBy ||= who.name; }
   const [tbl, col, prefix, key] = NO[kind];
@@ -291,7 +315,7 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
   const pending = await createApprovalRecords(kind, item.id, item, who.label);
   let out = item;
   if (pending > 0 && (kind === "change" || kind === "request")) {
-    [out] = await db.update(TABLE[kind]).set({ status: "Pending Approval" }).where(eq(TABLE[kind].id, item.id)).returning();
+    [out] = await db.update(TABLE[kind]).set({ status: "Pending Approval", ...(SLA_KINDS.includes(kind) ? pauseColumns(kind, item, "Pending Approval", await slaConfig(), new Date(item.createdAt)) : {}) }).where(eq(TABLE[kind].id, item.id)).returning();
   } else if (pending === 0 && kind === "change") {
     [out] = await db.update(itsmChangesTable).set({ approvalStatus: "Approved", approvedBy: "No approval required" }).where(eq(itsmChangesTable.id, item.id)).returning();
   }
@@ -301,7 +325,7 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
   }
   await audit({ entityType: ENTITY[kind], entityId: item.id, action: "create", performedBy: who.label, summary: `Created ${TYPE_NAME[kind]} ${item[key]}: ${item.title}${item.assignedGroup ? ` → ${item.assignedGroup}` : ""}`, newValues: out });
   if (ROUTED.includes(kind)) { void notifyTicket(kind, out, "created"); if (notifyAssignee) void notifyTicket(kind, out, "assigned"); }
-  res.status(201).json(out);
+  res.status(201).json((await withSla(kind, [out]))[0]);
 }
 
 const REOPEN_FROM: Record<Kind, string[]> = { incident: ["Resolved", "Closed"], problem: ["Resolved", "Closed"], change: ["Completed", "Closed", "Cancelled"], request: ["Completed", "Cancelled"] };
@@ -374,7 +398,16 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if (kind === "incident" && to === "Closed" && !old.closedAt) updates.closedAt = new Date();
   if (kind === "request" && to === "Completed" && !old.completedAt) updates.completedAt = new Date();
   if (REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(to)) { if (kind === "incident") { updates.resolvedAt = null; updates.closedAt = null; } if (kind === "request") updates.completedAt = null; }
-  if (kind === "incident" && body.priority && body.priority !== old.priority) updates.slaBreachAt = await computeSlaBreachAt("Incident", body.priority, new Date(old.createdAt));
+  if (kind === "incident" && body.kbArticleId !== undefined && body.kbArticleId !== null) {
+    const [kb] = await db.select({ id: itsmKnowledgeBaseTable.id }).from(itsmKnowledgeBaseTable).where(and(eq(itsmKnowledgeBaseTable.id, Number(body.kbArticleId)), eq(itsmKnowledgeBaseTable.isActive, true)));
+    if (!kb) throw new Bad("The knowledge base article was not found"); updates.kbArticleId = kb.id;
+  }
+  if (SLA_KINDS.includes(kind)) {
+    const cfg = await slaConfig();
+    if (to !== old.status) Object.assign(updates, pauseColumns(kind, old, to, cfg));
+    if (to !== old.status || (body.priority && body.priority !== old.priority)) Object.assign(updates, slaColumns(kind, { ...old, ...updates }, cfg));
+    if (body.priority && body.priority !== old.priority) Object.assign(updates, { slaWarnSentAt: null, slaBreachSentAt: null, responseBreachSentAt: null });
+  }
   const [item]: any[] = await db.update(TABLE[kind]).set(updates).where(eq(TABLE[kind].id, id)).returning();
   // History: status, assignment, team, priority
   if (old.status !== item.status) await history(kind, id, who.label, reopenReason && REOPEN_FROM[kind].includes(old.status) ? `Reopened: ${reopenReason}` : (body.resolutionNotes && item.status === "Resolved" ? `Resolved: ${body.resolutionNotes}` : `Status changed to ${item.status}`), old.status, item.status);
@@ -384,7 +417,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   for (const ev of events) void notifyTicket(kind, item, ev, transferReason);
   const changed = [...Object.keys(body), ...Object.keys(extra)].filter(k => String(old[k] ?? "") !== String(item[k] ?? ""));
   if (changed.length) await audit({ entityType: ENTITY[kind], entityId: id, action: "update", performedBy: who.label, summary: `Updated ${old[NO[kind][3]]}: ${changed.join(", ")}`, newValues: { changed: Object.fromEntries(changed.map(k => [k, { from: old[k], to: item[k] }])) } });
-  res.json(kind === "incident" ? { ...item, slaStatus: computeSlaStatus(item.slaBreachAt, item.status) } : item);
+  res.json((await withSla(kind, [item]))[0]);
 }
 
 async function deleteTicket(kind: Kind, req: Request, res: Response) {
@@ -470,7 +503,7 @@ router.get("/incidents", wrap(async (req, res) => {
   let rows = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(desc(itsmIncidentsTable.createdAt));
   if (problemId) rows = rows.filter(r => r.problemId === problemId);
   rows = await visibleRows(req, "incident", rows);
-  res.json(rows.map(r => ({ ...r, slaStatus: computeSlaStatus(r.slaBreachAt, r.status) })));
+  res.json(await withSla("incident", rows));
 }));
 router.get("/incidents/stats", cachedGet("/incidents/stats", async () => {
   const where = eq(itsmIncidentsTable.isActive, true);
@@ -510,7 +543,7 @@ router.delete("/changes/:id", wrap((req, res) => deleteTicket("change", req, res
 /* ─── SERVICE REQUESTS ───────────────────────────────────────────────────── */
 router.get("/service-requests", wrap(async (req, res) => {
   const rows = await db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.isActive, true)).orderBy(desc(itsmServiceRequestsTable.createdAt));
-  res.json(await visibleRows(req, "request", rows));
+  res.json(await withSla("request", await visibleRows(req, "request", rows)));
 }));
 router.post("/service-requests/bulk-update", wrap((req, res) => bulkUpdate("request", req, res)));
 router.post("/service-requests", wrap((req, res) => createTicket("request", req, res)));
@@ -524,6 +557,7 @@ const slaSchema = z.object({
   priority: prio,
   responseTimeHours: z.coerce.number().int("Response time must be whole hours").positive("Response time must be more than 0"),
   resolutionTimeHours: z.coerce.number().int("Resolution time must be whole hours").positive("Resolution time must be more than 0"),
+  slaType: z.enum(["24x7", "Business Hours"], { errorMap: () => ({ message: "SLA type must be 24x7 or Business Hours" }) }).default("24x7"),
 }).passthrough().refine(v => v.resolutionTimeHours >= v.responseTimeHours, { message: "Resolution time cannot be shorter than response time" });
 router.get("/sla-policies", cachedGet("/sla-policies", () => db.select().from(itsmSlaPoliciesTable).where(eq(itsmSlaPoliciesTable.isActive, true)).orderBy(itsmSlaPoliciesTable.priority)));
 router.post("/sla-policies", wrap(async (req, res) => {
@@ -531,7 +565,7 @@ router.post("/sla-policies", wrap(async (req, res) => {
   const [dup] = await db.select({ id: itsmSlaPoliciesTable.id }).from(itsmSlaPoliciesTable).where(and(eq(itsmSlaPoliciesTable.isActive, true), eq(itsmSlaPoliciesTable.ticketType, v.ticketType), eq(itsmSlaPoliciesTable.priority, v.priority)));
   if (dup) throw new Bad(`An active ${v.ticketType} SLA for ${v.priority} priority already exists — edit it instead`);
   const who = await actor(req);
-  const [item] = await db.insert(itsmSlaPoliciesTable).values(v).returning();
+  const [item] = await db.insert(itsmSlaPoliciesTable).values({ ...v, businessHours: v.slaType === "Business Hours" }).returning(); clearSlaCache();
   await audit({ entityType: "itsm_sla_policy", entityId: item.id, action: "create", performedBy: who.label, summary: `SLA ${item.name}: ${item.ticketType} ${item.priority} — respond ${item.responseTimeHours}h, resolve ${item.resolutionTimeHours}h` });
   res.status(201).json(item);
 }));
@@ -541,13 +575,13 @@ router.patch("/sla-policies/:id", wrap(async (req, res) => {
   if (!old) return fail(res, 404, "SLA policy not found");
   const v: any = parse(slaSchema, { ...old, ...clean(req.body) });
   const who = await actor(req);
-  const [item] = await db.update(itsmSlaPoliciesTable).set({ ...clean(req.body), responseTimeHours: v.responseTimeHours, resolutionTimeHours: v.resolutionTimeHours, updatedAt: new Date() }).where(eq(itsmSlaPoliciesTable.id, id)).returning();
+  const [item] = await db.update(itsmSlaPoliciesTable).set({ ...clean(req.body), responseTimeHours: v.responseTimeHours, resolutionTimeHours: v.resolutionTimeHours, slaType: v.slaType, businessHours: v.slaType === "Business Hours", updatedAt: new Date() }).where(eq(itsmSlaPoliciesTable.id, id)).returning(); clearSlaCache();
   await audit({ entityType: "itsm_sla_policy", entityId: id, action: "update", performedBy: who.label, summary: `SLA ${item.name} updated — respond ${item.responseTimeHours}h, resolve ${item.resolutionTimeHours}h` });
   res.json(item);
 }));
 router.delete("/sla-policies/:id", wrap(async (req, res) => {
   const who = await actor(req);
-  const [row] = await db.update(itsmSlaPoliciesTable).set({ isActive: false }).where(eq(itsmSlaPoliciesTable.id, parseInt(String(req.params.id)))).returning();
+  const [row] = await db.update(itsmSlaPoliciesTable).set({ isActive: false }).where(eq(itsmSlaPoliciesTable.id, parseInt(String(req.params.id)))).returning(); clearSlaCache();
   if (row) await audit({ entityType: "itsm_sla_policy", entityId: row.id, action: "delete", performedBy: who.label, summary: `SLA ${row.name} removed` });
   res.status(204).end();
 }));
@@ -566,7 +600,11 @@ router.get("/ticket-history", wrap(async (req, res) => {
 
 /* ─── KNOWLEDGE BASE ─────────────────────────────────────────────────────── */
 const kbSchema = z.object({ title, content: z.string({ required_error: "Content is required" }).trim().min(10, "Content must be at least 10 characters") }).passthrough();
-router.get("/knowledge-base", cachedGet("/knowledge-base", () => db.select().from(itsmKnowledgeBaseTable).where(eq(itsmKnowledgeBaseTable.isActive, true)).orderBy(desc(itsmKnowledgeBaseTable.createdAt))));
+router.get("/knowledge-base", cachedGet("/knowledge-base", async () => {
+  const rows = await db.select().from(itsmKnowledgeBaseTable).where(eq(itsmKnowledgeBaseTable.isActive, true)).orderBy(desc(itsmKnowledgeBaseTable.createdAt));
+  const used = rowsOf(await db.execute(sql`SELECT kb_article_id AS id, count(*)::int AS n, string_agg(ticket_no, ', ' ORDER BY id DESC) AS nos FROM itsm_incidents WHERE is_active AND kb_article_id IS NOT NULL GROUP BY kb_article_id`));
+  return rows.map(r => { const u = used.find(x => x.id === r.id); return { ...r, usedIn: u?.n || 0, usedInTickets: u?.nos ? String(u.nos).split(", ").slice(0, 10) : [] }; });
+}));
 router.post("/knowledge-base", wrap(async (req, res) => {
   const v: any = parse(kbSchema, clean(req.body));
   const who = await actor(req);
@@ -623,18 +661,28 @@ router.get("/itsm-metrics", async (_req, res) => {
     else aging["30d+"]++;
   }
 
-  // SLA compliance — only incidents that carry an SLA target (none when no SLA policy applies)
-  let slaTotal = 0, slaBreachedCount = 0;
-  for (const inc of incidents) {
-    if (!inc.slaBreachAt) continue;
-    slaTotal++;
-    const done = inc.status === "Closed" || inc.status === "Resolved";
-    const at = done ? new Date(inc.resolvedAt || inc.closedAt || inc.updatedAt || new Date()).getTime() : now;
-    if (at > new Date(inc.slaBreachAt).getTime()) slaBreachedCount++;
-  }
-  const slaCompliance = slaTotal > 0 ? Math.round(((slaTotal - slaBreachedCount) / slaTotal) * 100) : null;
+  // SLA (lib/itsm-sla.ts): incidents + service requests that have a policy
+  const requests = await db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.isActive, true));
+  const cfg = await slaConfig(); const nowD = new Date();
+  const all = [...incidents.map(t => ({ kind: "incident", no: t.ticketNo, t })), ...requests.map(t => ({ kind: "request", no: t.requestNo, t }))]
+    .map(x => ({ ...x, sla: slaInfo(x.kind, x.t, cfg, nowD) })).filter(x => x.sla.state !== "None");
+  const measured = all.filter(x => ["Met", "Breached"].includes(x.sla.state));
+  const slaBreachedCount = measured.filter(x => x.sla.state === "Breached").length;
+  const slaCompliance = measured.length ? Math.round(((measured.length - slaBreachedCount) / measured.length) * 100) : null;
+  const respMeasured = all.filter(x => ["Met", "Breached"].includes(x.sla.responseState));
+  const responseCompliance = respMeasured.length ? Math.round(respMeasured.filter(x => x.sla.responseState === "Met").length / respMeasured.length * 100) : null;
+  const openSla = all.filter(x => !["Met", "Breached"].includes(x.sla.state) || (x.sla.state === "Breached" && !["Resolved", "Closed", "Completed", "Cancelled", "Rejected"].includes(x.t.status)));
+  const byPriority = ["Critical", "High", "Medium", "Low"].map(p => {
+    const m = measured.filter(x => x.t.priority === p); const met = m.filter(x => x.sla.state === "Met").length;
+    return { priority: p, measured: m.length, met, compliance: m.length ? Math.round(met / m.length * 100) : null, open: openSla.filter(x => x.t.priority === p).length, breachedOpen: openSla.filter(x => x.t.priority === p && x.sla.state === "Breached").length };
+  });
+  const watch = openSla.filter(x => ["Breached", "At risk"].includes(x.sla.state)).sort((x, y) => (x.sla.minutesLeft ?? 0) - (y.sla.minutesLeft ?? 0)).slice(0, 15)
+    .map(x => ({ kind: x.kind, id: x.t.id, ticketNo: x.no, title: x.t.title, priority: x.t.priority, assignedTo: x.t.assignedTo, team: x.t.assignedGroup, state: x.sla.state, dueAt: x.sla.dueAt, minutesLeft: x.sla.minutesLeft, usedPct: x.sla.usedPct }));
 
-  res.json({ mttr: mttr ? Math.round(mttr * 10) / 10 : null, slaCompliance, slaMeasured: slaTotal, slaBreached: slaBreachedCount, slaPolicies: slas.length, aging, totalOpen: open.length, openProblems: problems.filter(p => p.status !== "Closed").length, pendingChanges: changes.filter(c => c.approvalStatus === "Pending").length });
+  res.json({ mttr: mttr ? Math.round(mttr * 10) / 10 : null, slaCompliance, slaMeasured: measured.length, slaBreached: slaBreachedCount, responseCompliance, responseMeasured: respMeasured.length,
+    slaOpenBreached: openSla.filter(x => x.sla.state === "Breached").length, slaAtRisk: openSla.filter(x => x.sla.state === "At risk").length, slaPaused: openSla.filter(x => x.sla.state === "Paused").length,
+    slaByPriority: byPriority, slaWatch: watch, slaPolicies: slas.length, aging, totalOpen: open.length, openProblems: problems.filter(p => p.status !== "Closed").length, pendingChanges: changes.filter(c => c.approvalStatus === "Pending").length,
+    pendingApprovals: (await db.select({ c: sql<number>`count(*)::int` }).from(itsmApprovalsTable).where(eq(itsmApprovalsTable.status, "Pending")))[0]?.c ?? 0 });
 });
 
 router.get("/approval-matrix", async (req, res) => {
@@ -709,9 +757,9 @@ router.get("/approvals/:ticketType/:ticketId", wrap(async (req, res) => {
   const a = await approvalState(kind, parseInt(String(req.params.ticketId)));
   const out = [];
   for (const r of a.rows) {
-    const people = r.status === "Pending" ? await approversOf(r) : [];
-    const d = r.status === "Pending" && a.next?.id === r.id && !a.rejected ? await canDecide(req, r) : { ok: false, override: false };
-    out.push({ ...r, isNext: a.next?.id === r.id, approvers: people.map(p => p.name), canAct: d.ok, asOverride: d.override });
+    const pp = r.status === "Pending" ? await approversWithDelegates(r) : { base: [], delegates: [] as any[] };
+    const d = r.status === "Pending" && a.next?.id === r.id && !a.rejected ? await canDecide(req, r) : { ok: false, override: false, onBehalfOf: null };
+    out.push({ ...r, isNext: a.next?.id === r.id, approvers: pp.base.map(p => p.name), covering: pp.delegates.map(p => `${p.name} (for ${p.forNames.join(", ")})`), canAct: d.ok, asOverride: d.override, asDelegateFor: d.onBehalfOf || null });
   }
   res.json(out);
 }));
@@ -726,6 +774,7 @@ async function myInbox(req: Request) {
   const fullOn = new Set(Object.entries(a.perms).filter(([, l]) => l === "admin").map(([m]) => m));
   const byTicket = new Map<string, typeof pend>();
   for (const p of pend) { const k = `${p.ticketType}|${p.ticketId}`; byTicket.set(k, [...(byTicket.get(k) || []), p]); }
+  const coverFor = (await activeDelegations()).filter(x => x.delegateUserId === a.userId).map(x => x.userId);
   const out: any[] = [];
   for (const [, list] of byTicket) {
     const kind = KIND_OF[list[0].ticketType]; if (!kind) continue;
@@ -733,12 +782,15 @@ async function myInbox(req: Request) {
     if (!st.next || st.rejected) continue;
     const n: any = st.next;
     const mine = (n.approverUserIds || []).includes(a.userId) || (n.approverRoleId && roleIds.has(n.approverRoleId)) || (!n.approverRoleId && !(n.approverUserIds || []).length && fullOn.has(MODULE_OF[n.ticketType]));
-    if (!mine && !(a.isAdmin && req.query.all === "1")) continue;
+    let onBehalfOf: string | null = null;
+    if (!mine && coverFor.length) { const base = await approversOf(n); const f = base.filter(u => coverFor.includes(u.id)); if (f.length) onBehalfOf = f.map(u => u.name).join(", "); }
+    if (!mine && !onBehalfOf && !(a.isAdmin && req.query.all === "1")) continue;
     const b = await ticketBrief(kind, n.ticketId); if (!b || !b.t.isActive) continue;
     if (b.t.createdBy === me.label) continue; // you cannot approve what you raised
     out.push({ approvalId: n.id, ticketType: n.ticketType, kind, ticketId: n.ticketId, ticketNo: b.no, title: b.t.title, priority: b.t.priority || b.t.riskLevel || null, changeType: b.t.type || null,
       status: b.t.status, raisedBy: b.requester || b.t.createdBy, raisedAt: b.t.createdAt, level: n.approverLevel, role: n.approverRole, levelOf: `${st.rows.findIndex(r => r.id === n.id) + 1} of ${st.rows.length}`,
-      waitingSince: n.requestedAt || n.createdAt, previous: st.rows.filter(r => r.status === "Approved").map(r => `${r.approverLevel} ${r.approverName}`), mine: !!mine, page: PAGE_OF[kind] });
+      waitingSince: n.requestedAt || n.createdAt, previous: st.rows.filter(r => r.status === "Approved").map(r => `${r.approverLevel} ${r.approverName}`), mine: !!mine || !!onBehalfOf, onBehalfOf,
+      reminders: n.reminderCount || 0, escalated: !!n.escalatedAt, description: (b.t.description || "").slice(0, 300), category: [b.t.category, b.t.subcategory].filter(Boolean).join(" › ") || null, page: PAGE_OF[kind] });
   }
   return out.sort((x, y) => new Date(x.waitingSince).getTime() - new Date(y.waitingSince).getTime());
 }
@@ -750,29 +802,28 @@ router.get("/my-approvals/count", wrap(async (req, res) => { res.json({ count: (
  * (named users or members of its IT Hub role) can decide; base-role Admin can override (recorded). When the last
  * level approves, the ticket is approved; requester and next approvers are emailed.
  */
-router.post("/approvals/:id/action", wrap(async (req, res) => {
-  const id = parseInt(String(req.params.id));
-  const { action } = req.body || {};
-  const notes = s(req.body?.notes);
-  if (!["Approved", "Rejected"].includes(action)) return fail(res, 400, "Action must be Approved or Rejected");
-  if (action === "Rejected" && (!notes || notes.length < 5)) return fail(res, 400, "Give the reason for rejecting (at least 5 characters)");
+/** Decide one step. Throws Bad / Forbidden; returns the updated step. Used by single and bulk actions. */
+async function decideStep(req: Request, id: number, action: string, notes: string | null) {
+  if (!["Approved", "Rejected"].includes(action)) throw new Bad("Action must be Approved or Rejected");
+  if (action === "Rejected" && (!notes || notes.length < 5)) throw new Bad("Give the reason for rejecting (at least 5 characters)");
   const [ap] = await db.select().from(itsmApprovalsTable).where(eq(itsmApprovalsTable.id, id));
-  if (!ap) return fail(res, 404, "Approval step not found");
+  if (!ap) throw new NotFound("Approval step not found");
   const kind = KIND_OF[ap.ticketType];
   const st = await approvalState(kind, ap.ticketId);
-  if (ap.status !== "Pending") return fail(res, 400, `This level is already ${ap.status.toLowerCase()}`);
-  if (st.rejected) return fail(res, 400, `Already rejected at ${st.rejected.approverLevel} — the approval flow has ended`);
-  if (st.next && st.next.id !== ap.id) return fail(res, 400, `${st.next.approverLevel} (${st.next.approverRole}) must decide first`);
+  if (ap.status !== "Pending") throw new Bad(`This level is already ${ap.status.toLowerCase()}`);
+  if (st.rejected) throw new Bad(`Already rejected at ${st.rejected.approverLevel} — the approval flow has ended`);
+  if (st.next && st.next.id !== ap.id) throw new Bad(`${st.next.approverLevel} (${st.next.approverRole}) must decide first`);
   const d = await canDecide(req, ap);
-  if (!d.ok) return fail(res, 403, `Only the ${ap.approverLevel} approvers (${ap.approverRole}) can decide this step`);
+  if (!d.ok) throw new Forbidden(`Only the ${ap.approverLevel} approvers (${ap.approverRole}) can decide this step`);
   const who = await actor(req);
   const [t]: any[] = await db.select().from(TABLE[kind]).where(eq(TABLE[kind].id, ap.ticketId));
-  if (!t || !t.isActive) return fail(res, 404, "Ticket not found");
-  if (t.createdBy === who.label) return fail(res, 403, "You raised this ticket — a different person must approve it");
-  const [updated] = await db.update(itsmApprovalsTable).set({ status: action, notes: d.override ? `[Admin override] ${notes || ""}`.trim() : notes, approverName: who.label, actedByUserId: who.userId, adminOverride: d.override, actionAt: new Date() })
+  if (!t || !t.isActive) throw new NotFound("Ticket not found");
+  if (t.createdBy === who.label) throw new Forbidden("You raised this ticket — a different person must approve it");
+  const tag = d.override ? "[Admin override] " : d.onBehalfOf ? `[On behalf of ${d.onBehalfOf}] ` : "";
+  const [updated] = await db.update(itsmApprovalsTable).set({ status: action, notes: `${tag}${notes || ""}`.trim() || null, approverName: who.label, actedByUserId: who.userId, adminOverride: d.override, onBehalfOf: d.onBehalfOf || null, actionAt: new Date() })
     .where(and(eq(itsmApprovalsTable.id, id), eq(itsmApprovalsTable.status, "Pending"))).returning();
-  if (!updated) return fail(res, 409, "Someone else decided this step just now — refresh");
-  await history(kind, ap.ticketId, who.label, `${ap.approverLevel} (${ap.approverRole}) ${action.toLowerCase()} by ${who.name}${d.override ? " — admin override" : ""}${notes ? `: ${notes}` : ""}`, "Pending", action);
+  if (!updated) throw new Bad("Someone else decided this step just now — refresh");
+  await history(kind, ap.ticketId, who.label, `${ap.approverLevel} (${ap.approverRole}) ${action.toLowerCase()} by ${who.name}${d.override ? " — admin override" : d.onBehalfOf ? ` on behalf of ${d.onBehalfOf}` : ""}${notes ? `: ${notes}` : ""}`, "Pending", action);
   const after = await approvalState(kind, ap.ticketId);
   const no = t[NO[kind][3]];
   if (after.state === "Rejected" || after.state === "Approved") {
@@ -781,6 +832,7 @@ router.post("/approvals/:id/action", wrap(async (req, res) => {
     if (kind === "change") { set.approvalStatus = after.state; set.approvedBy = after.state === "Approved" ? approvers : null; if (["Draft", "Open", "Pending Approval"].includes(t.status)) set.status = after.state; }
     if (kind === "request" && ["Open", "Pending Approval"].includes(t.status)) set.status = after.state;
     if ((kind === "problem" || kind === "incident") && t.status === "Pending Approval") set.status = after.state === "Approved" ? (kind === "problem" ? "Under Investigation" : "In Progress") : t.status;
+    if (SLA_KINDS.includes(kind) && set.status && set.status !== t.status) { const cfg = await slaConfig(); Object.assign(set, pauseColumns(kind, t, set.status, cfg)); Object.assign(set, slaColumns(kind, { ...t, ...set }, cfg)); }
     const [nt]: any[] = await db.update(TABLE[kind]).set(set).where(eq(TABLE[kind].id, ap.ticketId)).returning();
     await history(kind, ap.ticketId, who.label, after.state === "Approved" ? `Fully approved (${approvers})` : `Approval flow ended — rejected at ${after.rejected!.approverLevel}`, t.status, nt.status);
     void emailDecision(kind, ap.ticketId, after.state, who.name, notes);
@@ -788,8 +840,73 @@ router.post("/approvals/:id/action", wrap(async (req, res) => {
     await db.update(itsmApprovalsTable).set({ requestedAt: new Date() }).where(eq(itsmApprovalsTable.id, after.next.id));
     void emailNextApprovers(kind, ap.ticketId);
   }
-  await audit({ entityType: "itsm_approval", entityId: id, action: action.toLowerCase(), performedBy: who.label, summary: `${no}: ${ap.approverLevel} ${ap.approverRole} ${action.toLowerCase()}${d.override ? " (admin override)" : ""}${notes ? ` — ${notes}` : ""}${after.state !== "Pending" ? ` · ticket ${after.state.toLowerCase()}` : ""}` });
-  res.json({ ...updated, ticketApproval: after.state });
+  await audit({ entityType: "itsm_approval", entityId: id, action: action.toLowerCase(), performedBy: who.label, summary: `${no}: ${ap.approverLevel} ${ap.approverRole} ${action.toLowerCase()}${d.override ? " (admin override)" : d.onBehalfOf ? ` (on behalf of ${d.onBehalfOf})` : ""}${notes ? ` — ${notes}` : ""}${after.state !== "Pending" ? ` · ticket ${after.state.toLowerCase()}` : ""}` });
+  return { ...updated, ticketNo: no, ticketApproval: after.state };
+}
+
+router.post("/approvals/:id/action", wrap(async (req, res) => {
+  res.json(await decideStep(req, parseInt(String(req.params.id)), req.body?.action, s(req.body?.notes)));
+}));
+
+/** Approve / reject several steps at once (same comment). Each step is checked on its own; failures are listed. */
+router.post("/approvals/bulk-action", wrap(async (req, res) => {
+  const ids: number[] = Array.isArray(req.body?.ids) ? [...new Set<number>(req.body.ids.map(Number).filter(Number.isFinite))] : [];
+  if (!ids.length) return fail(res, 400, "Select at least one approval");
+  if (ids.length > 100) return fail(res, 400, "Maximum 100 approvals at a time");
+  const action = req.body?.action, notes = s(req.body?.notes);
+  if (!["Approved", "Rejected"].includes(action)) return fail(res, 400, "Action must be Approved or Rejected");
+  if (action === "Rejected" && (!notes || notes.length < 5)) return fail(res, 400, "Give the reason for rejecting (at least 5 characters)");
+  const done: any[] = [], failed: { id: number; error: string }[] = [];
+  for (const id of ids) { try { done.push(await decideStep(req, id, action, notes)); } catch (e: any) { failed.push({ id, error: e?.message || String(e) }); } }
+  res.json({ done: done.length, tickets: done.map(d => d.ticketNo), failed });
+}));
+
+/** Admin: run the SLA alert and approval reminder checks now (they also run every 5 minutes). */
+router.post("/itsm-monitor/run", requireAdmin, wrap(async (_req, res) => {
+  const { runItsmChecks } = await import("../lib/itsm-monitor");
+  res.json((await runItsmChecks()) ?? { skipped: "Already running on another server" });
+}));
+
+/* ─── Approval delegation (out-of-office cover) ─────────────────────────── */
+router.get("/approval-delegates", wrap(async (req, res) => {
+  const a = await getAccess(req); if (!a) return fail(res, 401, "Sign in again");
+  const all = a.isAdmin && req.query.all === "1";
+  const rows = rowsOf(await db.execute(sql`SELECT d.id, d.user_id AS "userId", u.name AS "userName", d.delegate_user_id AS "delegateUserId", v.name AS "delegateName",
+      d.start_date AS "startDate", d.end_date AS "endDate", d.reason, d.created_by AS "createdBy", d.created_at AS "createdAt",
+      (d.start_date <= ${todayIst()}::date AND d.end_date >= ${todayIst()}::date) AS "activeNow"
+    FROM itsm_approval_delegates d JOIN users u ON u.id = d.user_id JOIN users v ON v.id = d.delegate_user_id
+    WHERE d.is_active ${all ? sql`` : sql`AND (d.user_id = ${a.userId} OR d.delegate_user_id = ${a.userId})`} AND d.end_date >= ${todayIst()}::date ORDER BY d.start_date`));
+  res.json(rows);
+}));
+router.post("/approval-delegates", wrap(async (req, res) => {
+  const a = await getAccess(req); if (!a) return fail(res, 401, "Sign in again");
+  const userId = a.isAdmin && Number(req.body?.userId) ? Number(req.body.userId) : a.userId;
+  const delegateUserId = Number(req.body?.delegateUserId);
+  const start = s(req.body?.startDate), end = s(req.body?.endDate);
+  if (!delegateUserId) return fail(res, 400, "Choose who will approve for you");
+  if (delegateUserId === userId) return fail(res, 400, "Choose someone other than yourself");
+  if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !end || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return fail(res, 400, "From and To dates are required");
+  if (end < start) return fail(res, 400, "To date cannot be before the From date");
+  if (end < todayIst()) return fail(res, 400, "The period has already ended");
+  const [u] = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(and(eq(usersTable.id, delegateUserId), eq(usersTable.isActive, true)));
+  if (!u) return fail(res, 400, "The delegate is not an active user");
+  const [clash] = rowsOf(await db.execute(sql`SELECT id FROM itsm_approval_delegates WHERE is_active AND user_id = ${userId} AND start_date <= ${end}::date AND end_date >= ${start}::date`));
+  if (clash) return fail(res, 400, "A delegation already covers part of these dates — end it first");
+  const who = await actor(req);
+  const [row] = await db.insert(itsmApprovalDelegatesTable).values({ userId, delegateUserId, startDate: start, endDate: end, reason: s(req.body?.reason), createdBy: who.label }).returning();
+  await inApp([delegateUserId], "You are covering approvals", `${who.name} has asked you to approve ITSM tickets for them from ${start} to ${end}`, "info", "/itsm-my-approvals");
+  await audit({ entityType: "itsm_approval_delegate", entityId: row.id, action: "create", performedBy: who.label, summary: `Approval delegation: user #${userId} → ${u.name}, ${start} to ${end}` });
+  res.status(201).json(row);
+}));
+router.delete("/approval-delegates/:id", wrap(async (req, res) => {
+  const a = await getAccess(req); if (!a) return fail(res, 401, "Sign in again");
+  const [d] = await db.select().from(itsmApprovalDelegatesTable).where(eq(itsmApprovalDelegatesTable.id, Number(req.params.id)));
+  if (!d || !d.isActive) return fail(res, 404, "Delegation not found");
+  if (d.userId !== a.userId && !a.isAdmin) return fail(res, 403, "Only the approver or an admin can end this delegation");
+  await db.update(itsmApprovalDelegatesTable).set({ isActive: false }).where(eq(itsmApprovalDelegatesTable.id, d.id));
+  const who = await actor(req);
+  await audit({ entityType: "itsm_approval_delegate", entityId: d.id, action: "delete", performedBy: who.label, summary: `Approval delegation #${d.id} ended` });
+  res.status(204).end();
 }));
 
 // ─── ITSM SETTINGS (attachment config) ───────────────────────
@@ -826,6 +943,12 @@ const ITSM_CONFIG_DEFAULTS: Record<string, unknown> = {
   "itsm.changeCategories": ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User"],
   "itsm.srCategories": ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup", "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Other"],
   "itsm.departments": ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"],
+  "itsm.slaCalendar": { start: "09:30", end: "18:30", days: [1, 2, 3, 4, 5], holidays: [] },
+  "itsm.slaWarnPercent": 75,
+  "itsm.slaPauseStatuses": ["On Hold", "Pending Approval"],
+  "itsm.approvalReminderHours": 24,
+  "itsm.approvalEscalateAfter": 2,
+  "itsm.autoApprove": { lowPriority: true, standardChange: true },
   "itsm.itGroups": ["IT Helpdesk", "Infrastructure Team", "Network Team", "Security Team", "Applications Team", "Database Team", "Cloud Team", "Desktop Support", "Development Team", "Operations Team"],
 };
 
@@ -852,8 +975,15 @@ router.get("/itsm-config", async (_req, res): Promise<void> => {
 });
 
 router.put("/itsm-config", requireAdmin, async (req, res): Promise<void> => {
-  responseCache.clear();
+  responseCache.clear(); clearSlaCache();
   const body = req.body as Record<string, unknown>;
+  { const bad = (m: string) => { res.status(400).json({ error: m }); return true; };
+    const c: any = body["itsm.slaCalendar"];
+    if (c !== undefined && (typeof c !== "object" || !/^\d{1,2}:\d{2}$/.test(c.start) || !/^\d{1,2}:\d{2}$/.test(c.end) || c.end <= c.start || !Array.isArray(c.days) || !c.days.length || !Array.isArray(c.holidays || []))) { bad("Working hours: give start / end as HH:MM (end after start) and at least one working day"); return; }
+    const w = body["itsm.slaWarnPercent"]; if (w !== undefined && !(Number(w) >= 50 && Number(w) <= 95)) { bad("SLA alert % must be between 50 and 95"); return; }
+    const r = body["itsm.approvalReminderHours"]; if (r !== undefined && !(Number(r) >= 1 && Number(r) <= 168)) { bad("Approval reminder must be every 1–168 hours"); return; }
+    const e = body["itsm.approvalEscalateAfter"]; if (e !== undefined && !(Number(e) >= 1 && Number(e) <= 10)) { bad("Escalate after 1–10 reminders"); return; }
+    const ps = body["itsm.slaPauseStatuses"]; if (ps !== undefined && (!Array.isArray(ps) || ps.some(x => !["On Hold", "Pending Approval", "Escalated"].includes(String(x))))) { bad("Pause statuses can be On Hold, Pending Approval or Escalated"); return; } }
   for (const [key, value] of Object.entries(body)) {
     if (!key.startsWith("itsm.")) continue;
     const serialized = typeof value === "string" ? value : JSON.stringify(value);
@@ -1032,4 +1162,5 @@ router.get("/itsm-report", async (req, res): Promise<void> => {
   res.json(results);
 });
 
+export { approversWithDelegates, approvalState, ticketBrief, KIND_OF, PAGE_OF, TYPE_NAME };
 export default router;

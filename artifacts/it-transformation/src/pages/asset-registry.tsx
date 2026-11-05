@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from "react";
+import { AssetHealthPanel } from "@/components/asset-health";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,7 @@ export default function AssetRegistry() {
   const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewModal, setViewModal] = useState<any>(null);
-  const [viewTab, setViewTab] = useState<"details" | "finance" | "history">("details");
+  const [viewTab, setViewTab] = useState<"details" | "finance" | "health" | "history">("details");
   const [stickerAssets, setStickerAssets] = useState<any[] | null>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
@@ -320,7 +321,7 @@ export default function AssetRegistry() {
 
       {/* View Details Modal */}
       <Dialog open={!!viewModal} onOpenChange={() => { setViewModal(null); setViewTab("details"); }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <span className="font-mono text-[#2D7FF9]">{viewModal?.assetTag}</span>
@@ -329,10 +330,10 @@ export default function AssetRegistry() {
           </DialogHeader>
           {/* Tab bar */}
           <div className="flex gap-1 border-b mb-4 -mx-1 px-1">
-            {(["details", "finance", "history"] as const).map(tab => (
+            {(["details", "finance", "health", "history"] as const).map(tab => (
               <button key={tab} onClick={() => setViewTab(tab)}
                 className={`px-4 py-2 text-sm font-medium transition border-b-2 -mb-px ${viewTab === tab ? "border-[#2D7FF9] text-[#1B63D6]" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-                {tab === "history" ? "History & comments" : tab === "finance" ? "Warranty & finance" : "Details"}
+                {tab === "history" ? "History & comments" : tab === "finance" ? "Warranty & finance" : tab === "health" ? "Health & usage" : "Details"}
               </button>
             ))}
           </div>
@@ -393,6 +394,7 @@ export default function AssetRegistry() {
             </div>
           )}
           {viewModal && viewTab === "finance" && <AssetCoveragePanel assetId={viewModal.id} />}
+          {viewModal && viewTab === "health" && <AssetHealthPanel assetId={viewModal.id} />}
           {viewModal && viewTab === "history" && (
             <AssetTrail assetId={viewModal.id} assetTag={viewModal.assetTag} />
           )}

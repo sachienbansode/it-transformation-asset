@@ -1,6 +1,9 @@
 import { createApp } from "./app";
 import { logger } from "./lib/logger";
 import { seedProductionDatabase } from "./seed-production";
+import { startItsmMonitor } from "./lib/itsm-monitor";
+import { startAgentSweep } from "./routes/asset-agent";
+import { startPushDispatcher } from "./lib/webpush";
 
 const rawPort = process.env["PORT"];
 
@@ -25,6 +28,9 @@ createApp()
         process.exit(1);
       }
       logger.info({ port }, "Server listening");
+      startItsmMonitor();
+      startAgentSweep();
+      startPushDispatcher();
     });
   })
   .catch((err) => {

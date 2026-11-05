@@ -47,6 +47,7 @@ const RULES: [RegExp, string | null][] = [
   [/^\/assets\/by-tag\//, null],             // QR sticker look-up
   [/^\/asset-comments\//, "asset_registry"],
   [/^\/asset-dashboard(\/|$)/, "assets"],
+  [/^\/asset-analytics(\/|$)/, "assets"],
   // IT Service Management
   [/^\/incidents(\/|$)/, "itsm_incidents"],
   [/^\/problems(\/|$)/, "itsm_problems"],
@@ -66,6 +67,7 @@ const RULES: [RegExp, string | null][] = [
   [/^\/asset-finance-requests(\/|$)/, null], // maker-checker queue — checked in the route
   [/^\/asset-(licenses|license-assignments|license-compliance)(\/|$)/, "asset_licenses"],
   [/^\/asset-vendors(\/|$)/, "asset_vendors"],
+  [/^\/asset-(agents|agent-codes)(\/|$)/, "asset_registry"],
   [/^\/asset-audits(\/|$)/, "asset_audits"],
   [/^\/assets\/(\d+\/(issue|return)|bulk-issue)$/, "asset_allocations"],
   [/^\/asset-(handovers|allocations|holders|people)(\/|$)/, "asset_allocations"],

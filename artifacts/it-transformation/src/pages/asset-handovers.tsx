@@ -13,7 +13,8 @@ import { StatCard } from "@/components/stat-card";
 import { apiFetch } from "@/lib/api";
 import { AckPill, IssueDialog, ReturnDialog, markAcknowledged, printHandoverNote, HolderTag, ResolveIssueDialog } from "@/components/asset-lifecycle";
 import { BulkAssignDialog } from "@/components/bulk-assign";
-import { Search, UserPlus, Printer, Undo2, FileCheck2, ClipboardList, Clock, AlertTriangle, Download, Upload } from "lucide-react";
+import { Search, UserPlus, Printer, Undo2, FileCheck2, ClipboardList, Clock, AlertTriangle, Download, Upload, Filter, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { fmtCell, fmtDate } from "@/lib/date";
 
@@ -32,7 +33,7 @@ const fmt = (d?: string | null) => d ? fmtDate(d) : "—";
 
 function exportCsv(rows: any[]) {
   const cols: [string, string][] = [["Handover No", "handoverNo"], ["Asset Tag", "assetTag"], ["Asset", "assetName"], ["Serial", "serialNumber"], ["Employee", "userName"], ["Employee Code", "employeeCode"], ["Internal / External", "holderType"], ["Email", "email"],
-    ["Department", "department"], ["Type", "allocationType"], ["Issued", "startDate"], ["Expected Return", "expectedReturnDate"], ["Status", "status"], ["Acknowledgement", "ackStatus"], ["Returned", "endDate"], ["Return Condition", "returnCondition"]];
+    ["Department", "department"], ["Location", "location"], ["Asset Type", "assetType"], ["Type", "allocationType"], ["Issued", "startDate"], ["Expected Return", "expectedReturnDate"], ["Status", "status"], ["Acknowledgement", "ackStatus"], ["Returned", "endDate"], ["Return Condition", "returnCondition"]];
   const e = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
   const csv = [cols.map(c => c[0]).join(","), ...rows.map(r => cols.map(c => e(r[c[1]])).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: `asset_handovers_${todayIso()}.csv` });
@@ -53,28 +54,50 @@ export default function AssetHandovers() {
   const [returnAsset, setReturnAsset] = useState<any>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [resolve, setResolve] = useState<any>(null);
+  // Extra filters (combine with the status tabs and search)
+  const NOF = { dept: "", loc: "", type: "", alloc: "", holder: "", from: "", to: "" };
+  const [f, setF] = useState(NOF);
+  const setFilter = (k: keyof typeof NOF, v: string) => { setF(x => ({ ...x, [k]: v })); setPage(1); };
+  const activeFilters = Object.values(f).filter(Boolean).length;
+  const locOf = (r: any) => r.location || r.assetLocation || "";
+  const opts = useMemo(() => {
+    const u = (fn: (r: any) => string) => [...new Set(rows.map(fn).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    return { dept: u(r => r.department), loc: u(locOf), type: u(r => r.assetType), alloc: u(r => r.allocationType) };
+  }, [rows]);
 
   const isOverdue = (r: any) => r.status === "Active" && r.expectedReturnDate && r.expectedReturnDate < todayIso();
+  // rows after search + extra filters (tab counts follow these too)
+  const base = useMemo(() => {
+    let l = rows;
+    if (f.dept) l = l.filter(r => r.department === f.dept);
+    if (f.loc) l = l.filter(r => locOf(r) === f.loc);
+    if (f.type) l = l.filter(r => r.assetType === f.type);
+    if (f.alloc) l = l.filter(r => r.allocationType === f.alloc);
+    if (f.holder) l = l.filter(r => (r.holderType || "internal").toLowerCase() === f.holder);
+    if (f.from) l = l.filter(r => (r.startDate || "") >= f.from);
+    if (f.to) l = l.filter(r => (r.startDate || "") <= f.to);
+    const t = q.trim().toLowerCase();
+    if (t) l = l.filter(r => [r.handoverNo, r.assetTag, r.assetName, r.serialNumber, r.userName, r.employeeCode, r.email, r.department, locOf(r), r.assetType].some((v: string) => v?.toLowerCase().includes(t)));
+    return l;
+  }, [rows, f, q]);
   const counts = useMemo(() => ({
-    active: rows.filter(r => r.status === "Active").length,
-    pending: rows.filter(r => r.status === "Active" && r.ackStatus === "Pending").length,
-    issues: rows.filter(r => r.status === "Active" && r.ackStatus === "Issue reported").length,
-    overdue: rows.filter(isOverdue).length,
-    closed: rows.filter(r => r.status !== "Active").length,
-    all: rows.length,
-  }), [rows]);
+    active: base.filter(r => r.status === "Active").length,
+    pending: base.filter(r => r.status === "Active" && r.ackStatus === "Pending").length,
+    issues: base.filter(r => r.status === "Active" && r.ackStatus === "Issue reported").length,
+    overdue: base.filter(isOverdue).length,
+    closed: base.filter(r => r.status !== "Active").length,
+    all: base.length,
+  }), [base]);
 
   const filtered = useMemo(() => {
-    let l = rows;
+    let l = base;
     if (tab === "active") l = l.filter(r => r.status === "Active");
     if (tab === "pending") l = l.filter(r => r.status === "Active" && r.ackStatus === "Pending");
     if (tab === "issues") l = l.filter(r => r.status === "Active" && r.ackStatus === "Issue reported");
     if (tab === "overdue") l = l.filter(isOverdue);
     if (tab === "closed") l = l.filter(r => r.status !== "Active");
-    const t = q.trim().toLowerCase();
-    if (t) l = l.filter(r => [r.handoverNo, r.assetTag, r.assetName, r.serialNumber, r.userName, r.employeeCode, r.email, r.department].some((v: string) => v?.toLowerCase().includes(t)));
     return l;
-  }, [rows, tab, q]);
+  }, [base, tab]);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const refresh = () => ["asset-handovers", "assets", "asset-holders", "my-assets"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
@@ -117,6 +140,18 @@ export default function AssetHandovers() {
               <Input className="pl-9" placeholder="Search handover no, asset, serial, employee…" value={q} onChange={e => { setQ(e.target.value); setPage(1); }} />
             </div>
           </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <Filter className="w-4 h-4 text-muted-foreground mb-2.5" />
+            <FilterSelect label="Department" value={f.dept} options={opts.dept} onChange={v => setFilter("dept", v)} />
+            <FilterSelect label="Location" value={f.loc} options={opts.loc} onChange={v => setFilter("loc", v)} />
+            <FilterSelect label="Asset type" value={f.type} options={opts.type} onChange={v => setFilter("type", v)} />
+            <FilterSelect label="Handover type" value={f.alloc} options={opts.alloc} onChange={v => setFilter("alloc", v)} />
+            <FilterSelect label="Employee" value={f.holder} options={["internal", "external"]} labels={{ internal: "Internal", external: "External" }} onChange={v => setFilter("holder", v)} />
+            <div className="space-y-1"><div className="text-[11px] text-muted-foreground">Issued from</div><Input type="date" className="h-9 w-[150px]" value={f.from} max={f.to || undefined} onChange={e => setFilter("from", e.target.value)} /></div>
+            <div className="space-y-1"><div className="text-[11px] text-muted-foreground">Issued to</div><Input type="date" className="h-9 w-[150px]" value={f.to} min={f.from || undefined} onChange={e => setFilter("to", e.target.value)} /></div>
+            {activeFilters > 0 && <Button variant="ghost" size="sm" className="h-9 gap-1" onClick={() => { setF(NOF); setPage(1); }}><X className="w-3.5 h-3.5" />Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}</Button>}
+          </div>
+          {(activeFilters > 0 || q.trim()) && <div className="text-xs text-muted-foreground">Showing {filtered.length} of {rows.length} handovers</div>}
 
           <Table>
             <TableHeader>
@@ -131,8 +166,9 @@ export default function AssetHandovers() {
               {paged.map(r => (
                 <TableRow key={r.id}>
                   <TableCell><div className="font-mono text-xs text-primary font-semibold">{r.handoverNo}</div><div className="text-[11px] text-muted-foreground">{r.status}</div></TableCell>
-                  <TableCell><div className="font-semibold text-foreground">{r.assetTag}</div><div className="text-xs text-muted-foreground">{r.assetName} · {r.serialNumber}</div></TableCell>
-                  <TableCell><div className="font-medium text-foreground flex items-center gap-1.5">{r.userName}<HolderTag type={r.holderType} /></div><div className="text-xs text-muted-foreground"><span className="font-mono">{r.employeeCode || "—"}</span>{r.email ? ` · ${r.email}` : ""}</div></TableCell>
+                  <TableCell><div className="font-semibold text-foreground">{r.assetTag} <span className="font-normal text-[11px] text-muted-foreground">{r.assetType}</span></div><div className="text-xs text-muted-foreground">{r.assetName} · {r.serialNumber}</div></TableCell>
+                  <TableCell><div className="font-medium text-foreground flex items-center gap-1.5">{r.userName}<HolderTag type={r.holderType} /></div><div className="text-xs text-muted-foreground"><span className="font-mono">{r.employeeCode || "—"}</span>{r.email ? ` · ${r.email}` : ""}</div>
+                    {(r.department || locOf(r)) && <div className="text-[11px] text-muted-foreground">{[r.department, locOf(r)].filter(Boolean).join(" · ")}</div>}</TableCell>
                   <TableCell className="text-sm">{r.allocationType}</TableCell>
                   <TableCell className="text-sm">{fmt(r.startDate)}<div className="text-[11px] text-muted-foreground">by {r.issuedBy || "—"}</div></TableCell>
                   <TableCell className="text-sm">
@@ -168,6 +204,18 @@ export default function AssetHandovers() {
       {returnAsset && <ReturnDialog asset={returnAsset} onClose={() => setReturnAsset(null)} onDone={refresh} />}
       {resolve && <ResolveIssueDialog h={resolve} onClose={() => setResolve(null)} onDone={refresh} onReturn={assetOf(resolve) ? () => setReturnAsset(assetOf(resolve)) : undefined} />}
       {bulkOpen && <BulkAssignDialog onClose={() => setBulkOpen(false)} onDone={refresh} />}
+    </div>
+  );
+}
+
+function FilterSelect({ label, value, options, labels, onChange }: { label: string; value: string; options: string[]; labels?: Record<string, string>; onChange: (v: string) => void }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <Select value={value || "__all"} onValueChange={v => onChange(v === "__all" ? "" : v)}>
+        <SelectTrigger className={cn("h-9 w-[150px]", value && "border-primary text-primary")}><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="__all">All</SelectItem>{options.map(o => <SelectItem key={o} value={o}>{labels?.[o] || o}</SelectItem>)}</SelectContent>
+      </Select>
     </div>
   );
 }

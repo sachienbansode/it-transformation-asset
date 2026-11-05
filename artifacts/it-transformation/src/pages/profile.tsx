@@ -1,3 +1,4 @@
+import { PushCard } from "@/pages/my-policies";
 import React, { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRoleLabel } from "@/lib/utils";
@@ -115,6 +116,7 @@ export default function Profile() {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      <PushCard />
       <div className="flex items-center gap-3">
         <User className="h-6 w-6 text-primary" />
         <div>

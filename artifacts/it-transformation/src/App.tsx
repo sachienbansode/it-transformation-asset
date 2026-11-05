@@ -33,7 +33,10 @@ import AssetContracts from "@/pages/asset-contracts";
 import AssetDepreciation from "@/pages/asset-depreciation";
 import AssetHandovers from "@/pages/asset-handovers";
 import AssetEmployees from "@/pages/asset-employees";
+import AssetAgents from "@/pages/asset-agents";
 import MyAssets from "@/pages/my-assets";
+import MyPolicies from "@/pages/my-policies";
+import AdminPolicies from "@/pages/admin-policies";
 import AssetScan from "@/pages/asset-scan";
 import AssetScanCamera from "@/pages/asset-scan-camera";
 import AssetAudits from "@/pages/asset-audits";
@@ -92,7 +95,7 @@ function guard(module: string, Component: React.ComponentType) {
 const G = {
   dashboard: guard("assets", AssetDashboard), registry: guard("asset_registry", AssetRegistry), vendors: guard("asset_vendors", AssetVendors),
   licenses: guard("asset_licenses", AssetLicenses), contracts: guard("asset_contracts", AssetContracts), depreciation: guard("asset_depreciation", AssetDepreciation),
-  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees),
+  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents),
   audits: guard("asset_audits", AssetAudits), auditDetail: guard("asset_audits", AssetAuditDetail),
 };
 
@@ -173,6 +176,7 @@ function Router() {
               <Route path="/asset-depreciation" component={G.depreciation} />
               <Route path="/asset-allocations" component={G.handovers} />
               <Route path="/asset-employees" component={G.employees} />
+              <Route path="/asset-agents" component={G.agents} />
               <Route path="/my-assets" component={MyAssets} />
               <Route path="/a/:tag" component={AssetScan} />
               <Route path="/asset-scan" component={AssetScanCamera} />
@@ -193,6 +197,10 @@ function Router() {
               <Route path="/compliance" component={Compliance} />
               <Route path="/compliance-library" component={ComplianceLibrary} />
               <Route path="/profile" component={Profile} />
+              <Route path="/my-policies" component={MyPolicies} />
+              <Route path="/admin/policies">
+                {user.role === "admin" ? <AdminPolicies /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              </Route>
               <Route path="/admin/users">
                 {user.role === "admin" ? <AdminUsers /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>

@@ -15,7 +15,8 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
-import { fmtCell } from "@/lib/date";
+import { fmtCell, fmtDate } from "@/lib/date";
+import { Switch } from "@/components/ui/switch";
 
 function exportToCsv(rows: any[], cols: { label: string; key: string }[], filename: string) {
   const esc = (v: any) => { const s = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(s) ? `"${s}"` : s; };
@@ -26,7 +27,7 @@ function exportToCsv(rows: any[], cols: { label: string; key: string }[], filena
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
-const TICKET_TYPES = ["Incident", "Problem", "Change Request", "Service Request"];
+const TICKET_TYPES = ["Incident", "Service Request"]; // the SLA clock runs on incidents and service requests
 const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#2D7FF9", Low: "#2563eb" };
 const TYPE_ICON: Record<string, any> = { Incident: AlertTriangle, Problem: Bug, "Change Request": GitBranch, "Service Request": Headphones };
 const TYPE_COLOR: Record<string, string> = {
@@ -100,7 +101,7 @@ export default function ItsmSlaPolicies() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">SLA Policies</h1>
-          <p className="text-sm text-muted-foreground">Define service level agreements per ticket type — {user?.name}</p>
+          <p className="text-sm text-muted-foreground">Response and resolution targets per priority. The clock stops while a ticket is On Hold or waiting for approval; Business Hours SLAs count only working hours.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => exportToCsv(slas, [{label:"Name",key:"name"},{label:"Ticket Type",key:"ticketType"},{label:"Priority",key:"priority"},{label:"Response Time (hrs)",key:"responseTimeHrs"},{label:"Resolution Time (hrs)",key:"resolutionTimeHrs"},{label:"Escalation (hrs)",key:"escalationHrs"},{label:"Active",key:"isActive"}], "sla-policies.csv")} className="gap-1.5"><Download className="w-4 h-4" />Export CSV</Button>
@@ -177,6 +178,8 @@ export default function ItsmSlaPolicies() {
         </CardContent>
       </Card>
 
+      {isAdmin && <SlaSettings />}
+
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>SLA Policy Details</DialogTitle></DialogHeader>
@@ -204,8 +207,7 @@ export default function ItsmSlaPolicies() {
             <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Response Time (hours) *</Label><Input type="number" value={formData.responseTimeHours || ""} onChange={e => setFormData({ ...formData, responseTimeHours: parseInt(e.target.value) })} /></div>
             <div><Label>Resolution Time (hours) *</Label><Input type="number" value={formData.resolutionTimeHours || ""} onChange={e => setFormData({ ...formData, resolutionTimeHours: parseInt(e.target.value) })} /></div>
-            <div><Label>SLA Type</Label><Select value={formData.slaType || "24x7"} onValueChange={v => setFormData({ ...formData, slaType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="24x7">24x7</SelectItem><SelectItem value="Business Hours">Business Hours</SelectItem></SelectContent></Select></div>
-            <div><Label>Business Hours Only</Label><Select value={formData.businessHours ? "true" : "false"} onValueChange={v => setFormData({ ...formData, businessHours: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes</SelectItem><SelectItem value="false">No</SelectItem></SelectContent></Select></div>
+            <div><Label>SLA Type</Label><Select value={formData.slaType || "24x7"} onValueChange={v => setFormData({ ...formData, slaType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="24x7">24x7 (every hour counts)</SelectItem><SelectItem value="Business Hours">Business Hours</SelectItem></SelectContent></Select></div>
             <div><Label>Escalation Enabled</Label><Select value={formData.escalationEnabled ? "true" : "false"} onValueChange={v => setFormData({ ...formData, escalationEnabled: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes</SelectItem><SelectItem value="false">No</SelectItem></SelectContent></Select></div>
             <div><Label>Active</Label><Select value={formData.isActive !== false ? "true" : "false"} onValueChange={v => setFormData({ ...formData, isActive: v === "true" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Active</SelectItem><SelectItem value="false">Inactive</SelectItem></SelectContent></Select></div>
             <div className="col-span-2"><Label>Escalation Policy</Label><Input value={formData.escalationPolicy || ""} onChange={e => setFormData({ ...formData, escalationPolicy: e.target.value })} placeholder="Describe escalation procedure" /></div>
@@ -217,5 +219,60 @@ export default function ItsmSlaPolicies() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const PAUSABLE = ["On Hold", "Pending Approval", "Escalated"];
+
+/** Admin: business calendar, alert threshold, pause statuses, approval reminders and auto-approval. */
+function SlaSettings() {
+  const qc = useQueryClient(); const { toast } = useToast();
+  const { data: cfg } = useQuery<any>({ queryKey: ["itsm-config"], queryFn: () => apiFetch("/itsm-config") });
+  const [f, setF] = useState<any>(null); const [hol, setHol] = useState(""); const [busy, setBusy] = useState(false);
+  React.useEffect(() => { if (cfg && !f) setF({
+    cal: cfg["itsm.slaCalendar"] || { start: "09:30", end: "18:30", days: [1, 2, 3, 4, 5], holidays: [] },
+    warn: cfg["itsm.slaWarnPercent"] ?? 75, pause: cfg["itsm.slaPauseStatuses"] || ["On Hold", "Pending Approval"],
+    remind: cfg["itsm.approvalReminderHours"] ?? 24, escalate: cfg["itsm.approvalEscalateAfter"] ?? 2,
+    auto: cfg["itsm.autoApprove"] || { lowPriority: true, standardChange: true } }); }, [cfg]);
+  if (!f) return null;
+  const set = (k: string, v: any) => setF((x: any) => ({ ...x, [k]: v }));
+  const setCal = (k: string, v: any) => setF((x: any) => ({ ...x, cal: { ...x.cal, [k]: v } }));
+  async function save() {
+    const w = Number(f.warn), r = Number(f.remind), e = Number(f.escalate);
+    if (!/^\d{1,2}:\d{2}$/.test(f.cal.start) || !/^\d{1,2}:\d{2}$/.test(f.cal.end) || f.cal.end <= f.cal.start) { toast({ title: "Working hours: end must be after start (HH:MM)", variant: "destructive" }); return; }
+    if (!f.cal.days.length) { toast({ title: "Choose at least one working day", variant: "destructive" }); return; }
+    if (!(w >= 50 && w <= 95)) { toast({ title: "Alert at must be between 50% and 95%", variant: "destructive" }); return; }
+    if (!(r >= 1 && r <= 168) || !(e >= 1 && e <= 10)) { toast({ title: "Reminder every 1–168 hours; escalate after 1–10 reminders", variant: "destructive" }); return; }
+    setBusy(true);
+    try {
+      await apiFetch("/itsm-config", { method: "PUT", body: JSON.stringify({ "itsm.slaCalendar": f.cal, "itsm.slaWarnPercent": w, "itsm.slaPauseStatuses": f.pause, "itsm.approvalReminderHours": r, "itsm.approvalEscalateAfter": e, "itsm.autoApprove": f.auto }) });
+      qc.invalidateQueries({ queryKey: ["itsm-config"] }); toast({ title: "SLA & approval settings saved" });
+    } catch (err: any) { toast({ title: "Could not save", description: err.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
+  return (
+    <Card><CardContent className="p-4 space-y-4">
+      <div><h2 className="font-semibold">SLA &amp; approval settings</h2><p className="text-xs text-muted-foreground">Applies to all Business Hours SLAs (IST) and to approval reminders. Alerts go in-app and by email to the assignee, team lead, team and admins.</p></div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label className="text-xs">Working hours</Label>
+          <div className="flex items-center gap-2"><Input className="w-24" value={f.cal.start} onChange={e => setCal("start", e.target.value)} placeholder="09:30" /><span className="text-sm">to</span><Input className="w-24" value={f.cal.end} onChange={e => setCal("end", e.target.value)} placeholder="18:30" /></div>
+          <div className="flex flex-wrap gap-1">{DAYS.map((d, i) => { const on = f.cal.days.includes(i); return <button key={d} type="button" onClick={() => setCal("days", on ? f.cal.days.filter((x: number) => x !== i) : [...f.cal.days, i].sort())} className={`px-2 py-1 rounded border text-xs ${on ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground"}`}>{d}</button>; })}</div>
+          <Label className="text-xs">Holidays</Label>
+          <div className="flex gap-2"><Input type="date" value={hol} onChange={e => setHol(e.target.value)} className="w-44" /><Button size="sm" variant="outline" disabled={!hol || f.cal.holidays.includes(hol)} onClick={() => { setCal("holidays", [...f.cal.holidays, hol].sort()); setHol(""); }}>Add</Button></div>
+          <div className="flex flex-wrap gap-1">{f.cal.holidays.map((h: string) => <span key={h} className="inline-flex items-center gap-1 text-xs border rounded px-1.5 py-0.5">{fmtDate(h)}<button className="text-red-600" onClick={() => setCal("holidays", f.cal.holidays.filter((x: string) => x !== h))}>×</button></span>)}{!f.cal.holidays.length && <span className="text-xs text-muted-foreground">None</span>}</div>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center gap-2"><Label className="text-xs w-44">Alert when SLA time used reaches</Label><Input type="number" className="w-20" value={f.warn} onChange={e => set("warn", e.target.value)} /><span className="text-sm">%</span></div>
+          <div><Label className="text-xs">Stop the clock while status is</Label>
+            <div className="flex flex-wrap gap-1 mt-1">{PAUSABLE.map(st => { const on = f.pause.includes(st); return <button key={st} type="button" onClick={() => set("pause", on ? f.pause.filter((x: string) => x !== st) : [...f.pause, st])} className={`px-2 py-1 rounded border text-xs ${on ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground"}`}>{st}</button>; })}</div></div>
+          <div className="flex items-center gap-2"><Label className="text-xs w-44">Remind approvers every</Label><Input type="number" className="w-20" value={f.remind} onChange={e => set("remind", e.target.value)} /><span className="text-sm">hours</span></div>
+          <div className="flex items-center gap-2"><Label className="text-xs w-44">Escalate to admins after</Label><Input type="number" className="w-20" value={f.escalate} onChange={e => set("escalate", e.target.value)} /><span className="text-sm">reminders</span></div>
+          <div className="flex items-center gap-2"><Switch checked={!!f.auto.lowPriority} onCheckedChange={v => set("auto", { ...f.auto, lowPriority: v })} /><span className="text-sm">Auto-approve Low priority tickets</span></div>
+          <div className="flex items-center gap-2"><Switch checked={!!f.auto.standardChange} onCheckedChange={v => set("auto", { ...f.auto, standardChange: v })} /><span className="text-sm">Auto-approve Standard (pre-approved) changes</span></div>
+        </div>
+      </div>
+      <div className="flex justify-end"><Button onClick={save} disabled={busy}>{busy ? "Saving…" : "Save settings"}</Button></div>
+    </CardContent></Card>
   );
 }

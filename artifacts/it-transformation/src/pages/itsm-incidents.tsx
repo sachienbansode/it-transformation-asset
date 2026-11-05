@@ -21,11 +21,12 @@ import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSel
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
 import { fmtCell, fmtDate, fmtDateTime } from "@/lib/date";
+import { SlaBadge, SlaPanel } from "@/components/itsm-sla";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const SEVERITIES = ["S1", "S2", "S3", "S4"];
-const STATUSES = ["Open", "In Progress", "Pending Approval", "Resolved", "Closed"];
+const STATUSES = ["Open", "In Progress", "On Hold", "Escalated", "Pending Approval", "Resolved", "Closed"];
 const CREATE_STATUSES = ["Open"];
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
@@ -39,6 +40,8 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   Open:              { bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
   "In Progress":     { bg: "bg-amber-50 dark:bg-amber-900/20", text: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500" },
   "Pending Approval":{ bg: "bg-violet-50 dark:bg-violet-900/20", text: "text-violet-600 dark:text-violet-400", dot: "bg-violet-500" },
+  "On Hold":         { bg: "bg-slate-100 dark:bg-slate-800/40", text: "text-slate-600 dark:text-slate-300", dot: "bg-slate-400" },
+  Escalated:         { bg: "bg-rose-100 dark:bg-rose-900/30", text: "text-rose-700 dark:text-rose-400", dot: "bg-rose-500" },
   Resolved:          { bg: "bg-emerald-50 dark:bg-emerald-900/20", text: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500" },
   Closed:            { bg: "bg-gray-100 dark:bg-gray-800/40", text: "text-gray-500 dark:text-gray-400", dot: "bg-gray-400" },
 };
@@ -117,25 +120,6 @@ function formatDateTime(dateStr: string | null | undefined) {
   return fmtDateTime(dateStr);
 }
 
-function SlaBadge({ slaBreachAt, status }: { slaBreachAt?: string | null; status: string }) {
-  if (!slaBreachAt || status === "Resolved" || status === "Closed") return null;
-  const hoursLeft = (new Date(slaBreachAt).getTime() - Date.now()) / 3600000;
-  if (hoursLeft < 0) {
-    return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800">
-        BREACHED
-      </span>
-    );
-  }
-  const display = hoursLeft < 1 ? `${Math.round(hoursLeft * 60)}m` : hoursLeft < 24 ? `${Math.round(hoursLeft)}h` : `${Math.round(hoursLeft / 24)}d`;
-  const isWarning = hoursLeft < 4;
-  return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${isWarning ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800" : "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"}`}>
-      <Clock className="w-2.5 h-2.5" />{display}
-    </span>
-  );
-}
-
 async function downloadReport(type: string, filename: string) {
   const data = await apiFetch<any[]>(`/itsm-report?type=${type}`);
   if (!data || !data.length) return;
@@ -187,6 +171,7 @@ export default function ItsmIncidents() {
   const { data: incidents = [] } = useQuery({ queryKey: ["incidents", view], queryFn: () => apiFetch<any[]>(`/incidents${view ? `?view=${view}` : ""}`) });
   const { data: stats } = useQuery({ queryKey: ["incidents-stats"], queryFn: () => apiFetch<any>("/incidents/stats") });
   const { data: problems = [] } = useQuery({ queryKey: ["problems"], queryFn: () => apiFetch<any[]>("/problems") });
+  const { data: kbArticles = [] } = useQuery({ queryKey: ["knowledge-base"], queryFn: () => apiFetch<any[]>("/knowledge-base").catch(() => []) });
 
   const createInc = useMutation({ mutationFn: (data: any) => apiFetch("/incidents", { method: "POST", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
   const updateInc = useMutation({ mutationFn: ({ id, ...data }: any) => apiFetch(`/incidents/${id}`, { method: "PATCH", body: JSON.stringify(data) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["incidents"] }); queryClient.invalidateQueries({ queryKey: ["incidents-stats"] }); } });
@@ -249,7 +234,7 @@ export default function ItsmIncidents() {
       if (editingItem) {
         const d: any = { title: f.title, description: f.description, affectedSystem: f.affectedSystem, urgency: f.urgency, impactLevel: f.impactLevel, source: f.source };
         if (canWork(editingItem)) {
-          Object.assign(d, { priority: f.priority, severity: f.severity, status: f.status, assignedTo: f.assignedTo ?? null, resolutionNotes: f.resolutionNotes, problemId: f.problemId ?? null, category: f.category, subcategory: f.subcategory });
+          Object.assign(d, { priority: f.priority, severity: f.severity, status: f.status, assignedTo: f.assignedTo ?? null, resolutionNotes: f.resolutionNotes, problemId: f.problemId ?? null, ...(f.kbArticleId ? { kbArticleId: Number(f.kbArticleId) } : {}), category: f.category, subcategory: f.subcategory });
           if (_teamId && _teamId !== editingItem.teamId) { d.teamId = _teamId; d.transferReason = _reason; }
           else if (f.category !== editingItem.category || (f.subcategory || null) !== (editingItem.subcategory || null)) d.transferReason = _reason || "Category corrected";
           if (f.reopenReason) d.reopenReason = f.reopenReason;
@@ -402,7 +387,7 @@ export default function ItsmIncidents() {
                   <TableCell className="py-3"><PriorityBadge value={inc.priority} /></TableCell>
                   <TableCell className="py-3"><SeverityBadge value={inc.severity} /></TableCell>
                   <TableCell className="py-3"><StatusBadge value={inc.status} /></TableCell>
-                  <TableCell className="py-3"><SlaBadge slaBreachAt={inc.slaBreachAt} status={inc.status} /></TableCell>
+                  <TableCell className="py-3"><SlaBadge sla={inc.sla} /></TableCell>
                   <TableCell className="py-3"><RaisedByCell name={inc.reportedBy} createdBy={inc.createdBy} at={inc.createdAt} /></TableCell>
                   <TableCell className="py-3"><WithCell team={inc.assignedGroup} assignee={inc.assignedTo} /></TableCell>
                   <TableCell className="py-3"><ClosureCell date={inc.expectedClosureDate} done={["Resolved", "Closed"].includes(inc.status)} doneAt={inc.resolvedAt || inc.closedAt} /></TableCell>
@@ -440,12 +425,11 @@ export default function ItsmIncidents() {
                 <PriorityBadge value={viewModal.priority} />
                 <SeverityBadge value={viewModal.severity} />
               </div>
-              {viewModal.slaBreachAt && viewModal.status !== "Resolved" && viewModal.status !== "Closed" && (
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${(new Date(viewModal.slaBreachAt).getTime() - Date.now()) < 0 ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400" : "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400"}`}>
-                  <Clock className="w-4 h-4 flex-shrink-0" />
-                  <span className="font-semibold">SLA Deadline:</span>
-                  <span>{formatDateTime(viewModal.slaBreachAt)}</span>
-                  <SlaBadge slaBreachAt={viewModal.slaBreachAt} status={viewModal.status} />
+              <SlaPanel sla={viewModal.sla} firstResponseAt={viewModal.firstResponseAt} />
+              {viewModal.kbArticleId && (kbArticles as any[]).find((k: any) => k.id === viewModal.kbArticleId) && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-sky-50 dark:bg-sky-900/10 border-sky-200 dark:border-sky-800 text-sm text-sky-700 dark:text-sky-300">
+                  <Link2 className="w-4 h-4 flex-shrink-0" /><span className="font-semibold">Knowledge article:</span>
+                  <a className="underline" href={`/itsm-kb?q=${encodeURIComponent((kbArticles as any[]).find((k: any) => k.id === viewModal.kbArticleId)?.title || "")}`}>{(kbArticles as any[]).find((k: any) => k.id === viewModal.kbArticleId)?.title}</a>
                 </div>
               )}
               {viewModal.problemId && (problems as any[]).find((p: any) => p.id === viewModal.problemId) && (
@@ -507,6 +491,11 @@ export default function ItsmIncidents() {
             {reqMode && <div className="col-span-2 text-xs text-muted-foreground">Only {editingItem.assignedGroup || "the assigned team"} can change the status or assign this incident.</div>}
             <div><Label>Affected System</Label><Input value={formData.affectedSystem || ""} onChange={e => setFormData({ ...formData, affectedSystem: e.target.value })} placeholder="e.g. ERP, SAP, CRM Portal" /></div>
             {workMode && (formData.status === "Resolved" || formData.status === "Closed") && <div className="col-span-2"><Label>Resolution Notes *</Label><Textarea value={formData.resolutionNotes || ""} onChange={e => setFormData({ ...formData, resolutionNotes: e.target.value })} rows={2} /></div>}
+            {workMode && (kbArticles as any[]).length > 0 && <div className="col-span-2"><Label>Knowledge article used (optional)</Label>
+              <Select value={formData.kbArticleId ? String(formData.kbArticleId) : "none"} onValueChange={v => setFormData({ ...formData, kbArticleId: v === "none" ? null : Number(v) })}>
+                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent><SelectItem value="none">None</SelectItem>{(kbArticles as any[]).filter((k: any) => k.status !== "Draft").map((k: any) => <SelectItem key={k.id} value={String(k.id)}>{k.title}</SelectItem>)}</SelectContent>
+              </Select></div>}
             {(workMode || !editingItem) && <div className="col-span-2">
               <Label className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-muted-foreground" />Link to Problem</Label>
               <Select value={formData.problemId ? String(formData.problemId) : "none"} onValueChange={v => setFormData({ ...formData, problemId: v === "none" ? null : parseInt(v) })}>

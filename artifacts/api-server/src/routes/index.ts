@@ -1,5 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import healthRouter from "./health";
+import assetAgentRouter, { publicAgentRouter } from "./asset-agent";
+import policiesRouter, { policyGate } from "./policies";
 import checklistRouter from "./checklist";
 import roadmapRouter from "./roadmap";
 import applicationsRouter from "./applications";
@@ -46,6 +48,7 @@ router.use(centralSessionGuard);   // re-validates Ashika Portal sessions (live 
 router.use(authRouter);
 router.use(auditorAuthRouter);   // auditor portal sign-in (public)
 router.use(healthRouter);
+router.use(publicAgentRouter);   // device agent enrol / check-in (device token, no session)
 
 // Seed on startup (idempotent)
 seedBusinessUnits().catch(console.error);
@@ -63,6 +66,9 @@ router.use((req: Request, res: Response, next: NextFunction) => {
 
 // Auditor sessions (external auditors) reach only the auditor portal API
 router.use(auditorFence);
+
+// Mandatory policies past their grace period lock the app (except My Policies) until accepted
+router.use(policyGate);
 
 // IT Asset Management: module-level RBAC (read / write per module; local roles or Ashika Portal permissions)
 router.use(assetRbac);
@@ -97,6 +103,8 @@ router.use((req: Request, _res: Response, next: NextFunction) => {
 });
 
 router.use(dashboardRouter);
+router.use(assetAgentRouter);
+router.use(policiesRouter);
 router.use(checklistRouter);
 router.use(roadmapRouter);
 router.use(applicationsRouter);

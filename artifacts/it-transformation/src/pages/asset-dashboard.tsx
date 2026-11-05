@@ -1,3 +1,4 @@
+import { AssetAnalytics } from "@/components/asset-analytics";
 import React from "react";
 import { useCurrency } from "@/contexts/currency-context";
 import { useQuery } from "@tanstack/react-query";
@@ -90,6 +91,7 @@ export default function AssetDashboard() {
       </CardContent></Card>}
 
       {!empty && <>
+        <AssetAnalytics />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Link href="/asset-registry"><div className="cursor-pointer"><StatCard icon={Monitor} label="Assets in service" value={inv.total} sub={`${inv.deployed} deployed · ${inv.inStock} in stock · ${inv.maintenance} in repair`} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" /></div></Link>
           <Link href="/asset-depreciation"><div className="cursor-pointer"><StatCard icon={Wallet} label="Book value" value={inrShort(fin.bookValue)} sub={fin.missingFinance ? `${fin.missingFinance} assets without cost / date` : `cost ${inrShort(fin.cost)} · ${inrShort(fin.depreciationFy)} dep. this FY`} iconBg="bg-[#2D7FF9]/20" iconColor="text-[#2D7FF9]" borderColor="border-l-[#2D7FF9]" /></div></Link>

@@ -20,6 +20,7 @@ import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSel
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
 import { fmtCell, fmtDate, fmtDateTime } from "@/lib/date";
+import { SlaBadge, SlaPanel } from "@/components/itsm-sla";
 
 const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
@@ -263,6 +264,7 @@ export default function ItsmServiceRequests() {
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Status</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">With</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Expected closure</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">SLA</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Time</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 text-center">Actions</TableHead>
               </TableRow>
@@ -277,6 +279,7 @@ export default function ItsmServiceRequests() {
                   <TableCell className="py-3"><StatusBadge value={r.status} /></TableCell>
                   <TableCell className="py-3"><WithCell team={r.assignedGroup} assignee={r.assignedTo} /></TableCell>
                   <TableCell className="py-3"><ClosureCell date={r.expectedClosureDate} done={DONE.includes(r.status)} doneAt={r.completedAt || (DONE.includes(r.status) ? r.updatedAt : null)} /></TableCell>
+                  <TableCell className="py-3"><SlaBadge sla={r.sla} /></TableCell>
                   <TableCell className="py-3"><TimeCell createdAt={r.createdAt} endAt={DONE.includes(r.status) ? (r.completedAt || r.updatedAt) : null} firstResponseAt={r.firstResponseAt} /></TableCell>
                   <TableCell className="py-3" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-0.5 justify-center">
@@ -302,6 +305,7 @@ export default function ItsmServiceRequests() {
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{viewModal.description || "No description provided"}</p>
               <div className="flex flex-wrap gap-2"><CategoryBadge value={[viewModal.category, viewModal.subcategory].filter(Boolean).join(" › ") || "—"} /><PriorityBadge value={viewModal.priority} /></div>
+              <SlaPanel sla={viewModal.sla} firstResponseAt={viewModal.firstResponseAt} />
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                 {[["Raised by", viewModal.requestedBy], ["Raised on", formatDateTime(viewModal.createdAt)], ["Department", viewModal.department], ["Assigned group", viewModal.assignedGroup], ["Assigned to", viewModal.assignedTo || "Unassigned"], ["Expected closure", fmtDay(viewModal.expectedClosureDate)], ["First response", viewModal.firstResponseAt ? formatDateTime(viewModal.firstResponseAt) : "—"], ["Completed", viewModal.completedAt ? formatDateTime(viewModal.completedAt) : "—"], ["Urgency", viewModal.urgency]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1"><div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div><div className="font-medium text-sm">{(v as string) || "—"}</div></div>

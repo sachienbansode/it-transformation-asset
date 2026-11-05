@@ -342,7 +342,7 @@ const handoverCols = {
   disputeReason: assetAllocationsTable.disputeReason, disputeNote: assetAllocationsTable.disputeNote, disputedAt: assetAllocationsTable.disputedAt, disputeCount: assetAllocationsTable.disputeCount,
   disputeResolution: assetAllocationsTable.disputeResolution, disputeResolvedBy: assetAllocationsTable.disputeResolvedBy, disputeResolvedAt: assetAllocationsTable.disputeResolvedAt, notes: assetAllocationsTable.notes, createdAt: assetAllocationsTable.createdAt,
   assetTag: assetsTable.assetTag, assetName: assetsTable.name, assetType: assetsTable.type, serialNumber: assetsTable.serialNumber,
-  configuration: assetsTable.configuration, assetStatus: assetsTable.status,
+  configuration: assetsTable.configuration, assetStatus: assetsTable.status, assetLocation: assetsTable.location,
 };
 
 router.get("/asset-handovers", requireAuth, async (_req, res) => {
@@ -543,6 +543,60 @@ router.get("/asset-holders/assets", requireAuth, async (req, res) => {
       .where(sql`coalesce(lower(nullif(${assetAllocationsTable.employeeCode},'')), lower(nullif(${assetAllocationsTable.email},'')), lower(${assetAllocationsTable.userName})) = ${key}`)
       .orderBy(desc(assetAllocationsTable.createdAt));
     res.json(rows);
+  } catch (e) { handleError(res, e); }
+});
+
+/* ─── Usage history per asset: who used it and for how long ───────────────── */
+// Days held = issue date → return date (or today while still issued). Same-day handovers count as 1 day.
+const USE_DAYS = sql`greatest(1, (CASE WHEN a.end_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN a.end_date::date ELSE (now() AT TIME ZONE 'Asia/Kolkata')::date END)
+  - (CASE WHEN a.start_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN a.start_date::date ELSE a.created_at::date END))`;
+const HOLDER_KEY = sql`coalesce(lower(nullif(a.employee_code,'')), lower(nullif(a.email,'')), lower(a.user_name))`;
+
+router.get("/asset-usage", requireAuth, async (_req, res) => {
+  try {
+    const rows = await db.execute(sql`
+      SELECT s.id AS "assetId", s.asset_tag AS "assetTag", s.name AS "assetName", s.type AS "assetType", s.serial_number AS "serialNumber", s.status AS "assetStatus",
+             s.location, s.department AS "assetDepartment",
+             count(a.id)::int AS "handovers", count(DISTINCT ${HOLDER_KEY})::int AS "users",
+             coalesce(sum(${USE_DAYS}), 0)::int AS "daysUsed",
+             min(a.start_date) AS "firstIssued", max(coalesce(nullif(a.end_date,''), a.start_date)) AS "lastActivity",
+             max(a.user_name) FILTER (WHERE a.status = 'Active') AS "currentHolder",
+             max(a.start_date) FILTER (WHERE a.status = 'Active') AS "currentSince",
+             max(a.department) FILTER (WHERE a.status = 'Active') AS "currentDepartment"
+      FROM assets s JOIN asset_allocations a ON a.asset_id = s.id
+      WHERE s.is_active
+      GROUP BY s.id ORDER BY "users" DESC, s.asset_tag`);
+    res.json((rows as any).rows ?? rows);
+  } catch (e) { handleError(res, e); }
+});
+
+router.get("/asset-usage/:assetId", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.assetId);
+    if (!Number.isInteger(id) || id <= 0) return fail(res, 400, "Invalid asset");
+    const [asset] = await db.select({ id: assetsTable.id, assetTag: assetsTable.assetTag, name: assetsTable.name, type: assetsTable.type, serialNumber: assetsTable.serialNumber, status: assetsTable.status, purchaseDate: assetsTable.purchaseDate })
+      .from(assetsTable).where(eq(assetsTable.id, id));
+    if (!asset) return fail(res, 404, "Asset not found");
+    const r: any = await db.execute(sql`
+      SELECT a.id, a.handover_no AS "handoverNo", a.user_name AS "userName", a.employee_code AS "employeeCode", a.email, a.department, a.designation, a.location,
+             a.holder_type AS "holderType", a.allocation_type AS "allocationType", a.start_date AS "startDate", a.end_date AS "endDate", a.status,
+             a.issue_condition AS "issueCondition", a.return_condition AS "returnCondition", a.issued_by AS "issuedBy", a.received_by AS "receivedBy",
+             ${USE_DAYS}::int AS days, ${HOLDER_KEY} AS "holderKey"
+      FROM asset_allocations a WHERE a.asset_id = ${id}
+      ORDER BY a.start_date DESC, a.id DESC`);
+    const periods = (r.rows ?? r) as any[];
+    // per-employee totals (an employee may have had the same asset more than once)
+    const by = new Map<string, any>();
+    for (const p of periods) {
+      const k = p.holderKey; const e = by.get(k) || { holderKey: k, userName: p.userName, employeeCode: p.employeeCode, department: p.department, holderType: p.holderType, times: 0, days: 0, from: p.startDate, to: p.endDate, current: false };
+      e.times++; e.days += Number(p.days) || 0;
+      if (p.startDate && (!e.from || p.startDate < e.from)) e.from = p.startDate;
+      if (p.status === "Active") { e.current = true; e.to = null; } else if (!e.current && p.endDate && (!e.to || p.endDate > e.to)) e.to = p.endDate;
+      by.set(k, e);
+    }
+    const employees = [...by.values()].sort((a, b) => Number(b.current) - Number(a.current) || b.days - a.days);
+    const totalDays = periods.reduce((t, p) => t + (Number(p.days) || 0), 0);
+    res.json({ asset, periods, employees, summary: { handovers: periods.length, users: employees.length, totalDays, currentHolder: periods.find(p => p.status === "Active")?.userName || null } });
   } catch (e) { handleError(res, e); }
 });
 

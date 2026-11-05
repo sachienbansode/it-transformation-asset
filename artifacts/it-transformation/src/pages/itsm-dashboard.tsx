@@ -15,7 +15,8 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Legend, CartesianGrid, AreaChart, Area, LineChart, Line, RadialBarChart, RadialBar
 } from "recharts";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
+import { fmtMins } from "@/components/itsm-sla";
 
 const COLORS = ["#2D7FF9", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
 const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#2D7FF9", Low: "#2563eb" };
@@ -230,7 +231,7 @@ export default function ItsmDashboard() {
                   </div>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">{itsmMetrics.slaCompliance == null ? (itsmMetrics.slaPolicies ? "No incident carries an SLA target yet" : "No SLA policies defined — add them in SLA Policies") : `${itsmMetrics.slaMeasured - itsmMetrics.slaBreached} of ${itsmMetrics.slaMeasured} incidents within SLA`}</p>
+              <p className="text-xs text-muted-foreground">{itsmMetrics.slaCompliance == null ? (itsmMetrics.slaPolicies ? "No incident carries an SLA target yet" : "No SLA policies defined — add them in SLA Policies") : `${itsmMetrics.slaMeasured - itsmMetrics.slaBreached} of ${itsmMetrics.slaMeasured} closed tickets resolved within SLA`}{itsmMetrics.responseCompliance != null ? ` · response ${itsmMetrics.responseCompliance}% on time` : ""}</p>
               {itsmMetrics.slaCompliance != null && (
                 <div className="mt-2 h-1.5 w-full bg-muted rounded-full overflow-hidden">
                   <div className={`h-full rounded-full ${itsmMetrics.slaCompliance >= 90 ? "bg-emerald-500" : itsmMetrics.slaCompliance >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${itsmMetrics.slaCompliance}%` }} />
@@ -265,6 +266,32 @@ export default function ItsmDashboard() {
               )}
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {itsmMetrics && (itsmMetrics.slaByPriority?.some((p: any) => p.measured || p.open) || itsmMetrics.slaWatch?.length > 0) && (
+        <div className="grid lg:grid-cols-2 gap-4">
+          <Card><CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3"><div className="text-sm font-semibold">SLA by priority</div>
+              <div className="flex gap-2 text-[11px]"><span className="px-1.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">{itsmMetrics.slaOpenBreached} breached open</span><span className="px-1.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{itsmMetrics.slaAtRisk} at risk</span><span className="px-1.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{itsmMetrics.slaPaused} paused</span></div></div>
+            <table className="w-full text-xs"><thead><tr className="text-muted-foreground text-left"><th className="py-1 font-medium">Priority</th><th className="font-medium text-right">Met</th><th className="font-medium text-right">Compliance</th><th className="font-medium text-right">Open</th><th className="font-medium text-right">Open breached</th></tr></thead>
+              <tbody>{itsmMetrics.slaByPriority.map((p: any) => <tr key={p.priority} className="border-t"><td className="py-1.5 font-medium">{p.priority}</td><td className="text-right">{p.met}/{p.measured}</td>
+                <td className={`text-right font-semibold ${p.compliance == null ? "text-muted-foreground" : p.compliance >= 90 ? "text-emerald-600" : p.compliance >= 70 ? "text-amber-600" : "text-red-600"}`}>{p.compliance == null ? "—" : `${p.compliance}%`}</td>
+                <td className="text-right">{p.open}</td><td className={`text-right ${p.breachedOpen ? "text-red-600 font-semibold" : ""}`}>{p.breachedOpen}</td></tr>)}</tbody></table>
+          </CardContent></Card>
+          <Card><CardContent className="p-4">
+            <div className="text-sm font-semibold mb-3">SLA watch list <span className="text-xs font-normal text-muted-foreground">— breached and at-risk open tickets</span></div>
+            {!itsmMetrics.slaWatch?.length ? <div className="text-xs text-muted-foreground py-6 text-center">Nothing breached or at risk.</div> :
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">{itsmMetrics.slaWatch.map((w: any) => (
+              <Link key={w.kind + w.id} href={w.kind === "incident" ? "/itsm-incidents" : "/itsm-requests"}>
+                <div className="flex items-center gap-2 text-xs rounded border px-2 py-1.5 hover:bg-muted/50 cursor-pointer">
+                  <span className="font-mono font-semibold text-primary">{w.ticketNo}</span>
+                  <span className="truncate flex-1" title={w.title}>{w.title}</span>
+                  <span className="text-muted-foreground hidden sm:inline">{w.assignedTo || w.team || "Unassigned"}</span>
+                  <span className={`px-1.5 rounded font-semibold whitespace-nowrap ${w.state === "Breached" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"}`}>{w.state === "Breached" ? `Over ${fmtMins(-w.minutesLeft)}` : `${fmtMins(w.minutesLeft)} left`}</span>
+                </div>
+              </Link>))}</div>}
+          </CardContent></Card>
         </div>
       )}
 

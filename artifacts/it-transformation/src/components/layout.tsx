@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
 import { useCurrency } from "@/contexts/currency-context";
 import { useTheme } from "@/contexts/theme-context";
+import { PolicyGate } from "@/components/policy-gate";
 import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
@@ -11,6 +12,7 @@ import {
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
   Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop, ScanLine, FileSignature, TrendingDown,
   ClipboardCheck, FolderOpen,
+  Activity,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -58,6 +60,7 @@ const ASSET_ITEMS = [
   { href: "/asset-depreciation", label: "Depreciation", icon: TrendingDown, module: "asset_depreciation" },
   { href: "/asset-allocations", label: "Handovers", icon: Users, module: "asset_allocations" },
   { href: "/asset-employees", label: "Employee Assets", icon: UserCheck, module: "asset_allocations" },
+  { href: "/asset-agents", label: "Device Health", icon: Activity, module: "asset_registry" },
   { href: "/maintenance-records", label: "Maintenance", icon: Wrench, module: "maintenance_records" },
   { href: "/asset-audits", label: "Physical Audit", icon: ScanLine, module: "asset_audits" },
 ];
@@ -88,6 +91,7 @@ const ADMIN_ITEMS = [
   { href: "/admin?tab=business-units", label: "Business Units", icon: Building2, tab: "business-units" },
   { href: "/admin?tab=audit", label: "Audit Trail", icon: Clock, tab: "audit" },
   { href: "/admin/archive", label: "Archive & Notifications", icon: Archive, tab: "archive" },
+  { href: "/admin/policies", label: "Policies & Consent", icon: FileSignature, tab: "policies" },
 ];
 
 function NavItem({
@@ -228,7 +232,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ASSET_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ITSM_ITEMS.find(i => location.startsWith(i.href))?.label
-    ?? (location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
+    ?? (location.startsWith("/admin/policies") ? "Policies & Consent" : location.startsWith("/my-policies") ? "My Policies" : location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
 
   const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
   const isCollapsed = sidebar === "collapsed";
@@ -452,6 +456,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => navigate("/profile")}><User className="h-4 w-4 mr-2" /> Profile</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => navigate("/my-assets")}><Laptop className="h-4 w-4 mr-2" /> My Assets</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate("/my-policies")}><FileSignature className="h-4 w-4 mr-2" /> My Policies</DropdownMenuItem>
                       {isAdmin && <DropdownMenuItem onClick={() => navigate("/admin")}><Settings className="h-4 w-4 mr-2" /> Admin Panel</DropdownMenuItem>}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
@@ -549,6 +554,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate("/profile")}><User className="h-4 w-4 mr-2" /> Profile & Security</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate("/my-assets")}><Laptop className="h-4 w-4 mr-2" /> My Assets</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate("/my-policies")}><FileSignature className="h-4 w-4 mr-2" /> My Policies</DropdownMenuItem>
                 {isAdmin && <DropdownMenuItem onClick={() => navigate("/admin")}><Settings className="h-4 w-4 mr-2" /> Admin Panel</DropdownMenuItem>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive"><LogOut className="h-4 w-4 mr-2" /> Sign Out</DropdownMenuItem>
@@ -561,6 +567,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 overflow-auto bg-background flex flex-col">
           <div className="flex-1 px-3 sm:px-6 pt-4 sm:pt-[22px] pb-10">
             {children}
+            <PolicyGate />
           </div>
           <footer className="shrink-0 border-t border-border/40 px-5 py-2 text-center text-[10px] text-muted-foreground/60">
             &copy; 2026 NIYTRI Technologies. All rights reserved.

@@ -34,7 +34,7 @@ export default function ItsmKnowledgeBase() {
   const { toast } = useToast();
   const { isAdmin, user, canAccess } = useAuth();
   const canEdit = canAccess("itsm_kb", "write"); const canDelete = canAccess("itsm_kb", "admin");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -119,7 +119,7 @@ export default function ItsmKnowledgeBase() {
                   <TableCell><Badge variant="outline">{a.category}</Badge></TableCell>
                   <TableCell className="text-sm">{a.authorName || "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">{a.tags || "—"}</TableCell>
-                  <TableCell className="text-sm">{a.views || 0}</TableCell>
+                  <TableCell className="text-sm">{a.views || 0}{a.usedIn ? <div className="text-[11px] text-sky-700 dark:text-sky-300" title={(a.usedInTickets || []).join(", ")}>used in {a.usedIn} incident{a.usedIn > 1 ? "s" : ""}</div> : null}</TableCell>
                   <TableCell><Badge variant="outline" className={a.status === "Published" ? "border-emerald-500/30 text-emerald-600 bg-emerald-50" : a.status === "Draft" ? "border-amber-500/30 text-amber-600 bg-amber-50" : "border-gray-400/30 text-gray-500 bg-gray-50"}>{a.status}</Badge></TableCell>
                   <TableCell className="text-xs text-muted-foreground">{a.updatedAt ? fmtDate(a.updatedAt) : "—"}</TableCell>
                   <TableCell>
