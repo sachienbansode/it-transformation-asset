@@ -362,7 +362,8 @@ router.get("/asset-agents", requireAuth, wrap(async (_req, res) => {
            (SELECT count(*)::int FROM device_chats c WHERE c.agent_id = g.id AND c.status IN ('Waiting on employee', 'Waiting on IT')) AS "openChats",
            (SELECT string_agg(x.message, ' · ' ORDER BY x.severity, x.opened_at) FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL AND NOT (x.ignored_at IS NOT NULL AND (x.ignore_until IS NULL OR x.ignore_until > now()))) AS "alertText",
            (SELECT coalesce(sum(u.active_mins), 0)::int FROM asset_usage_daily u WHERE u.agent_id = g.id AND u.day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 6) AS "active7d",
-           (SELECT max(u.day) FROM asset_usage_daily u WHERE u.agent_id = g.id AND u.active_mins > 0) AS "lastActiveDay"
+           (SELECT max(u.day) FROM asset_usage_daily u WHERE u.agent_id = g.id AND u.active_mins > 0) AS "lastActiveDay",
+           (SELECT max(u.last_seen) FROM asset_usage_daily u WHERE u.agent_id = g.id AND u.active_mins > 0) AS "lastActiveAt"
     FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id LEFT JOIN users ku ON ku.id = g.user_id LEFT JOIN users ou ON ou.id = s.owner_id
     ORDER BY (g.status = 'Active') DESC, CASE g.health_state WHEN 'Critical' THEN 0 WHEN 'Offline' THEN 1 WHEN 'Warning' THEN 2 ELSE 3 END, g.hostname`));
   const off = st.thresholds.offlineDays * 86_400_000;

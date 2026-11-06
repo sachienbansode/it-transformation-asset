@@ -55,8 +55,30 @@ export async function createApp(): Promise<Express> {
     }
   }, 10000);
 
+  // Security headers on every response (HTTPS only, no framing by other sites, no MIME sniffing)
+  const prod = process.env.NODE_ENV === "production";
+  app.use((req, res, next) => {
+    if (prod) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    res.setHeader("Content-Security-Policy", "frame-ancestors 'self'; object-src 'none'; base-uri 'self'");
+    if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
+    next();
+  });
+  // API only over HTTPS in production (the local health check on the server itself is allowed)
+  app.use("/api", (req, res, next) => {
+    if (!prod || req.secure) return next();
+    const ip = req.socket.remoteAddress || "";
+    if (/^(127\.|::1$|::ffff:127\.)/.test(ip)) return next();
+    res.status(426).json({ error: "IT Hub only accepts HTTPS connections" });
+  });
+  // Browsers may call the API only from IT Hub's own address (APP_URL, plus CORS_ORIGINS if set)
+  const allowed = [process.env.APP_URL, ...(process.env.CORS_ORIGINS || "").split(",")].map(o => String(o || "").trim().replace(/\/$/, "")).filter(Boolean)
+    .map(o => { try { return new URL(o).origin; } catch { return null; } }).filter(Boolean) as string[];
   app.use(cors({
-    origin: true,
+    origin: (origin, cb) => cb(null, !origin || !allowed.length || allowed.includes(origin)),
     credentials: true,
   }));
   app.use(express.json({ limit: "50mb" }));

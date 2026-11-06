@@ -73,7 +73,7 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat }: {
     <div className="space-y-4 text-sm">
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div><div className="font-semibold">{a.hostname} <span className="text-xs font-normal text-muted-foreground">· {a.platform} · {[a.manufacturer, a.model].filter(Boolean).join(" ")}</span></div>
-          <div className="text-xs text-muted-foreground">{a.osName} {a.osVersion ? `(${a.osVersion})` : ""} · user {a.lastUser || "—"} · last report {ago(a.lastSeenAt)}</div></div>
+          <div className="text-xs text-muted-foreground">{a.osName} {a.osVersion ? `(${a.osVersion})` : ""} · user {a.lastUser || "—"} · last report {a.lastSeenAt ? `${fmtDateTime(a.lastSeenAt)} (${ago(a.lastSeenAt)})` : "never"}</div></div>
         <HealthBadge state={a.healthState} />
       </div>
       <div className="grid grid-cols-2 gap-2">
