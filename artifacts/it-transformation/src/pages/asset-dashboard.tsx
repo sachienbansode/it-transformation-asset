@@ -91,7 +91,8 @@ export default function AssetDashboard() {
       </CardContent></Card>}
 
       {!empty && <>
-        <AssetAnalytics />
+        <AssetAnalytics>
+        <div className="space-y-4">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Link href="/asset-registry"><div className="cursor-pointer"><StatCard icon={Monitor} label="Assets in service" value={inv.total} sub={`${inv.deployed} deployed · ${inv.inStock} in stock · ${inv.maintenance} in repair`} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" /></div></Link>
           <Link href="/asset-depreciation"><div className="cursor-pointer"><StatCard icon={Wallet} label="Book value" value={inrShort(fin.bookValue)} sub={fin.missingFinance ? `${fin.missingFinance} assets without cost / date` : `cost ${inrShort(fin.cost)} · ${inrShort(fin.depreciationFy)} dep. this FY`} iconBg="bg-[#2D7FF9]/20" iconColor="text-[#2D7FF9]" borderColor="border-l-[#2D7FF9]" /></div></Link>
@@ -191,6 +192,8 @@ export default function AssetDashboard() {
           </Panel>
         </div>
         {inv.disposed > 0 && <p className="text-xs text-muted-foreground flex items-center gap-1.5"><ClipboardList className="w-3.5 h-3.5" />{inv.disposed} disposed / lost asset(s) are excluded from these counts.</p>}
+        </div>
+        </AssetAnalytics>
       </>}
     </div>
   );

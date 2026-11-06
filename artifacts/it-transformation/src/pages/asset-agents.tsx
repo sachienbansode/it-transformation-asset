@@ -62,7 +62,7 @@ export default function AssetAgents() {
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Device Health</h1>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2"><img src={`${import.meta.env.BASE_URL}niytri-agent.png`} alt="" className="w-7 h-7 rounded-md" />Device Health</h1>
           <p className="text-sm text-muted-foreground">Live health and daily usage reported by the IT Hub agent on laptops, desktops and servers. Devices are matched to the register by serial number.</p>
         </div>
         <div className="flex gap-2 flex-wrap">

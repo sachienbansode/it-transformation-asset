@@ -52,7 +52,7 @@ export function PolicyGate() {
   const { data } = useMyPolicies(); const qc = useQueryClient(); const [loc] = useLocation();
   const [later, setLater] = useState(() => { try { return sessionStorage.getItem("policyLater") === "1"; } catch { return false; } });
   if (!data || loc.startsWith("/my-policies")) return null;
-  const blocking = data.policies.filter((p: any) => p.overdue);
+  const blocking = data.policies.filter((p: any) => p.halts);
   const mandatory = data.policies.filter((p: any) => p.pending && p.requirement !== "Optional");
   const list = blocking.length ? blocking : later ? [] : mandatory;
   if (!list.length) return null;
@@ -63,7 +63,7 @@ export function PolicyGate() {
       <DialogContent className="max-w-2xl" onEscapeKeyDown={e => block && e.preventDefault()} onPointerDownOutside={e => block && e.preventDefault()} hideClose={block}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-primary" />{p.title}</DialogTitle>
-          <DialogDescription>{block ? "Please accept this to continue using IT Hub." : `Please read and accept${p.dueAt ? ` by ${fmtDate(p.dueAt)}` : ""}.`}{list.length > 1 ? ` (${list.length} to review)` : ""}</DialogDescription>
+          <DialogDescription>{block ? "Your access to IT Hub is halted until you accept this." : `Please read and accept${p.dueAt ? ` by ${fmtDate(p.dueAt)}` : ""}${p.blockAccess ? " — after that your access to IT Hub will be halted until you accept" : ""}.`}{list.length > 1 ? ` (${list.length} to review)` : ""}</DialogDescription>
         </DialogHeader>
         <PolicyReader key={`${p.id}-${p.version}`} p={p} onDone={done} compact />
         {!block && <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={() => { setLater(true); try { sessionStorage.setItem("policyLater", "1"); } catch { /* ignore */ } }}>Remind me later</Button></div>}

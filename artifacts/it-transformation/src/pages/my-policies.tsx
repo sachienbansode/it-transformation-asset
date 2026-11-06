@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/api";
 import { fmtDate, fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { useMyPolicies, PolicyReader } from "@/components/policy-gate";
-import { pushStatus, enablePush, disablePush } from "@/lib/push";
+import { ensurePush, enablePush } from "@/lib/push";
 import { Bell, BellOff, FileCheck2, FileClock, ScrollText } from "lucide-react";
 
 /* My Policies — policies, notices and consents that apply to me, my decisions, and push notifications on this device. */
@@ -15,23 +15,41 @@ import { Bell, BellOff, FileCheck2, FileClock, ScrollText } from "lucide-react";
 export function PushCard() {
   const { toast } = useToast();
   const [st, setSt] = useState<string>("…"); const [busy, setBusy] = useState(false);
-  const load = () => pushStatus().then(setSt).catch(() => setSt("unsupported"));
+  const load = () => ensurePush().then(setSt).catch(() => setSt("unsupported"));
   useEffect(() => { load(); }, []);
-  async function toggle() {
+  async function turnOn() {
     setBusy(true);
-    try {
-      if (st === "on") { await disablePush(); toast({ title: "Push notifications turned off on this device" }); }
-      else { await enablePush(); await apiFetch("/push/test", { method: "POST" }); toast({ title: "Push notifications on", description: "A test notification was sent to this device." }); }
-    } catch (e: any) { toast({ title: "Could not change push notifications", description: e.message, variant: "destructive" }); }
+    try { await enablePush(); await apiFetch("/push/test", { method: "POST" }); toast({ title: "Push notifications on", description: "A test notification was sent to this device." }); }
+    catch (e: any) { toast({ title: "Could not turn on push notifications", description: e.message, variant: "destructive" }); }
     finally { setBusy(false); load(); }
   }
+  const text: Record<string, string> = {
+    on: "On — approvals, tickets, policy reminders and device alerts pop up even when IT Hub is closed. Managed by IT.",
+    ask: "Required by IT — turn them on for this device.",
+    blocked: "Blocked in this browser. IT requires notifications: click the lock icon next to the address, set Notifications to Allow, then reload.",
+    disabled: "Switched off for everyone by IT. You still see everything under the bell.",
+    unsupported: "This browser does not support push (use Edge or Chrome; the site must be on HTTPS).",
+  };
   return (
     <Card><CardContent className="p-4 flex items-center gap-3 flex-wrap">
-      {st === "on" ? <Bell className="w-5 h-5 text-primary" /> : <BellOff className="w-5 h-5 text-muted-foreground" />}
-      <div className="flex-1 min-w-[220px]"><div className="font-semibold text-sm">Push notifications on this device</div>
-        <div className="text-xs text-muted-foreground">{st === "on" ? "On — approvals, tickets, policy reminders and device alerts pop up even when IT Hub is closed." : st === "blocked" ? "Blocked in the browser — allow notifications for this site in the browser's settings." : st === "unsupported" ? "This browser does not support push (use Edge or Chrome; the site must be on HTTPS)." : "Off — you still see everything under the bell in IT Hub."}</div></div>
-      {st !== "unsupported" && st !== "blocked" && <Button size="sm" variant={st === "on" ? "outline" : "default"} disabled={busy || st === "…"} onClick={toggle}>{st === "on" ? "Turn off" : "Turn on"}</Button>}
+      {st === "on" ? <Bell className="w-5 h-5 text-primary" /> : <BellOff className={cn("w-5 h-5", st === "ask" || st === "blocked" ? "text-amber-600" : "text-muted-foreground")} />}
+      <div className="flex-1 min-w-[220px]"><div className="font-semibold text-sm">Push notifications on this device</div><div className="text-xs text-muted-foreground">{text[st] || "Checking…"}</div></div>
+      {st === "ask" && <Button size="sm" disabled={busy} onClick={turnOn}>Turn on</Button>}
     </CardContent></Card>
+  );
+}
+
+/** Banner on every page until push is on for this device (cannot be dismissed while IT has push switched on). */
+export function PushPrompt() {
+  const [st, setSt] = useState<string | null>(null); const { toast } = useToast();
+  useEffect(() => { ensurePush().then(setSt).catch(() => setSt(null)); }, []);
+  if (st !== "ask" && st !== "blocked") return null;
+  return (
+    <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-3 py-2 text-sm flex items-center gap-2 flex-wrap">
+      <BellOff className="w-4 h-4 text-amber-600" />
+      <span className="flex-1">{st === "ask" ? "IT requires notifications on this device so you don't miss approvals, ticket updates and policy reminders." : "Notifications are blocked in this browser. IT requires them: click the lock icon next to the address, set Notifications to Allow, then reload."}</span>
+      {st === "ask" && <Button size="sm" onClick={async () => { try { await enablePush(); setSt("on"); } catch (e: any) { toast({ title: "Could not turn on", description: e.message, variant: "destructive" }); ensurePush().then(setSt); } }}>Turn on</Button>}
+    </div>
   );
 }
 
@@ -48,7 +66,7 @@ export default function MyPolicies() {
         <span className="font-medium">{p.title}</span>
         <span className="text-xs text-muted-foreground">{p.category} · v{p.version}</span>
         <span className={cn("ml-auto text-[11px] px-2 py-0.5 rounded-full font-semibold", p.overdue ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300" : p.pending ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300" : p.decision === "Accepted" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
-          {p.overdue ? "Overdue — accept to continue" : p.pending ? (p.dueAt ? `Accept by ${fmtDate(p.dueAt)}` : p.requirement === "Optional" ? "Your choice" : "To read") : p.decision === "Accepted" ? `Accepted ${fmtDate(p.decidedAt)}` : `${p.decision} ${fmtDate(p.decidedAt)}`}</span>
+          {p.halts ? "Access halted — accept to continue" : p.overdue ? "Overdue" : p.pending ? (p.dueAt ? `Accept by ${fmtDate(p.dueAt)}` : p.requirement === "Optional" ? "Your choice" : "To read") : p.decision === "Accepted" ? `Accepted ${fmtDate(p.decidedAt)}` : `${p.decision} ${fmtDate(p.decidedAt)}`}</span>
       </button>
       {open === p.id && <div className="px-3 pb-3"><PolicyReader p={p} onDone={refresh} /></div>}
     </div>

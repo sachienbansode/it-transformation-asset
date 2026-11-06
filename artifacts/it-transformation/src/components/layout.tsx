@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useCurrency } from "@/contexts/currency-context";
 import { useTheme } from "@/contexts/theme-context";
 import { PolicyGate } from "@/components/policy-gate";
+import { PushPrompt } from "@/pages/my-policies";
 import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
@@ -571,6 +572,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background flex flex-col">
           <div className="flex-1 px-3 sm:px-6 pt-4 sm:pt-[22px] pb-10">
+            <PushPrompt />
             {children}
             <PolicyGate />
           </div>

@@ -4,8 +4,8 @@
   The installation key comes from IT Hub (Device Health). A personal key installs one computer only and, when it is issued
   for an asset, only on the computer with that asset's serial number. Without -Code the key is read from installation-key.txt.
   Creates C:\ProgramData\ITHubAgent, enrols the device, and registers two scheduled tasks:
-    "IT Hub Agent"        SYSTEM, at start-up and every N minutes  → health + usage check-in
-    "IT Hub Agent Usage"  each signed-in user, at logon (hidden)   → active / idle minutes, foreground app name
+    "IT Hub Agent"        SYSTEM, at start-up and every N minutes  -> health + usage check-in
+    "IT Hub Agent Usage"  each signed-in user, at logon (hidden)   -> active / idle minutes, foreground app name
   Re-running upgrades the files and keeps the device identity.
 #>
 param([string]$Code, [string]$Url = '__ITHUB_URL__')
@@ -21,6 +21,7 @@ $Root = Join-Path $env:ProgramData 'ITHubAgent'; $Usage = Join-Path $Root 'usage
 New-Item -ItemType Directory -Force -Path $Root, $Usage | Out-Null
 Copy-Item -Path (Join-Path $PSScriptRoot 'ITHubAgent.ps1') -Destination $Root -Force
 Copy-Item -Path (Join-Path $PSScriptRoot 'Uninstall-ITHubAgent.ps1') -Destination $Root -Force -ErrorAction SilentlyContinue
+Copy-Item -Path (Join-Path $PSScriptRoot 'niytri.ico') -Destination $Root -Force -ErrorAction SilentlyContinue
 
 # Folder rights: SYSTEM + Administrators full; users read the agent, write only their own usage files
 icacls $Root /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
@@ -59,6 +60,14 @@ $a2 = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\wscript.exe" -A
 $s2 = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName 'IT Hub Agent Usage' -Action $a2 -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Settings $s2 -Principal (New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited) -Force | Out-Null
 
+# Apps & features entry with the NIYTRI icon (uninstall from Settings > Apps)
+$appKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'
+New-Item -Path $appKey -Force | Out-Null
+$un = "$ps -NoProfile -ExecutionPolicy Bypass -File `"$Root\Uninstall-ITHubAgent.ps1`""
+@{ DisplayName = 'IT Hub Agent'; Publisher = 'NIYTRI Technologies'; DisplayVersion = $agentVer; DisplayIcon = "$Root\niytri.ico"; InstallLocation = $Root
+   UninstallString = $un; QuietUninstallString = $un; URLInfoAbout = $Url }.GetEnumerator() | ForEach-Object { Set-ItemProperty -Path $appKey -Name $_.Key -Value $_.Value }
+Set-ItemProperty -Path $appKey -Name NoModify -Value 1 -Type DWord; Set-ItemProperty -Path $appKey -Name NoRepair -Value 1 -Type DWord
+
 Start-ScheduledTask -TaskName 'IT Hub Agent'
-Write-Output "IT Hub agent installed. Device $env:COMPUTERNAME — $($r.matchNote). Reports every $every minutes to $Url"
+Write-Output "IT Hub agent installed. Device $env:COMPUTERNAME - $($r.matchNote). Reports every $every minutes to $Url"
 exit 0

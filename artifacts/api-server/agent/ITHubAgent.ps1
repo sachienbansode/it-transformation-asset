@@ -1,13 +1,13 @@
 <#
   IT Hub device agent (Windows 10/11 and Windows Server 2016+; PowerShell 5.1).
   Modes:
-    -Collect        run as SYSTEM every 15 min (scheduled task "IT Hub Agent"): hardware / security health + daily usage → IT Hub
+    -Collect        run as SYSTEM every 15 min (scheduled task "IT Hub Agent"): hardware / security health + daily usage -> IT Hub
     -UsageMonitor   runs in each signed-in user's session (task "IT Hub Agent Usage"): once a minute records active / idle
                     and the foreground application's process name. No keystrokes, screenshots, window titles or files.
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.0'
+$AgentVersion = '1.1.1'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -22,7 +22,7 @@ function Log($m) {
 }
 function Try-Get([scriptblock]$b, $default = $null) { try { & $b } catch { $default } }
 
-# ─────────────────────────── usage monitor (user session) ───────────────────────────
+# --------------------------- usage monitor (user session) ---------------------------
 if ($UsageMonitor) {
   Add-Type -Namespace ITHub -Name Win -MemberDefinition @'
 [StructLayout(LayoutKind.Sequential)] public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
@@ -64,8 +64,11 @@ if ($UsageMonitor) {
   exit 0
 }
 
-# ─────────────────────────── collector (SYSTEM) ───────────────────────────
+# --------------------------- collector (SYSTEM) ---------------------------
 if (-not $Collect) { Write-Output 'Use -Collect (SYSTEM task) or -UsageMonitor (user task)'; exit 1 }
+# keep the Apps & features entry (NIYTRI icon) in step with self-updates
+$appKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'
+if (Test-Path $appKey) { Set-ItemProperty -Path $appKey -Name DisplayVersion -Value $AgentVersion -ErrorAction SilentlyContinue }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.Security
 $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
@@ -139,6 +142,16 @@ try {
   $cfg | Add-Member -NotePropertyName lastCheckin -NotePropertyValue (Get-Date).ToString('o') -Force
   ($cfg | ConvertTo-Json) | Set-Content $ConfigFile -Encoding UTF8
   Log "Check-in OK: $($r.state)"
+  # IT Hub moved to a new address (e.g. UAT -> production): switch only after the new address accepts this device's token
+  if ($r.serverUrl -and $r.serverUrl -match '^https://' -and $r.serverUrl.TrimEnd('/') -ne $cfg.url) {
+    $new = $r.serverUrl.TrimEnd('/')
+    try {
+      $null = Invoke-RestMethod -Method Post -Uri "$new/api/agent/v1/checkin" -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) -TimeoutSec 60 -UseBasicParsing
+      Log "IT Hub address changed: $($cfg.url) -> $new"
+      $cfg.url = $new; ($cfg | ConvertTo-Json) | Set-Content $ConfigFile -Encoding UTF8
+      $appKey2 = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'; if (Test-Path $appKey2) { Set-ItemProperty -Path $appKey2 -Name URLInfoAbout -Value $new -ErrorAction SilentlyContinue }
+    } catch { Log "New IT Hub address $new not reachable yet, staying on $($cfg.url): $($_.Exception.Message)" }
+  }
   # self-update: IT Hub always holds the current agent; replace this script only if the download matches the published SHA-256
   if ($r.latestVersion -and $r.agentSha256 -and $r.latestVersion -ne $AgentVersion) {
     try {
@@ -158,6 +171,6 @@ try {
   $err = $_
   $code = Try-Get { [int]$err.Exception.Response.StatusCode }
   Log "Check-in failed ($code): $($err.Exception.Message)"
-  if ($code -eq 410) { Log 'Device removed in IT Hub — disabling agent tasks'; Disable-ScheduledTask -TaskName 'IT Hub Agent' -ErrorAction SilentlyContinue | Out-Null; Disable-ScheduledTask -TaskName 'IT Hub Agent Usage' -ErrorAction SilentlyContinue | Out-Null }
+  if ($code -eq 410) { Log 'Device removed in IT Hub - disabling agent tasks'; Disable-ScheduledTask -TaskName 'IT Hub Agent' -ErrorAction SilentlyContinue | Out-Null; Disable-ScheduledTask -TaskName 'IT Hub Agent Usage' -ErrorAction SilentlyContinue | Out-Null }
   exit 1
 }

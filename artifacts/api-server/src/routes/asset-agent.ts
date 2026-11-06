@@ -227,7 +227,7 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
   const swDue = !ag.software_at || Date.now() - new Date(ag.software_at).getTime() > 23 * 3600_000;
   const latest = agentRelease();
   res.json({ ok: true, state: ev.state, checkinMinutes: st.checkinMinutes, trackApps: st.trackApps, sendSoftware: swDue && !Array.isArray(req.body?.software),
-    latestVersion: latest?.version || null, agentSha256: latest?.sha256 || null });
+    latestVersion: latest?.version || null, agentSha256: latest?.sha256 || null, serverUrl: agentServerUrl() });
 }));
 
 /** Self-update: the device downloads the current agent (and checks its SHA-256 before replacing itself). */
@@ -242,7 +242,7 @@ publicAgentRouter.get("/agent/v1/files/ITHubAgent.ps1", wrap(async (req, res) =>
 /** Share link sent to the employee: downloads their personal installer (key inside) while the key is unused and valid. */
 publicAgentRouter.get("/agent/v1/download/:token", wrap(async (req, res) => {
   const t = String(req.params.token || "");
-  const page = (title: string, msg: string, code = 200) => res.status(code).type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:48px auto;padding:0 16px;color:#1f2937"><h2>${title}</h2><p>${msg}</p><p style="color:#6b7280;font-size:13px">IT Transformation Hub</p></body>`);
+  const page = (title: string, msg: string, code = 200) => res.status(code).type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="${ICON32}"><title>${title}</title><body style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:48px auto;padding:0 16px;color:#1f2937"><h2 style="display:flex;align-items:center;gap:10px"><img src="${ICON32}" width="28" height="28" alt="">${title}</h2><p>${msg}</p><p style="color:#6b7280;font-size:13px">IT Transformation Hub</p></body>`);
   if (!/^[a-f0-9]{48}$/.test(t)) return page("Link not valid", "This download link is not valid. Ask IT to send it again.", 404);
   if (limited(`dl:${req.ip}`, 20, 60_000)) return page("Too many attempts", "Wait a minute and try again.", 429);
   const [c] = rowsOf(await db.execute(sql`SELECT * FROM asset_agent_codes WHERE download_hash = ${sha(t)}`));
@@ -254,8 +254,8 @@ publicAgentRouter.get("/agent/v1/download/:token", wrap(async (req, res) => {
   const notice = await agentNotice(c.user_id);
   if (notice && !notice.accepted) {
     const esc = (t: string) => String(t).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as any)[ch]);
-    return res.type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(notice.title)}</title>
-<body style="font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#1f2937"><h2 style="margin-bottom:4px">${esc(notice.title)}</h2>
+    return res.type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="${ICON32}"><title>${esc(notice.title)}</title>
+<body style="font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#1f2937"><h2 style="margin-bottom:4px;display:flex;align-items:center;gap:10px"><img src="${ICON32}" width="28" height="28" alt="">${esc(notice.title)}</h2>
 <div style="color:#6b7280;font-size:13px;margin-bottom:16px">For ${esc(c.user_name || "you")} · version ${notice.version}</div>
 <div style="white-space:pre-wrap;line-height:1.5;border:1px solid #e5e7eb;border-radius:10px;padding:16px;background:#f9fafb">${esc(notice.body)}</div>
 <form method="post" action="${esc(req.originalUrl.split("?")[0])}/accept" style="margin-top:16px"><input type="hidden" name="version" value="${notice.version}">
@@ -456,7 +456,9 @@ router.post("/asset-agent-codes/:id/share", requireAuth, wrap(async (req, res) =
 }));
 
 /* ── agent files on this server (always the current release) ─────────────── */
-const PKG = ["ITHubAgent.ps1", "Install-ITHubAgent.ps1", "Uninstall-ITHubAgent.ps1", "install.cmd", "README.txt"];
+const PKG = ["ITHubAgent.ps1", "Install-ITHubAgent.ps1", "Uninstall-ITHubAgent.ps1", "install.cmd", "README.txt", "niytri.ico"];
+const isBin = (f: string) => /\.ico$/i.test(f);
+const ICON32 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACxUlEQVR42s2XO2gVQRSGvzO7e58xkItvDFgImkKJRlBErdJqra1iJWonFiKCIGIZsbSN9rbpoqLgI2CRYFJEFB8JJJDkPnd2jsVukuvj5ubG3CQHDjPsHOb/58yZnX8ADLEVgPvAOGABB+g6uUvmHE8wCgnmIjY9wOg6Ajbz0QRzaeUTyUBtnVf+r0zUkv4EUPCAO8B5IAQCQGifCeAlWNsBFeAz0F0XsBGmSftFkrQ0BDYSe705jb1ZbKO4eiJSx2ZTzF9p5U6hd6dP7+4Aa2Oevi+8+FJjYjZaillsT+wJ6NnhE1ol8IWRHyEjU3ZpfE0ELvZkuNnfCaUoHsgYhscqnH06+1fslSNZLp/ugHkL23weDs0xMrWwIgHTLEXFULElx1xJKVWUhdmIM/tTnDuQxil4dTMsJLEz5bgths13tykBI+CbZfcMqMLdU3n8pN8o1qziTJlWi8YTKFeVY90pLhzK4BR8s/bT2zIBI3EWolC5fSpP1hes0/YTcBpX9tBkjemSwznl4C6fS4czWMdGEABJCa+/hTz+UCbIGGpV5dbJPF0ZgwAi7d4Chc608Ohdidn5CHWwr+BxvS+LJvXRdgJZXyiGysDbEumsUC0rN47nyAdC2WrLt0nLRRglGAPvynydiRADXds8rvXlmKtuAAHV+PKYqTgevC6SSgthxXH1aJaTewO0prRyKs1aq9c38ORjhU8/LcYIO3KG/v0pQquYFqrxPwgIFavce1XEC4TINb1615eAdXGqn41VeP+1RjYtRO0g4BSsW/b6VYrE3+6+LCICkWscu2YC+UDwc4ZCNm47guX9jVz8a34+UWV4skZHl0cuI3Tm4th80LwWGiqiPwXJosgYnba8+R7+JUYOdHmc7k79JlxWI0i2hCTTVkTpagVpK6J0U2W5AQYTYLuBmbcJ5uCmP822xON0U5/nvwBN0srVTb80AwAAAABJRU5ErkJggg==";
 function agentDir() {
   for (const d of [path.resolve(process.cwd(), "agent"), path.resolve(process.cwd(), "artifacts/api-server/agent"), path.resolve(process.cwd(), "../api-server/agent"), "/opt/it-hub/artifacts/api-server/agent", ...(process.env.AGENT_DIR ? [process.env.AGENT_DIR] : [])]) if (fs.existsSync(path.join(d, "ITHubAgent.ps1"))) return d;
   return null;
@@ -474,6 +476,9 @@ function fileText(req: Request, f: string) {
   const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   return fs.readFileSync(path.join(d, f), "utf8").replace(/__ITHUB_URL__/g, base);
 }
+function fileBuf(f: string) { const d = agentDir(); if (!d) throw Object.assign(new Error("Agent package is not on this server"), { status: 404 }); return fs.readFileSync(path.join(d, f)); }
+/** Address agents should report to (AGENT_SERVER_URL, else APP_URL). Agents switch to it after confirming it accepts their token. */
+function agentServerUrl() { const u = String(process.env.AGENT_SERVER_URL || process.env.APP_URL || "").trim().replace(/\/$/, ""); return /^https:\/\/[^\s/]+/.test(u) ? u : null; }
 /** Zip: agent files + the key + a double-click installer that asks for admin rights. */
 async function sendPackage(req: Request, res: Response, c: any, code: string) {
   const { ZipStream } = await import("../lib/zip");
@@ -481,7 +486,7 @@ async function sendPackage(req: Request, res: Response, c: any, code: string) {
   const folder = `ITHubAgent-${who}`;
   res.setHeader("Content-Type", "application/zip"); res.setHeader("Content-Disposition", `attachment; filename="${folder}.zip"`); res.setHeader("Cache-Control", "no-store");
   const zip = new ZipStream(res);
-  for (const f of PKG) await zip.add(`${folder}/${f}`, Buffer.from(fileText(req, f), "utf8"));
+  for (const f of PKG) await zip.add(`${folder}/${f}`, isBin(f) ? fileBuf(f) : Buffer.from(fileText(req, f), "utf8"));
   await zip.add(`${folder}/installation-key.txt`, Buffer.from(code.match(/.{4}/g)!.join("-") + "\r\n", "utf8"));
   const dbl = [
     "@echo off",
@@ -505,7 +510,7 @@ router.get("/asset-agents/package/:file", requireAuth, wrap(async (req, res) => 
   if (!await canManage(req)) return fail(res, 403, "You need edit access to the Asset Registry");
   const f = String(req.params.file); if (!PKG.includes(f)) return fail(res, 404, "Unknown file");
   res.setHeader("Content-Type", "application/octet-stream"); res.setHeader("Content-Disposition", `attachment; filename="${f}"`);
-  res.send(fileText(req, f));
+  res.send(isBin(f) ? fileBuf(f) : fileText(req, f));
 }));
 router.get("/asset-agents/release", requireAuth, wrap(async (_req, res) => {
   const r = agentRelease(); if (!r) return res.json({ version: null });

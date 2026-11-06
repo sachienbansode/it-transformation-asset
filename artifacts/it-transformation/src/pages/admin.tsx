@@ -1,3 +1,4 @@
+import { PushAdmin } from "@/components/push-admin";
 import React, { useState, useEffect } from "react";
 import { getRoleLabel, cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
@@ -111,7 +112,7 @@ export default function Admin() {
         ))}
       </div>
 
-      {tab === "settings" && <SettingsTab />}
+      {tab === "settings" && <><SettingsTab /><PushAdmin /></>}
       {tab === "masters" && <MastersTab />}
       {tab === "business-units" && <BusinessUnitsTab />}
       {tab === "audit" && <AuditTrailTab />}

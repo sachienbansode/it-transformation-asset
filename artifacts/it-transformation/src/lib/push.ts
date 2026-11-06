@@ -22,7 +22,17 @@ export async function enablePush() {
   await apiFetch("/push/subscribe", { method: "POST", body: JSON.stringify({ subscription: sub.toJSON() }) });
   return true;
 }
-export async function disablePush() {
-  const reg = await navigator.serviceWorker.getRegistration("/"); const sub = await reg?.pushManager.getSubscription();
-  if (sub) { await apiFetch("/push/subscribe", { method: "DELETE", body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {}); await sub.unsubscribe(); }
+/** Called on every page load: keeps this browser subscribed while push is on (users cannot switch it off; IT can). */
+export async function ensurePush(): Promise<"unsupported" | "blocked" | "ask" | "on" | "disabled"> {
+  if (!pushSupported()) return "unsupported";
+  let key: any; try { key = await apiFetch<any>("/push/key"); } catch { return "unsupported"; }
+  if (!key.enabled) return "disabled";
+  if (Notification.permission === "denied") return "blocked";
+  if (Notification.permission !== "granted") return "ask";
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" }); await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toKey(key.publicKey) });
+    await apiFetch("/push/subscribe", { method: "POST", body: JSON.stringify({ subscription: sub.toJSON() }) });
+    return "on";
+  } catch { return "ask"; }
 }
