@@ -7,7 +7,7 @@
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.3'
+$AgentVersion = '1.1.4'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -61,12 +61,19 @@ if ($UsageMonitor) {
   }
   if ($Once) { & $tick; exit 0 }
   # NIYTRI icon in the notification area while the agent runs (no exit option: the agent is managed by IT)
-  $icoFile = Join-Path $Root 'niytri.ico'
+  function Get-TrayIcon {
+    foreach ($n in 'tray.ico', 'niytri.ico') {
+      $fp = Join-Path $Root $n
+      if (Test-Path $fp) { try { return New-Object System.Drawing.Icon($fp, [System.Windows.Forms.SystemInformation]::SmallIconSize) } catch { } }
+    }
+    return $null
+  }
   $tray = $null
   try {
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
     $tray = New-Object System.Windows.Forms.NotifyIcon
-    $tray.Icon = if (Test-Path $icoFile) { New-Object System.Drawing.Icon $icoFile } else { [System.Drawing.SystemIcons]::Shield }
+    $ic = Get-TrayIcon; $script:iconOk = [bool]$ic
+    $tray.Icon = if ($ic) { $ic } else { [System.Drawing.SystemIcons]::Shield }
     $tray.Text = 'IT Hub Agent - managed by IT'
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
     $hdr = $menu.Items.Add("IT Hub Agent $AgentVersion"); $hdr.Enabled = $false
@@ -84,7 +91,9 @@ if ($UsageMonitor) {
   } catch { $tray = $null }
   if ($tray) {
     & $tick
-    $timer = New-Object System.Windows.Forms.Timer; $timer.Interval = 60000; $timer.add_Tick($tick); $timer.Start()
+    $timer = New-Object System.Windows.Forms.Timer; $timer.Interval = 60000
+    $timer.add_Tick({ & $tick; if (-not $script:iconOk) { $ic = Get-TrayIcon; if ($ic) { $tray.Icon = $ic; $script:iconOk = $true } } })
+    $timer.Start()
     try { [System.Windows.Forms.Application]::Run() } finally { $tray.Visible = $false; $tray.Dispose() }
   } else {
     while ($true) { & $tick; Start-Sleep -Seconds 60 }
@@ -178,8 +187,12 @@ try {
   if (-not (Test-Path $unf) -or -not (Select-String -Path $unf -Pattern 'agent/v1/uninstall' -SimpleMatch -Quiet)) {
     try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/Uninstall-ITHubAgent.ps1" -Headers @{ Authorization = "Bearer $token" } -OutFile $unf -UseBasicParsing -TimeoutSec 30; Log 'Uninstaller updated' } catch { Log "Uninstaller update failed: $($_.Exception.Message)" }
   }
-  $ico = Join-Path $Root 'niytri.ico'
-  if (-not (Test-Path $ico)) { try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/niytri.ico" -Headers @{ Authorization = "Bearer $token" } -OutFile $ico -UseBasicParsing -TimeoutSec 30; Log 'Downloaded tray icon' } catch { Log "Icon download failed: $($_.Exception.Message)" } }
+  foreach ($icn in 'niytri.ico', 'tray.ico') {
+    $ico = Join-Path $Root $icn
+    if (-not (Test-Path $ico)) { try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/$icn" -Headers @{ Authorization = "Bearer $token" } -OutFile $ico -UseBasicParsing -TimeoutSec 30; Log "Downloaded $icn" } catch { Log "Icon download failed ($icn): $($_.Exception.Message)" } }
+  }
+  $appKey3 = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'
+  if ((Test-Path $appKey3) -and (Test-Path (Join-Path $Root 'tray.ico'))) { Set-ItemProperty -Path $appKey3 -Name DisplayIcon -Value (Join-Path $Root 'tray.ico') -ErrorAction SilentlyContinue }
   # IT Hub moved to a new address (e.g. UAT -> production): switch only after the new address accepts this device's token
   if ($r.serverUrl -and $r.serverUrl -match '^https://' -and $r.serverUrl.TrimEnd('/') -ne $cfg.url) {
     $new = $r.serverUrl.TrimEnd('/')

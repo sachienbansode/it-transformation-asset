@@ -271,10 +271,10 @@ publicAgentRouter.get("/agent/v1/files/Uninstall-ITHubAgent.ps1", wrap(async (re
   if (!ag || ag.status === "Revoked") return fail(res, 401, "Unknown device");
   res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.send(fileBuf("Uninstall-ITHubAgent.ps1"));
 }));
-publicAgentRouter.get("/agent/v1/files/niytri.ico", wrap(async (req, res) => {
+publicAgentRouter.get(["/agent/v1/files/niytri.ico", "/agent/v1/files/tray.ico"], wrap(async (req, res) => {
   const ag = await agentFromToken(req);
   if (!ag || ag.status === "Revoked") return fail(res, 401, "Unknown device");
-  res.setHeader("Content-Type", "image/x-icon"); res.send(fileBuf("niytri.ico"));
+  res.setHeader("Content-Type", "image/x-icon"); res.send(fileBuf(req.path.endsWith("tray.ico") ? "tray.ico" : "niytri.ico"));
 }));
 
 /** Share link sent to the employee: downloads their personal installer (key inside) while the key is unused and valid. */
@@ -534,7 +534,7 @@ router.post("/asset-agent-codes/:id/share", requireAuth, wrap(async (req, res) =
 }));
 
 /* ── agent files on this server (always the current release) ─────────────── */
-const PKG = ["ITHubAgent.ps1", "Install-ITHubAgent.ps1", "Uninstall-ITHubAgent.ps1", "install.cmd", "README.txt", "niytri.ico"];
+const PKG = ["ITHubAgent.ps1", "Install-ITHubAgent.ps1", "Uninstall-ITHubAgent.ps1", "install.cmd", "README.txt", "niytri.ico", "tray.ico"];
 const isBin = (f: string) => /\.ico$/i.test(f);
 const ICON32 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACxUlEQVR42s2XO2gVQRSGvzO7e58xkItvDFgImkKJRlBErdJqra1iJWonFiKCIGIZsbSN9rbpoqLgI2CRYFJEFB8JJJDkPnd2jsVukuvj5ubG3CQHDjPsHOb/58yZnX8ADLEVgPvAOGABB+g6uUvmHE8wCgnmIjY9wOg6Ajbz0QRzaeUTyUBtnVf+r0zUkv4EUPCAO8B5IAQCQGifCeAlWNsBFeAz0F0XsBGmSftFkrQ0BDYSe705jb1ZbKO4eiJSx2ZTzF9p5U6hd6dP7+4Aa2Oevi+8+FJjYjZaillsT+wJ6NnhE1ol8IWRHyEjU3ZpfE0ELvZkuNnfCaUoHsgYhscqnH06+1fslSNZLp/ugHkL23weDs0xMrWwIgHTLEXFULElx1xJKVWUhdmIM/tTnDuQxil4dTMsJLEz5bgths13tykBI+CbZfcMqMLdU3n8pN8o1qziTJlWi8YTKFeVY90pLhzK4BR8s/bT2zIBI3EWolC5fSpP1hes0/YTcBpX9tBkjemSwznl4C6fS4czWMdGEABJCa+/hTz+UCbIGGpV5dbJPF0ZgwAi7d4Chc608Ohdidn5CHWwr+BxvS+LJvXRdgJZXyiGysDbEumsUC0rN47nyAdC2WrLt0nLRRglGAPvynydiRADXds8rvXlmKtuAAHV+PKYqTgevC6SSgthxXH1aJaTewO0prRyKs1aq9c38ORjhU8/LcYIO3KG/v0pQquYFqrxPwgIFavce1XEC4TINb1615eAdXGqn41VeP+1RjYtRO0g4BSsW/b6VYrE3+6+LCICkWscu2YC+UDwc4ZCNm47guX9jVz8a34+UWV4skZHl0cuI3Tm4th80LwWGiqiPwXJosgYnba8+R7+JUYOdHmc7k79JlxWI0i2hCTTVkTpagVpK6J0U2W5AQYTYLuBmbcJ5uCmP822xON0U5/nvwBN0srVTb80AwAAAABJRU5ErkJggg==";
 function agentDir() {

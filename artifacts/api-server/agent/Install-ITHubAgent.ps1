@@ -22,6 +22,7 @@ New-Item -ItemType Directory -Force -Path $Root, $Usage | Out-Null
 Copy-Item -Path (Join-Path $PSScriptRoot 'ITHubAgent.ps1') -Destination $Root -Force
 Copy-Item -Path (Join-Path $PSScriptRoot 'Uninstall-ITHubAgent.ps1') -Destination $Root -Force -ErrorAction SilentlyContinue
 Copy-Item -Path (Join-Path $PSScriptRoot 'niytri.ico') -Destination $Root -Force -ErrorAction SilentlyContinue
+Copy-Item -Path (Join-Path $PSScriptRoot 'tray.ico') -Destination $Root -Force -ErrorAction SilentlyContinue
 
 # Folder rights: SYSTEM + Administrators full; users read the agent, write only their own usage files
 icacls $Root /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
@@ -64,7 +65,7 @@ Register-ScheduledTask -TaskName 'IT Hub Agent Usage' -Action $a2 -Trigger (New-
 $appKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'
 New-Item -Path $appKey -Force | Out-Null
 $un = "$ps -NoProfile -ExecutionPolicy Bypass -File `"$Root\Uninstall-ITHubAgent.ps1`""
-@{ DisplayName = 'IT Hub Agent'; Publisher = 'NIYTRI Technologies'; DisplayVersion = $agentVer; DisplayIcon = "$Root\niytri.ico"; InstallLocation = $Root
+@{ DisplayName = 'IT Hub Agent'; Publisher = 'NIYTRI Technologies'; DisplayVersion = $agentVer; DisplayIcon = "$Root\tray.ico"; InstallLocation = $Root
    UninstallString = $un; QuietUninstallString = $un; URLInfoAbout = $Url }.GetEnumerator() | ForEach-Object { Set-ItemProperty -Path $appKey -Name $_.Key -Value $_.Value }
 Set-ItemProperty -Path $appKey -Name NoModify -Value 1 -Type DWord; Set-ItemProperty -Path $appKey -Name NoRepair -Value 1 -Type DWord
 
