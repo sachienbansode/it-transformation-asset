@@ -125,6 +125,12 @@ function limited(key: string, max: number, windowMs: number) {
  *    expires; a second install with the same key is refused.
  *  - bulk key (admins, for Intune / SCCM rollouts): N devices, expires.
  */
+/** One line in a key's activity log. */
+async function keyEv(codeId: number, action: string, actor: string | null, req: Request | null, detail?: string | null) {
+  try { await db.execute(sql`INSERT INTO asset_agent_code_events (code_id, action, actor, ip, user_agent, detail) VALUES (${codeId}, ${action}, ${actor}, ${req ? req.ip || null : null}, ${req ? String(req.get("user-agent") || "").slice(0, 300) || null : null}, ${detail ?? null})`); }
+  catch (e) { console.error("key log failed", e); }
+}
+
 publicAgentRouter.post("/agent/v1/enrol", wrap(async (req, res) => {
   const ip = req.ip || "?";
   if (limited(`enrol:${ip}`, 30, 60_000)) return fail(res, 429, "Too many enrolment attempts — wait a minute");
@@ -133,20 +139,23 @@ publicAgentRouter.post("/agent/v1/enrol", wrap(async (req, res) => {
   if (!code || !deviceId || !/^[A-Za-z0-9-]{8,64}$/.test(deviceId)) return fail(res, 400, "Installation key and device id are required");
   const [c] = rowsOf(await db.execute(sql`SELECT k.*, s.asset_tag, s.serial_number AS asset_serial, u.name AS user_name, u.is_active AS user_active
       FROM asset_agent_codes k LEFT JOIN assets s ON s.id = k.asset_id LEFT JOIN users u ON u.id = k.user_id WHERE k.code_hash = ${sha(normCode(code))}`));
-  if (!c || !c.is_active) return fail(res, 403, "Installation key is not valid — ask IT for a new one");
-  if (new Date(c.expires_at) < new Date()) return fail(res, 403, "Installation key has expired — ask IT for a new one");
+  if (!c) return fail(res, 403, "Installation key is not valid — ask IT for a new one");
+  const who = `Device ${s(b.hostname, 80) || deviceId}`;
+  const refuse = async (msg: string) => { await keyEv(c.id, "refused", who, req, `Install refused on ${s(b.hostname, 80) || "?"} (serial ${s(b.serial, 80) || "?"}): ${msg}`); return fail(res, 403, msg); };
+  if (!c.is_active) return refuse("Installation key is not valid — ask IT for a new one");
+  if (new Date(c.expires_at) < new Date()) return refuse("Installation key has expired — ask IT for a new one");
   const hostname = s(b.hostname, 80), serial = s(b.serial, 80);
   const [ex] = rowsOf(await db.execute(sql`SELECT id, status FROM asset_agents WHERE device_id = ${deviceId}`));
-  if (ex && ex.status === "Revoked") return fail(res, 403, "This device was removed by IT — ask IT to re-enable it");
+  if (ex && ex.status === "Revoked") return refuse("This device was removed by IT — ask IT to re-enable it");
   if (c.kind === "user") {
     if (c.used_by_agent && (!ex || c.used_by_agent !== ex.id)) {
       const [u] = rowsOf(await db.execute(sql`SELECT hostname FROM asset_agents WHERE id = ${c.used_by_agent}`));
-      return fail(res, 403, `This installation key was already used on ${u?.hostname || "another computer"} — each key installs one computer. Ask IT for a new key.`);
+      return refuse(`This installation key was already used on ${u?.hostname || "another computer"} — each key installs one computer. Ask IT for a new key.`);
     }
-    if (c.user_id && c.user_active === false) return fail(res, 403, "The employee this key was issued to is no longer active");
+    if (c.user_id && c.user_active === false) return refuse("The employee this key was issued to is no longer active");
     if (c.asset_id && c.asset_serial && (!serial || serial.toLowerCase() !== String(c.asset_serial).toLowerCase()))
-      return fail(res, 403, `This key is for ${c.asset_tag} (serial ${c.asset_serial}), but this computer's serial is ${serial || "unknown"}. Install it on ${c.asset_tag}, or ask IT for a key for this computer.`);
-  } else if (c.uses >= c.max_uses) return fail(res, 403, "Installation key has been used up — ask IT for a new one");
+      return refuse(`This key is for ${c.asset_tag} (serial ${c.asset_serial}), but this computer's serial is ${serial || "unknown"}. Install it on ${c.asset_tag}, or ask IT for a key for this computer.`);
+  } else if (c.uses >= c.max_uses) return refuse("Installation key has been used up — ask IT for a new one");
   const token = crypto.randomBytes(32).toString("hex");
   const platform = /server/i.test(String(b.platform || b.osName || "")) ? "Server" : "Workstation";
   let m = c.asset_id ? { assetId: c.asset_id as number | null, note: `Installed with ${c.user_name ? `${c.user_name}'s` : "a"} key for ${c.asset_tag}` } : await matchAsset(serial, hostname);
@@ -162,6 +171,7 @@ publicAgentRouter.post("/agent/v1/enrol", wrap(async (req, res) => {
       VALUES (${deviceId}, ${sha(token)}, ${m.assetId}, ${m.note}, ${hostname}, ${serial}, ${s(b.manufacturer)}, ${s(b.model)}, ${platform}, ${s(b.osName)}, ${s(b.osVersion)}, ${s(b.agentVersion, 20)}, ${ip}, ${c.id}, ${c.user_id ?? null}) RETURNING id`));
     id = r.id;
   }
+  await keyEv(c.id, ex ? "reinstalled" : "installed", `Device ${hostname || deviceId}`, req, `${ex ? "Re-installed" : "Installed"} on ${hostname || "?"} (serial ${serial || "?"}, ${s(b.osName) || "Windows"}, agent ${s(b.agentVersion, 20) || "?"}) — ${m.note}`);
   await db.execute(sql`UPDATE asset_agent_codes SET uses = uses + 1, used_by_agent = coalesce(used_by_agent, ${c.kind === "user" ? id : null}), used_at = coalesce(used_at, now()) WHERE id = ${c.id}`);
   void logAudit({ entityType: "asset_agent", entityId: id, action: "enrol", performedBy: `Device ${hostname || deviceId}`, summary: `Device agent installed on ${hostname} (${serial || "no serial"}) with ${c.kind === "user" ? `${c.user_name || "user"}'s key …${c.code_hint}` : `bulk key "${c.label}"`} — ${m.note}` }).catch(() => {});
   const st = await agentSettings();
@@ -253,12 +263,13 @@ publicAgentRouter.get("/agent/v1/download/:token", wrap(async (req, res) => {
   if (limited(`dl:${req.ip}`, 20, 60_000)) return page("Too many attempts", "Wait a minute and try again.", 429);
   const [c] = rowsOf(await db.execute(sql`SELECT * FROM asset_agent_codes WHERE download_hash = ${sha(t)}`));
   if (!c) return page("Link not valid", "This download link is not valid or was replaced by a newer one. Ask IT to send it again.", 404);
-  if (!c.is_active || new Date(c.expires_at) < new Date()) return page("Link expired", "This installation link has expired. Ask IT for a new one.", 410);
-  if (c.kind === "user" && c.used_by_agent) return page("Already installed", "The IT Hub agent has already been installed with this key. Nothing more to do.", 410);
+  if (!c.is_active || new Date(c.expires_at) < new Date()) { await keyEv(c.id, "link-refused", "Email link", req, c.is_active ? "Link opened after the key expired" : "Link opened after the key was disabled"); return page("Link expired", "This installation link has expired. Ask IT for a new one.", 410); }
+  if (c.kind === "user" && c.used_by_agent) { await keyEv(c.id, "link-refused", "Email link", req, "Link opened after the agent was installed"); return page("Already installed", "The IT Hub agent has already been installed with this key. Nothing more to do.", 410); }
   const code = dec(c.code_enc); if (!code) return page("Link not valid", "Ask IT to create a new installation key.", 410);
   // the employee reads and accepts the device-monitoring notice before the installer downloads (recorded as consent)
   const notice = await agentNotice(c.user_id);
   if (notice && !notice.accepted) {
+    await keyEv(c.id, "link-opened", "Email link", req, `Monitoring notice v${notice.version} shown`);
     const esc = (t: string) => String(t).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as any)[ch]);
     return res.type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="${ICON32}"><title>${esc(notice.title)}</title>
 <body style="font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#1f2937"><h2 style="margin-bottom:4px;display:flex;align-items:center;gap:10px"><img src="${ICON32}" width="28" height="28" alt="">${esc(notice.title)}</h2>
@@ -269,7 +280,9 @@ publicAgentRouter.get("/agent/v1/download/:token", wrap(async (req, res) => {
 <button type="submit" style="margin-top:14px;background:#2D7FF9;color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:15px;cursor:pointer">Accept and download installer</button></form>
 <p style="color:#6b7280;font-size:12px;margin-top:20px">Your acceptance is recorded with the date, time and this browser. Questions: contact IT. — IT Transformation Hub</p></body>`);
   }
-  await db.execute(sql`UPDATE asset_agent_codes SET downloads = downloads + 1 WHERE id = ${c.id}`);
+  await db.execute(sql`UPDATE asset_agent_codes SET downloads = downloads + 1, last_download_at = now() WHERE id = ${c.id}`);
+  const [eu] = rowsOf(await db.execute(sql`SELECT name FROM users WHERE id = ${c.user_id ?? 0}`));
+  await keyEv(c.id, "downloaded", eu?.name || "Email link", req, "Installer downloaded from the emailed link");
   await sendPackage(req, res, c, code);
 }));
 
@@ -284,6 +297,8 @@ publicAgentRouter.post("/agent/v1/download/:token/accept", express.urlencoded({ 
     if (Number(req.body?.version) !== Number(p.version)) return res.redirect(303, req.originalUrl.replace(/\/accept$/, ""));
     const { recordDecision } = await import("./policies");
     await recordDecision(p, c.user_id, "Accepted", { method: "agent-link", ip: req.ip, userAgent: req.get("user-agent"), note: `Installer key …${c.code_hint}` });
+    const [eu] = rowsOf(await db.execute(sql`SELECT name FROM users WHERE id = ${c.user_id}`));
+    await keyEv(c.id, "notice-accepted", eu?.name || "Employee", req, `Accepted monitoring notice v${p.version}`);
   }
   res.redirect(303, req.originalUrl.replace(/\/accept$/, ""));
 }));
@@ -370,6 +385,8 @@ router.patch("/asset-agents/:id", requireAuth, wrap(async (req, res) => {
 const CODE_COLS = sql`k.id, k.kind, k.code_hint AS "codeHint", k.label, k.max_uses AS "maxUses", k.uses, k.expires_at AS "expiresAt", k.is_active AS "isActive", k.created_by AS "createdBy", k.created_at AS "createdAt",
   k.user_id AS "userId", u.name AS "userName", u.email AS "userEmail", k.asset_id AS "assetId", s.asset_tag AS "assetTag", s.serial_number AS "assetSerial",
   k.used_at AS "usedAt", g.hostname AS "usedOn", k.shared_at AS "sharedAt", k.shared_by AS "sharedBy", k.downloads,
+  u.employee_code AS "employeeCode", u.department, g.serial_number AS "usedSerial", g.id AS "usedAgentId", k.disabled_at AS "disabledAt", k.disabled_by AS "disabledBy", k.disable_reason AS "disableReason", k.last_download_at AS "lastDownloadAt",
+  (SELECT max(at) FROM asset_agent_code_events e WHERE e.code_id = k.id) AS "lastActivityAt", (SELECT count(*)::int FROM asset_agent_code_events e WHERE e.code_id = k.id AND e.action = 'refused') AS refusals,
   CASE WHEN NOT k.is_active THEN 'Disabled' WHEN k.kind = 'user' AND k.used_by_agent IS NOT NULL THEN 'Installed' WHEN k.expires_at < now() THEN 'Expired'
        WHEN k.kind = 'bulk' AND k.uses >= k.max_uses THEN 'Used up' ELSE 'Ready' END AS state`;
 const CODE_FROM = sql`FROM asset_agent_codes k LEFT JOIN users u ON u.id = k.user_id LEFT JOIN assets s ON s.id = k.asset_id LEFT JOIN asset_agents g ON g.id = k.used_by_agent`;
@@ -377,6 +394,26 @@ const CODE_FROM = sql`FROM asset_agent_codes k LEFT JOIN users u ON u.id = k.use
 router.get("/asset-agent-codes", requireAuth, wrap(async (req, res) => {
   if (!await canManage(req)) return fail(res, 403, "You need edit access to the Asset Registry");
   res.json(rowsOf(await db.execute(sql`SELECT ${CODE_COLS} ${CODE_FROM} ORDER BY k.created_at DESC LIMIT 200`)));
+}));
+
+/** Full key register (with filters) and the activity log. */
+router.get("/asset-agent-codes/register", requireAuth, wrap(async (req, res) => {
+  if (!await canManage(req)) return fail(res, 403, "You need edit access to the Asset Registry");
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "")) ? String(req.query.from) : null;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "")) ? String(req.query.to) : null;
+  res.json(rowsOf(await db.execute(sql`SELECT ${CODE_COLS} ${CODE_FROM} WHERE (${from}::date IS NULL OR k.created_at >= ${from}::date) AND (${to}::date IS NULL OR k.created_at < ${to}::date + 1) ORDER BY k.created_at DESC LIMIT 5000`)));
+}));
+router.get("/asset-agent-codes/:id/events", requireAuth, wrap(async (req, res) => {
+  if (!await canManage(req)) return fail(res, 403, "You need edit access to the Asset Registry");
+  res.json(rowsOf(await db.execute(sql`SELECT id, action, actor, ip, user_agent AS "userAgent", detail, at FROM asset_agent_code_events WHERE code_id = ${Number(req.params.id)} ORDER BY at DESC, id DESC`)));
+}));
+router.get("/asset-agent-code-events", requireAuth, wrap(async (req, res) => {
+  if (!await canManage(req)) return fail(res, 403, "You need edit access to the Asset Registry");
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "")) ? String(req.query.from) : null;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "")) ? String(req.query.to) : null;
+  res.json(rowsOf(await db.execute(sql`SELECT e.id, e.action, e.actor, e.ip, e.user_agent AS "userAgent", e.detail, e.at, k.code_hint AS "codeHint", k.kind, k.label, u.name AS "userName", u.employee_code AS "employeeCode"
+    FROM asset_agent_code_events e JOIN asset_agent_codes k ON k.id = e.code_id LEFT JOIN users u ON u.id = k.user_id
+    WHERE (${from}::date IS NULL OR e.at >= ${from}::date) AND (${to}::date IS NULL OR e.at < ${to}::date + 1) ORDER BY e.at DESC, e.id DESC LIMIT 10000`)));
 }));
 
 /** New installation key. kind "user" (default): one computer, for one employee (optionally one asset). kind "bulk": admins only. */
@@ -387,6 +424,7 @@ router.post("/asset-agent-codes", requireAuth, wrap(async (req, res) => {
   const days = Math.round(Number(req.body?.validDays) || (kind === "user" ? 7 : 30));
   if (days < 1 || days > (kind === "user" ? 30 : 365)) return fail(res, 400, kind === "user" ? "A personal key can be valid for 1–30 days" : "Valid for 1–365 days");
   let label = s(req.body?.label, 80), userId: number | null = null, assetId: number | null = null, maxUses = 1;
+  let replaced: any[] = [];
   if (kind === "bulk") {
     if (!a?.isAdmin) return fail(res, 403, "Only an administrator can create a bulk key (for Intune / SCCM rollouts)");
     if (!label) return fail(res, 400, "Give the bulk key a name (e.g. Intune rollout, Pune office)");
@@ -405,7 +443,8 @@ router.post("/asset-agent-codes", requireAuth, wrap(async (req, res) => {
       if (other) return fail(res, 400, `${as.asset_tag} already reports as ${other.hostname}`);
     }
     // one open key per employee + asset: older unused keys are disabled
-    await db.execute(sql`UPDATE asset_agent_codes SET is_active = false WHERE kind = 'user' AND is_active AND used_by_agent IS NULL AND user_id = ${userId} AND coalesce(asset_id, 0) = ${assetId ?? 0}`);
+    replaced = rowsOf(await db.execute(sql`UPDATE asset_agent_codes SET is_active = false, download_hash = NULL, disabled_at = now(), disabled_by = 'System', disable_reason = 'Replaced by a newer key'
+      WHERE kind = 'user' AND is_active AND used_by_agent IS NULL AND user_id = ${userId} AND coalesce(asset_id, 0) = ${assetId ?? 0} RETURNING id`));
     label = label || `${u.name}${assetId ? "" : " (any computer)"}`;
   }
   const raw = Array.from(crypto.randomBytes(16)).map(x => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[x % 32]).join("");
@@ -413,6 +452,8 @@ router.post("/asset-agent-codes", requireAuth, wrap(async (req, res) => {
   const by = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
   const [r] = rowsOf(await db.execute(sql`INSERT INTO asset_agent_codes (code_hash, code_hint, label, max_uses, expires_at, created_by, kind, user_id, asset_id, code_enc)
     VALUES (${sha(raw)}, ${raw.slice(-4)}, ${label}, ${maxUses}, now() + (${days} || ' days')::interval, ${by}, ${kind}, ${userId}, ${assetId}, ${enc(raw)}) RETURNING id`));
+  await keyEv(r.id, "created", by, req, kind === "user" ? `Personal key for ${label}, 1 computer, valid ${days} days` : `Bulk key "${label}" for ${maxUses} devices, valid ${days} days`);
+  for (const o of replaced) await keyEv(o.id, "disabled", "System", null, `Replaced by newer key …${raw.slice(-4)} (created by ${by})`);
   void logAudit({ entityType: "asset_agent_code", entityId: r.id, action: "create", performedBy: by, summary: `Agent ${kind} key "${label}" created (…${raw.slice(-4)}, ${kind === "user" ? "1 computer" : `${maxUses} devices`}, ${days} days)` }).catch(() => {});
   const [row] = rowsOf(await db.execute(sql`SELECT ${CODE_COLS} ${CODE_FROM} WHERE k.id = ${r.id}`));
   res.status(201).json({ ...row, code });
@@ -420,7 +461,14 @@ router.post("/asset-agent-codes", requireAuth, wrap(async (req, res) => {
 
 router.delete("/asset-agent-codes/:id", requireAuth, wrap(async (req, res) => {
   if (!await canManage(req)) return fail(res, 403, "You need edit access to the Asset Registry");
-  await db.execute(sql`UPDATE asset_agent_codes SET is_active = false, download_hash = NULL WHERE id = ${Number(req.params.id)}`);
+  const id = Number(req.params.id);
+  const [c] = rowsOf(await db.execute(sql`SELECT id, is_active, code_hint, label FROM asset_agent_codes WHERE id = ${id}`)); if (!c) return fail(res, 404, "Key not found");
+  if (!c.is_active) return res.status(204).end();
+  const by = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+  const reason = s(req.body?.reason, 300) || null;
+  await db.execute(sql`UPDATE asset_agent_codes SET is_active = false, download_hash = NULL, disabled_at = now(), disabled_by = ${by}, disable_reason = ${reason} WHERE id = ${id}`);
+  await keyEv(id, "disabled", by, req, reason ? `Disabled: ${reason}` : "Disabled");
+  void logAudit({ entityType: "asset_agent_code", entityId: id, action: "disable", performedBy: by, summary: `Agent key …${c.code_hint} (${c.label}) disabled${reason ? ` — ${reason}` : ""}` }).catch(() => {});
   res.status(204).end();
 }));
 
@@ -432,7 +480,8 @@ router.get("/asset-agent-codes/:id/package", requireAuth, wrap(async (req, res) 
   if (!c.is_active || new Date(c.expires_at) < new Date()) return fail(res, 400, "This key is disabled or expired — create a new one");
   if (c.kind === "user" && c.used_by_agent) return fail(res, 400, "This key has already been used — create a new one for another computer");
   const code = dec(c.code_enc); if (!code) return fail(res, 400, "This key was created before installers could be rebuilt — create a new one");
-  await db.execute(sql`UPDATE asset_agent_codes SET downloads = downloads + 1 WHERE id = ${c.id}`);
+  await db.execute(sql`UPDATE asset_agent_codes SET downloads = downloads + 1, last_download_at = now() WHERE id = ${c.id}`);
+  await keyEv(c.id, "downloaded", await getPerformedBy((req.session as any)?.userId).catch(() => "IT"), req, "Installer zip downloaded in IT Hub");
   await sendPackage(req, res, c, code);
 }));
 
@@ -457,6 +506,7 @@ router.post("/asset-agent-codes/:id/share", requireAuth, wrap(async (req, res) =
     <p>The link is personal, works for one computer only and expires on <b>${till}</b>. If you need administrator rights to install, reply to IT and we will install it for you.</p><p>Regards,</p>`;
   const mail: any = await sendDirect("asset_agent_install", [c.user_email], `Install the IT Hub agent${c.asset_tag ? ` on ${c.asset_tag}` : ""}`, html);
   await db.execute(sql`INSERT INTO notifications (user_id, title, message, type, link) VALUES (${c.user_id}, 'Install the IT Hub device agent', ${`IT has sent you a personal installer${c.asset_tag ? ` for ${c.asset_tag}` : ""} — check your email (valid till ${till}).`}, 'info', '/my-assets')`);
+  await keyEv(c.id, "emailed", by, req, `Installer link emailed to ${c.user_email}${mail?.status && mail.status !== "Sent" ? ` (email ${String(mail.status).toLowerCase()})` : ""}`);
   void logAudit({ entityType: "asset_agent_code", entityId: c.id, action: "share", performedBy: by, summary: `Agent installer link emailed to ${c.user_name} <${c.user_email}>` }).catch(() => {});
   res.json({ ok: true, link, emailedTo: c.user_email, mailStatus: mail?.status || null });
 }));

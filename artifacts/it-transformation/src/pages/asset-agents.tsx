@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +30,7 @@ async function download(file: string) {
 }
 
 export default function AssetAgents() {
-  const qc = useQueryClient(); const { toast } = useToast();
+  const qc = useQueryClient(); const { toast } = useToast(); const [, navigate] = useLocation();
   const { canAccess } = useAuth(); const canEdit = canAccess("asset_registry", "write");
   const { data, isLoading } = useQuery({ queryKey: ["asset-agents"], queryFn: () => apiFetch<any>("/asset-agents"), refetchInterval: 60_000 });
   const agents: any[] = data?.agents || []; const sum = data?.summary || {};
@@ -67,6 +68,7 @@ export default function AssetAgents() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={exportCsv}><Download className="w-4 h-4" />Export CSV</Button>
+          {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/keys")}><KeyRound className="w-4 h-4" />Installation keys</Button>}
           {canEdit && <Button className="gap-2" onClick={() => setEnrol(true)}><KeyRound className="w-4 h-4" />Install agent / keys</Button>}
         </div>
       </div>
@@ -148,16 +150,16 @@ function LinkDialog({ agent, onClose, onDone }: { agent: any; onClose: () => voi
   );
 }
 
-async function downloadKey(k: any) {
+export async function downloadKey(k: any) {
   const r = await fetch(`/api/asset-agent-codes/${k.id}/package`, { credentials: "include" });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Download failed (${r.status})`);
   const name = (r.headers.get("content-disposition") || "").match(/filename="([^"]+)"/)?.[1] || "ITHubAgent.zip";
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await r.blob()), download: name }); a.click(); URL.revokeObjectURL(a.href);
 }
-const KEY_TONE: Record<string, string> = { Ready: "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300", Installed: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300", Expired: "bg-muted text-muted-foreground", Disabled: "bg-muted text-muted-foreground", "Used up": "bg-muted text-muted-foreground" };
+export const KEY_TONE: Record<string, string> = { Ready: "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300", Installed: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300", Expired: "bg-muted text-muted-foreground", Disabled: "bg-muted text-muted-foreground", "Used up": "bg-muted text-muted-foreground" };
 
 /** Installation keys: personal (one computer, one employee, optional asset) or bulk (admin, Intune / SCCM). */
-function EnrolDialog({ onClose }: { onClose: () => void }) {
+export function EnrolDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient(); const { toast } = useToast(); const { isAdmin } = useAuth();
   const { data: codes = [] } = useQuery({ queryKey: ["asset-agent-codes"], queryFn: () => apiFetch<any[]>("/asset-agent-codes") });
   const { data: people = [] } = useQuery({ queryKey: ["asset-people"], queryFn: () => apiFetch<any[]>("/asset-people") });
@@ -229,8 +231,8 @@ function EnrolDialog({ onClose }: { onClose: () => void }) {
         </div>
       )}
       <section className="space-y-1.5">
-        <div className="flex items-center justify-between gap-2"><h4 className="text-sm font-semibold">Installation keys</h4><Input className="h-8 w-56" placeholder="Search employee, asset, computer…" value={kq} onChange={e => setKq(e.target.value)} /></div>
-        <div className="border rounded-lg divide-y text-xs max-h-72 overflow-y-auto">{keyList.map((c: any) => (
+        <div className="flex items-center justify-between gap-2"><h4 className="text-sm font-semibold flex items-center gap-2">Installation keys <Link href="/asset-agents/keys" className="text-xs font-normal text-primary hover:underline">Full register &amp; log →</Link></h4><Input className="h-8 w-56" placeholder="Search employee, asset, computer…" value={kq} onChange={e => setKq(e.target.value)} /></div>
+        <div className="border rounded-lg divide-y text-xs max-h-72 overflow-y-auto">{keyList.slice(0, 15).map((c: any) => (
           <div key={c.id} className="px-3 py-2 flex items-center gap-2 flex-wrap">
             <span className={cn("px-1.5 py-0.5 rounded font-semibold", KEY_TONE[c.state])}>{c.state}</span>
             <span className="font-mono text-muted-foreground">…{c.codeHint}</span>
