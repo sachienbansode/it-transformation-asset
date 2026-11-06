@@ -151,6 +151,7 @@ router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
   });
   const adminName = await getPerformedBy((req as any).user?.id);
   logAudit({ entityType: "user", entityId: user.id, action: "create", performedBy: adminName, summary: `Created user ${user.email} with role "${user.role}"`, newValues: { email: user.email, role: user.role, status: user.status } }).catch(() => {});
+  { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(user.id).catch(() => {}); }
   res.status(201).json(user);
 });
 
@@ -214,6 +215,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
     newSnap[k] = (user as any)[k] ?? (rest as any)[k];
   }
   logAudit({ entityType: "user", entityId: user.id, action: "update", performedBy: adminNameU, summary: `Updated user ${user.email}: ${updatedKeys.filter(k => oldSnap[k] !== newSnap[k]).map(k => `${k}: "${oldSnap[k]}" → "${newSnap[k]}"`).join(", ") || updatedKeys.join(", ")}`, oldValues: oldSnap, newValues: newSnap }).catch(() => {});
+  { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(id).catch(() => {}); }
   res.json(user);
 });
 

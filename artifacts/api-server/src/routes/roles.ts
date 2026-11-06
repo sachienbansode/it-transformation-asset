@@ -168,6 +168,8 @@ router.post("/roles/:id/users", async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = z.object({ userId: z.number() }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+  try { const { assertNotExternalDefault } = await import("../lib/default-role"); await assertNotExternalDefault(body.data.userId, [id]); }
+  catch (e: any) { res.status(400).json({ error: e.message }); return; }
   const existing = await db.select().from(userRolesTable)
     .where(eq(userRolesTable.roleId, id));
   if (existing.some(r => r.userId === body.data.userId)) {
@@ -201,6 +203,8 @@ router.put("/user-roles/:userId", async (req, res): Promise<void> => {
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid userId" }); return; }
   const body = z.object({ roleIds: z.array(z.number()) }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+  try { const { assertNotExternalDefault } = await import("../lib/default-role"); await assertNotExternalDefault(userId, body.data.roleIds); }
+  catch (e: any) { res.status(400).json({ error: e.message }); return; }
   await db.delete(userRolesTable).where(eq(userRolesTable.userId, userId));
   if (body.data.roleIds.length > 0) {
     await db.insert(userRolesTable).values(

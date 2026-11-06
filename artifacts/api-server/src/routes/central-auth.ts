@@ -21,6 +21,9 @@ const STATE_TTL_MS = 10 * 60_000;
 /** A user may enter IT Hub only with an IT Hub role: Admin, or at least one role assigned in User Master. */
 export async function hasMappedRole(userId: number, role: string | null) {
   if (role === "admin") return true;
+  // internal employees without a role get the default Employee role (never external users)
+  const { ensureDefaultRole } = await import("../lib/default-role");
+  if (await ensureDefaultRole(userId).catch(() => false)) return true;
   const [r] = await db.select({ n: sql<number>`count(*)::int` }).from(userRolesTable).where(eq(userRolesTable.userId, userId));
   return (r?.n || 0) > 0;
 }

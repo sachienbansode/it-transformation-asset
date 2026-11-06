@@ -171,6 +171,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   // (if a different user was previously logged in, this discards their session)
   await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id;
+  { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(user.id).catch(() => {}); }
   req.session.mfaVerified = true;
   await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
   await db.update(usersTable).set({ lastLoginAt: new Date(), status: "active" }).where(eq(usersTable.id, user.id));
@@ -211,6 +212,7 @@ router.post("/auth/login/mfa", async (req, res): Promise<void> => {
   // Regenerate session ID after MFA to prevent session fixation
   await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id;
+  { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(user.id).catch(() => {}); }
   req.session.mfaVerified = true;
   await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
   await db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
@@ -414,6 +416,7 @@ router.get("/auth/sso/callback", async (req, res): Promise<void> => {
     }
 
     req.session.userId = user.id;
+    { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(user.id).catch(() => {}); }
     res.redirect("/");
   } catch (err: any) {
     console.error("SSO callback error:", err);

@@ -292,6 +292,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
           {/* Nav */}
           <nav className="flex-1 px-3 py-1 overflow-y-auto min-h-0">
+            {/* Self-service for every signed-in person */}
+            <SectionLabel collapsed={isCollapsed} open={sectionsOpen.me ?? true} onToggle={() => toggleSection("me")}>My Workspace</SectionLabel>
+            {(isCollapsed || (sectionsOpen.me ?? true)) && [{ href: "/my-assets", label: "My Assets", icon: Laptop }, { href: "/my-policies", label: "My Policies", icon: FileSignature }].map(item => (
+              <NavItem key={item.href} href={item.href} label={item.label} icon={item.icon} active={location === item.href} collapsed={isCollapsed} />
+            ))}
             {visibleDrishtiItems.length > 0 && (
               <>
                 <SectionLabel
