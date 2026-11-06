@@ -23,7 +23,7 @@ const ACT: Record<string, { label: string; tone: string }> = {
   created: { label: "Created", tone: "bg-blue-500" }, emailed: { label: "Emailed", tone: "bg-indigo-500" }, downloaded: { label: "Downloaded", tone: "bg-sky-500" },
   "link-opened": { label: "Link opened", tone: "bg-slate-400" }, "notice-accepted": { label: "Notice accepted", tone: "bg-violet-500" },
   installed: { label: "Installed", tone: "bg-emerald-500" }, reinstalled: { label: "Re-installed", tone: "bg-emerald-500" },
-  refused: { label: "Install refused", tone: "bg-red-500" }, "link-refused": { label: "Link refused", tone: "bg-amber-500" }, disabled: { label: "Disabled", tone: "bg-slate-500" },
+  refused: { label: "Install refused", tone: "bg-red-500" }, uninstalled: { label: "Uninstalled", tone: "bg-red-600" }, "link-refused": { label: "Link refused", tone: "bg-amber-500" }, disabled: { label: "Disabled", tone: "bg-slate-500" },
 };
 const actLabel = (a: string) => ACT[a]?.label || a;
 const who = (t: string) => String(t || "").replace(/ <.*>$/, "");

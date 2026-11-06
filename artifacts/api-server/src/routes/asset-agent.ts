@@ -171,6 +171,7 @@ publicAgentRouter.post("/agent/v1/enrol", wrap(async (req, res) => {
       VALUES (${deviceId}, ${sha(token)}, ${m.assetId}, ${m.note}, ${hostname}, ${serial}, ${s(b.manufacturer)}, ${s(b.model)}, ${platform}, ${s(b.osName)}, ${s(b.osVersion)}, ${s(b.agentVersion, 20)}, ${ip}, ${c.id}, ${c.user_id ?? null}) RETURNING id`));
     id = r.id;
   }
+  await db.execute(sql`UPDATE asset_agent_alerts SET closed_at = now() WHERE agent_id = ${id} AND kind = 'uninstalled' AND closed_at IS NULL`);
   await keyEv(c.id, ex ? "reinstalled" : "installed", `Device ${hostname || deviceId}`, req, `${ex ? "Re-installed" : "Installed"} on ${hostname || "?"} (serial ${serial || "?"}, ${s(b.osName) || "Windows"}, agent ${s(b.agentVersion, 20) || "?"}) — ${m.note}`);
   await db.execute(sql`UPDATE asset_agent_codes SET uses = uses + 1, used_by_agent = coalesce(used_by_agent, ${c.kind === "user" ? id : null}), used_at = coalesce(used_at, now()) WHERE id = ${c.id}`);
   void logAudit({ entityType: "asset_agent", entityId: id, action: "enrol", performedBy: `Device ${hostname || deviceId}`, summary: `Device agent installed on ${hostname} (${serial || "no serial"}) with ${c.kind === "user" ? `${c.user_name || "user"}'s key …${c.code_hint}` : `bulk key "${c.label}"`} — ${m.note}` }).catch(() => {});
@@ -249,6 +250,27 @@ publicAgentRouter.get("/agent/v1/files/ITHubAgent.ps1", wrap(async (req, res) =>
   res.send(r.body);
 }));
 
+/** The uninstaller reports who removed the agent (computer administrator only); IT gets a critical alert. */
+publicAgentRouter.post("/agent/v1/uninstall", wrap(async (req, res) => {
+  const ag = await agentFromToken(req);
+  if (!ag) return fail(res, 401, "Unknown device");
+  const by = s(req.body?.by, 120) || "unknown account", reason = s(req.body?.reason, 300);
+  const label = ag.assetTag ? `${ag.assetTag} (${ag.hostname})` : ag.hostname;
+  const msg = `Agent uninstalled by ${by} on ${s(req.body?.hostname, 80) || ag.hostname}${reason ? ` — ${reason}` : ""}`;
+  await db.execute(sql`INSERT INTO asset_agent_alerts (agent_id, asset_id, kind, severity, message) VALUES (${ag.id}, ${ag.asset_id}, 'uninstalled', 'Critical', ${msg})
+    ON CONFLICT (agent_id, kind) WHERE closed_at IS NULL DO UPDATE SET message = EXCLUDED.message, opened_at = now()`);
+  const admins = rowsOf(await db.execute(sql`SELECT id FROM users WHERE is_active AND role = 'admin'`));
+  for (const u of admins) await db.execute(sql`INSERT INTO notifications (user_id, title, message, type, link) VALUES (${u.id}, ${`Device agent removed: ${label}`}, ${msg}, 'error', '/asset-agents')`);
+  void logAudit({ entityType: "asset_agent", entityId: ag.id, action: "uninstall", performedBy: by, summary: `${msg} (IP ${req.ip})` }).catch(() => {});
+  if (ag.enrolled_by_code) await keyEv(ag.enrolled_by_code, "uninstalled", by, req, msg);
+  res.json({ ok: true });
+}));
+
+publicAgentRouter.get("/agent/v1/files/Uninstall-ITHubAgent.ps1", wrap(async (req, res) => {
+  const ag = await agentFromToken(req);
+  if (!ag || ag.status === "Revoked") return fail(res, 401, "Unknown device");
+  res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.send(fileBuf("Uninstall-ITHubAgent.ps1"));
+}));
 publicAgentRouter.get("/agent/v1/files/niytri.ico", wrap(async (req, res) => {
   const ag = await agentFromToken(req);
   if (!ag || ag.status === "Revoked") return fail(res, 401, "Unknown device");

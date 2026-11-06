@@ -7,7 +7,7 @@
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.2'
+$AgentVersion = '1.1.3'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -170,6 +170,14 @@ try {
   $cfg | Add-Member -NotePropertyName lastCheckin -NotePropertyValue (Get-Date).ToString('o') -Force
   ($cfg | ConvertTo-Json) | Set-Content $ConfigFile -Encoding UTF8
   Log "Check-in OK: $($r.state)"
+  # tray / usage monitor closed by the user (e.g. Task Manager): start it again for signed-in users
+  $mon = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*ITHubAgent.ps1*-UsageMonitor*' })
+  if (-not $mon.Count -and @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'").Count) { Start-ScheduledTask -TaskName 'IT Hub Agent Usage' -ErrorAction SilentlyContinue; Log 'Usage monitor was not running - restarted' }
+  # keep the uninstaller current (admin-only removal that reports to IT)
+  $unf = Join-Path $Root 'Uninstall-ITHubAgent.ps1'
+  if (-not (Test-Path $unf) -or -not (Select-String -Path $unf -Pattern 'agent/v1/uninstall' -SimpleMatch -Quiet)) {
+    try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/Uninstall-ITHubAgent.ps1" -Headers @{ Authorization = "Bearer $token" } -OutFile $unf -UseBasicParsing -TimeoutSec 30; Log 'Uninstaller updated' } catch { Log "Uninstaller update failed: $($_.Exception.Message)" }
+  }
   $ico = Join-Path $Root 'niytri.ico'
   if (-not (Test-Path $ico)) { try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/niytri.ico" -Headers @{ Authorization = "Bearer $token" } -OutFile $ico -UseBasicParsing -TimeoutSec 30; Log 'Downloaded tray icon' } catch { Log "Icon download failed: $($_.Exception.Message)" } }
   # IT Hub moved to a new address (e.g. UAT -> production): switch only after the new address accepts this device's token
