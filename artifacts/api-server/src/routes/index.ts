@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import healthRouter from "./health";
 import assetAgentRouter, { publicAgentRouter } from "./asset-agent";
 import policiesRouter, { policyGate } from "./policies";
+import deviceSupportRouter from "./device-support";
 import checklistRouter from "./checklist";
 import roadmapRouter from "./roadmap";
 import applicationsRouter from "./applications";
@@ -104,6 +105,7 @@ router.use((req: Request, _res: Response, next: NextFunction) => {
 
 router.use(dashboardRouter);
 router.use(assetAgentRouter);
+router.use(deviceSupportRouter);
 router.use(policiesRouter);
 router.use(checklistRouter);
 router.use(roadmapRouter);

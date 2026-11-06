@@ -35,6 +35,8 @@ import AssetHandovers from "@/pages/asset-handovers";
 import AssetEmployees from "@/pages/asset-employees";
 import AssetAgents from "@/pages/asset-agents";
 import AgentKeys from "@/pages/agent-keys";
+import AgentChats from "@/pages/agent-chats";
+import MyItChats from "@/pages/my-it-chats";
 import MyAssets from "@/pages/my-assets";
 import MyPolicies from "@/pages/my-policies";
 import AdminPolicies from "@/pages/admin-policies";
@@ -96,7 +98,7 @@ function guard(module: string, Component: React.ComponentType) {
 const G = {
   dashboard: guard("assets", AssetDashboard), registry: guard("asset_registry", AssetRegistry), vendors: guard("asset_vendors", AssetVendors),
   licenses: guard("asset_licenses", AssetLicenses), contracts: guard("asset_contracts", AssetContracts), depreciation: guard("asset_depreciation", AssetDepreciation),
-  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), agentKeys: guard("asset_registry", AgentKeys),
+  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), agentKeys: guard("asset_registry", AgentKeys), agentChats: guard("asset_registry", AgentChats),
   audits: guard("asset_audits", AssetAudits), auditDetail: guard("asset_audits", AssetAuditDetail),
 };
 
@@ -178,6 +180,7 @@ function Router() {
               <Route path="/asset-allocations" component={G.handovers} />
               <Route path="/asset-employees" component={G.employees} />
               <Route path="/asset-agents/keys" component={G.agentKeys} />
+              <Route path="/asset-agents/chats" component={G.agentChats} />
               <Route path="/asset-agents" component={G.agents} />
               <Route path="/my-assets" component={MyAssets} />
               <Route path="/a/:tag" component={AssetScan} />
@@ -200,6 +203,7 @@ function Router() {
               <Route path="/compliance-library" component={ComplianceLibrary} />
               <Route path="/profile" component={Profile} />
               <Route path="/my-policies" component={MyPolicies} />
+              <Route path="/my-it-chats" component={MyItChats} />
               <Route path="/admin/policies">
                 {user.role === "admin" ? <AdminPolicies /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>

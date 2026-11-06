@@ -57,7 +57,7 @@ async function safeLog(p: Parameters<typeof logAudit>[0]) { try { await logAudit
 const s = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
 const today = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10); // India date
 
-async function actor(req: Request) {
+export async function actor(req: Request) {
   const userId = (req.session as any)?.userId as number | undefined;
   const performedBy = await getPerformedBy(userId).catch(() => "System");
   let name = "System";
@@ -157,6 +157,25 @@ async function issueOne(tx: any, assetId: number, emp: Employee, h: any, who: { 
     notes: `${handoverNo} · to ${emp.userName} (${emp.employeeCode}, ${emp.userType}) · ${s(h.allocationType) || "Permanent"} · condition ${s(h.condition) || "Good"}${s(h.accessories) ? ` · accessories: ${s(h.accessories)}` : ""}`,
   });
   return { ...al, handoverNo, assetTag: asset.assetTag };
+}
+
+/** Issue an asset to an employee from another module (e.g. Device Health). Same rules and handover as Issue;
+ *  when reassign is true an asset held by someone else is returned to store first. */
+export async function issueOrReassign(tx: any, assetId: number, emp: Employee, h: any, who: { performedBy: string; name: string }, reassign: boolean, via: string) {
+  const [asset] = await tx.select().from(assetsTable).where(and(eq(assetsTable.id, assetId), eq(assetsTable.isActive, true)));
+  if (!asset) throw new Error("Asset not found");
+  if (asset.status === "Allocated" && (asset.ownerEmployeeCode || "").toLowerCase() === emp.employeeCode.toLowerCase()) return { action: "Unchanged", assetTag: asset.assetTag };
+  if (asset.status === "Allocated") {
+    const from = `${asset.ownerName || "—"}${asset.ownerEmployeeCode ? ` (${asset.ownerEmployeeCode})` : ""}`;
+    if (!reassign) throw new Error(`${asset.assetTag} is with ${from}. Tick "move it from the current holder" to reassign it.`);
+    const [al] = await tx.select().from(assetAllocationsTable).where(and(eq(assetAllocationsTable.assetId, asset.id), eq(assetAllocationsTable.status, "Active")));
+    if (al) await tx.update(assetAllocationsTable).set({ status: "Returned", endDate: today(), returnCondition: s(h.condition) || "Good", returnRemarks: `Reassigned to ${emp.employeeCode} via ${via}`, receivedBy: who.name, returnedAt: new Date() }).where(eq(assetAllocationsTable.id, al.id));
+    await tx.insert(assetTransactionsTable).values({ assetId: asset.id, action: "Returned", oldStatus: "Allocated", newStatus: "In Stock", userName: who.performedBy, notes: `${al?.handoverNo ?? ""} · from ${from} · reassigned via ${via}`,
+      changes: [{ field: "holder", label: "Holder", from, to: "IT store (reassignment)" }] });
+    await tx.update(assetsTable).set({ status: "In Stock", ownerId: null, ownerName: null, ownerEmail: null, ownerEmployeeCode: null }).where(eq(assetsTable.id, asset.id));
+    const r = await issueOne(tx, asset.id, emp, h, who); return { action: "Reassigned", from, ...r };
+  }
+  const r = await issueOne(tx, asset.id, emp, h, who); return { action: "Issued", ...r };
 }
 
 /**

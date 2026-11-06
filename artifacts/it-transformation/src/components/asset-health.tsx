@@ -1,9 +1,15 @@
 import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { fmtDate, fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
-import { Activity, AlertTriangle, Battery, Cpu, HardDrive, MemoryStick, ShieldCheck, WifiOff, CheckCircle2, Clock, Package } from "lucide-react";
+import { Ticket, EyeOff, Eye, MessageSquare, Activity, AlertTriangle, Battery, Cpu, HardDrive, MemoryStick, ShieldCheck, WifiOff, CheckCircle2, Clock, Package } from "lucide-react";
 
 /* Device health and daily usage reported by the IT Hub agent (Asset Registry › view › Health; Device Agents). */
 
@@ -36,8 +42,9 @@ function Meter({ label, value, icon: I, invert = false, suffix = "%", warnAt, ba
   );
 }
 
-export function AssetHealthPanel({ assetId }: { assetId: number }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ["asset-health", assetId], queryFn: () => apiFetch<any>(`/assets/${assetId}/health`), refetchInterval: 60_000 });
+export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat }: { assetId?: number | null; agentId?: number | null; canAct?: boolean; onChat?: (alert: any) => void }) {
+  const qc = useQueryClient(); const { toast } = useToast(); const [ign, setIgn] = useState<any>(null); const [busyA, setBusyA] = useState<number | null>(null);
+  const { data, isLoading, error } = useQuery({ queryKey: ["asset-health", agentId ? `g${agentId}` : assetId], queryFn: () => apiFetch<any>(agentId ? `/asset-agents/${agentId}/health` : `/assets/${assetId}/health`), refetchInterval: 60_000 });
   const [showSw, setShowSw] = useState(false); const [swQ, setSwQ] = useState("");
   if (isLoading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>;
   if (error) return <div className="py-6 text-sm text-red-600">{(error as Error).message}</div>;
@@ -51,6 +58,12 @@ export function AssetHealthPanel({ assetId }: { assetId: number }) {
   const a = data.agent, h = a.latest || {};
   const minDisk = (h.disks || []).reduce((m: number | null, d: any) => d.freePct == null ? m : m === null ? d.freePct : Math.min(m, d.freePct), null);
   const open = (data.alerts || []).filter((x: any) => !x.closedAt);
+  const reload = () => { qc.invalidateQueries({ queryKey: ["asset-health"] }); qc.invalidateQueries({ queryKey: ["asset-agents"] }); };
+  async function act(x: any, path: string, body: any = {}, ok?: (r: any) => string) {
+    setBusyA(x.id);
+    try { const r = await apiFetch<any>(`/asset-agents/alerts/${x.id}/${path}`, { method: "POST", body: JSON.stringify(body) }); if (ok) toast({ title: ok(r) }); reload(); return true; }
+    catch (e: any) { toast({ title: "Could not do that", description: e.message, variant: "destructive" }); return false; } finally { setBusyA(null); }
+  }
   const maxU = Math.max(60, ...(data.usage || []).map((u: any) => u.active + u.idle));
   const days: any[] = []; for (let i = 29; i >= 0; i--) { const d = new Date(Date.now() + 330 * 60e3 - i * 86400e3).toISOString().slice(0, 10); days.push(data.usage.find((u: any) => u.day === d) || { day: d, active: 0, idle: 0 }); }
   const activeDays = data.usage.filter((u: any) => u.active > 0).length;
@@ -79,7 +92,19 @@ export function AssetHealthPanel({ assetId }: { assetId: number }) {
         {h.network?.ip && <div className="flex justify-between"><span className="text-muted-foreground">IP</span><span className="font-mono">{h.network.ip}</span></div>}
       </div>
       {open.length > 0 && <div className="space-y-1">{open.map((x: any) => (
-        <div key={x.id} className={cn("rounded-md border px-2.5 py-1.5 text-xs flex items-start gap-1.5", x.severity === "Critical" ? STATE_TONE.Critical : STATE_TONE.Warning)}><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>{x.message}<span className="opacity-70"> · since {fmtDateTime(x.openedAt)}</span></span></div>))}</div>}
+        <div key={x.id} className={cn("rounded-md border px-2.5 py-1.5 text-xs", x.ignored ? "bg-muted/40 text-muted-foreground" : x.severity === "Critical" ? STATE_TONE.Critical : STATE_TONE.Warning)}>
+          <div className="flex items-start gap-1.5">{x.ignored ? <EyeOff className="w-3.5 h-3.5 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+            <span className="flex-1">{x.message}<span className="opacity-70"> · since {fmtDateTime(x.openedAt)}</span>
+              {x.ticketNo && <> · <Link href={`/itsm-incidents?q=${x.ticketNo}`} className="underline font-semibold">{x.ticketNo}</Link>{x.ticketStatus ? ` (${x.ticketStatus}${x.ticketAuto ? ", auto" : ""})` : ""}</>}
+              {x.ignored && <div className="mt-0.5">Ignored by {String(x.ignoredBy || "").replace(/ <.*>$/, "")} · {fmtDate(x.ignoredAt)}{x.ignoreUntil ? ` · until ${fmtDate(x.ignoreUntil)}` : ""} — {x.ignoreReason}</div>}</span></div>
+          {canAct && <div className="flex gap-1 mt-1 justify-end flex-wrap">
+            {!x.ticketNo && <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1 bg-background" disabled={busyA === x.id} onClick={() => act(x, "ticket", {}, r => `Ticket ${r.ticketNo} raised`)}><Ticket className="w-3 h-3" />Raise ticket</Button>}
+            {onChat && <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1 bg-background" onClick={() => onChat({ ...x, agentId: data.agent.id })}><MessageSquare className="w-3 h-3" />Chat with employee</Button>}
+            {x.ignored ? <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1 bg-background" disabled={busyA === x.id} onClick={() => act(x, "unignore", {}, () => "No longer ignored")}><Eye className="w-3 h-3" />Stop ignoring</Button>
+              : <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1 bg-background" onClick={() => setIgn(x)}><EyeOff className="w-3 h-3" />Ignore</Button>}
+          </div>}
+        </div>))}</div>}
+      {ign && <IgnoreDialog alert={ign} onClose={() => setIgn(null)} onDone={reload} />}
       {!open.length && <div className={cn("rounded-md border px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5", STATE_TONE.Healthy)}><ShieldCheck className="w-3.5 h-3.5" />No open health issues</div>}
 
       <section>
@@ -113,5 +138,25 @@ export function AssetHealthPanel({ assetId }: { assetId: number }) {
       </section>
       <div className="text-[10px] text-muted-foreground">Agent {a.agentVersion} · enrolled {fmtDate(a.enrolledAt)} · usage records active vs idle minutes and the foreground application only — no keystrokes, screenshots or content.</div>
     </div>
+  );
+}
+
+/** Ignore a health item — reason is mandatory; ignored items do not count towards the device's health. */
+function IgnoreDialog({ alert, onClose, onDone }: { alert: any; onClose: () => void; onDone: () => void }) {
+  const { toast } = useToast(); const [reason, setReason] = useState(""); const [until, setUntil] = useState(""); const [busy, setBusy] = useState(false);
+  async function go() {
+    setBusy(true);
+    try { await apiFetch(`/asset-agents/alerts/${alert.id}/ignore`, { method: "POST", body: JSON.stringify({ reason: reason.trim(), until: until || undefined }) }); toast({ title: "Ignored", description: "It no longer counts towards this device's health." }); onDone(); onClose(); }
+    catch (e: any) { toast({ title: "Could not ignore", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
+  return (
+    <Dialog open onOpenChange={o => !o && !busy && onClose()}><DialogContent className="max-w-md">
+      <DialogHeader><DialogTitle>Ignore health item</DialogTitle><DialogDescription>{alert.message}. It stays on record, is shown as ignored and does not make the device Critical or Warning.{alert.ticketNo ? ` The reason is added to ${alert.ticketNo}.` : ""}</DialogDescription></DialogHeader>
+      <div className="space-y-2">
+        <div className="space-y-1"><div className="text-xs font-medium">Reason *</div><Textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. G: is the card reader — not a real drive" /></div>
+        <div className="space-y-1"><div className="text-xs font-medium">Ignore until (optional — blank = until it is fixed)</div><Input type="date" value={until} onChange={e => setUntil(e.target.value)} /></div>
+      </div>
+      <DialogFooter><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={go} disabled={busy || reason.trim().length < 10}>Ignore</Button></DialogFooter>
+    </DialogContent></Dialog>
   );
 }

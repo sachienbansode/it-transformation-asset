@@ -153,7 +153,7 @@ export default function ItsmIncidents() {
   const myTeamIds = myTeams.map(t => t.id);
   const canWork = (r: any) => isAdmin || (r?.teamId && myTeamIds.includes(r.teamId));
   const [view, setView] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterCategory, setFilterCategory] = useState("");

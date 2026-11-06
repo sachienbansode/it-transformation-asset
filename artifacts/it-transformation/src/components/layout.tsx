@@ -11,7 +11,7 @@ import {
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
-  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop, ScanLine, FileSignature, TrendingDown,
+  Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop, ScanLine, FileSignature, TrendingDown, MessageSquare,
   ClipboardCheck, FolderOpen,
   Activity,
 } from "lucide-react";
@@ -233,7 +233,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ASSET_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ITSM_ITEMS.find(i => location.startsWith(i.href))?.label
-    ?? (location.startsWith("/admin/policies") ? "Policies & Consent" : location.startsWith("/my-policies") ? "My Policies" : location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
+    ?? (location.startsWith("/admin/policies") ? "Policies & Consent" : location.startsWith("/my-policies") ? "My Policies" : location.startsWith("/my-it-chats") ? "My IT Chats" : location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
 
   const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
   const isCollapsed = sidebar === "collapsed";
@@ -295,7 +295,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <nav className="flex-1 px-3 py-1 overflow-y-auto min-h-0">
             {/* Self-service for every signed-in person */}
             <SectionLabel collapsed={isCollapsed} open={sectionsOpen.me ?? true} onToggle={() => toggleSection("me")}>My Workspace</SectionLabel>
-            {(isCollapsed || (sectionsOpen.me ?? true)) && [{ href: "/my-assets", label: "My Assets", icon: Laptop }, { href: "/my-policies", label: "My Policies", icon: FileSignature }].map(item => (
+            {(isCollapsed || (sectionsOpen.me ?? true)) && [{ href: "/my-assets", label: "My Assets", icon: Laptop }, { href: "/my-policies", label: "My Policies", icon: FileSignature }, { href: "/my-it-chats", label: "My IT Chats", icon: MessageSquare }].map(item => (
               <NavItem key={item.href} href={item.href} label={item.label} icon={item.icon} active={location === item.href} collapsed={isCollapsed} />
             ))}
             {visibleDrishtiItems.length > 0 && (

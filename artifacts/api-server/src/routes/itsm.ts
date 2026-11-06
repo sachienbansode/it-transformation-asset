@@ -1164,3 +1164,37 @@ router.get("/itsm-report", async (req, res): Promise<void> => {
 
 export { approversWithDelegates, approvalState, ticketBrief, KIND_OF, PAGE_OF, TYPE_NAME };
 export default router;
+
+/* ─── raised by other modules (e.g. Device Health) ────────────────────────── */
+/** Create an incident on behalf of the system; routing, SLA, numbering, history and notifications as for a normal ticket. */
+export async function createSystemIncident(o: { title: string; description: string; priority: string; severity: string; category: string; subcategory: string | null; requesterUserId?: number | null; by: string; affectedSystem?: string | null; source?: string }) {
+  const createdAt = new Date();
+  const rt = await route("incident", o.category, o.subcategory, createdAt);
+  let requester: any = null;
+  if (o.requesterUserId) [requester] = await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable).where(eq(usersTable.id, o.requesterUserId));
+  const values: any = { title: o.title.slice(0, 200), description: o.description, priority: o.priority, severity: o.severity, source: o.source || "Device agent", category: rt.category, subcategory: rt.subcategory,
+    teamId: rt.team.id, assignedGroup: rt.team.name, expectedClosureDate: rt.expectedClosureDate, requesterUserId: requester?.id ?? null, reportedBy: requester?.name || o.by, reporterEmail: requester?.email ?? null,
+    affectedSystem: o.affectedSystem ?? null, status: "Open", assignedTo: null, createdBy: o.by, updatedBy: o.by, createdAt, updatedAt: createdAt };
+  Object.assign(values, slaColumns("incident", values, await slaConfig()));
+  const item: any = await db.transaction(async tx => {
+    values.ticketNo = await nextNo(tx, "itsm_incidents", "ticket_no", "INC");
+    const [row] = await tx.insert(itsmIncidentsTable).values(values).returning();
+    await history("incident", row.id, o.by, `Incident raised by ${o.by} — assigned to ${row.assignedGroup}`, null, "Open", tx);
+    return row;
+  });
+  await audit({ entityType: "itsm_incident", entityId: item.id, action: "create", performedBy: o.by, summary: `Created Incident ${item.ticketNo}: ${item.title} → ${item.assignedGroup}`, newValues: item });
+  void notifyTicket("incident", item, "created");
+  return item;
+}
+/** Add a note to an incident; when resolve is true and nobody has picked it up yet, resolve it. */
+export async function noteIncident(id: number, by: string, note: string, resolve = false) {
+  const [t]: any[] = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.id, id));
+  if (!t) return null;
+  if (resolve && t.status === "Open" && !t.assignedTo) {
+    await db.update(itsmIncidentsTable).set({ status: "Resolved", resolvedAt: new Date(), resolutionNotes: note, updatedBy: by, updatedAt: new Date() }).where(eq(itsmIncidentsTable.id, id));
+    await history("incident", id, by, note, t.status, "Resolved");
+    return "Resolved";
+  }
+  await history("incident", id, by, note, null, null);
+  return t.status;
+}

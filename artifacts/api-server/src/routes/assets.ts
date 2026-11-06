@@ -37,7 +37,7 @@ const TYPE_PREFIX: Record<string, string> = {
 };
 
 /** Next free tag for a type (PREFIX-0001…), skipping tags already used — safe after deletions / imports. */
-async function nextTag(type: string) {
+export async function nextTag(type: string) {
   const prefix = TYPE_PREFIX[type] || "AST";
   const rows = await db.select({ t: assetsTable.assetTag }).from(assetsTable).where(sql`asset_tag ILIKE ${prefix + "-%"}`);
   const used = new Set(rows.map(r => r.t.toUpperCase()));

@@ -45,11 +45,12 @@ export function evaluate(h: any, platform: string, t: Thresholds, now = new Date
   const out: { kind: string; severity: "Warning" | "Critical"; message: string }[] = [];
   const days = (d: any) => d ? (now.getTime() - new Date(d).getTime()) / 86_400_000 : null;
   for (const d of (h?.disks || [])) {
+    if ((num(d.sizeGb) ?? 0) < 1) continue;   // card readers, empty virtual / cloud drives report 0 GB
     const free = num(d.freePct);
     if (free !== null && free < t.diskFreePct) out.push({ kind: `disk:${d.drive}`, severity: free < t.diskFreePct / 2 ? "Critical" : "Warning", message: `Drive ${d.drive} has only ${free.toFixed(0)}% free (${num(d.freeGb)?.toFixed(1) ?? "?"} GB of ${num(d.sizeGb)?.toFixed(0) ?? "?"} GB)` });
   }
   for (const p of (h?.physicalDisks || [])) if (p.health && !/healthy/i.test(p.health)) out.push({ kind: `smart:${p.name}`, severity: /unhealthy|fail/i.test(p.health) ? "Critical" : "Warning", message: `Disk ${p.name} reports ${p.health}${p.opStatus ? ` (${p.opStatus})` : ""} — back up and plan replacement` });
-  if (h?.battery?.present && num(h.battery.healthPct) !== null && h.battery.healthPct < t.batteryHealthPct) out.push({ kind: "battery", severity: h.battery.healthPct < t.batteryHealthPct - 20 ? "Critical" : "Warning", message: `Battery holds ${Math.round(h.battery.healthPct)}% of its design capacity — replacement due` });
+  if (h?.battery?.present && num(h.battery.healthPct) !== null && h.battery.healthPct > 0 && h.battery.healthPct <= 150 && h.battery.healthPct < t.batteryHealthPct) out.push({ kind: "battery", severity: h.battery.healthPct < t.batteryHealthPct - 20 ? "Critical" : "Warning", message: `Battery holds ${Math.round(h.battery.healthPct)}% of its design capacity — replacement due` });
   const av = h?.security?.av;
   if (Array.isArray(av) && platform === "Workstation") {
     if (!av.length || !av.some((a: any) => a.enabled)) out.push({ kind: "antivirus", severity: "Critical", message: "No antivirus is switched on" });
@@ -74,7 +75,9 @@ export function evaluate(h: any, platform: string, t: Thresholds, now = new Date
 async function syncAlerts(agentId: number, assetId: number | null, list: { kind: string; severity: string; message: string }[], keep: (k: string) => boolean = () => false) {
   const open = rowsOf(await db.execute(sql`SELECT id, kind, severity FROM asset_agent_alerts WHERE agent_id = ${agentId} AND closed_at IS NULL`));
   const kinds = new Set(list.map(a => a.kind));
-  for (const o of open) if (!kinds.has(o.kind) && !keep(o.kind)) await db.execute(sql`UPDATE asset_agent_alerts SET closed_at = now() WHERE id = ${o.id}`);
+  const closed: number[] = [];
+  for (const o of open) if (!kinds.has(o.kind) && !keep(o.kind)) { await db.execute(sql`UPDATE asset_agent_alerts SET closed_at = now() WHERE id = ${o.id}`); closed.push(o.id); }
+  if (closed.length) void import("./device-support").then(m => m.alertsClosed(closed)).catch(e => console.error(e));
   const fresh: typeof list = [];
   for (const a of list) {
     const ex = open.find(o => o.kind === a.kind);
@@ -235,9 +238,12 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
   }
   const fresh = await syncAlerts(ag.id, assetId, ev.alerts, k => k === "idle"); // idle is evaluated by the daily sweep
   void notifyCritical(ag, fresh).catch(() => {});
+  const ds = await import("./device-support");
+  const state = await ds.recomputeState(ag.id);   // ignored items do not count
+  void ds.autoTickets(ag.id).catch(e => console.error("auto tickets", e));
   const swDue = !ag.software_at || Date.now() - new Date(ag.software_at).getTime() > 23 * 3600_000;
   const latest = agentRelease();
-  res.json({ ok: true, state: ev.state, checkinMinutes: st.checkinMinutes, trackApps: st.trackApps, sendSoftware: swDue && !Array.isArray(req.body?.software),
+  res.json({ ok: true, state, checkinMinutes: st.checkinMinutes, trackApps: st.trackApps, sendSoftware: swDue && !Array.isArray(req.body?.software),
     latestVersion: latest?.version || null, agentSha256: latest?.sha256 || null, serverUrl: agentServerUrl() });
 }));
 
@@ -263,6 +269,7 @@ publicAgentRouter.post("/agent/v1/uninstall", wrap(async (req, res) => {
   for (const u of admins) await db.execute(sql`INSERT INTO notifications (user_id, title, message, type, link) VALUES (${u.id}, ${`Device agent removed: ${label}`}, ${msg}, 'error', '/asset-agents')`);
   void logAudit({ entityType: "asset_agent", entityId: ag.id, action: "uninstall", performedBy: by, summary: `${msg} (IP ${req.ip})` }).catch(() => {});
   if (ag.enrolled_by_code) await keyEv(ag.enrolled_by_code, "uninstalled", by, req, msg);
+  void import("./device-support").then(m => m.autoTickets(ag.id)).catch(() => {});
   res.json({ ok: true });
 }));
 
@@ -344,13 +351,19 @@ router.get("/asset-agents", requireAuth, wrap(async (_req, res) => {
            g.agent_version AS "agentVersion", g.last_user AS "lastUser", g.last_ip AS "lastIp", g.health_state AS "healthState", g.enrolled_at AS "enrolledAt", g.last_seen_at AS "lastSeenAt",
            g.status, g.match_note AS "matchNote", g.asset_id AS "assetId", s.asset_tag AS "assetTag", s.name AS "assetName", s.owner_name AS "ownerName", s.department, s.location,
            g.latest->'cpu'->>'pct' AS cpu, g.latest->'mem'->>'usedPct' AS mem, g.latest->>'uptimeHours' AS "uptimeHours",
-           (SELECT min((d->>'freePct')::numeric) FROM jsonb_array_elements(coalesce(g.latest->'disks','[]'::jsonb)) d) AS "diskFreePct",
-           g.latest->'battery'->>'healthPct' AS "batteryHealthPct",
-           (SELECT count(*)::int FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL) AS "openAlerts",
-           (SELECT string_agg(x.message, ' · ' ORDER BY x.severity, x.opened_at) FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL) AS "alertText",
+           (SELECT min((d->>'freePct')::numeric) FROM jsonb_array_elements(coalesce(g.latest->'disks','[]'::jsonb)) d WHERE coalesce((d->>'sizeGb')::numeric, 0) >= 1) AS "diskFreePct",
+           CASE WHEN (g.latest->'battery'->>'healthPct')::numeric > 0 AND (g.latest->'battery'->>'healthPct')::numeric <= 150 THEN g.latest->'battery'->>'healthPct' END AS "batteryHealthPct",
+           g.user_id AS "keyUserId", ku.name AS "keyUserName", ku.employee_code AS "keyEmployeeCode", ku.department AS "keyDepartment",
+           s.owner_id AS "ownerId", s.owner_employee_code AS "ownerEmployeeCode", s.status AS "assetStatus", s.type AS "assetType",
+           ou.department AS "ownerDepartment",
+           (SELECT count(*)::int FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL AND NOT (x.ignored_at IS NOT NULL AND (x.ignore_until IS NULL OR x.ignore_until > now()))) AS "openAlerts",
+           (SELECT count(*)::int FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL AND x.ignored_at IS NOT NULL AND (x.ignore_until IS NULL OR x.ignore_until > now())) AS "ignoredAlerts",
+           (SELECT string_agg(x.ticket_no, ', ') FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL AND x.ticket_no IS NOT NULL) AS "tickets",
+           (SELECT count(*)::int FROM device_chats c WHERE c.agent_id = g.id AND c.status IN ('Waiting on employee', 'Waiting on IT')) AS "openChats",
+           (SELECT string_agg(x.message, ' · ' ORDER BY x.severity, x.opened_at) FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL AND NOT (x.ignored_at IS NOT NULL AND (x.ignore_until IS NULL OR x.ignore_until > now()))) AS "alertText",
            (SELECT coalesce(sum(u.active_mins), 0)::int FROM asset_usage_daily u WHERE u.agent_id = g.id AND u.day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 6) AS "active7d",
            (SELECT max(u.day) FROM asset_usage_daily u WHERE u.agent_id = g.id AND u.active_mins > 0) AS "lastActiveDay"
-    FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id
+    FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id LEFT JOIN users ku ON ku.id = g.user_id LEFT JOIN users ou ON ou.id = s.owner_id
     ORDER BY (g.status = 'Active') DESC, CASE g.health_state WHEN 'Critical' THEN 0 WHEN 'Offline' THEN 1 WHEN 'Warning' THEN 2 ELSE 3 END, g.hostname`));
   const off = st.thresholds.offlineDays * 86_400_000;
   for (const r of rows) if (r.status === "Active" && (!r.lastSeenAt || Date.now() - new Date(r.lastSeenAt).getTime() > off)) r.healthState = "Offline";
@@ -360,11 +373,21 @@ router.get("/asset-agents", requireAuth, wrap(async (_req, res) => {
 }));
 
 /** Health, usage and software for one register asset (Asset Registry › view › Health). */
+const AG_COLS = sql`id, hostname, serial_number AS "serialNumber", platform, os_name AS "osName", os_version AS "osVersion", agent_version AS "agentVersion", last_user AS "lastUser",
+      last_seen_at AS "lastSeenAt", enrolled_at AS "enrolledAt", health_state AS "healthState", latest, status, software_at AS "softwareAt", manufacturer, model, asset_id AS "assetId", user_id AS "userId"`;
+router.get("/asset-agents/:id/health", requireAuth, wrap(async (req, res) => {
+  const id = Number(req.params.id); if (!Number.isInteger(id)) return fail(res, 400, "Invalid device");
+  const [ag] = rowsOf(await db.execute(sql`SELECT ${AG_COLS} FROM asset_agents WHERE id = ${id}`));
+  if (!ag) return res.json({ agent: null });
+  res.json(await healthOf(ag));
+}));
 router.get("/assets/:id/health", requireAuth, wrap(async (req, res) => {
   const id = Number(req.params.id); if (!Number.isInteger(id)) return fail(res, 400, "Invalid asset");
-  const [ag] = rowsOf(await db.execute(sql`SELECT id, hostname, serial_number AS "serialNumber", platform, os_name AS "osName", os_version AS "osVersion", agent_version AS "agentVersion", last_user AS "lastUser",
-      last_seen_at AS "lastSeenAt", enrolled_at AS "enrolledAt", health_state AS "healthState", latest, status, software_at AS "softwareAt", manufacturer, model FROM asset_agents WHERE asset_id = ${id} AND status = 'Active' ORDER BY last_seen_at DESC NULLS LAST LIMIT 1`));
+  const [ag] = rowsOf(await db.execute(sql`SELECT ${AG_COLS} FROM asset_agents WHERE asset_id = ${id} AND status = 'Active' ORDER BY last_seen_at DESC NULLS LAST LIMIT 1`));
   if (!ag) return res.json({ agent: null });
+  res.json(await healthOf(ag));
+}));
+async function healthOf(ag: any) {
   const st = await agentSettings();
   if (!ag.lastSeenAt || Date.now() - new Date(ag.lastSeenAt).getTime() > st.thresholds.offlineDays * 86_400_000) ag.healthState = "Offline";
   const trend = rowsOf(await db.execute(sql`SELECT date_trunc('hour', at) AS at, round(avg(cpu_pct), 1)::float AS cpu, round(avg(mem_pct), 1)::float AS mem, round(min(disk_min_free_pct), 1)::float AS disk
@@ -374,9 +397,81 @@ router.get("/assets/:id/health", requireAuth, wrap(async (req, res) => {
   const apps = rowsOf(await db.execute(sql`SELECT k AS app, sum(v::int)::int AS mins FROM asset_usage_daily u, jsonb_each_text(u.apps) AS e(k, v)
       WHERE u.agent_id = ${ag.id} AND u.day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY k ORDER BY mins DESC LIMIT 12`));
   const users = rowsOf(await db.execute(sql`SELECT user_name AS "user", count(*)::int AS days, sum(active_mins)::int AS active, max(day) AS "lastDay" FROM asset_usage_daily WHERE agent_id = ${ag.id} AND day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY 1 ORDER BY active DESC`));
-  const alerts = rowsOf(await db.execute(sql`SELECT id, kind, severity, message, opened_at AS "openedAt", closed_at AS "closedAt" FROM asset_agent_alerts WHERE agent_id = ${ag.id} ORDER BY closed_at IS NULL DESC, opened_at DESC LIMIT 30`));
+  const alerts = rowsOf(await db.execute(sql`SELECT id, kind, severity, message, opened_at AS "openedAt", closed_at AS "closedAt", incident_id AS "incidentId", ticket_no AS "ticketNo", ticket_auto AS "ticketAuto",
+      ignored_at AS "ignoredAt", ignored_by AS "ignoredBy", ignore_reason AS "ignoreReason", ignore_until AS "ignoreUntil",
+      (ignored_at IS NOT NULL AND (ignore_until IS NULL OR ignore_until > now())) AS ignored,
+      (SELECT status FROM itsm_incidents i WHERE i.id = asset_agent_alerts.incident_id) AS "ticketStatus"
+    FROM asset_agent_alerts WHERE agent_id = ${ag.id} ORDER BY closed_at IS NULL DESC, opened_at DESC LIMIT 30`));
   const software = rowsOf(await db.execute(sql`SELECT name, version, publisher, install_date AS "installDate" FROM asset_software WHERE agent_id = ${ag.id} ORDER BY name`));
-  res.json({ agent: ag, trend, usage, apps, users, alerts, software, settings: { trackApps: st.trackApps, thresholds: st.thresholds } });
+  return { agent: ag, trend, usage, apps, users, alerts, software, settings: { trackApps: st.trackApps, thresholds: st.thresholds } };
+}
+
+/** Link a device to an employee and a register asset (existing, or registered from what the device reports) and,
+ *  if asked, issue the asset to the employee in the register (handover HO-…, employee acknowledges in My Assets). */
+router.post("/asset-agents/:id/assign", requireAuth, wrap(async (req, res) => {
+  if (!await canManage(req)) return fail(res, 403, "You need edit access to the Asset Registry");
+  const id = Number(req.params.id); const b = req.body || {};
+  const [ag] = rowsOf(await db.execute(sql`SELECT * FROM asset_agents WHERE id = ${id}`)); if (!ag) return fail(res, 404, "Device not found");
+  const { resolveHolder, issueOrReassign, actor } = await import("./asset-lifecycle");
+  const { nextTag } = await import("./assets");
+  const { assetsTable, assetTransactionsTable } = await import("@workspace/db");
+  let emp: any = null;
+  if (b.userId) { emp = await resolveHolder({ userId: b.userId }); if (typeof emp === "string") return fail(res, 400, emp); }
+  const who = await actor(req);
+  if (b.issue && !emp) return fail(res, 400, "Choose the employee to issue the asset to");
+  try {
+    const out = await db.transaction(async (tx: any) => {
+      let assetId: number | null = b.assetId ? Number(b.assetId) : null; let created: any = null;
+      if (!assetId && b.newAsset) {
+        const n = b.newAsset; const type = ["Laptop", "Desktop", "Server"].includes(n.type) ? n.type : (ag.platform === "Server" ? "Server" : /book|laptop|notebook/i.test(`${ag.model}`) ? "Laptop" : "Desktop");
+        const serial = s(ag.serial_number, 80); if (!serial) throw new Error("This computer did not report a serial number — add the asset in Asset Registry");
+        const [dup] = rowsOf(await tx.execute(sql`SELECT asset_tag FROM assets WHERE is_active AND lower(serial_number) = lower(${serial})`));
+        if (dup) throw new Error(`Serial ${serial} is already in the register as ${dup.asset_tag} — pick it instead`);
+        const tag = (await nextTag(type)).tag;
+        const name = s(n.name, 120) || [ag.manufacturer, ag.model].filter(Boolean).join(" ") || ag.hostname;
+        [created] = await tx.insert(assetsTable).values({ assetTag: tag, name, type, serialNumber: serial, status: "In Stock", osVersion: [ag.os_name, ag.os_version].filter(Boolean).join(" ") || null,
+          location: s(n.location, 80), configuration: [ag.manufacturer, ag.model, ag.hostname && `Computer name ${ag.hostname}`].filter(Boolean).join(" · "),
+          notes: `Registered from Device Health (agent on ${ag.hostname})`, createdBy: who.performedBy, updatedBy: who.performedBy }).returning();
+        await tx.insert(assetTransactionsTable).values({ assetId: created.id, action: "Registered", newStatus: "In Stock", userName: who.performedBy, notes: `Registered from Device Health — ${ag.hostname}, serial ${serial}` });
+        assetId = created.id;
+      }
+      if (assetId) {
+        const [other] = rowsOf(await tx.execute(sql`SELECT hostname FROM asset_agents WHERE asset_id = ${assetId} AND status = 'Active' AND id <> ${id}`));
+        if (other) throw new Error(`That asset already reports as ${other.hostname} — remove or unlink that device first`);
+      }
+      const [a] = assetId ? rowsOf(await tx.execute(sql`SELECT asset_tag, serial_number FROM assets WHERE id = ${assetId} AND is_active`)) : [null];
+      if (assetId && !a) throw new Error("Asset not found in the register");
+      await tx.execute(sql`UPDATE asset_agents SET asset_id = ${assetId}, user_id = ${emp ? emp.userId : sql`user_id`},
+        match_note = ${assetId ? `Linked by ${who.name}${created ? " (registered from the device)" : ""}` : "Unlinked"} WHERE id = ${id}`);
+      let issued: any = null;
+      if (b.issue && assetId && emp) issued = await issueOrReassign(tx, assetId, emp, { condition: "Good", allocationType: "Permanent", notes: s(b.notes, 300) || `Matched by IT Hub agent on ${ag.hostname}` }, who, !!b.reassign, "Device Health");
+      return { assetId, assetTag: a?.asset_tag || null, created: !!created, issued };
+    });
+    void logAudit({ entityType: "asset_agent", entityId: id, action: "assign", performedBy: who.performedBy,
+      summary: `${ag.hostname}: ${out.assetTag ? `linked to ${out.assetTag}${out.created ? " (new asset)" : ""}` : "unlinked"}${emp ? ` · employee ${emp.userName} (${emp.employeeCode})` : ""}${out.issued ? ` · ${out.issued.action}${out.issued.handoverNo ? ` ${out.issued.handoverNo}` : ""}` : ""}` }).catch(() => {});
+    res.json(out);
+  } catch (e: any) { return fail(res, 400, e?.message || String(e)); }
+}));
+
+/** One employee: devices, register assets, usage across their devices, apps and issues. */
+router.get("/asset-agents/employee/:userId", requireAuth, wrap(async (req, res) => {
+  if (!await canManage(req)) return fail(res, 403, "You need edit access to the Asset Registry");
+  const uidp = Number(req.params.userId);
+  const [u] = rowsOf(await db.execute(sql`SELECT id, name, email, employee_code AS "employeeCode", department, designation, coalesce(user_type, 'internal') AS "userType", is_active AS "isActive", last_login_at AS "lastLoginAt" FROM users WHERE id = ${uidp}`));
+  if (!u) return fail(res, 404, "Employee not found");
+  const devices = rowsOf(await db.execute(sql`SELECT g.id, g.hostname, g.serial_number AS "serialNumber", g.model, g.platform, g.health_state AS "healthState", g.last_seen_at AS "lastSeenAt", g.agent_version AS "agentVersion", g.status, s.asset_tag AS "assetTag",
+      (SELECT string_agg(x.message, ' · ') FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL) AS "alertText"
+    FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id WHERE g.user_id = ${uidp} OR s.owner_id = ${uidp} ORDER BY g.last_seen_at DESC NULLS LAST`));
+  const ids = devices.map((d: any) => d.id);
+  const assets = rowsOf(await db.execute(sql`SELECT a.id, a.asset_tag AS "assetTag", a.name, a.type, a.serial_number AS "serialNumber", a.status,
+      (SELECT g.hostname FROM asset_agents g WHERE g.asset_id = a.id AND g.status = 'Active' LIMIT 1) AS "reportsAs" FROM assets a WHERE a.is_active AND a.owner_id = ${uidp} ORDER BY a.asset_tag`));
+  const inIds = ids.length ? sql`agent_id IN (${sql.join(ids.map((x: number) => sql`${x}`), sql`, `)})` : sql`false`;
+  const inIdsX = ids.length ? sql`x.agent_id IN (${sql.join(ids.map((x: number) => sql`${x}`), sql`, `)})` : sql`false`;
+  const usage = rowsOf(await db.execute(sql`SELECT to_char(day, 'YYYY-MM-DD') AS day, sum(active_mins)::int AS active, sum(idle_mins)::int AS idle, min(first_seen) AS "firstSeen", max(last_seen) AS "lastSeen"
+    FROM asset_usage_daily WHERE ${inIds} AND day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY day ORDER BY day`));
+  const apps = rowsOf(await db.execute(sql`SELECT k AS app, sum(v::int)::int AS mins FROM asset_usage_daily d, jsonb_each_text(d.apps) AS e(k, v) WHERE ${inIds} AND d.day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY k ORDER BY mins DESC LIMIT 12`));
+  const alerts = rowsOf(await db.execute(sql`SELECT x.severity, x.message, x.opened_at AS "openedAt", x.closed_at AS "closedAt", g.hostname FROM asset_agent_alerts x JOIN asset_agents g ON g.id = x.agent_id WHERE ${inIdsX} ORDER BY x.closed_at IS NULL DESC, x.opened_at DESC LIMIT 30`));
+  res.json({ employee: u, devices, assets, usage, apps, alerts });
 }));
 
 router.patch("/asset-agents/:id", requireAuth, wrap(async (req, res) => {
