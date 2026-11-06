@@ -239,6 +239,12 @@ publicAgentRouter.get("/agent/v1/files/ITHubAgent.ps1", wrap(async (req, res) =>
   res.send(r.body);
 }));
 
+publicAgentRouter.get("/agent/v1/files/niytri.ico", wrap(async (req, res) => {
+  const ag = await agentFromToken(req);
+  if (!ag || ag.status === "Revoked") return fail(res, 401, "Unknown device");
+  res.setHeader("Content-Type", "image/x-icon"); res.send(fileBuf("niytri.ico"));
+}));
+
 /** Share link sent to the employee: downloads their personal installer (key inside) while the key is unused and valid. */
 publicAgentRouter.get("/agent/v1/download/:token", wrap(async (req, res) => {
   const t = String(req.params.token || "");

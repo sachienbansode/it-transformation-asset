@@ -7,7 +7,7 @@
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.1'
+$AgentVersion = '1.1.2'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -34,7 +34,7 @@ if ($UsageMonitor) {
   $safe = ($user -replace '[^A-Za-z0-9._-]', '_')
   $trackApps = $true
   try { $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json; if ($cfg.trackApps -eq $false) { $trackApps = $false } } catch { }
-  while ($true) {
+  $tick = {
     try {
       $li = New-Object ITHub.Win+LASTINPUTINFO; $li.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($li)
       [void][ITHub.Win]::GetLastInputInfo([ref]$li)
@@ -58,8 +58,36 @@ if ($UsageMonitor) {
       } else { $u.idleMins++ }
       ($u | ConvertTo-Json -Depth 4 -Compress) | Set-Content -Path $file -Encoding UTF8
     } catch { }
-    if ($Once) { break }
-    Start-Sleep -Seconds 60
+  }
+  if ($Once) { & $tick; exit 0 }
+  # NIYTRI icon in the notification area while the agent runs (no exit option: the agent is managed by IT)
+  $icoFile = Join-Path $Root 'niytri.ico'
+  $tray = $null
+  try {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    $tray = New-Object System.Windows.Forms.NotifyIcon
+    $tray.Icon = if (Test-Path $icoFile) { New-Object System.Drawing.Icon $icoFile } else { [System.Drawing.SystemIcons]::Shield }
+    $tray.Text = 'IT Hub Agent - managed by IT'
+    $menu = New-Object System.Windows.Forms.ContextMenuStrip
+    $hdr = $menu.Items.Add("IT Hub Agent $AgentVersion"); $hdr.Enabled = $false
+    $last = $menu.Items.Add('Last report: -'); $last.Enabled = $false
+    [void]$menu.Items.Add('-')
+    $open = $menu.Items.Add('Open IT Hub'); $open.add_Click({ $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }; if ($c.url) { Start-Process $c.url } })
+    $pol = $menu.Items.Add('My Policies'); $pol.add_Click({ $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }; if ($c.url) { Start-Process "$($c.url)/my-policies" } })
+    $menu.add_Opening({
+      $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }
+      $last.Text = if ($c.lastCheckin) { 'Last report: ' + ([datetime]$c.lastCheckin).ToString('dd-MMM-yyyy HH:mm') } else { 'Last report: not yet' }
+    })
+    $tray.ContextMenuStrip = $menu
+    $tray.add_DoubleClick({ $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }; if ($c.url) { Start-Process $c.url } })
+    $tray.Visible = $true
+  } catch { $tray = $null }
+  if ($tray) {
+    & $tick
+    $timer = New-Object System.Windows.Forms.Timer; $timer.Interval = 60000; $timer.add_Tick($tick); $timer.Start()
+    try { [System.Windows.Forms.Application]::Run() } finally { $tray.Visible = $false; $tray.Dispose() }
+  } else {
+    while ($true) { & $tick; Start-Sleep -Seconds 60 }
   }
   exit 0
 }
@@ -142,6 +170,8 @@ try {
   $cfg | Add-Member -NotePropertyName lastCheckin -NotePropertyValue (Get-Date).ToString('o') -Force
   ($cfg | ConvertTo-Json) | Set-Content $ConfigFile -Encoding UTF8
   Log "Check-in OK: $($r.state)"
+  $ico = Join-Path $Root 'niytri.ico'
+  if (-not (Test-Path $ico)) { try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/niytri.ico" -Headers @{ Authorization = "Bearer $token" } -OutFile $ico -UseBasicParsing -TimeoutSec 30; Log 'Downloaded tray icon' } catch { Log "Icon download failed: $($_.Exception.Message)" } }
   # IT Hub moved to a new address (e.g. UAT -> production): switch only after the new address accepts this device's token
   if ($r.serverUrl -and $r.serverUrl -match '^https://' -and $r.serverUrl.TrimEnd('/') -ne $cfg.url) {
     $new = $r.serverUrl.TrimEnd('/')
