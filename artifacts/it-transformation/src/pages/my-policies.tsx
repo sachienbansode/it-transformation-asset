@@ -8,7 +8,8 @@ import { fmtDate, fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { useMyPolicies, PolicyReader } from "@/components/policy-gate";
 import { ensurePush, enablePush } from "@/lib/push";
-import { Bell, BellOff, FileCheck2, FileClock, ScrollText } from "lucide-react";
+import { Bell, BellOff, FileCheck2, FileClock, ScrollText, ShieldCheck, AlertOctagon } from "lucide-react";
+import { PageHero, WorkspaceStrip, StatTile } from "@/components/workspace-ui";
 
 /* My Policies — policies, notices and consents that apply to me, my decisions, and push notifications on this device. */
 
@@ -72,16 +73,21 @@ export default function MyPolicies() {
     </div>
   );
   return (
-    <div className="space-y-5 max-w-4xl">
-      <div><h1 className="text-2xl font-bold tracking-tight">My Policies</h1>
-        <p className="text-sm text-muted-foreground">Company policies, notices and consents that apply to you. Mandatory ones must be accepted; optional consents are your choice and can be withdrawn.</p></div>
+    <div className="space-y-4 max-w-5xl">
+      <PageHero icon={ShieldCheck} tone="green" title="My Policies" subtitle="Company policies, notices and consents that apply to you. Mandatory ones must be accepted; optional consents are your choice and can be withdrawn." />
+      <WorkspaceStrip />
+      <div className="grid grid-cols-3 gap-2">
+        <StatTile label="Waiting for you" value={pending.length} icon={FileClock} tone={pending.length ? "warn" : "good"} />
+        <StatTile label="Overdue" value={pending.filter(p => p.overdue).length} icon={AlertOctagon} tone={pending.some(p => p.overdue) ? "bad" : "default"} />
+        <StatTile label="Done" value={done.length} icon={FileCheck2} tone="good" />
+      </div>
       <PushCard />
       {isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
-      <section className="space-y-2"><h2 className="text-sm font-semibold">Waiting for you ({pending.length})</h2>
-        {pending.map(p => <Row key={p.id} p={p} />)}{!isLoading && !pending.length && <div className="text-sm text-muted-foreground">Nothing to act on.</div>}</section>
-      {done.length > 0 && <section className="space-y-2"><h2 className="text-sm font-semibold">Done ({done.length})</h2>{done.map(p => <Row key={p.id} p={p} />)}</section>}
-      {(data?.history || []).length > 0 && <section className="space-y-2"><h2 className="text-sm font-semibold flex items-center gap-1.5"><ScrollText className="w-4 h-4" />My decision history</h2>
-        <div className="border rounded-lg divide-y text-xs">{data.history.map((h: any) => <div key={h.id} className="px-3 py-1.5 flex gap-2 flex-wrap"><span className="font-medium">{h.title}</span><span className="text-muted-foreground">v{h.version}</span><span className="ml-auto">{h.decision}</span><span className="text-muted-foreground">{fmtDateTime(h.at)} · {h.method === "agent-link" ? "installer link" : "IT Hub"}</span></div>)}</div></section>}
+      <Card><CardContent className="p-4 space-y-2"><h2 className="text-sm font-semibold flex items-center gap-1.5"><FileClock className="w-4 h-4 text-amber-600" />Waiting for you ({pending.length})</h2>
+        {pending.map(p => <Row key={p.id} p={p} />)}{!isLoading && !pending.length && <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground text-center">You are all caught up — nothing to act on.</div>}</CardContent></Card>
+      {done.length > 0 && <Card><CardContent className="p-4 space-y-2"><h2 className="text-sm font-semibold flex items-center gap-1.5"><FileCheck2 className="w-4 h-4 text-emerald-600" />Done ({done.length})</h2>{done.map(p => <Row key={p.id} p={p} />)}</CardContent></Card>}
+      {(data?.history || []).length > 0 && <Card><CardContent className="p-4 space-y-2"><h2 className="text-sm font-semibold flex items-center gap-1.5"><ScrollText className="w-4 h-4" />My decision history</h2>
+        <div className="border rounded-lg divide-y text-xs">{data.history.map((h: any) => <div key={h.id} className="px-3 py-1.5 flex gap-2 flex-wrap"><span className="font-medium">{h.title}</span><span className="text-muted-foreground">v{h.version}</span><span className="ml-auto">{h.decision}</span><span className="text-muted-foreground">{fmtDateTime(h.at)} · {h.method === "agent-link" ? "installer link" : "IT Hub"}</span></div>)}</div></CardContent></Card>}
     </div>
   );
 }

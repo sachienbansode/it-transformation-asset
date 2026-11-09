@@ -20,6 +20,7 @@ try {
 } catch { }
 Unregister-ScheduledTask -TaskName 'IT Hub Agent' -Confirm:$false
 Unregister-ScheduledTask -TaskName 'IT Hub Agent Usage' -Confirm:$false
+Unregister-ScheduledTask -TaskName 'IT Hub Agent Pulse' -Confirm:$false -ErrorAction SilentlyContinue
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*ITHubAgent.ps1*-UsageMonitor*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Remove-Item -Recurse -Force $Root
 Remove-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent' -Recurse -Force

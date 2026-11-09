@@ -15,6 +15,8 @@ const fail = (res: Response, code: number, error: string) => { res.status(code).
 const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: Request, res: Response) => {
   try { await fn(req, res); } catch (e: any) { if (!res.headersSent) fail(res, e?.status || 500, e?.message || String(e)); }
 };
+/** ITH-074: how people use their computers (usage, applications) is for Super Admin only. */
+async function isSuper(req: Request) { const a = await getAccess(req); return !!a?.isAdmin; }
 async function isIT(req: Request) { const a = await getAccess(req); return !!a && (a.isAdmin || can(a, "asset_registry", "read")); }
 const day = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null;
 const like = (q: unknown) => { const t = String(q || "").trim().toLowerCase(); return t ? `%${t}%` : null; };
@@ -29,7 +31,7 @@ const range = (req: Request) => {
 
 /** Daily usage: one row per computer, Windows user and day. */
 router.get("/asset-agents/data/usage", requireAuth, wrap(async (req, res) => {
-  if (!await isIT(req)) return fail(res, 403, "No access to device data");
+  if (!await isSuper(req)) return fail(res, 403, "Usage data is available to Super Admin only");
   const { from, to } = range(req); const q = like(req.query.q);
   const rows = rowsOf(await db.execute(sql`SELECT g.id AS "agentId", g.hostname, s.asset_tag AS "assetTag", e.id AS "employeeId", e.employee_code AS "employeeCode", e.name AS "employee", e.department,
       to_char(u.day, 'YYYY-MM-DD') AS day, u.user_name AS "windowsUser", u.first_seen AS "firstSeen", u.last_seen AS "lastSeen", u.active_mins AS active, u.idle_mins AS idle,
@@ -43,7 +45,7 @@ router.get("/asset-agents/data/usage", requireAuth, wrap(async (req, res) => {
 
 /** Applications: active minutes per application, with how many people / computers used it. Optional employee / device filter. */
 router.get("/asset-agents/data/apps", requireAuth, wrap(async (req, res) => {
-  if (!await isIT(req)) return fail(res, 403, "No access to device data");
+  if (!await isSuper(req)) return fail(res, 403, "Usage data is available to Super Admin only");
   const { from, to } = range(req); const q = like(req.query.q); const app = like(req.query.app);
   const rows = rowsOf(await db.execute(sql`SELECT x.k AS app, sum(x.v::int)::int AS mins, count(DISTINCT u.user_name)::int AS users, count(DISTINCT u.agent_id)::int AS devices, count(DISTINCT u.day)::int AS days,
       (SELECT string_agg(DISTINCT coalesce(e2.name, u2.user_name), ', ') FROM asset_usage_daily u2 JOIN asset_agents g2 ON g2.id = u2.agent_id LEFT JOIN assets s2 ON s2.id = g2.asset_id

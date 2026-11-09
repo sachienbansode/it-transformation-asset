@@ -35,7 +35,8 @@ const daysAgo = (n: number) => new Date(Date.now() + 330 * 60e3 - n * 86400e3).t
 
 export default function DeviceData() {
   const { isAdmin } = useAuth();
-  const [tab, setTab] = useState<Tab>(() => (new URLSearchParams(window.location.search).get("tab") as Tab) || "usage");
+  const [tab0, setTab] = useState<Tab>(() => (new URLSearchParams(window.location.search).get("tab") as Tab) || "usage");
+  const tab: Tab = !isAdmin && (tab0 === "usage" || tab0 === "apps") ? "inventory" : tab0;   // ITH-074: usage is Super Admin only
   const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") || ""); const [term, setTerm] = useState(q);
   const [from, setFrom] = useState(daysAgo(6)); const [to, setTo] = useState(today());
   const [how, setHow] = useState(false);
@@ -63,7 +64,7 @@ export default function DeviceData() {
       </CardContent></Card>}
       <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px] flex-wrap">
-          {TABS.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card text-foreground font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground")}>{l}</button>)}
+          {TABS.filter(([k]) => isAdmin || (k !== "usage" && k !== "apps")).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card text-foreground font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground")}>{l}</button>)}
         </div>
         {tab !== "tracking" && <>
           <div className="relative flex-1 min-w-[240px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

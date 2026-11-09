@@ -251,10 +251,22 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
   const ds = await import("./device-support");
   const state = await ds.recomputeState(ag.id);   // ignored items do not count
   void ds.autoTickets(ag.id).catch(e => console.error("auto tickets", e));
+  void import("./device-live").then(m => m.suggestClosures(ag.id, h, now)).catch(e => console.error("close suggestions", e));
   const swDue = !ag.software_at || Date.now() - new Date(ag.software_at).getTime() > 23 * 3600_000;
   const latest = agentRelease();
   res.json({ ok: true, state, checkinMinutes: st.checkinMinutes, trackApps: track.apps, trackUsage: track.usage, sendSoftware: swDue && !Array.isArray(req.body?.software),
     latestVersion: latest?.version || null, agentSha256: latest?.sha256 || null, serverUrl: agentServerUrl() });
+}));
+
+/** Agent 1.1.7+: a tiny call every minute — marks the device online and tells it when IT (or its user) asked for fresh data. */
+publicAgentRouter.get("/agent/v1/pulse", wrap(async (req, res) => {
+  const ag = await agentFromToken(req);
+  if (!ag) return fail(res, 401, "Unknown device token — enrol again");
+  if (ag.status === "Revoked") return fail(res, 410, "This device was removed from IT Hub — uninstall the agent");
+  if (limited(`pulse:${ag.id}`, 6, 60_000)) return fail(res, 429, "Too often");
+  const [r] = rowsOf(await db.execute(sql`UPDATE asset_agents SET last_pulse_at = now() WHERE id = ${ag.id}
+      RETURNING (refresh_requested_at IS NOT NULL AND (last_seen_at IS NULL OR refresh_requested_at > last_seen_at)) AS refresh`));
+  res.json({ refresh: !!r?.refresh });
 }));
 
 /** Self-update: the device downloads the current agent (and checks its SHA-256 before replacing itself). */
@@ -359,7 +371,7 @@ router.get("/asset-agents", requireAuth, wrap(async (_req, res) => {
   const rows = rowsOf(await db.execute(sql`
     SELECT g.id, g.device_id AS "deviceId", g.hostname, g.serial_number AS "serialNumber", g.manufacturer, g.model, g.platform, g.os_name AS "osName", g.os_version AS "osVersion",
            g.agent_version AS "agentVersion", g.last_user AS "lastUser", g.last_ip AS "lastIp", g.health_state AS "healthState", g.enrolled_at AS "enrolledAt", g.last_seen_at AS "lastSeenAt",
-           g.status, g.match_note AS "matchNote", g.asset_id AS "assetId", s.asset_tag AS "assetTag", s.name AS "assetName", s.owner_name AS "ownerName", s.department, s.location,
+           g.status, ${ONLINE_SQL("g.")} AS online, g.last_pulse_at AS "lastPulseAt", g.match_note AS "matchNote", g.asset_id AS "assetId", s.asset_tag AS "assetTag", s.name AS "assetName", s.owner_name AS "ownerName", s.department, s.location,
            g.latest->'cpu'->>'pct' AS cpu, g.latest->'mem'->>'usedPct' AS mem, g.latest->>'uptimeHours' AS "uptimeHours",
            (SELECT min((d->>'freePct')::numeric) FROM jsonb_array_elements(coalesce(g.latest->'disks','[]'::jsonb)) d WHERE coalesce((d->>'sizeGb')::numeric, 0) >= 1) AS "diskFreePct",
            CASE WHEN (g.latest->'battery'->>'healthPct')::numeric > 0 AND (g.latest->'battery'->>'healthPct')::numeric <= 150 THEN g.latest->'battery'->>'healthPct' END AS "batteryHealthPct",
@@ -384,21 +396,25 @@ router.get("/asset-agents", requireAuth, wrap(async (_req, res) => {
 }));
 
 /** Health, usage and software for one register asset (Asset Registry › view › Health). */
+/** Online = the device was in contact in the last 3 minutes (1-minute pulse from agent 1.1.7, or a full check-in). */
+export const ONLINE_SQL = (p: string) => sql.raw(`(${p}status = 'Active' AND greatest(coalesce(${p}last_pulse_at, 'epoch'), coalesce(${p}last_seen_at, 'epoch')) > now() - interval '3 minutes')`);
 export const AG_COLS = sql`id, hostname, serial_number AS "serialNumber", platform, os_name AS "osName", os_version AS "osVersion", agent_version AS "agentVersion", last_user AS "lastUser",
-      last_seen_at AS "lastSeenAt", enrolled_at AS "enrolledAt", health_state AS "healthState", latest, status, software_at AS "softwareAt", manufacturer, model, asset_id AS "assetId", user_id AS "userId"`;
+      last_seen_at AS "lastSeenAt", enrolled_at AS "enrolledAt", health_state AS "healthState", latest, status, software_at AS "softwareAt", manufacturer, model, asset_id AS "assetId", user_id AS "userId",
+      last_pulse_at AS "lastPulseAt", refresh_requested_at AS "refreshRequestedAt", refresh_requested_by AS "refreshRequestedBy", ${ONLINE_SQL("")} AS online`;
 router.get("/asset-agents/:id/health", requireAuth, wrap(async (req, res) => {
   const id = Number(req.params.id); if (!Number.isInteger(id)) return fail(res, 400, "Invalid device");
   const [ag] = rowsOf(await db.execute(sql`SELECT ${AG_COLS} FROM asset_agents WHERE id = ${id}`));
   if (!ag) return res.json({ agent: null });
-  res.json(await healthOf(ag));
+  res.json(await healthOf(ag, { usage: !!(await getAccess(req))?.isAdmin }));
 }));
 router.get("/assets/:id/health", requireAuth, wrap(async (req, res) => {
   const id = Number(req.params.id); if (!Number.isInteger(id)) return fail(res, 400, "Invalid asset");
   const [ag] = rowsOf(await db.execute(sql`SELECT ${AG_COLS} FROM asset_agents WHERE asset_id = ${id} AND status = 'Active' ORDER BY last_seen_at DESC NULLS LAST LIMIT 1`));
   if (!ag) return res.json({ agent: null });
-  res.json(await healthOf(ag));
+  res.json(await healthOf(ag, { usage: !!(await getAccess(req))?.isAdmin }));
 }));
-export async function healthOf(ag: any) {
+/** Usage (daily active time, who used it, applications) is shown only to Super Admin (ITH-074). */
+export async function healthOf(ag: any, opt: { usage?: boolean } = {}) {
   const st = await agentSettings();
   if (!ag.lastSeenAt || Date.now() - new Date(ag.lastSeenAt).getTime() > st.thresholds.offlineDays * 86_400_000) ag.healthState = "Offline";
   const trend = rowsOf(await db.execute(sql`SELECT date_trunc('hour', at) AS at, round(avg(cpu_pct), 1)::float AS cpu, round(avg(mem_pct), 1)::float AS mem, round(min(disk_min_free_pct), 1)::float AS disk
@@ -414,7 +430,8 @@ export async function healthOf(ag: any) {
       (SELECT status FROM itsm_incidents i WHERE i.id = asset_agent_alerts.incident_id) AS "ticketStatus"
     FROM asset_agent_alerts WHERE agent_id = ${ag.id} ORDER BY closed_at IS NULL DESC, opened_at DESC LIMIT 30`));
   const software = rowsOf(await db.execute(sql`SELECT name, version, publisher, install_date AS "installDate" FROM asset_software WHERE agent_id = ${ag.id} ORDER BY name`));
-  return { agent: ag, trend, usage, apps, users, alerts, software, settings: { trackApps: st.trackApps, thresholds: st.thresholds } };
+  const showUsage = !!opt.usage;
+  return { agent: ag, trend, usage: showUsage ? usage : [], apps: showUsage ? apps : [], users: showUsage ? users : [], usageHidden: !showUsage, alerts, software, settings: { trackApps: st.trackApps, thresholds: st.thresholds } };
 }
 
 /** Link a device to an employee and a register asset (existing, or registered from what the device reports) and,
@@ -501,7 +518,8 @@ router.get("/asset-agents/employee/:userId", requireAuth, wrap(async (req, res) 
   const apps = rowsOf(await db.execute(sql`SELECT k AS app, sum(v::int)::int AS mins FROM asset_usage_daily d, jsonb_each_text(d.apps) AS e(k, v) WHERE ${inIds} AND d.day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY k ORDER BY mins DESC LIMIT 12`));
   const alerts = rowsOf(await db.execute(sql`SELECT x.severity, x.message, x.opened_at AS "openedAt", x.closed_at AS "closedAt", g.hostname FROM asset_agent_alerts x JOIN asset_agents g ON g.id = x.agent_id WHERE ${inIdsX} ORDER BY x.closed_at IS NULL DESC, x.opened_at DESC LIMIT 30`));
   const [tr] = rowsOf(await db.execute(sql`SELECT level FROM agent_tracking_rules WHERE user_id = ${uidp}`));
-  res.json({ employee: u, devices, assets, usage, apps, alerts, tracking: ({ usage: "Usage only", detailed: "Detailed", excluded: "Excluded" } as any)[tr?.level] || "Standard" });
+  const sup = !!(await getAccess(req))?.isAdmin;   // ITH-074: usage only for Super Admin
+  res.json({ employee: u, devices, assets, usage: sup ? usage : [], apps: sup ? apps : [], usageHidden: !sup, alerts, tracking: ({ usage: "Usage only", detailed: "Detailed", excluded: "Excluded" } as any)[tr?.level] || "Standard" });
 }));
 
 router.patch("/asset-agents/:id", requireAuth, wrap(async (req, res) => {

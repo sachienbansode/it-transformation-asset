@@ -187,7 +187,7 @@ router.get("/my-devices/:id/health", requireAuth, wrap(async (req, res) => {
   const { healthOf, AG_COLS } = await import("./asset-agent");
   const [ag] = rowsOf(await db.execute(sql`SELECT ${AG_COLS} FROM asset_agents WHERE id = ${Number(req.params.id)} AND id IN (SELECT g.id FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id WHERE ${MY_DEV(uid(req))})`));
   if (!ag) return fail(res, 404, "This is not your computer");
-  const out: any = await healthOf(ag);
+  const out: any = await healthOf(ag, { usage: false });   // ITH-074: the employee never sees usage data
   out.alerts = (out.alerts || []).map((x: any) => ({ ...x, ignoreReason: undefined, ignoredBy: undefined }));   // IT's internal notes stay internal
   res.json(out);
 }));

@@ -10,7 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { AckPill, printHandoverNote, ReviewHandoverDialog } from "@/components/asset-lifecycle";
-import { Laptop, Printer, CheckCircle2, AlertTriangle, Search, Info } from "lucide-react";
+import { Laptop, Printer, CheckCircle2, AlertTriangle, Search, Info, PackageCheck, History, Clock } from "lucide-react";
+import { PageHero, WorkspaceStrip, StatTile } from "@/components/workspace-ui";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/date";
 
@@ -48,10 +49,14 @@ export default function MyAssets() {
   );
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">My Assets</h1>
-        <p className="text-sm text-muted-foreground">IT assets issued to you. Review each handover and acknowledge it — or report a problem (wrong asset, damage, missing accessories) to send it back to IT.</p>
+    <div className="space-y-4 max-w-6xl">
+      <PageHero icon={Laptop} tone="blue" title="My Assets" subtitle="IT assets issued to you. Review each handover and acknowledge it — or report a problem (wrong asset, damage, missing accessories) to send it back to IT." />
+      <WorkspaceStrip />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <StatTile label="With me" value={active.length} icon={PackageCheck} active={view === "current"} onClick={() => { setView("current"); setPage(1); }} />
+        <StatTile label="To acknowledge" value={pending.length} icon={Clock} tone={pending.length ? "warn" : "good"} onClick={() => { setView("current"); setPage(1); }} />
+        <StatTile label="With IT for review" value={withIt.length} icon={AlertTriangle} tone={withIt.length ? "bad" : "default"} />
+        <StatTile label="Previously held" value={past.length} icon={History} active={view === "past"} onClick={() => { setView("past"); setPage(1); }} />
       </div>
       {canAccess("asset_registry", "read") && (
         <div className="flex items-start gap-2 rounded-[10px] border bg-muted/40 px-4 py-2.5 text-sm text-muted-foreground">

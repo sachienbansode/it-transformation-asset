@@ -2,12 +2,14 @@
   IT Hub device agent (Windows 10/11 and Windows Server 2016+; PowerShell 5.1).
   Modes:
     -Collect        run as SYSTEM every 15 min (scheduled task "IT Hub Agent"): hardware / security health + daily usage -> IT Hub
+    -Pulse          run as SYSTEM every minute (task "IT Hub Agent Pulse"): tiny call that shows the device online in IT Hub;
+                    when IT or the user presses "Refresh now" it runs -Collect straight away.
     -UsageMonitor   runs in each signed-in user's session (task "IT Hub Agent Usage"): once a minute records active / idle
                     and the foreground application's process name. No keystrokes, screenshots, window titles or files.
 #>
-param([switch]$Collect, [switch]$UsageMonitor, [switch]$Once)
+param([switch]$Collect, [switch]$UsageMonitor, [switch]$Pulse, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.6'
+$AgentVersion = '1.1.7'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -107,8 +109,40 @@ if ($UsageMonitor) {
   exit 0
 }
 
+# --------------------------- pulse (SYSTEM, every minute) ---------------------------
+if ($Pulse) {
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Add-Type -AssemblyName System.Security
+    $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
+    $sec = Get-Content $SecretFile -Raw | ConvertFrom-Json
+    $token = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($sec.tokenProtected), $null, 'LocalMachine'))
+    $r = Invoke-RestMethod -Method Get -Uri "$($cfg.url)/api/agent/v1/pulse" -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 20 -UseBasicParsing
+    if ($r.refresh) {
+      Log 'Refresh requested from IT Hub - collecting now'
+      $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+      & $ps -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File (Join-Path $Root 'ITHubAgent.ps1') -Collect
+    }
+  } catch {
+    $code = Try-Get { [int]$_.Exception.Response.StatusCode }
+    if ($code -eq 410) { Disable-ScheduledTask -TaskName 'IT Hub Agent Pulse' -ErrorAction SilentlyContinue | Out-Null }
+  }
+  exit 0
+}
+
 # --------------------------- collector (SYSTEM) ---------------------------
-if (-not $Collect) { Write-Output 'Use -Collect (SYSTEM task) or -UsageMonitor (user task)'; exit 1 }
+if (-not $Collect) { Write-Output 'Use -Collect (SYSTEM task), -Pulse (SYSTEM task) or -UsageMonitor (user task)'; exit 1 }
+# the 1-minute pulse task (online status + "Refresh now"); added here so devices that self-update get it too
+if (-not (Get-ScheduledTask -TaskName 'IT Hub Agent Pulse' -ErrorAction SilentlyContinue)) {
+  try {
+    $psP = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $aP = New-ScheduledTaskAction -Execute $psP -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Root\ITHubAgent.ps1`" -Pulse"
+    $tP = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+    $sP = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName 'IT Hub Agent Pulse' -Action $aP -Trigger $tP -Settings $sP -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest) -Force | Out-Null
+    Log 'Pulse task added (online status / Refresh now)'
+  } catch { Log "Pulse task could not be added: $($_.Exception.Message)" }
+}
 # keep the Apps & features entry (NIYTRI icon) in step with self-updates
 $appKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'
 if (Test-Path $appKey) { Set-ItemProperty -Path $appKey -Name DisplayVersion -Value $AgentVersion -ErrorAction SilentlyContinue }
@@ -191,7 +225,7 @@ try {
   if (-not $mon.Count -and @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'").Count) { Start-ScheduledTask -TaskName 'IT Hub Agent Usage' -ErrorAction SilentlyContinue; Log 'Usage monitor was not running - restarted' }
   # keep the uninstaller current (admin-only removal that reports to IT)
   $unf = Join-Path $Root 'Uninstall-ITHubAgent.ps1'
-  if (-not (Test-Path $unf) -or -not (Select-String -Path $unf -Pattern 'agent/v1/uninstall' -SimpleMatch -Quiet)) {
+  if (-not (Test-Path $unf) -or -not (Select-String -Path $unf -Pattern 'IT Hub Agent Pulse' -SimpleMatch -Quiet)) {
     try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/Uninstall-ITHubAgent.ps1" -Headers @{ Authorization = "Bearer $token" } -OutFile $unf -UseBasicParsing -TimeoutSec 30; Log 'Uninstaller updated' } catch { Log "Uninstaller update failed: $($_.Exception.Message)" }
   }
   foreach ($icn in 'niytri.ico', 'tray.ico') {

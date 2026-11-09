@@ -3,7 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChatTable, NewChatDialog } from "@/components/device-chat";
-import { Plus, Lock } from "lucide-react";
+import { Plus, Lock, MessageSquare } from "lucide-react";
+import { PageHero, WorkspaceStrip } from "@/components/workspace-ui";
 
 /* Chats — my conversations; IT support (IT staff); all chats (Super Admin, read-only and audited). */
 export default function Chats() {
@@ -14,13 +15,10 @@ export default function Chats() {
   const tabs: [typeof box, string, boolean][] = [["mine", "My chats", true], ["support", "IT support", me.staff], ["all", "All chats (Super Admin)", me.superAdmin]];
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Chats</h1>
-          <p className="text-sm text-muted-foreground flex items-center gap-1"><Lock className="w-3.5 h-3.5" />Direct chats are private to the two people in them. IT support chats are shared between the employee and the IT team. Messages and files are encrypted and kept for audit.</p>
-        </div>
-        <Button className="gap-2" onClick={() => setNeu(true)}><Plus className="w-4 h-4" />New chat</Button>
-      </div>
+      <PageHero icon={MessageSquare} tone="violet" title="Chats"
+        subtitle={<span className="inline-flex items-start gap-1"><Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />Direct chats are private to the two people in them. IT support chats are shared between the employee and the IT team. Messages and files are encrypted and kept for audit.</span>}
+        right={<Button className="gap-2" onClick={() => setNeu(true)}><Plus className="w-4 h-4" />New chat</Button>} />
+      {box === "mine" && <WorkspaceStrip />}
       <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">
         {tabs.filter(t => t[2]).map(([key, label]) => <button key={key} onClick={() => setBox(key)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", box === key ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{label}</button>)}
       </div>
