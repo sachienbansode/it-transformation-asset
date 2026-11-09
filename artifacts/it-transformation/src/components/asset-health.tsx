@@ -42,9 +42,9 @@ function Meter({ label, value, icon: I, invert = false, suffix = "%", warnAt, ba
   );
 }
 
-export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat }: { assetId?: number | null; agentId?: number | null; canAct?: boolean; onChat?: (alert: any) => void }) {
+export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src }: { assetId?: number | null; agentId?: number | null; canAct?: boolean; onChat?: (alert: any) => void; src?: string }) {
   const qc = useQueryClient(); const { toast } = useToast(); const [ign, setIgn] = useState<any>(null); const [busyA, setBusyA] = useState<number | null>(null);
-  const { data, isLoading, error } = useQuery({ queryKey: ["asset-health", agentId ? `g${agentId}` : assetId], queryFn: () => apiFetch<any>(agentId ? `/asset-agents/${agentId}/health` : `/assets/${assetId}/health`), refetchInterval: 60_000 });
+  const { data, isLoading, error } = useQuery({ queryKey: ["asset-health", src || (agentId ? `g${agentId}` : assetId)], queryFn: () => apiFetch<any>(src || (agentId ? `/asset-agents/${agentId}/health` : `/assets/${assetId}/health`)), refetchInterval: 60_000 });
   const [showSw, setShowSw] = useState(false); const [swQ, setSwQ] = useState("");
   if (isLoading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>;
   if (error) return <div className="py-6 text-sm text-red-600">{(error as Error).message}</div>;
@@ -104,6 +104,8 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat }: {
               : <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1 bg-background" onClick={() => setIgn(x)}><EyeOff className="w-3 h-3" />Ignore</Button>}
           </div>}
         </div>))}</div>}
+      {(() => { const fixed = (data.alerts || []).filter((x: any) => x.closedAt && x.closedNote && Date.now() - +new Date(x.closedAt) < 30 * 86400e3); return fixed.length > 0 && <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">Fixed in the last 30 days ({fixed.length})</summary>
+        <div className="mt-1 space-y-1">{fixed.map((x: any) => <div key={x.id} className="rounded-md border px-2.5 py-1.5 flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-emerald-600 shrink-0" /><span>{x.closedNote}{x.ticketNo ? ` · ${x.ticketNo} resolved` : ""}</span></div>)}</div></details>; })()}
       {ign && <IgnoreDialog alert={ign} onClose={() => setIgn(null)} onDone={reload} />}
       {!open.length && <div className={cn("rounded-md border px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5", STATE_TONE.Healthy)}><ShieldCheck className="w-3.5 h-3.5" />No open health issues</div>}
 

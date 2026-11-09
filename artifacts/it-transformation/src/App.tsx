@@ -38,6 +38,7 @@ import AgentKeys from "@/pages/agent-keys";
 import AgentChats from "@/pages/agent-chats";
 import DeviceData from "@/pages/device-data";
 import ItsmChats from "@/pages/itsm-chats";
+import MyDevice from "@/pages/my-device";
 import MyItChats from "@/pages/my-it-chats";
 import MyAssets from "@/pages/my-assets";
 import MyPolicies from "@/pages/my-policies";
@@ -208,6 +209,7 @@ function Router() {
               <Route path="/profile" component={Profile} />
               <Route path="/my-policies" component={MyPolicies} />
               <Route path="/my-it-chats" component={MyItChats} />
+              <Route path="/my-device" component={MyDevice} />
               <Route path="/admin/policies">
                 {user.role === "admin" ? <AdminPolicies /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>

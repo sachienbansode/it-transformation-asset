@@ -5,6 +5,7 @@ import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { getAccess, can } from "../lib/rbac";
 import { sealText, openText, fingerprint } from "../lib/secure-text";
+import { isSupportStaff } from "../lib/access-model";
 
 /*
  * Device Health support:
@@ -22,7 +23,8 @@ const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: 
   try { await fn(req, res); } catch (e: any) { if (!res.headersSent) fail(res, e?.status || 500, e?.message || String(e)); }
 };
 const uid = (req: Request) => Number((req.session as any)?.userId) || null;
-async function isIT(req: Request) { const a = await getAccess(req); return !!a && (a.isAdmin || can(a, "asset_registry", "write") || can(a, "itsm_incidents", "write")); }
+/** IT support staff (ITSM agents / admins, asset staff, Super Admin) — raising tickets alone does not count. */
+async function isIT(req: Request) { return isSupportStaff(await getAccess(req)); }
 async function setting(key: string, def: any) {
   const [r] = await db.select().from(settingsTable).where(eq(settingsTable.key, key));
   let v: any = r?.value; if (typeof v === "string") { try { v = JSON.parse(v); } catch { /* keep */ } }
@@ -89,11 +91,35 @@ export async function autoTickets(agentId: number) {
   for (const a of open) { try { await raiseTicket(a.id, "IT Hub agent", true); } catch (e) { console.error("auto ticket failed", e); } }
 }
 /** Items the device reports as fixed: note the linked incident; auto-raised incidents nobody picked up are resolved. */
-export async function alertsClosed(ids: number[]) {
+/** What the device reports now for an item kind (shown in the clearing note). */
+function nowValue(kind: string, h: any) {
+  const k = kind.split(":")[0];
+  try {
+    if (k === "disk") { const d = (h?.disks || []).find((x: any) => `disk:${x.drive}` === kind); return d ? `drive ${d.drive} ${Math.round(d.freePct)}% free (${d.freeGb} GB of ${d.sizeGb} GB)` : "drive no longer reported"; }
+    if (k === "battery") return h?.battery?.present ? `battery health ${Math.round(h.battery.healthPct)}%` : "no battery reported";
+    if (k === "antivirus" || k === "antivirus-defs") return `antivirus: ${(h?.security?.av || []).map((a: any) => `${a.name} ${a.enabled ? "on" : "off"}${a.upToDate === false ? " (old definitions)" : ""}`).join(", ") || "—"}`;
+    if (k === "bitlocker") return `BitLocker: ${(h?.security?.bitlocker || []).map((b: any) => `${b.drive} ${b.status}`).join(", ") || "—"}`;
+    if (k === "firewall") { const f = h?.security?.firewall || {}; return `firewall domain ${f.domain ? "on" : "off"}, private ${f.private ? "on" : "off"}, public ${f.public ? "on" : "off"}`; }
+    if (k === "patches") return `last Windows update ${h?.patches?.lastInstalled ? new Date(h.patches.lastInstalled).toLocaleDateString("en-GB", { timeZone: "Asia/Kolkata" }) : "—"}`;
+    if (k === "reboot" || k === "pending-reboot") return `up ${Math.round((Number(h?.uptimeHours) || 0) / 24)} days${h?.patches?.pendingReboot ? ", restart pending" : ", no restart pending"}`;
+    if (k === "memory") return `memory ${Math.round(h?.mem?.usedPct)}% used`;
+    if (k === "cpu") return `CPU ${Math.round(h?.cpu?.pct)}% busy`;
+  } catch { /* fall through */ }
+  return "no longer reported";
+}
+/** Items the device reports as fixed: each is closed with the report time and the current value; any linked ticket that is
+ *  still being worked is resolved with the same reference (Resolved / Closed tickets are left alone). */
+export async function alertsClosed(ids: number[], ctx?: { at: Date; h: any; hostname?: string }) {
   if (!ids.length) return;
+  const at = ctx?.at || new Date();
+  const when = at.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }).replace(/ /g, "-").replace(/,-/, " ") + " IST";
   const { noteIncident } = await import("./itsm");
-  const rows = rowsOf(await db.execute(sql`SELECT id, incident_id, ticket_auto, message FROM asset_agent_alerts WHERE id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)}) AND incident_id IS NOT NULL`));
-  for (const r of rows) { try { await noteIncident(r.incident_id, "IT Hub agent", `Device now reports this as fixed: ${r.message}`, !!r.ticket_auto); } catch (e) { console.error(e); } }
+  const rows = rowsOf(await db.execute(sql`SELECT id, kind, incident_id, message, ignored_at FROM asset_agent_alerts WHERE id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})`));
+  for (const r of rows) {
+    const note = `Cleared by the device report of ${when}${ctx?.hostname ? ` from ${ctx.hostname}` : ""}: “${r.message}” no longer applies — now ${nowValue(r.kind, ctx?.h)}.`;
+    await db.execute(sql`UPDATE asset_agent_alerts SET closed_note = ${note} WHERE id = ${r.id}`).catch(() => {});
+    if (r.incident_id) { try { await noteIncident(r.incident_id, "IT Hub agent", note, "any"); } catch (e) { console.error(e); } }
+  }
 }
 
 router.post("/asset-agents/alerts/:id/ticket", requireAuth, wrap(async (req, res) => {
@@ -148,6 +174,22 @@ router.get("/asset-agents/:id/history", requireAuth, wrap(async (req, res) => {
     ORDER BY performed_at DESC LIMIT 500`));
   const moves = g.asset_id ? rowsOf(await db.execute(sql`SELECT action, old_status AS "from", new_status AS "to", user_name AS "by", created_at AS "at", notes FROM asset_transactions WHERE asset_id = ${g.asset_id} ORDER BY created_at DESC LIMIT 200`)) : [];
   res.json({ audit, moves });
+}));
+
+/* ── my own device(s): every employee sees their computer's health and what needs attention ── */
+const MY_DEV = (uid: number | null) => sql`g.status = 'Active' AND coalesce(CASE WHEN s.status = 'Allocated' THEN s.owner_id END, g.user_id) = ${uid}`;
+router.get("/my-devices", requireAuth, wrap(async (req, res) => {
+  res.json(rowsOf(await db.execute(sql`SELECT g.id, g.hostname, g.model, g.manufacturer, g.serial_number AS "serialNumber", g.health_state AS "healthState", g.last_seen_at AS "lastSeenAt", g.agent_version AS "agentVersion", s.asset_tag AS "assetTag",
+      (SELECT count(*)::int FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL AND ${NOT_IGNORED}) AS "openItems"
+    FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id WHERE ${MY_DEV(uid(req))} ORDER BY g.last_seen_at DESC NULLS LAST`)));
+}));
+router.get("/my-devices/:id/health", requireAuth, wrap(async (req, res) => {
+  const { healthOf, AG_COLS } = await import("./asset-agent");
+  const [ag] = rowsOf(await db.execute(sql`SELECT ${AG_COLS} FROM asset_agents WHERE id = ${Number(req.params.id)} AND id IN (SELECT g.id FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id WHERE ${MY_DEV(uid(req))})`));
+  if (!ag) return fail(res, 404, "This is not your computer");
+  const out: any = await healthOf(ag);
+  out.alerts = (out.alerts || []).map((x: any) => ({ ...x, ignoreReason: undefined, ignoredBy: undefined }));   // IT's internal notes stay internal
+  res.json(out);
 }));
 
 /* ── support chat ────────────────────────────────────────────────────────── */

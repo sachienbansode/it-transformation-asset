@@ -7,7 +7,7 @@
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.5'
+$AgentVersion = '1.1.6'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -82,6 +82,8 @@ if ($UsageMonitor) {
     $hdr = $menu.Items.Add("IT Hub Agent $AgentVersion"); $hdr.Enabled = $false
     $last = $menu.Items.Add('Last report: -'); $last.Enabled = $false
     [void]$menu.Items.Add('-')
+    $mine = $menu.Items.Add('My device health'); $mine.Font = New-Object System.Drawing.Font($mine.Font, [System.Drawing.FontStyle]::Bold)
+    $mine.add_Click({ $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }; if ($c.url) { Start-Process "$($c.url)/my-device" } })
     $open = $menu.Items.Add('Open IT Hub'); $open.add_Click({ $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }; if ($c.url) { Start-Process $c.url } })
     $pol = $menu.Items.Add('My Policies'); $pol.add_Click({ $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }; if ($c.url) { Start-Process "$($c.url)/my-policies" } })
     $menu.add_Opening({
@@ -89,7 +91,8 @@ if ($UsageMonitor) {
       $last.Text = if ($c.lastCheckin) { 'Last report: ' + ([datetime]$c.lastCheckin).ToString('dd-MMM-yyyy HH:mm') } else { 'Last report: not yet' }
     })
     $tray.ContextMenuStrip = $menu
-    $tray.add_DoubleClick({ $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }; if ($c.url) { Start-Process $c.url } })
+    # left click: open this computer's health page in IT Hub (right click shows the menu)
+    $tray.add_MouseClick({ param($s, $e) if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { $c = Try-Get { Get-Content $ConfigFile -Raw | ConvertFrom-Json }; if ($c.url) { Start-Process "$($c.url)/my-device" } } })
     $tray.Visible = $true
   } catch { $tray = $null }
   if ($tray) {

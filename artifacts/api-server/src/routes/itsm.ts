@@ -4,6 +4,7 @@ import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { getAccess, can } from "../lib/rbac";
+import { isItsmAdmin } from "../lib/access-model";
 import { route, RoutingError, isMember, teamIdsOf, teamByName, teamById, userByName, emailsOfTeam } from "../lib/itsm-routing";
 import { z } from "zod";
 import { fmtDateTime } from "../lib/dates";
@@ -286,7 +287,7 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
     let requester = { id: who.userId, name: who.name, email: who.email };
     const onBehalf = Number(req.body?.onBehalfOfUserId) || null;
     if (onBehalf && onBehalf !== who.userId) {
-      if (!a?.isAdmin && !myTeams.length) throw new Forbidden("Only service desk team members can raise a ticket on behalf of someone else");
+      if (!isItsmAdmin(a) && !myTeams.length) throw new Forbidden("Only service desk team members can raise a ticket on behalf of someone else");
       const [u] = await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable).where(and(eq(usersTable.id, onBehalf), eq(usersTable.isActive, true)));
       if (!u) throw new Bad("The person you are raising this for is not an active user");
       requester = u;
@@ -294,7 +295,7 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
     Object.assign(values, { category: rt.category, subcategory: rt.subcategory, teamId: rt.team.id, assignedGroup: rt.team.name, expectedClosureDate: rt.expectedClosureDate, requesterUserId: requester.id });
     if (kind === "request") values.requestedBy = requester.name; else { values.reportedBy = requester.name; values.reporterEmail = requester.email; }
     if (s(body.assignedTo)) {
-      if (!a?.isAdmin && !myTeams.includes(rt.team.id)) throw new Forbidden(`Only members of ${rt.team.name} can assign this ticket to a person`);
+      if (!isItsmAdmin(a) && !myTeams.includes(rt.team.id)) throw new Forbidden(`Only members of ${rt.team.name} can assign this ticket to a person`);
       const u = await userByName(String(body.assignedTo));
       if (!u || !await isMember(u.id, rt.team.id)) throw new Bad(`${body.assignedTo} is not a member of ${rt.team.name}`);
       values.assignedTo = u.name; values.firstResponseAt = createdAt; notifyAssignee = u.email;
@@ -346,7 +347,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     const isRequester = old.requesterUserId === who.userId || old.createdBy === who.label;
     const OPS = ["status", "assignedTo", "assignedGroup", "teamId", "priority", "severity", "resolutionNotes", "fulfillmentNotes", "category", "subcategory", "problemId", "urgency", "impactLevel", "source"];
     const touched = OPS.filter(k => body[k] !== undefined && String(body[k] ?? "") !== String(old[k] ?? ""));
-    if (!a?.isAdmin && !member) {
+    if (!isItsmAdmin(a) && !member) {
       const cancelOwn = kind === "request" && isRequester && touched.length === 1 && touched[0] === "status" && body.status === "Cancelled" && !DONE.request.includes(old.status);
       if (touched.length && !cancelOwn) throw new Forbidden(`Only members of ${old.assignedGroup || "the assigned team"} can change ${touched.join(", ")}${isRequester && kind === "request" ? " (you can cancel your own request)" : ""}`);
       if (!isRequester) throw new Forbidden(`Only the requester or members of ${old.assignedGroup || "the assigned team"} can edit this ticket`);
@@ -377,7 +378,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
         body.assignedTo = u.name; events.push("assigned");
       } else body.assignedTo = null;
     }
-    if (!old.firstResponseAt && (a?.isAdmin || member) && (events.includes("assigned") || (body.status && body.status !== old.status && body.status !== "Cancelled"))) extra.firstResponseAt = new Date();
+    if (!old.firstResponseAt && (isItsmAdmin(a) || member) && (events.includes("assigned") || (body.status && body.status !== old.status && body.status !== "Cancelled"))) extra.firstResponseAt = new Date();
   } else {
     const newWho = body.assignedTo !== undefined && (body.assignedTo || null) !== (old.assignedTo || null) ? body.assignedTo : null;
     const newTeam = body.assignedGroup !== undefined && (body.assignedGroup || null) !== (old.assignedGroup || null) ? body.assignedGroup : null;
@@ -386,6 +387,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   const to = body.status ?? old.status;
   if (to !== old.status) {
     if (REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(to)) {
+      if (old.status === "Closed" && !isItsmAdmin(await getAccess(req))) throw new Forbidden("A closed ticket can only be re-opened by an ITSM Admin");
       if (!reopenReason || reopenReason.length < 5) throw new Bad(`${old.status} ticket — give a reason to reopen it (reopenReason)`);
     }
     if (kind === "incident" && to === "Resolved" && !s(body.resolutionNotes ?? old.resolutionNotes)) throw new Bad("Resolution notes are required to resolve an incident");
@@ -464,7 +466,7 @@ async function visibleRows(req: Request, kind: Kind, rows: any[]) {
   const a = await getAccess(req); if (!a) return [];
   const me = await actor(req);
   const myTeams = await teamIdsOf(a.userId);
-  const seeAll = a.isAdmin || a.perms[MODULE_OF[kind]] === "admin" || myTeams.length > 0;
+  const seeAll = isItsmAdmin(a) || a.perms[MODULE_OF[kind]] === "admin" || myTeams.length > 0;
   const mine = (r: any) => r.requesterUserId === a.userId || r.createdBy === me.label;
   let out = seeAll ? rows : rows.filter(mine);
   const view = String(req.query.view || "");
@@ -1187,10 +1189,11 @@ export async function createSystemIncident(o: { title: string; description: stri
   return item;
 }
 /** Add a note to an incident; when resolve is true and nobody has picked it up yet, resolve it. */
-export async function noteIncident(id: number, by: string, note: string, resolve = false) {
+export async function noteIncident(id: number, by: string, note: string, resolve: boolean | "any" = false) {
   const [t]: any[] = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.id, id));
   if (!t) return null;
-  if (resolve && t.status === "Open" && !t.assignedTo) {
+  // resolve === "any": the device itself reports the issue gone — resolve whatever the working status (never a Resolved / Closed ticket)
+  if ((resolve === "any" && !["Resolved", "Closed"].includes(t.status)) || (resolve === true && t.status === "Open" && !t.assignedTo)) {
     await db.update(itsmIncidentsTable).set({ status: "Resolved", resolvedAt: new Date(), resolutionNotes: note, updatedBy: by, updatedAt: new Date() }).where(eq(itsmIncidentsTable.id, id));
     await history("incident", id, by, note, t.status, "Resolved");
     return "Resolved";

@@ -72,12 +72,12 @@ export function evaluate(h: any, platform: string, t: Thresholds, now = new Date
   return { alerts: out, state };
 }
 
-async function syncAlerts(agentId: number, assetId: number | null, list: { kind: string; severity: string; message: string }[], keep: (k: string) => boolean = () => false) {
+async function syncAlerts(agentId: number, assetId: number | null, list: { kind: string; severity: string; message: string }[], keep: (k: string) => boolean = () => false, ctx?: { at: Date; h: any; hostname?: string }) {
   const open = rowsOf(await db.execute(sql`SELECT id, kind, severity FROM asset_agent_alerts WHERE agent_id = ${agentId} AND closed_at IS NULL`));
   const kinds = new Set(list.map(a => a.kind));
   const closed: number[] = [];
   for (const o of open) if (!kinds.has(o.kind) && !keep(o.kind)) { await db.execute(sql`UPDATE asset_agent_alerts SET closed_at = now() WHERE id = ${o.id}`); closed.push(o.id); }
-  if (closed.length) void import("./device-support").then(m => m.alertsClosed(closed)).catch(e => console.error(e));
+  if (closed.length) void import("./device-support").then(m => m.alertsClosed(closed, ctx)).catch(e => console.error(e));
   const fresh: typeof list = [];
   for (const a of list) {
     const ex = open.find(o => o.kind === a.kind);
@@ -246,7 +246,7 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
       await tx.execute(sql`UPDATE asset_agents SET software_at = now() WHERE id = ${ag.id}`);
     });
   }
-  const fresh = await syncAlerts(ag.id, assetId, ev.alerts, k => k === "idle"); // idle is evaluated by the daily sweep
+  const fresh = await syncAlerts(ag.id, assetId, ev.alerts, k => k === "idle", { at: new Date(), h, hostname: s(h.hostname, 80) || ag.hostname }); // idle is evaluated by the daily sweep
   void notifyCritical(ag, fresh).catch(() => {});
   const ds = await import("./device-support");
   const state = await ds.recomputeState(ag.id);   // ignored items do not count
@@ -384,7 +384,7 @@ router.get("/asset-agents", requireAuth, wrap(async (_req, res) => {
 }));
 
 /** Health, usage and software for one register asset (Asset Registry › view › Health). */
-const AG_COLS = sql`id, hostname, serial_number AS "serialNumber", platform, os_name AS "osName", os_version AS "osVersion", agent_version AS "agentVersion", last_user AS "lastUser",
+export const AG_COLS = sql`id, hostname, serial_number AS "serialNumber", platform, os_name AS "osName", os_version AS "osVersion", agent_version AS "agentVersion", last_user AS "lastUser",
       last_seen_at AS "lastSeenAt", enrolled_at AS "enrolledAt", health_state AS "healthState", latest, status, software_at AS "softwareAt", manufacturer, model, asset_id AS "assetId", user_id AS "userId"`;
 router.get("/asset-agents/:id/health", requireAuth, wrap(async (req, res) => {
   const id = Number(req.params.id); if (!Number.isInteger(id)) return fail(res, 400, "Invalid device");
@@ -398,7 +398,7 @@ router.get("/assets/:id/health", requireAuth, wrap(async (req, res) => {
   if (!ag) return res.json({ agent: null });
   res.json(await healthOf(ag));
 }));
-async function healthOf(ag: any) {
+export async function healthOf(ag: any) {
   const st = await agentSettings();
   if (!ag.lastSeenAt || Date.now() - new Date(ag.lastSeenAt).getTime() > st.thresholds.offlineDays * 86_400_000) ag.healthState = "Offline";
   const trend = rowsOf(await db.execute(sql`SELECT date_trunc('hour', at) AS at, round(avg(cpu_pct), 1)::float AS cpu, round(avg(mem_pct), 1)::float AS mem, round(min(disk_min_free_pct), 1)::float AS disk
@@ -408,7 +408,7 @@ async function healthOf(ag: any) {
   const apps = rowsOf(await db.execute(sql`SELECT k AS app, sum(v::int)::int AS mins FROM asset_usage_daily u, jsonb_each_text(u.apps) AS e(k, v)
       WHERE u.agent_id = ${ag.id} AND u.day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY k ORDER BY mins DESC LIMIT 12`));
   const users = rowsOf(await db.execute(sql`SELECT user_name AS "user", count(*)::int AS days, sum(active_mins)::int AS active, max(day) AS "lastDay" FROM asset_usage_daily WHERE agent_id = ${ag.id} AND day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY 1 ORDER BY active DESC`));
-  const alerts = rowsOf(await db.execute(sql`SELECT id, kind, severity, message, opened_at AS "openedAt", closed_at AS "closedAt", incident_id AS "incidentId", ticket_no AS "ticketNo", ticket_auto AS "ticketAuto",
+  const alerts = rowsOf(await db.execute(sql`SELECT id, kind, severity, message, opened_at AS "openedAt", closed_at AS "closedAt", closed_note AS "closedNote", incident_id AS "incidentId", ticket_no AS "ticketNo", ticket_auto AS "ticketAuto",
       ignored_at AS "ignoredAt", ignored_by AS "ignoredBy", ignore_reason AS "ignoreReason", ignore_until AS "ignoreUntil",
       (ignored_at IS NOT NULL AND (ignore_until IS NULL OR ignore_until > now())) AS ignored,
       (SELECT status FROM itsm_incidents i WHERE i.id = asset_agent_alerts.incident_id) AS "ticketStatus"
