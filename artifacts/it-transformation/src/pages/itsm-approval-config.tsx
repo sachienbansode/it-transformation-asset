@@ -173,6 +173,10 @@ export default function ItsmApprovalConfig() {
           <p className="text-sm text-muted-foreground mt-1">
             Define multi-level approval rules for each ITSM ticket type. Rules are applied when tickets are created.
           </p>
+          <p className="text-sm mt-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+            Need stages, conditions, assignment, time limits or approvals in the middle of a ticket's life? Draw it in the{" "}
+            <a href="/itsm-workflows" className="font-semibold text-primary hover:underline">Workflow Designer</a>. Tickets that follow a workflow use its approvals instead of this matrix.
+          </p>
         </div>
         <div className="flex gap-2 shrink-0">
           <Button variant="outline" size="sm" onClick={() => refetch()}>
