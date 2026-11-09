@@ -130,6 +130,26 @@ router.post("/asset-agents/alerts/:id/unignore", requireAuth, wrap(async (req, r
   res.json({ ok: true, state });
 }));
 
+/** Everything that happened to a device: link / unlink / assignment / transfer, register moves of its asset, health actions, chats, key events. */
+router.get("/asset-agents/:id/history", requireAuth, wrap(async (req, res) => {
+  if (!await isIT(req)) return fail(res, 403, "Only IT can see device history");
+  const id = Number(req.params.id);
+  const [g] = rowsOf(await db.execute(sql`SELECT id, asset_id, enrolled_by_code, hostname FROM asset_agents WHERE id = ${id}`)); if (!g) return fail(res, 404, "Device not found");
+  const assetIds = rowsOf(await db.execute(sql`SELECT DISTINCT x::int AS id FROM audit_logs, LATERAL (VALUES (new_values->>'assetId'), (new_values->>'previousAssetId')) v(x)
+      WHERE entity_type IN ('asset_agent', 'device') AND entity_id = ${id} AND x ~ '^[0-9]+$'`)).map((r: any) => r.id).filter(Boolean);
+  if (g.asset_id) assetIds.push(g.asset_id);
+  const aIn = assetIds.length ? sql`(entity_type IN ('asset', 'asset_allocation') AND entity_id IN (${sql.join(assetIds.map((x: number) => sql`${x}`), sql`, `)}))` : sql`false`;
+  const audit = rowsOf(await db.execute(sql`SELECT id, entity_type AS "entityType", entity_id AS "entityId", action, performed_by AS "by", performed_at AS "at", summary
+    FROM audit_logs WHERE (entity_type IN ('asset_agent', 'device') AND entity_id = ${id})
+      OR (entity_type = 'asset_agent_alert' AND entity_id IN (SELECT id FROM asset_agent_alerts WHERE agent_id = ${id}))
+      OR (entity_type = 'device_chat' AND entity_id IN (SELECT id FROM device_chats WHERE agent_id = ${id}))
+      OR (entity_type = 'asset_agent_code' AND entity_id = ${g.enrolled_by_code ?? 0})
+      OR ${aIn}
+    ORDER BY performed_at DESC LIMIT 500`));
+  const moves = g.asset_id ? rowsOf(await db.execute(sql`SELECT action, old_status AS "from", new_status AS "to", user_name AS "by", created_at AS "at", notes FROM asset_transactions WHERE asset_id = ${g.asset_id} ORDER BY created_at DESC LIMIT 200`)) : [];
+  res.json({ audit, moves });
+}));
+
 /* ── support chat ────────────────────────────────────────────────────────── */
 async function autoClose() {
   const days = Math.max(1, Number(await setting("assetAgent.chatAutoCloseDays", 3)) || 3);

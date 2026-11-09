@@ -1,3 +1,4 @@
+import { markAudited } from "../lib/audit-trail";
 import { Router } from "express";
 import { createBatch, diffRows, batchWorkbook, XLSX_TYPE } from "../lib/archive";
 import { notify, htmlTable } from "../lib/mailer";
@@ -23,7 +24,7 @@ import { z } from "zod";
 async function auditKpi(entityId: number, action: string, summary: string, userId: string | undefined, extra?: object) {
   try {
     const performedBy = userId ? await getPerformedBy(parseInt(userId, 10)) : null;
-    await db.insert(auditLogsTable).values({ entityType: "kpi_set", entityId, action, performedBy, summary, newValues: extra || null });
+    markAudited(); await db.insert(auditLogsTable).values({ entityType: "kpi_set", entityId, action, performedBy, summary, newValues: extra || null });
   } catch {}
 }
 

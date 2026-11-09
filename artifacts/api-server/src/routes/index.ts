@@ -1,8 +1,10 @@
+import { auditTrail } from "../lib/audit-trail";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import healthRouter from "./health";
 import assetAgentRouter, { publicAgentRouter } from "./asset-agent";
 import policiesRouter, { policyGate } from "./policies";
 import deviceSupportRouter from "./device-support";
+import deviceDataRouter from "./device-data";
 import checklistRouter from "./checklist";
 import roadmapRouter from "./roadmap";
 import applicationsRouter from "./applications";
@@ -44,6 +46,7 @@ import { assetRbac } from "../lib/rbac";
 
 const router: IRouter = Router();
 
+router.use(auditTrail);           // every change is audited (modules add detailed entries)
 router.use(centralAuthRouter);
 router.use(centralSessionGuard);   // re-validates Ashika Portal sessions (live role / disabled user)
 router.use(authRouter);
@@ -106,6 +109,7 @@ router.use((req: Request, _res: Response, next: NextFunction) => {
 router.use(dashboardRouter);
 router.use(assetAgentRouter);
 router.use(deviceSupportRouter);
+router.use(deviceDataRouter);
 router.use(policiesRouter);
 router.use(checklistRouter);
 router.use(roadmapRouter);

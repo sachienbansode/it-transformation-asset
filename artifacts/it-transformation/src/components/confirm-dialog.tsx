@@ -11,6 +11,7 @@ type Opts = { title?: string; confirmText?: string; cancelText?: string; destruc
 type Req = Opts & { message: string; resolve: (ok: boolean) => void; input?: { label: string; min: number; onValue: (v: string) => void } };
 
 let push: ((r: Req) => void) | null = null;
+let lastConfirmedAt = 0;
 const pending: Req[] = [];
 
 export function confirmDialog(message: string, opts: Opts = {}): Promise<boolean> {
@@ -42,6 +43,7 @@ export function ConfirmDialogHost() {
   const cur = queue[0];
   const done = (ok: boolean) => {
     if (!cur) return;
+    if (ok) lastConfirmedAt = Date.now();
     setText("");
     cur.resolve(ok);
     setQueue((q) => q.slice(1));
@@ -76,4 +78,42 @@ export function ConfirmDialogHost() {
       </AlertDialogContent>
     </AlertDialog>
   );
+}
+
+/* ── Ask before every change ─────────────────────────────────────────────────
+   Every POST / PUT / PATCH / DELETE to the API from this app is confirmed in-app first, unless the screen already asked
+   (a confirm in the last few seconds), the call is a read-only action (preview / export / search / chat message /
+   notification read), or the request says X-No-Confirm. Admin can switch it off (setting ui.confirmChanges). */
+const NO_CONFIRM = [/\/auth\//, /\/notifications/, /\/push\//, /\/messages$/, /\/my-policies\/\d+\/decision$/, /\/search/, /\/export/, /\/preview/, /\/validate/, /\/dry-?run/, /\/report/, /\/test$/, /\/central/, /\/mark-read/, /\/read$/];
+const LABEL: Record<string, string> = { assets: "asset", "asset-agents": "device", "asset-agent-codes": "installation key", "asset-allocations": "handover", "asset-handovers": "handover", "asset-licenses": "licence", "asset-license-assignments": "licence assignment", "asset-vendors": "vendor", "asset-contracts": "contract", "asset-audits": "physical audit", "maintenance-records": "maintenance record", incidents: "incident", problems: "problem", changes: "change request", "service-requests": "service request", "knowledge-base": "knowledge article", "sla-policies": "SLA policy", approvals: "approval", "my-approvals": "approval", policies: "policy", users: "user", roles: "role", settings: "settings", policies: "policy", "user-roles": "user roles", settings: "settings", roadmap: "roadmap item", checklist: "checklist item", applications: "application" };
+const VERB: Record<string, string> = { issue: "Issue", return: "Return", assign: "Assign / link", transition: "Change status of", publish: "Publish", retire: "Retire", unretire: "Restore", deactivate: "Deactivate", activate: "Activate", discard: "Discard changes to", resend: "Resend", remind: "Send reminders for", duplicate: "Duplicate", restore: "Restore a version of", share: "Email", ignore: "Ignore", unignore: "Stop ignoring", ticket: "Raise a ticket for", resolve: "Resolve", close: "Close", approve: "Approve", reject: "Reject", acknowledge: "Acknowledge", import: "Import into", "bulk-update": "Update several", "bulk-issue": "Issue several", "bulk-assign": "Assign several", chats: "Start a chat about", confirm: "Confirm", reopen: "Re-open" };
+let guardOn = true;
+export function setConfirmChanges(on: boolean) { guardOn = on; }
+function describeChange(method: string, url: string, body: unknown) {
+  const path = url.replace(/^.*\/api/, "").split("?")[0];
+  const parts = path.split("/").filter(Boolean);
+  if (parts[0] === "admin" && parts[1]) parts.shift();
+  const what = LABEL[parts[0]] || parts[0]?.replace(/-/g, " ") || "record";
+  const id = parts.find(p => /^\d+$/.test(p));
+  const last = [...parts].reverse().find(p => !/^\d+$/.test(p) && p !== parts[0]);
+  const verb = method === "DELETE" ? "Delete" : last && VERB[last] ? VERB[last] : method === "POST" && !id ? "Create" : "Save changes to";
+  let detail = "";
+  try { const b = typeof body === "string" ? JSON.parse(body) : null; if (b && typeof b === "object") { const k = Object.keys(b).filter(x => !/pass|token|secret|code/i.test(x)).slice(0, 6); if (k.length) detail = `\nFields: ${k.join(", ")}`; } } catch { /* not JSON */ }
+  return { title: method === "DELETE" ? "Confirm delete" : "Confirm change", message: `${verb} ${what}${id ? ` #${id}` : ""}?${detail}\nThis change is recorded in the audit log.`, destructive: method === "DELETE" };
+}
+export function installChangeGuard() {
+  const w = window as any; if (w.__changeGuard) return; w.__changeGuard = true;
+  const orig = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const method = String(init?.method || (typeof input === "object" && "method" in input ? (input as Request).method : "GET")).toUpperCase();
+    const h = new Headers(init?.headers || (typeof input === "object" && "headers" in input ? (input as Request).headers : undefined));
+    if (guardOn && /\/api\//.test(url) && !["GET", "HEAD", "OPTIONS"].includes(method) && !h.get("X-No-Confirm")
+        && !NO_CONFIRM.some(r => r.test(url.split("?")[0])) && !/"dryRun"\s*:\s*true/.test(String(init?.body || "")) && Date.now() - lastConfirmedAt > 8000) {
+      const d = describeChange(method, url, init?.body);
+      const ok = await confirmDialog(d.message, { title: d.title, confirmText: method === "DELETE" ? "Delete" : "Confirm", destructive: d.destructive });
+      if (!ok) { const e: any = new Error("Cancelled — nothing was changed"); e.cancelled = true; throw e; }
+    }
+    return orig(input as any, init);
+  };
 }

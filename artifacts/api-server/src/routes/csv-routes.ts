@@ -1,3 +1,4 @@
+import { markAudited } from "../lib/audit-trail";
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import {
@@ -243,7 +244,7 @@ router.post("/roadmap/import", requireAdmin, async (req, res): Promise<void> => 
     .where(eq(roadmapUploadBatchesTable.id, batch.id));
 
   // Audit log
-  await db.insert(auditLogsTable).values({
+  markAudited(); await db.insert(auditLogsTable).values({
     entityType: "roadmap", entityId: batch.id, action: "import",
     performedBy: createdBy,
     summary: `Roadmap CSV imported: ${imported} rows added, ${archivedCount} previous records archived`,

@@ -1,4 +1,5 @@
 import { PushAdmin } from "@/components/push-admin";
+import { ConfirmChangesSetting } from "@/components/confirm-setting";
 import React, { useState, useEffect } from "react";
 import { getRoleLabel, cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
@@ -112,7 +113,7 @@ export default function Admin() {
         ))}
       </div>
 
-      {tab === "settings" && <><SettingsTab /><PushAdmin /></>}
+      {tab === "settings" && <><SettingsTab /><ConfirmChangesSetting /><PushAdmin /></>}
       {tab === "masters" && <MastersTab />}
       {tab === "business-units" && <BusinessUnitsTab />}
       {tab === "audit" && <AuditTrailTab />}
@@ -1206,6 +1207,15 @@ function AuditTrailTab() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [types, setTypes] = useState<{ entityType: string; n: number }[]>([]);
+  const [entityId, setEntityId] = useState("");
+  useEffect(() => { apiFetch<any[]>("/audit-logs/entity-types").then(setTypes).catch(() => {}); }, []);
+  const typeLabel = (t: string) => ENTITY_TYPES.find(e => e.value === t)?.label || t.replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+  const qs = () => { const p = new URLSearchParams({ days }); if (entityType !== "all") p.set("entityType", entityType); if (searchQ.trim()) p.set("search", searchQ.trim()); if (entityId.trim()) p.set("entityId", entityId.trim()); return p; };
+  async function exportCsv() {
+    const r = await fetch(`/api/audit-logs/export?${qs()}`, { credentials: "include" }); if (!r.ok) return;
+    const u = URL.createObjectURL(await r.blob()); Object.assign(document.createElement("a"), { href: u, download: `audit_log_${new Date().toISOString().slice(0, 10)}.csv` }).click(); URL.revokeObjectURL(u);
+  }
 
   const fetchLogs = async () => {
     setLoading(true);
@@ -1213,13 +1223,14 @@ function AuditTrailTab() {
       const params = new URLSearchParams({ page: String(page), limit: "25", days });
       if (entityType !== "all") params.set("entityType", entityType);
       if (searchQ.trim()) params.set("search", searchQ.trim());
+      if (entityId.trim()) params.set("entityId", entityId.trim());
       const result = await apiFetch<{ logs: AuditLog[]; hasMore: boolean }>(`/audit-logs?${params}`);
       setLogs(result.logs);
       setHasMore(result.hasMore);
     } catch { setLogs([]); } finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchLogs(); }, [entityType, page, days, searchQ]);
+  useEffect(() => { fetchLogs(); }, [entityType, page, days, searchQ, entityId]);
 
   const handleSearch = () => { setSearchQ(searchInput); setPage(1); };
 
@@ -1244,7 +1255,7 @@ function AuditTrailTab() {
           <h2 className="text-base font-semibold">Audit Trail</h2>
           <p className="text-xs text-muted-foreground">Complete change history with record IDs — all data modifications are tracked</p>
         </div>
-        <Button size="sm" variant="outline" onClick={fetchLogs}><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</Button>
+        <div className="flex gap-2"><Button size="sm" variant="outline" onClick={exportCsv}>Export CSV</Button><Button size="sm" variant="outline" onClick={fetchLogs}><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</Button></div>
       </div>
 
       {/* Filters */}
@@ -1261,11 +1272,13 @@ function AuditTrailTab() {
         </div>
         <Button size="sm" variant="outline" className="h-8" onClick={handleSearch}>Search</Button>
         <Select value={entityType} onValueChange={v => { setEntityType(v); setPage(1); }}>
-          <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-52 h-8 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-            {ENTITY_TYPES.map(e => <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>)}
+            <SelectItem value="all">All modules / records</SelectItem>
+            {types.map(e => <SelectItem key={e.entityType} value={e.entityType}>{typeLabel(e.entityType)} ({e.n})</SelectItem>)}
           </SelectContent>
         </Select>
+        <input placeholder="Record id" value={entityId} onChange={e => { setEntityId(e.target.value.replace(/\D/g, "")); setPage(1); }} className="w-24 px-2 py-1.5 text-xs border border-input rounded-md bg-background" />
         <Select value={days} onValueChange={v => { setDays(v); setPage(1); }}>
           <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -1276,8 +1289,8 @@ function AuditTrailTab() {
             <SelectItem value="365">Last 1 year</SelectItem>
           </SelectContent>
         </Select>
-        {(searchQ || entityType !== "all") && (
-          <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setSearchQ(""); setSearchInput(""); setEntityType("all"); setPage(1); }}>
+        {(searchQ || entityType !== "all" || entityId) && (
+          <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setSearchQ(""); setSearchInput(""); setEntityType("all"); setEntityId(""); setPage(1); }}>
             Clear
           </Button>
         )}
@@ -1301,7 +1314,7 @@ function AuditTrailTab() {
                 <span className="text-[11px] text-muted-foreground whitespace-nowrap">
                   {fmtDateTime(log.performedAt)}
                 </span>
-                <Badge variant="outline" className="text-[10px] capitalize">{log.entityType.replace(/_/g, " ")}</Badge>
+                <Badge variant="outline" className="text-[10px] capitalize">{log.entityType.replace(/_/g, " ")}{log.entityId ? ` #${log.entityId}` : ""}</Badge>
                 <Badge variant="outline" className={`text-[10px] capitalize border ${actionBadge(log.action)}`}>{log.action}</Badge>
                 {log.performedBy && (
                   <span className="text-[11px] text-muted-foreground ml-auto truncate max-w-[220px]" title={log.performedBy}>

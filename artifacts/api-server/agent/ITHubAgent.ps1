@@ -7,7 +7,7 @@
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.4'
+$AgentVersion = '1.1.5'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -32,9 +32,12 @@ if ($UsageMonitor) {
 '@
   $user = "$env:USERDOMAIN\$env:USERNAME"
   $safe = ($user -replace '[^A-Za-z0-9._-]', '_')
-  $trackApps = $true
-  try { $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json; if ($cfg.trackApps -eq $false) { $trackApps = $false } } catch { }
+  # what IT allows to be recorded for this computer's employee (re-read every 10 minutes; set in IT Hub by an administrator)
+  $script:trackApps = $true; $script:trackUsage = $true; $script:cfgAt = [datetime]::MinValue
+  $readCfg = { try { $c = Get-Content $ConfigFile -Raw | ConvertFrom-Json; $script:trackApps = ($c.trackApps -ne $false); $script:trackUsage = ($c.trackUsage -ne $false) } catch { }; $script:cfgAt = Get-Date }
   $tick = {
+    if (((Get-Date) - $script:cfgAt).TotalMinutes -ge 10) { & $readCfg }
+    if (-not $script:trackUsage) { return }
     try {
       $li = New-Object ITHub.Win+LASTINPUTINFO; $li.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($li)
       [void][ITHub.Win]::GetLastInputInfo([ref]$li)
@@ -51,7 +54,7 @@ if ($UsageMonitor) {
       $u.lastSeen = $now
       if ($active) {
         $u.activeMins++
-        if ($trackApps -and $proc) {
+        if ($script:trackApps -and $proc) {
           $k = "$proc.exe".ToUpper()
           if ($u.apps.PSObject.Properties[$k]) { $u.apps.$k++ } else { $u.apps | Add-Member -NotePropertyName $k -NotePropertyValue 1 }
         }
@@ -176,6 +179,7 @@ try {
   $r = Invoke-RestMethod -Method Post -Uri "$($cfg.url)/api/agent/v1/checkin" -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) -TimeoutSec 60 -UseBasicParsing
   if ($body.software) { $cfg | Add-Member -NotePropertyName softwareAt -NotePropertyValue (Get-Date).ToString('o') -Force }
   $cfg | Add-Member -NotePropertyName trackApps -NotePropertyValue ([bool]$r.trackApps) -Force
+  $cfg | Add-Member -NotePropertyName trackUsage -NotePropertyValue ($r.trackUsage -ne $false) -Force
   $cfg | Add-Member -NotePropertyName lastCheckin -NotePropertyValue (Get-Date).ToString('o') -Force
   ($cfg | ConvertTo-Json) | Set-Content $ConfigFile -Encoding UTF8
   Log "Check-in OK: $($r.state)"

@@ -182,6 +182,14 @@ publicAgentRouter.post("/agent/v1/enrol", wrap(async (req, res) => {
   res.status(201).json({ token, agentId: id, assetMatched: !!m.assetId, matchNote: m.note, checkinMinutes: st.checkinMinutes, trackApps: st.trackApps });
 }));
 
+/** What may be collected on this device: the rule for its employee (register holder, else the installer key's employee). */
+export async function trackingFor(agentId: number, globalApps: boolean) {
+  const [r] = rowsOf(await db.execute(sql`SELECT t.level FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id
+    JOIN agent_tracking_rules t ON t.user_id = coalesce(CASE WHEN s.status = 'Allocated' THEN s.owner_id END, g.user_id) WHERE g.id = ${agentId}`));
+  const level = r?.level || "standard";
+  return { level, usage: level !== "excluded", apps: level === "detailed" ? true : level === "standard" ? globalApps : false };
+}
+
 async function agentFromToken(req: Request) {
   const t = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
   if (!/^[a-f0-9]{64}$/.test(t)) return null;
@@ -213,11 +221,13 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
     VALUES (${ag.id}, ${assetId}, ${num(h.cpu?.pct)}, ${num(h.mem?.usedPct)}, ${Number.isFinite(minFree) ? minFree : null}, ${h.battery?.present ? num(h.battery.healthPct) : null}, ${JSON.stringify(h)}::jsonb)`);
   // daily usage: the device sends today's (and unsent earlier days') running totals; keep the larger numbers
   const usage = Array.isArray(req.body?.usage) ? req.body.usage.slice(0, 31) : [];
+  const track = await trackingFor(ag.id, st.trackApps);   // per-employee rule set by an administrator
   for (const u of usage) {
     const day = s(u.day, 10); const un = s(u.user, 120);
     if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !un) continue;
     const apps: Record<string, number> = {};
-    if (st.trackApps && u.apps && typeof u.apps === "object") for (const [k, v] of Object.entries(u.apps).slice(0, 200)) { const n = Math.round(Number(v)); if (n > 0 && n <= 1440) apps[String(k).slice(0, 80)] = n; }
+    if (!track.usage) break;
+    if (track.apps && u.apps && typeof u.apps === "object") for (const [k, v] of Object.entries(u.apps).slice(0, 200)) { const n = Math.round(Number(v)); if (n > 0 && n <= 1440) apps[String(k).slice(0, 80)] = n; }
     const act = Math.min(1440, Math.max(0, Math.round(Number(u.activeMins) || 0))), idle = Math.min(1440, Math.max(0, Math.round(Number(u.idleMins) || 0)));
     await db.execute(sql`INSERT INTO asset_usage_daily (agent_id, day, user_name, asset_id, first_seen, last_seen, active_mins, idle_mins, apps)
       VALUES (${ag.id}, ${day}::date, ${un}, ${assetId}, ${s(u.firstSeen, 40)}::timestamptz, ${s(u.lastSeen, 40)}::timestamptz, ${act}, ${idle}, ${JSON.stringify(apps)}::jsonb)
@@ -243,7 +253,7 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
   void ds.autoTickets(ag.id).catch(e => console.error("auto tickets", e));
   const swDue = !ag.software_at || Date.now() - new Date(ag.software_at).getTime() > 23 * 3600_000;
   const latest = agentRelease();
-  res.json({ ok: true, state, checkinMinutes: st.checkinMinutes, trackApps: st.trackApps, sendSoftware: swDue && !Array.isArray(req.body?.software),
+  res.json({ ok: true, state, checkinMinutes: st.checkinMinutes, trackApps: track.apps, trackUsage: track.usage, sendSoftware: swDue && !Array.isArray(req.body?.software),
     latestVersion: latest?.version || null, agentSha256: latest?.sha256 || null, serverUrl: agentServerUrl() });
 }));
 
@@ -448,8 +458,26 @@ router.post("/asset-agents/:id/assign", requireAuth, wrap(async (req, res) => {
       if (b.issue && assetId && emp) issued = await issueOrReassign(tx, assetId, emp, { condition: "Good", allocationType: "Permanent", notes: s(b.notes, 300) || `Matched by IT Hub agent on ${ag.hostname}` }, who, !!b.reassign, "Device Health");
       return { assetId, assetTag: a?.asset_tag || null, created: !!created, issued };
     });
-    void logAudit({ entityType: "asset_agent", entityId: id, action: "assign", performedBy: who.performedBy,
-      summary: `${ag.hostname}: ${out.assetTag ? `linked to ${out.assetTag}${out.created ? " (new asset)" : ""}` : "unlinked"}${emp ? ` · employee ${emp.userName} (${emp.employeeCode})` : ""}${out.issued ? ` · ${out.issued.action}${out.issued.handoverNo ? ` ${out.issued.handoverNo}` : ""}` : ""}` }).catch(() => {});
+    const [prevA] = ag.asset_id ? rowsOf(await db.execute(sql`SELECT asset_tag FROM assets WHERE id = ${ag.asset_id}`)) : [null];
+    const [prevU] = ag.user_id ? rowsOf(await db.execute(sql`SELECT name, employee_code FROM users WHERE id = ${ag.user_id}`)) : [null];
+    const linkAction = !out.assetId ? "unlink" : ag.asset_id && ag.asset_id !== out.assetId ? "relink" : ag.asset_id === out.assetId ? (emp && emp.userId !== ag.user_id ? "reassign" : "assign") : "link";
+    const act = out.issued?.action === "Reassigned" ? "transfer" : linkAction;
+    const empTxt = emp ? `${emp.userName} (${emp.employeeCode})` : null, prevEmpTxt = prevU ? `${prevU.name} (${prevU.employee_code || "-"})` : null;
+    const parts = [
+      !out.assetTag ? `unlinked${prevA ? ` from ${prevA.asset_tag}` : ""}` : prevA && prevA.asset_tag !== out.assetTag ? `moved from ${prevA.asset_tag} to ${out.assetTag}` : prevA ? `stays on ${out.assetTag}` : `linked to ${out.assetTag}${out.created ? " (new asset added to the register)" : ""}`,
+      empTxt && prevEmpTxt && prevEmpTxt !== empTxt ? `employee ${prevEmpTxt} → ${empTxt}` : empTxt ? `employee ${empTxt}` : null,
+      out.issued ? (out.issued.action === "Reassigned" ? `register: transferred from ${out.issued.from} (${out.issued.handoverNo})` : out.issued.action === "Issued" ? `register: issued (${out.issued.handoverNo})` : "register: already with this employee") : null,
+    ].filter(Boolean);
+    await logAudit({ entityType: "asset_agent", entityId: id, action: act, performedBy: who.performedBy,
+      newValues: { device: ag.hostname, assetId: out.assetId, assetTag: out.assetTag, previousAssetId: ag.asset_id, previousAssetTag: prevA?.asset_tag ?? null, employeeId: emp?.userId ?? ag.user_id, employee: empTxt, previousEmployee: prevEmpTxt,
+        newAssetRegistered: !!out.created, register: out.issued ? { action: out.issued.action, handover: out.issued.handoverNo ?? null, from: out.issued.from ?? null } : null },
+      summary: `${ag.hostname}: ${parts.join(" · ")}` }).catch(() => {});
+    // the register side, on the asset's own trail
+    if (out.created) await logAudit({ entityType: "asset", entityId: out.assetId!, action: "create", performedBy: who.performedBy, summary: `Registered ${out.assetTag} from Device Health (computer ${ag.hostname}, serial ${ag.serial_number})` }).catch(() => {});
+    if (out.issued && out.issued.action !== "Unchanged") await logAudit({ entityType: "asset", entityId: out.assetId!, action: out.issued.action === "Reassigned" ? "transfer" : "issue", performedBy: who.performedBy,
+      newValues: { handover: out.issued.handoverNo, to: empTxt, from: out.issued.from ?? null }, summary: `${out.issued.action === "Reassigned" ? `Transferred ${out.assetTag} from ${out.issued.from} to` : `Issued ${out.assetTag} to`} ${empTxt} (${out.issued.handoverNo}) via Device Health` }).catch(() => {});
+    if (prevA && prevA.asset_tag !== out.assetTag) await logAudit({ entityType: "asset", entityId: ag.asset_id, action: "device_unlinked", performedBy: who.performedBy, summary: `Computer ${ag.hostname} unlinked from ${prevA.asset_tag}${out.assetTag ? ` (now ${out.assetTag})` : ""}` }).catch(() => {});
+    if (out.assetId && (!prevA || prevA.asset_tag !== out.assetTag)) await logAudit({ entityType: "asset", entityId: out.assetId, action: "device_linked", performedBy: who.performedBy, summary: `Computer ${ag.hostname} (serial ${ag.serial_number || "?"}) linked to ${out.assetTag}` }).catch(() => {});
     res.json(out);
   } catch (e: any) { return fail(res, 400, e?.message || String(e)); }
 }));
@@ -472,7 +500,8 @@ router.get("/asset-agents/employee/:userId", requireAuth, wrap(async (req, res) 
     FROM asset_usage_daily WHERE ${inIds} AND day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY day ORDER BY day`));
   const apps = rowsOf(await db.execute(sql`SELECT k AS app, sum(v::int)::int AS mins FROM asset_usage_daily d, jsonb_each_text(d.apps) AS e(k, v) WHERE ${inIds} AND d.day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29 GROUP BY k ORDER BY mins DESC LIMIT 12`));
   const alerts = rowsOf(await db.execute(sql`SELECT x.severity, x.message, x.opened_at AS "openedAt", x.closed_at AS "closedAt", g.hostname FROM asset_agent_alerts x JOIN asset_agents g ON g.id = x.agent_id WHERE ${inIdsX} ORDER BY x.closed_at IS NULL DESC, x.opened_at DESC LIMIT 30`));
-  res.json({ employee: u, devices, assets, usage, apps, alerts });
+  const [tr] = rowsOf(await db.execute(sql`SELECT level FROM agent_tracking_rules WHERE user_id = ${uidp}`));
+  res.json({ employee: u, devices, assets, usage, apps, alerts, tracking: ({ usage: "Usage only", detailed: "Detailed", excluded: "Excluded" } as any)[tr?.level] || "Standard" });
 }));
 
 router.patch("/asset-agents/:id", requireAuth, wrap(async (req, res) => {

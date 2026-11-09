@@ -324,6 +324,7 @@ router.get("/config", async (_req, res): Promise<void> => {
     appName: appName || "Ashika Drishti Transform",
     appTagline: appTagline || "IT Transformation Planning Suite — Ashika Group",
     logoUrl: logoUrl || "",
+    confirmChanges: (await getSetting("ui.confirmChanges")) !== false,   // ask before every change (Admin › Settings)
   });
 });
 

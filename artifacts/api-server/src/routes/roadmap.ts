@@ -1,3 +1,4 @@
+import { markAudited } from "../lib/audit-trail";
 import { Router } from "express";
 import { eq, desc } from "drizzle-orm";
 import { db, roadmapItemsTable, roadmapUploadBatchesTable, auditLogsTable } from "@workspace/db";
@@ -35,7 +36,7 @@ async function auditRoadmap(params: {
   performedBy?: string; oldValues?: unknown; newValues?: unknown;
 }) {
   try {
-    await db.insert(auditLogsTable).values({
+    markAudited(); await db.insert(auditLogsTable).values({
       entityType: "roadmap", entityId: params.entityId,
       action: params.action, performedBy: params.performedBy || null,
       summary: params.summary,

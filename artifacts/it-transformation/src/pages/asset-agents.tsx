@@ -69,6 +69,7 @@ export default function AssetAgents() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={exportCsv}><Download className="w-4 h-4" />Export CSV</Button>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/data")}><Search className="w-4 h-4" />Device data</Button>
           {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/chats")}><MessageSquare className="w-4 h-4" />IT chats</Button>}
           {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/keys")}><KeyRound className="w-4 h-4" />Installation keys</Button>}
           {canEdit && <Button className="gap-2" onClick={() => setEnrol(true)}><KeyRound className="w-4 h-4" />Install agent / keys</Button>}
@@ -135,7 +136,8 @@ export default function AssetAgents() {
             {m && <Button size="sm" variant="outline" className="gap-1" onClick={() => setChatFor({ agent: view, employee: m.name })}><MessageSquare className="w-3.5 h-3.5" />Chat with employee</Button>}</div>}
         </div>; })()}
         {canEdit && <DeviceChats agentId={view.id} onOpen={setOpenChat} />}
-        <div className="mt-4"><AssetHealthPanel agentId={view.id} canAct={canEdit} onChat={(al: any) => { const m = empOf(view); if (!m) { toast({ title: "Assign an employee to this device first", variant: "destructive" }); return; } setChatFor({ agent: view, alert: al, employee: m.name }); }} /></div></SheetContent></Sheet>}
+        <div className="mt-4"><AssetHealthPanel agentId={view.id} canAct={canEdit} onChat={(al: any) => { const m = empOf(view); if (!m) { toast({ title: "Assign an employee to this device first", variant: "destructive" }); return; } setChatFor({ agent: view, alert: al, employee: m.name }); }} /></div>
+        {canEdit && <DeviceHistory agentId={view.id} />}</SheetContent></Sheet>}
       {chatFor && <StartChatDialog agent={chatFor.agent} alert={chatFor.alert} employee={chatFor.employee} onClose={() => setChatFor(null)} onStarted={(id: number) => { setChatFor(null); refresh(); qc.invalidateQueries({ queryKey: ["device-chats"] }); setOpenChat(id); }} />}
       {openChat && <Dialog open onOpenChange={o => !o && setOpenChat(null)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>IT chat</DialogTitle></DialogHeader><ChatThread chatId={openChat} mode="it" onChanged={refresh} /></DialogContent></Dialog>}
       {link && <AssignDialog agent={link} onClose={() => setLink(null)} onDone={() => { refresh(); setView(null); }} />}
@@ -242,7 +244,8 @@ function EmployeeSheet({ userId, onClose, onDevice }: { userId: number; onClose:
   const appMax = Math.max(1, ...(data?.apps || []).map((a: any) => a.mins));
   return (
     <Sheet open onOpenChange={o => !o && onClose()}><SheetContent className="w-full sm:max-w-[680px] overflow-y-auto">
-      <SheetHeader><SheetTitle>{u ? `${u.employeeCode || "—"} · ${u.name}` : "Employee"}</SheetTitle><SheetDescription>{u ? [u.designation, u.department, u.email, u.userType === "external" ? "External" : "Internal", u.lastLoginAt && `last IT Hub sign-in ${fmtDateTime(u.lastLoginAt)}`].filter(Boolean).join(" · ") : ""}</SheetDescription></SheetHeader>
+      <SheetHeader><SheetTitle>{u ? `${u.employeeCode || "—"} · ${u.name}` : "Employee"}</SheetTitle>
+        {u && <div className="flex gap-2 flex-wrap text-xs"><a className="text-primary underline" href={`/asset-agents/data?tab=usage&q=${encodeURIComponent(u.employeeCode || u.name)}`}>Daily usage</a><a className="text-primary underline" href={`/asset-agents/data?tab=apps&q=${encodeURIComponent(u.employeeCode || u.name)}`}>Applications</a><a className="text-primary underline" href="/asset-agents/data?tab=tracking">Tracking: {data?.tracking ? data.tracking : "Standard"}</a></div>}<SheetDescription>{u ? [u.designation, u.department, u.email, u.userType === "external" ? "External" : "Internal", u.lastLoginAt && `last IT Hub sign-in ${fmtDateTime(u.lastLoginAt)}`].filter(Boolean).join(" · ") : ""}</SheetDescription></SheetHeader>
       {isLoading ? <div className="py-8 text-sm text-muted-foreground">Loading…</div> : <div className="mt-4 space-y-5">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[["Devices", data.devices.length], ["Assets held", data.assets.length], ["Active (30 days)", hm(tot)], ["Avg per working day", hm(days ? tot / days : 0)], ["Days used", `${days} / 30`], ["Usual start", avgStart], ["Open issues", data.alerts.filter((a: any) => !a.closedAt).length], ["Last report", data.devices[0]?.lastSeenAt ? fmtDateTime(data.devices[0].lastSeenAt) : "—"]].map(([l, v]) =>
@@ -375,4 +378,23 @@ function DeviceChats({ agentId, onOpen }: { agentId: number; onOpen: (id: number
   const { data: list = [] } = useQuery({ queryKey: ["device-chats", agentId], queryFn: () => apiFetch<any[]>(`/asset-agents/chats?agentId=${agentId}`) });
   if (!list.length) return null;
   return <div className="mt-3 rounded-lg border divide-y text-xs">{list.slice(0, 5).map((c: any) => <button key={c.id} onClick={() => onOpen(c.id)} className="w-full text-left px-3 py-1.5 hover:bg-muted/40 flex gap-2 items-center"><MessageSquare className="w-3.5 h-3.5 text-primary" /><span className="font-medium flex-1 truncate">{c.subject}</span>{c.unread > 0 && <span className="rounded-full bg-primary text-primary-foreground px-1.5">{c.unread}</span>}<ChatStatus status={c.status} /><span className="text-muted-foreground">{fmtDateTime(c.lastMsgAt)}</span></button>)}</div>;
+}
+
+/** Device history: link / unlink / assignment / transfer, register moves, health actions, chats, key — from the audit log. */
+function DeviceHistory({ agentId }: { agentId: number }) {
+  const [open, setOpen] = useState(false);
+  const { data } = useQuery({ queryKey: ["device-history", agentId], queryFn: () => apiFetch<any>(`/asset-agents/${agentId}/history`), enabled: open });
+  const rows = useMemo(() => [...(data?.audit || []).map((a: any) => ({ at: a.at, by: a.by, what: `${String(a.entityType).replace(/_/g, " ")} · ${String(a.action).replace(/_/g, " ")}`, text: a.summary, id: `a${a.id}` })),
+    ...(data?.moves || []).map((m: any, i: number) => ({ at: m.at, by: m.by, what: `register · ${m.action}`, text: [m.from && m.to ? `${m.from} → ${m.to}` : null, m.notes].filter(Boolean).join(" · "), id: `m${i}` }))]
+    .sort((x, y) => +new Date(y.at) - +new Date(x.at)), [data]);
+  return (
+    <section className="mt-5 border-t pt-3">
+      <button className="text-sm font-semibold flex items-center gap-1.5" onClick={() => setOpen(!open)}>{open ? "▾" : "▸"} History &amp; audit trail</button>
+      {open && <div className="mt-2 border rounded-lg divide-y text-xs max-h-[50vh] overflow-y-auto">
+        {!data && <div className="px-3 py-2 text-muted-foreground">Loading…</div>}
+        {rows.map(r => <div key={r.id} className="px-3 py-1.5"><div className="flex gap-2 flex-wrap"><span className="font-medium capitalize">{r.what}</span><span className="text-muted-foreground ml-auto">{fmtDateTime(r.at)} · {String(r.by || "").replace(/ <.*>$/, "")}</span></div><div className="text-muted-foreground">{r.text}</div></div>)}
+        {data && !rows.length && <div className="px-3 py-2 text-muted-foreground">Nothing recorded yet.</div>}
+      </div>}
+    </section>
+  );
 }
