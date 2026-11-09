@@ -53,6 +53,7 @@ function categoryFor(kind: string, server: boolean): [string, string | null][] {
     patches: ["Operations", "Maintenance"], reboot: ["Operations", "Maintenance"], "pending-reboot": ["Operations", "Maintenance"],
     memory: server ? ["Infrastructure", "CPU / Memory"] : ["Hardware", "Laptop / Desktop"], cpu: server ? ["Infrastructure", "CPU / Memory"] : ["Hardware", "Laptop / Desktop"],
     offline: ["Operations", "Monitoring Alert"], uninstalled: ["Security", "Unauthorized Access"],
+    policy: ["Security", "Vulnerability"], software: ["Security", "Malware"], licence: ["Application", "Access Denied"], identity: ["Security", "Unauthorized Access"],
   };
   return [m[k] || ["Hardware", "Laptop / Desktop"], ["Hardware", "Laptop / Desktop"], ["Operations", "Monitoring Alert"]];
 }
@@ -108,6 +109,9 @@ function nowValue(kind: string, h: any) {
     if (k === "reboot" || k === "pending-reboot") return `up ${Math.round((Number(h?.uptimeHours) || 0) / 24)} days${h?.patches?.pendingReboot ? ", restart pending" : ", no restart pending"}`;
     if (k === "memory") return `memory ${Math.round(h?.mem?.usedPct)}% used`;
     if (k === "cpu") return `CPU ${Math.round(h?.cpu?.pct)}% busy`;
+    if (k === "policy") return "the computer now meets this device-policy rule";
+    if (k === "software") return "the software is no longer installed";
+    if (k === "licence") return "a licence is assigned or the software was removed";
   } catch { /* fall through */ }
   return "no longer reported";
 }

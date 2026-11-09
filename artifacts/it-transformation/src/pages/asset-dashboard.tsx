@@ -1,4 +1,5 @@
 import { AssetAnalytics } from "@/components/asset-analytics";
+import { AgentCoverage } from "@/components/agent-coverage";
 import React from "react";
 import { useCurrency } from "@/contexts/currency-context";
 import { useQuery } from "@tanstack/react-query";
@@ -91,6 +92,7 @@ export default function AssetDashboard() {
       </CardContent></Card>}
 
       {!empty && <>
+        <AgentCoverage />
         <AssetAnalytics>
         <div className="space-y-4">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { getAccess } from "../lib/rbac";
+import { AGENT_CHANGES } from "../lib/agent-changelog";
 
 const router = Router();
 const rowsOf = (r: any) => (r.rows ?? r) as any[];
@@ -16,7 +17,8 @@ router.get("/about", requireAuth, async (req: Request, res: Response) => {
       (SELECT count(*)::int FROM assets) AS assets, (SELECT count(*)::int FROM itsm_incidents) AS incidents`));
     const versions = rowsOf(await db.execute(sql`SELECT coalesce(agent_version, '?') AS version, count(*)::int AS devices FROM asset_agents WHERE status = 'Active' GROUP BY 1 ORDER BY 1 DESC`));
     res.json({ app: { name: "IT Hub", build: process.env.APP_BUILD || null, started: new Date(Date.now() - process.uptime() * 1000).toISOString(), node: process.version },
-      agent: { latest: agentRelease()?.version || null, versions }, counts: c });
+      agent: { latest: agentRelease()?.version || null, versions, history: AGENT_CHANGES.map(h => ({ ...h, devices: versions.find(v => v.version === h.version)?.devices || 0 })),
+        older: versions.filter(v => !AGENT_CHANGES.some(h => h.version === v.version)) }, counts: c });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 export default router;

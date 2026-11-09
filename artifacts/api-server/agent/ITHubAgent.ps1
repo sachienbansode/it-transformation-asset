@@ -9,7 +9,7 @@
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Pulse, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.9'
+$AgentVersion = '1.2.0'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -23,6 +23,33 @@ function Log($m) {
   } catch { }
 }
 function Try-Get([scriptblock]$b, $default = $null) { try { & $b } catch { $default } }
+# Signed requests (1.2.0+): every call to IT Hub carries time, a one-time nonce and an HMAC-SHA256 signature made with
+# SHA-256(token) as the key over "time`nnonce`nMETHOD`n/agent/v1/...`nSHA-256(body)". A copied or replayed request is refused.
+function Hex([byte[]]$b) { -join ($b | ForEach-Object { $_.ToString('x2') }) }
+function Sign-Headers([string]$token, [string]$method, [string]$uri, [byte[]]$body) {
+  $sha = [Security.Cryptography.SHA256]::Create()
+  $key = Hex ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($token)))
+  if (-not $body) { $body = [byte[]]@() }
+  $bodyHash = Hex ($sha.ComputeHash($body))
+  $path = ([Uri]$uri).AbsolutePath -replace '^/api', ''
+  $time = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $nonce = [guid]::NewGuid().ToString()
+  $hmac = New-Object Security.Cryptography.HMACSHA256 (,[Text.Encoding]::UTF8.GetBytes($key))
+  $sig = Hex ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes("$time`n$nonce`n$($method.ToUpper())`n$path`n$bodyHash")))
+  @{ Authorization = "Bearer $token"; 'X-ITHub-Time' = $time; 'X-ITHub-Nonce' = $nonce; 'X-ITHub-Signature' = $sig }
+}
+# a new token handed out by IT Hub (rotation every 30 days) is saved machine-protected; the old one keeps working until it is used
+function Save-NewToken([string]$t) {
+  if ($t -notmatch '^[a-f0-9]{64}$') { return }
+  try {
+    $prot = [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($t), $null, 'LocalMachine'))
+    $s2 = Get-Content $SecretFile -Raw | ConvertFrom-Json
+    $s2 | Add-Member -NotePropertyName tokenProtected -NotePropertyValue $prot -Force
+    $s2 | Add-Member -NotePropertyName rotatedAt -NotePropertyValue (Get-Date).ToString('o') -Force
+    ($s2 | ConvertTo-Json) | Set-Content $SecretFile -Encoding UTF8
+    Log 'Device token rotated'
+  } catch { Log "Token rotation could not be saved: $($_.Exception.Message)" }
+}
 
 # --------------------------- usage monitor (user session) ---------------------------
 if ($UsageMonitor) {
@@ -117,7 +144,8 @@ if ($Pulse) {
     $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
     $sec = Get-Content $SecretFile -Raw | ConvertFrom-Json
     $token = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($sec.tokenProtected), $null, 'LocalMachine'))
-    $r = Invoke-RestMethod -Method Get -Uri "$($cfg.url)/api/agent/v1/pulse" -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 20 -UseBasicParsing
+    $pu = "$($cfg.url)/api/agent/v1/pulse"
+    $r = Invoke-RestMethod -Method Get -Uri $pu -Headers (Sign-Headers $token 'GET' $pu $null) -TimeoutSec 20 -UseBasicParsing
     if ($r.refresh) {
       Log 'Refresh requested from IT Hub - collecting now'
       $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -294,24 +322,27 @@ if ($cfg.sendSoftware -ne $false -and (-not $cfg.softwareAt -or ((Get-Date) - [d
 }
 try {
   $json = $body | ConvertTo-Json -Depth 6 -Compress
-  $r = Invoke-RestMethod -Method Post -Uri "$($cfg.url)/api/agent/v1/checkin" -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) -TimeoutSec 60 -UseBasicParsing
+  $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+  $cu = "$($cfg.url)/api/agent/v1/checkin"
+  $r = Invoke-RestMethod -Method Post -Uri $cu -Headers (Sign-Headers $token 'POST' $cu $bytes) -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 60 -UseBasicParsing
   if ($body.software) { $cfg | Add-Member -NotePropertyName softwareAt -NotePropertyValue (Get-Date).ToString('o') -Force }
   $cfg | Add-Member -NotePropertyName trackApps -NotePropertyValue ([bool]$r.trackApps) -Force
   $cfg | Add-Member -NotePropertyName trackUsage -NotePropertyValue ($r.trackUsage -ne $false) -Force
   $cfg | Add-Member -NotePropertyName lastCheckin -NotePropertyValue (Get-Date).ToString('o') -Force
   ($cfg | ConvertTo-Json) | Set-Content $ConfigFile -Encoding UTF8
   Log "Check-in OK: $($r.state)"
+  if ($r.newToken) { Save-NewToken ([string]$r.newToken) }
   # tray / usage monitor closed by the user (e.g. Task Manager): start it again for signed-in users
   $mon = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*ITHubAgent.ps1*-UsageMonitor*' })
   if (-not $mon.Count -and @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'").Count) { Start-ScheduledTask -TaskName 'IT Hub Agent Usage' -ErrorAction SilentlyContinue; Log 'Usage monitor was not running - restarted' }
   # keep the uninstaller current (admin-only removal that reports to IT)
   $unf = Join-Path $Root 'Uninstall-ITHubAgent.ps1'
-  if (-not (Test-Path $unf) -or -not (Select-String -Path $unf -Pattern 'IT Hub Agent Pulse' -SimpleMatch -Quiet)) {
-    try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/Uninstall-ITHubAgent.ps1" -Headers @{ Authorization = "Bearer $token" } -OutFile $unf -UseBasicParsing -TimeoutSec 30; Log 'Uninstaller updated' } catch { Log "Uninstaller update failed: $($_.Exception.Message)" }
+  if (-not (Test-Path $unf) -or -not (Select-String -Path $unf -Pattern 'X-ITHub-Signature' -SimpleMatch -Quiet)) {
+    try { $fu = "$($cfg.url)/api/agent/v1/files/Uninstall-ITHubAgent.ps1"; Invoke-WebRequest -Uri $fu -Headers (Sign-Headers $token 'GET' $fu $null) -OutFile $unf -UseBasicParsing -TimeoutSec 30; Log 'Uninstaller updated' } catch { Log "Uninstaller update failed: $($_.Exception.Message)" }
   }
   foreach ($icn in 'niytri.ico', 'tray.ico') {
     $ico = Join-Path $Root $icn
-    if (-not (Test-Path $ico)) { try { Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/$icn" -Headers @{ Authorization = "Bearer $token" } -OutFile $ico -UseBasicParsing -TimeoutSec 30; Log "Downloaded $icn" } catch { Log "Icon download failed ($icn): $($_.Exception.Message)" } }
+    if (-not (Test-Path $ico)) { try { $fu = "$($cfg.url)/api/agent/v1/files/$icn"; Invoke-WebRequest -Uri $fu -Headers (Sign-Headers $token 'GET' $fu $null) -OutFile $ico -UseBasicParsing -TimeoutSec 30; Log "Downloaded $icn" } catch { Log "Icon download failed ($icn): $($_.Exception.Message)" } }
   }
   $appKey3 = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'
   if ((Test-Path $appKey3) -and (Test-Path (Join-Path $Root 'tray.ico'))) { Set-ItemProperty -Path $appKey3 -Name DisplayIcon -Value (Join-Path $Root 'tray.ico') -ErrorAction SilentlyContinue }
@@ -319,7 +350,8 @@ try {
   if ($r.serverUrl -and $r.serverUrl -match '^https://' -and $r.serverUrl.TrimEnd('/') -ne $cfg.url) {
     $new = $r.serverUrl.TrimEnd('/')
     try {
-      $null = Invoke-RestMethod -Method Post -Uri "$new/api/agent/v1/checkin" -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) -TimeoutSec 60 -UseBasicParsing
+      $nu = "$new/api/agent/v1/checkin"
+      $null = Invoke-RestMethod -Method Post -Uri $nu -Headers (Sign-Headers $token 'POST' $nu $bytes) -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 60 -UseBasicParsing
       Log "IT Hub address changed: $($cfg.url) -> $new"
       $cfg.url = $new; ($cfg | ConvertTo-Json) | Set-Content $ConfigFile -Encoding UTF8
       $appKey2 = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'; if (Test-Path $appKey2) { Set-ItemProperty -Path $appKey2 -Name URLInfoAbout -Value $new -ErrorAction SilentlyContinue }
@@ -329,7 +361,8 @@ try {
   if ($r.latestVersion -and $r.agentSha256 -and $r.latestVersion -ne $AgentVersion) {
     try {
       $tmp = Join-Path $Root 'ITHubAgent.new.ps1'
-      Invoke-WebRequest -Uri "$($cfg.url)/api/agent/v1/files/ITHubAgent.ps1" -Headers @{ Authorization = "Bearer $token" } -OutFile $tmp -UseBasicParsing -TimeoutSec 60
+      $au = "$($cfg.url)/api/agent/v1/files/ITHubAgent.ps1"
+      Invoke-WebRequest -Uri $au -Headers (Sign-Headers $token 'GET' $au $null) -OutFile $tmp -UseBasicParsing -TimeoutSec 60
       $hash = (Get-FileHash -Path $tmp -Algorithm SHA256).Hash.ToLower()
       if ($hash -eq $r.agentSha256.ToLower()) {
         Copy-Item $tmp (Join-Path $Root 'ITHubAgent.ps1') -Force; Remove-Item $tmp -Force

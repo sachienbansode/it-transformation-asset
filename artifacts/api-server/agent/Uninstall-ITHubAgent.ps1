@@ -15,8 +15,15 @@ try {
   $sec = Get-Content (Join-Path $Root 'secret.json') -Raw | ConvertFrom-Json
   Add-Type -AssemblyName System.Security
   $token = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($sec.tokenProtected), $null, 'LocalMachine'))
-  $body = @{ by = "$env:USERDOMAIN\$env:USERNAME"; hostname = $env:COMPUTERNAME; reason = $Reason } | ConvertTo-Json
-  Invoke-RestMethod -Method Post -Uri "$($cfg.url)/api/agent/v1/uninstall" -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body $body -TimeoutSec 20 -UseBasicParsing | Out-Null
+  $body = [Text.Encoding]::UTF8.GetBytes((@{ by = "$env:USERDOMAIN\$env:USERNAME"; hostname = $env:COMPUTERNAME; reason = $Reason } | ConvertTo-Json))
+  # signed like the agent (X-ITHub-Signature): HMAC-SHA256, key = SHA-256(token) hex
+  $sha = [Security.Cryptography.SHA256]::Create(); $hx = { param($b) -join ($b | ForEach-Object { $_.ToString('x2') }) }
+  $key = & $hx ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($token))); $bh = & $hx ($sha.ComputeHash($body))
+  $time = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); $nonce = [guid]::NewGuid().ToString()
+  $hmac = New-Object Security.Cryptography.HMACSHA256 (,[Text.Encoding]::UTF8.GetBytes($key))
+  $sig = & $hx ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes("$time`n$nonce`nPOST`n/agent/v1/uninstall`n$bh")))
+  $hd = @{ Authorization = "Bearer $token"; 'X-ITHub-Time' = $time; 'X-ITHub-Nonce' = $nonce; 'X-ITHub-Signature' = $sig }
+  Invoke-RestMethod -Method Post -Uri "$($cfg.url)/api/agent/v1/uninstall" -Headers $hd -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 20 -UseBasicParsing | Out-Null
 } catch { }
 Unregister-ScheduledTask -TaskName 'IT Hub Agent' -Confirm:$false
 Unregister-ScheduledTask -TaskName 'IT Hub Agent Usage' -Confirm:$false

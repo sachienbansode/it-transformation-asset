@@ -155,6 +155,7 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
         <HealthBadge state={a.healthState} />
       </div>}
       {a.status === "Active" && <LiveBar agentId={a.id} staff={!employee && canAct} onFresh={reload} />}
+      <PolicyCompliance c={a.compliance} state={a.complianceState} employee={!!employee} />
       <DeviceDetails h={h} a={a} thresholds={data.settings?.thresholds} latest={data.agentLatest} minDisk={minDisk} />
       {open.length > 0 && <div className="space-y-1">{open.map((x: any) => (
         <div key={x.id} className={cn("rounded-md border px-2.5 py-1.5 text-xs", x.ignored ? "bg-muted/40 text-muted-foreground" : x.severity === "Critical" ? STATE_TONE.Critical : STATE_TONE.Warning)}>
@@ -206,7 +207,7 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
             {!sw.length && <div className="px-2.5 py-2 text-xs text-muted-foreground">Nothing listed yet (sent once a day).</div>}</div>
         </div>}
       </section>
-      <div className="text-[10px] text-muted-foreground">Agent {a.agentVersion} · enrolled {fmtDate(a.enrolledAt)}{employee ? " · the agent reports computer health only — no keystrokes, screenshots, files or content." : " · usage records active vs idle minutes and the foreground application only — no keystrokes, screenshots or content."}</div>
+      <div className="text-[10px] text-muted-foreground">Agent {a.agentVersion || "not reported yet"} · enrolled {fmtDate(a.enrolledAt)}{employee ? " · the agent reports computer health only — no keystrokes, screenshots, files or content." : " · usage records active vs idle minutes and the foreground application only — no keystrokes, screenshots or content."}</div>
     </div>
   );
 }
@@ -216,6 +217,23 @@ type Tone = "good" | "warn" | "bad" | undefined;
 const toneCls = (t: Tone) => t === "good" ? "text-emerald-700 dark:text-emerald-400" : t === "warn" ? "text-amber-700 dark:text-amber-400" : t === "bad" ? "text-red-600 font-semibold" : "";
 function Row({ k, v, tone, title, mono }: { k: string; v: React.ReactNode; tone?: Tone; title?: string; mono?: boolean }) {
   return <div className="flex justify-between gap-3 py-0.5"><span className="text-muted-foreground shrink-0">{k}</span><span className={cn("text-right min-w-0 break-words", toneCls(tone), mono && "font-mono")} title={title}>{v ?? "—"}</span></div>;
+}
+/* ITH-098 — how this device stands against the company end-user device policy (failed rules with what to do). */
+function PolicyCompliance({ c, state, employee }: { c: any; state?: string | null; employee: boolean }) {
+  if (!c || state === "not_applicable") return null;
+  const failed: any[] = c.failed || []; const ok = state === "compliant";
+  return (
+    <section className={cn("rounded-lg border p-3", ok ? "border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20" : failed.length ? "border-red-200 bg-red-50/40 dark:border-red-900 dark:bg-red-950/20" : "")}>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" />Device policy
+        <span className="ml-auto normal-case tracking-normal font-normal">{c.name ? `${c.name} v${c.version} · ` : ""}{c.passed} of {c.total} rules met</span></h4>
+      {ok ? <div className="text-xs text-emerald-700 dark:text-emerald-300">This device meets the company device policy.</div>
+        : failed.length ? <div className="space-y-1 text-xs">{failed.map((f: any) => (
+          <div key={f.key} className="flex gap-2"><span className={f.severity === "Critical" ? "text-red-600" : "text-amber-600"}>●</span>
+            <div><span className="font-medium">{f.label}</span>{f.detail && <span className="text-muted-foreground"> — {f.detail}</span>}{f.hint && <div className="text-muted-foreground">{employee ? "What happens next: " : "Fix: "}{f.hint}</div>}</div></div>))}</div>
+        : <div className="text-xs text-muted-foreground">Not checked yet — the next agent report is checked against the policy.</div>}
+      {!!c.unknown?.length && <div className="text-[11px] text-muted-foreground mt-1">Not reported by this agent yet: {c.unknown.map((u: any) => u.label).join(", ")}</div>}
+    </section>
+  );
 }
 function Group({ title, icon: I, children, badge }: { title: string; icon: React.ElementType; children: React.ReactNode; badge?: React.ReactNode }) {
   return (
@@ -292,10 +310,10 @@ function DeviceDetails({ h, a, thresholds, latest, minDisk }: { h: any; a: any; 
         <Row k="Local administrators" v={(acc.localAdmins || []).length ? `${acc.localAdmins.slice(0, 5).join(", ")}${acc.localAdmins.length > 5 ? ` +${acc.localAdmins.length - 5} more` : ""}` : "Not reported"} title={(acc.localAdmins || []).join("\n")} tone={(acc.localAdmins || []).length > 3 ? "warn" : undefined} />
         <Row k="Shared folders" v={(acc.shares || []).length ? acc.shares.join(", ") : acc.shares ? "None" : "Not reported"} tone={(acc.shares || []).length ? "warn" : undefined} />
         <Row k="Autorun (USB / CD)" v={acc.autorunOff == null ? "Not reported" : acc.autorunOff ? "Off" : "On"} tone={acc.autorunOff == null ? undefined : acc.autorunOff ? "good" : "warn"} />
-        <Row k="Screen lock" v={acc.screenLockSecs ? `After ${Math.round(acc.screenLockSecs / 60)} min` : "Not set by policy"} tone={acc.screenLockSecs ? (acc.screenLockSecs <= 900 ? "good" : "warn") : "warn"} />
+        <Row k="Screen lock" v={acc.screenLockSecs ? `After ${Math.round(acc.screenLockSecs / 60)} min` : h.access ? "Not set by policy" : "Not reported"} tone={acc.screenLockSecs ? (acc.screenLockSecs <= 900 ? "good" : "warn") : h.access ? "warn" : undefined} />
       </Group>
-      <Group title="NIYTRI Agent" icon={Clock} badge={<span className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5", !ag.version ? "bg-slate-100 text-slate-600" : tasksOk && !old ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{!ag.version ? `Agent ${a.agentVersion}` : tasksOk ? (old ? "Update pending" : "Running") : "Needs attention"}</span>}>
-        <Row k="Version" v={`${a.agentVersion}${latest ? (old ? ` — ${latest} available (updates itself)` : " — latest") : ""}`} tone={old ? "warn" : "good"} />
+      <Group title="NIYTRI Agent" icon={Clock} badge={<span className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5", !ag.version ? "bg-slate-100 text-slate-600" : tasksOk && !old ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{!ag.version ? (a.agentVersion ? `Agent ${a.agentVersion}` : "Not reported yet") : tasksOk ? (old ? "Update pending" : "Running") : "Needs attention"}</span>}>
+        <Row k="Version" v={!a.agentVersion ? "Not reported yet" : `${a.agentVersion}${latest ? (old ? ` — ${latest} available (updates itself)` : " — latest") : ""}`} tone={!a.agentVersion ? undefined : old ? "warn" : "good"} />
         <Row k="Last full report" v={a.lastSeenAt ? `${fmtDateTime(a.lastSeenAt)} (${ago(a.lastSeenAt)})` : "never"} />
         {a.lastPulseAt && <Row k="Last online signal" v={`${fmtDateTime(a.lastPulseAt)} (${ago(a.lastPulseAt)})`} />}
         {tasks.map(([k, v]) => <Row key={k} k={({ "IT Hub Agent": "Health report task", "IT Hub Agent Usage": "Tray & usage task", "IT Hub Agent Pulse": "Online signal task" } as Record<string, string>)[k] || k} v={v} tone={/Ready|Running/i.test(v) ? "good" : "bad"} />)}

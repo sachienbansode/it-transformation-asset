@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+import { Info, PackageSearch } from "lucide-react";
 import { usePresenceHeartbeat, useMyPresence, PresenceDot, PRESENCE_LABEL, setMyPresence } from "@/lib/presence";
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
@@ -65,6 +65,8 @@ const ASSET_ITEMS = [
   { href: "/asset-allocations", label: "Handovers", icon: Users, module: "asset_allocations" },
   { href: "/asset-employees", label: "Employee Assets", icon: UserCheck, module: "asset_allocations" },
   { href: "/asset-agents", label: "Device Health", icon: Activity, module: "asset_registry" },
+  { href: "/device-policy", label: "Device Policy", icon: ShieldCheck, module: "asset_registry" },
+  { href: "/software-compliance", label: "Software & Licences", icon: PackageSearch, module: "asset_registry" },
   { href: "/maintenance-records", label: "Maintenance", icon: Wrench, module: "maintenance_records" },
   { href: "/asset-audits", label: "Physical Audit", icon: ScanLine, module: "asset_audits" },
 ];

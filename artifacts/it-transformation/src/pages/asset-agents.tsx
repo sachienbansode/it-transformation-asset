@@ -24,6 +24,11 @@ const PAGE = 15;
 const TABS = ["All", "Critical", "Warning", "Offline", "Healthy", "Not linked", "Removed"] as const;
 const FILES = ["install.cmd", "Install-ITHubAgent.ps1", "ITHubAgent.ps1", "Uninstall-ITHubAgent.ps1", "README.txt"];
 
+async function downloadReport() {
+  const r = await fetch(`/api/asset-agents/report.xlsx`, { credentials: "include" });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Download failed (${r.status})`);
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await r.blob()), download: `IT_Hub_Devices_${new Date().toISOString().slice(0, 10)}.xlsx` }); a.click(); URL.revokeObjectURL(a.href);
+}
 async function download(file: string) {
   const r = await fetch(`/api/asset-agents/package/${file}`, { credentials: "include" });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Download failed (${r.status})`);
@@ -68,6 +73,7 @@ export default function AssetAgents() {
           <p className="text-sm text-muted-foreground">Live health and daily usage reported by the IT Hub agent on laptops, desktops and servers. Devices are matched to the register by serial number.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => downloadReport().catch(e => toast({ title: "Download failed", description: e.message, variant: "destructive" }))}><Download className="w-4 h-4" />Device report (Excel)</Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={exportCsv}><Download className="w-4 h-4" />Export CSV</Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/data")}><Search className="w-4 h-4" />Device data</Button>
           {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/chats?box=support")}><MessageSquare className="w-4 h-4" />Chats</Button>}

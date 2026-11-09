@@ -37,7 +37,7 @@ export async function agentSettings() {
   const rows = await db.select().from(settingsTable).where(like(settingsTable.key, "assetAgent.%"));
   const g = (k: string) => { let v: any = rows.find(r => r.key === k)?.value; if (typeof v === "string") { try { v = JSON.parse(v); } catch { /* keep */ } } return v; };
   const t = { ...DEF_T, ...(g("assetAgent.thresholds") || {}) };
-  return { checkinMinutes: Math.min(240, Math.max(5, Number(g("assetAgent.checkinMinutes")) || 15)), retentionDays: Math.max(30, Number(g("assetAgent.retentionDays")) || 180), trackApps: g("assetAgent.trackApps") !== false, thresholds: t as Thresholds };
+  return { requireSigned: g("assetAgent.requireSigned") === true, checkinMinutes: Math.min(240, Math.max(5, Number(g("assetAgent.checkinMinutes")) || 15)), retentionDays: Math.max(30, Number(g("assetAgent.retentionDays")) || 180), trackApps: g("assetAgent.trackApps") !== false, thresholds: t as Thresholds };
 }
 
 /* ── health rules → alerts + overall state ──────────────────────────────── */
@@ -190,11 +190,66 @@ export async function trackingFor(agentId: number, globalApps: boolean) {
   return { level, usage: level !== "excluded", apps: level === "detailed" ? true : level === "standard" ? globalApps : false };
 }
 
+/*
+ * ITH-091 — agent request security.
+ *  • Signed requests (agent 1.2.0+): X-ITHub-Time, X-ITHub-Nonce, X-ITHub-Signature = HMAC-SHA256(key = SHA-256 of the
+ *    device token, "time\nnonce\nMETHOD\n/path\nSHA-256(body)"). Clock skew ≤ 5 min; a nonce is accepted once.
+ *    Once a device has signed, unsigned requests with its token are refused (no downgrade). Setting
+ *    assetAgent.requireSigned = true refuses unsigned requests from every device.
+ *  • Token rotation every 30 days: the new token is handed out in the check-in answer and replaces the old one the
+ *    first time it is used.
+ *  • Identity check: a different serial number under the same token raises a Critical item (copied token).
+ *  • Strict input: numbers kept in range, text trimmed, unexpected types dropped, body ≤ 5 MB.
+ */
+const seenNonces = new Map<string, number>();
+function nonceOnce(n: string) {
+  const now = Date.now(); if (seenNonces.size > 50_000) for (const [k, t] of seenNonces) if (t < now) seenNonces.delete(k);
+  if ((seenNonces.get(n) || 0) > now) return false; seenNonces.set(n, now + 11 * 60_000); return true;
+}
 async function agentFromToken(req: Request) {
   const t = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
   if (!/^[a-f0-9]{64}$/.test(t)) return null;
-  const [a] = rowsOf(await db.execute(sql`SELECT g.*, s.asset_tag AS "assetTag" FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id WHERE g.token_hash = ${sha(t)}`));
-  return a || null;
+  const hash = sha(t);
+  let [a] = rowsOf(await db.execute(sql`SELECT g.*, s.asset_tag AS "assetTag" FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id WHERE g.token_hash = ${hash}`));
+  if (!a) {   // the rotated token used for the first time → it becomes the device's token
+    [a] = rowsOf(await db.execute(sql`SELECT g.*, s.asset_tag AS "assetTag" FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id WHERE g.token_next_hash = ${hash}`));
+    if (a) { await db.execute(sql`UPDATE asset_agents SET token_hash = ${hash}, token_next_hash = NULL, token_rotated_at = now() WHERE id = ${a.id}`); a.token_hash = hash; a.token_next_hash = null; void logAuditSafe(a.id, "token_rotated", `Device ${a.hostname}: new token in use`); }
+  }
+  if (!a) return null;
+  // signature
+  const sig = String(req.headers["x-ithub-signature"] || ""); const time = String(req.headers["x-ithub-time"] || ""); const nonce = String(req.headers["x-ithub-nonce"] || "");
+  if (sig) {
+    const ts = Date.parse(time); if (!ts || Math.abs(Date.now() - ts) > 5 * 60_000) throw Object.assign(new Error("Request time is off by more than 5 minutes — check the computer clock"), { status: 401 });
+    if (!/^[A-Za-z0-9-]{16,64}$/.test(nonce)) throw Object.assign(new Error("Bad request nonce"), { status: 401 });
+    const body: Buffer = (req as any).rawBody || Buffer.alloc(0);
+    const path = String(req.originalUrl || "").split("?")[0].replace(/^\/api/, "");
+    const want = crypto.createHmac("sha256", a.token_hash).update(`${time}\n${nonce}\n${req.method}\n${path}\n${crypto.createHash("sha256").update(body).digest("hex")}`).digest("hex");
+    if (want.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(sig))) { void logAuditSafe(a.id, "bad_signature", `Device ${a.hostname}: request with a wrong signature refused (${req.ip})`); throw Object.assign(new Error("Signature does not match"), { status: 401 }); }
+    if (!nonceOnce(`${a.id}:${nonce}`)) { void logAuditSafe(a.id, "replay", `Device ${a.hostname}: repeated request refused (${req.ip})`); throw Object.assign(new Error("Request already used"), { status: 401 }); }
+    if (!a.signed_at) await db.execute(sql`UPDATE asset_agents SET signed_at = now() WHERE id = ${a.id}`);
+    a.__signed = true;
+  } else {
+    const st = await agentSettings().catch(() => null);
+    if (a.signed_at) { void logAuditSafe(a.id, "unsigned_refused", `Device ${a.hostname}: unsigned request refused — this device signs its requests (${req.ip})`); throw Object.assign(new Error("This device must sign its requests"), { status: 401 }); }
+    if ((st as any)?.requireSigned) throw Object.assign(new Error("Signed requests are required — update the agent"), { status: 401 });
+  }
+  return a;
+}
+const logAuditSafe = (id: number, action: string, summary: string) => import("./audit-logs").then(m => m.logAudit({ entityType: "device", entityId: id, action, performedBy: "Device agent", summary })).catch(() => {});
+/** Keep what a device sends within sane bounds (types, ranges, lengths). */
+function sanitizeHealth(h: any) {
+  if (!h || typeof h !== "object" || Array.isArray(h)) return {};
+  const pct = (o: any, k: string) => { if (o && o[k] !== undefined && o[k] !== null) { const n = Number(o[k]); o[k] = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : null; } };
+  const str = (o: any, k: string, n = 200) => { if (o && o[k] !== undefined && o[k] !== null) o[k] = typeof o[k] === "string" || typeof o[k] === "number" ? String(o[k]).slice(0, n) : null; };
+  for (const k of ["hostname", "serial", "manufacturer", "model", "user", "platform"]) str(h, k, 120);
+  if (h.cpu) { pct(h.cpu, "pct"); str(h.cpu, "name"); }
+  if (h.mem) { pct(h.mem, "usedPct"); }
+  if (h.uptimeHours !== undefined) { const n = Number(h.uptimeHours); h.uptimeHours = Number.isFinite(n) ? Math.min(1_000_000, Math.max(0, n)) : null; }
+  if (Array.isArray(h.disks)) h.disks.forEach((d: any) => { pct(d, "freePct"); str(d, "drive", 10); });
+  if (h.battery) { pct(h.battery, "chargePct"); if (h.battery.healthPct !== undefined && h.battery.healthPct !== null) { const n = Number(h.battery.healthPct); h.battery.healthPct = Number.isFinite(n) ? Math.min(150, Math.max(0, n)) : null; } }
+  if (h.os) { for (const k of ["name", "version", "build", "displayVersion", "edition", "arch", "installDate", "lastBoot"]) str(h.os, k, 120); }
+  if (h.agent) { str(h.agent, "version", 20); str(h.agent, "url", 200); }
+  return h;
 }
 
 publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
@@ -202,8 +257,15 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
   if (!ag) return fail(res, 401, "Unknown device token — enrol again");
   if (ag.status === "Revoked") return fail(res, 410, "This device was removed from IT Hub — uninstall the agent");
   if (limited(`chk:${ag.id}`, 20, 60_000)) return fail(res, 429, "Checking in too often");
-  const h = req.body?.health || {};
+  const h = sanitizeHealth(req.body?.health);
   const st = await agentSettings();
+  // ITH-091: same token, different computer → the token may have been copied
+  const newSerial = s(h.serial, 80);
+  if (newSerial && ag.serial_number && newSerial !== ag.serial_number && !/^(to be filled|default|0+|none|system serial)/i.test(newSerial)) {
+    await db.execute(sql`INSERT INTO asset_agent_alerts (agent_id, asset_id, kind, severity, message) VALUES (${ag.id}, ${ag.asset_id}, 'identity', 'Critical', ${`Device identity changed: serial ${ag.serial_number} → ${newSerial} with the same agent token (${s(h.hostname, 80) || "?"}, ${req.ip}). Check the computer; the token may have been copied.`})
+      ON CONFLICT DO NOTHING`).catch(() => {});
+    void logAuditSafe(ag.id, "identity_changed", `Device ${ag.hostname}: serial ${ag.serial_number} → ${newSerial} (${req.ip})`);
+  }
   const now = new Date();
   // keep the payload bounded
   for (const k of ["disks", "physicalDisks"]) if (Array.isArray(h[k])) h[k] = h[k].slice(0, 26);
@@ -251,7 +313,9 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
       await tx.execute(sql`UPDATE asset_agents SET software_at = now() WHERE id = ${ag.id}`);
     });
   }
-  const fresh = await syncAlerts(ag.id, assetId, ev.alerts, k => k === "idle", { at: new Date(), h, hostname: s(h.hostname, 80) || ag.hostname }); // idle is evaluated by the daily sweep
+  // ITH-098 device policy + ITH-075 software / licence checks → compliance and health items
+  const comp = await extraChecks(ag.id, h, ag.platform, s(req.body?.agentVersion, 20) || ag.agent_version, ev.alerts);
+  const fresh = await syncAlerts(ag.id, assetId, ev.alerts, k => k === "idle" || k === "identity", { at: new Date(), h, hostname: s(h.hostname, 80) || ag.hostname }); // idle: daily sweep; identity: closed by IT
   void notifyCritical(ag, fresh).catch(() => {});
   const ds = await import("./device-support");
   const state = await ds.recomputeState(ag.id);   // ignored items do not count
@@ -259,9 +323,37 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
   void import("./device-live").then(m => m.suggestClosures(ag.id, h, now)).catch(e => console.error("close suggestions", e));
   const swDue = !ag.software_at || Date.now() - new Date(ag.software_at).getTime() > 23 * 3600_000;
   const latest = agentRelease();
-  res.json({ ok: true, state, checkinMinutes: st.checkinMinutes, trackApps: track.apps, trackUsage: track.usage, sendSoftware: swDue && !Array.isArray(req.body?.software),
+  // ITH-091: rotate the device token every 30 days (signed agents only); the old token works until the new one is used
+  let newToken: string | null = null;
+  if (ag.__signed && Date.now() - new Date(ag.token_rotated_at || ag.enrolled_at).getTime() > 30 * 86400e3) {
+    newToken = crypto.randomBytes(32).toString("hex");
+    await db.execute(sql`UPDATE asset_agents SET token_next_hash = ${sha(newToken)} WHERE id = ${ag.id}`);
+  }
+  res.json({ ok: true, state, newToken, checkinMinutes: st.checkinMinutes, trackApps: track.apps, trackUsage: track.usage, sendSoftware: swDue && !Array.isArray(req.body?.software),
     latestVersion: latest?.version || null, agentSha256: latest?.sha256 || null, serverUrl: agentServerUrl() });
 }));
+
+/** Policy and software checks for one device report (adds health items to `alerts`, stores the compliance result). */
+async function extraChecks(agentId: number, h: any, platform: string, agentVersion: string | null, alerts: any[]) {
+  const { evaluatePolicy, policyAlerts, softwareAlerts } = await import("../lib/compliance");
+  const comp = await evaluatePolicy(h, platform, agentVersion).catch(e => { console.error("policy", e); return null; });
+  if (comp) { alerts.push(...policyAlerts(comp)); await db.execute(sql`UPDATE asset_agents SET compliance = ${JSON.stringify(comp)}::jsonb, compliance_state = ${comp.state} WHERE id = ${agentId}`); }
+  alerts.push(...await softwareAlerts(agentId).catch(e => { console.error("software", e); return []; }));
+  return comp;
+}
+/** Re-check devices from their latest report (after the policy or software rules change) — no need to wait for check-ins. */
+export async function recheckDevices(ids?: number[]) {
+  const st = await agentSettings(); let n = 0;
+  const rows = rowsOf(await db.execute(sql`SELECT id, asset_id, platform, hostname, agent_version, latest FROM asset_agents WHERE status = 'Active' AND latest IS NOT NULL ${ids?.length ? sql`AND id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})` : sql``}`));
+  for (const g of rows) {
+    const h = typeof g.latest === "string" ? JSON.parse(g.latest) : g.latest;
+    const ev = evaluate(h, g.platform, st.thresholds, new Date());
+    await extraChecks(g.id, h, g.platform, g.agent_version, ev.alerts);
+    await syncAlerts(g.id, g.asset_id, ev.alerts, k => k === "idle" || k === "identity", { at: new Date(), h, hostname: g.hostname });
+    const ds = await import("./device-support"); await ds.recomputeState(g.id); void ds.autoTickets(g.id).catch(() => {}); n++;
+  }
+  return n;
+}
 
 /** Agent 1.1.7+: a tiny call every minute — marks the device online and tells it when IT (or its user) asked for fresh data. */
 publicAgentRouter.get("/agent/v1/pulse", wrap(async (req, res) => {
@@ -371,12 +463,84 @@ async function agentNotice(userId: number | null) {
 /* ═══ SIGNED-IN: fleet, health, enrolment codes ═══════════════════════════ */
 async function canManage(req: Request) { const a = await getAccess(req); return !!a && (a.isAdmin || can(a, "asset_registry", "write")); }
 
+/* ITH-104 — agent coverage: which assets should run the agent (desktops, laptops, servers), how many do, how many are pending.
+   ?list=installed|pending|stale|na|unlinked&type=… returns the matching rows for the drill-down. */
+const AGENT_TYPES = /desktop|laptop|notebook|workstation|server|\bpc\b|all[- ]?in[- ]?one|thin client|mini pc/i;
+router.get("/asset-agents/coverage", requireAuth, wrap(async (req, res) => {
+  const acc = await getAccess(req); if (!acc || !(acc.isAdmin || can(acc, "asset_registry", "read") || can(acc, "assets", "read"))) return fail(res, 403, "No access");
+  const st = await agentSettings();
+  const assets = rowsOf(await db.execute(sql`SELECT s.id, s.asset_tag AS "assetTag", s.name, coalesce(nullif(s.type, ''), 'Unspecified') AS type, s.status, s.location, s.department, coalesce(e.name, s.owner_name) AS owner, coalesce(e.employee_code, s.owner_employee_code) AS "employeeCode",
+      g.id AS "agentId", g.hostname, g.agent_version AS "agentVersion", g.last_seen_at AS "lastSeenAt", g.health_state AS "healthState", g.compliance_state AS "complianceState"
+    FROM assets s LEFT JOIN users e ON e.id = s.owner_id
+    LEFT JOIN LATERAL (SELECT * FROM asset_agents a WHERE a.asset_id = s.id AND a.status = 'Active' ORDER BY a.last_seen_at DESC NULLS LAST LIMIT 1) g ON true
+    WHERE coalesce(s.is_active, true) AND coalesce(s.status, '') NOT IN ('Disposed', 'Lost / Stolen', 'Retired')`));
+  const staleMs = (st.thresholds.offlineDays || 7) * 86400e3;
+  const kind = (a: any) => !AGENT_TYPES.test(a.type) ? "na" : !a.agentId ? "pending" : (!a.lastSeenAt || Date.now() - new Date(a.lastSeenAt).getTime() > staleMs) ? "stale" : "installed";
+  for (const a of assets) a.coverage = kind(a);
+  const unlinked = rowsOf(await db.execute(sql`SELECT g.id AS "agentId", g.hostname, g.platform AS type, g.serial_number AS "serialNumber", g.agent_version AS "agentVersion", g.last_seen_at AS "lastSeenAt", g.health_state AS "healthState", e.name AS owner, e.employee_code AS "employeeCode"
+    FROM asset_agents g LEFT JOIN users e ON e.id = g.user_id WHERE g.status = 'Active' AND g.asset_id IS NULL ORDER BY g.hostname`));
+  const list = String(req.query.list || "");
+  if (list) {
+    const type = String(req.query.type || "");
+    if (list === "unlinked") return res.json({ rows: unlinked });
+    return res.json({ rows: assets.filter(a => (list === "applicable" ? a.coverage !== "na" : a.coverage === list) && (!type || a.type === type)).sort((x, y) => String(x.assetTag).localeCompare(String(y.assetTag))) });
+  }
+  const byType: Record<string, any> = {};
+  for (const a of assets) { const t = (byType[a.type] ||= { type: a.type, applicable: a.coverage !== "na", total: 0, installed: 0, stale: 0, pending: 0 }); t.total++; if (a.coverage !== "na") t[a.coverage]++; }
+  const types = Object.values(byType).sort((x: any, y: any) => Number(y.applicable) - Number(x.applicable) || y.total - x.total);
+  const app = assets.filter(a => a.coverage !== "na");
+  const totals = { inService: assets.length, applicable: app.length, installed: app.filter(a => a.coverage === "installed").length, stale: app.filter(a => a.coverage === "stale").length,
+    pending: app.filter(a => a.coverage === "pending").length, notApplicable: assets.length - app.length, unlinked: unlinked.length, staleDays: st.thresholds.offlineDays || 7 };
+  res.json({ totals, types, coveragePct: app.length ? Math.round(((totals.installed + totals.stale) / app.length) * 100) : null });
+}));
+/* ITH-102 — all devices as one Excel report: device, employee, location, health, compliance, security and access. */
+router.get("/asset-agents/report.xlsx", requireAuth, wrap(async (req, res) => {
+  const acc = await getAccess(req); if (!acc || !(acc.isAdmin || can(acc, "asset_registry", "read"))) return fail(res, 403, "No access to device reports");
+  const XLSX = await import("xlsx");
+  const all = String(req.query.all || "") === "1";
+  const rows = rowsOf(await db.execute(sql`SELECT g.*, s.asset_tag AS "assetTag", s.name AS "assetName", s.location AS "assetLocation", s.department AS "assetDept", s.status AS "assetStatus",
+      e.name AS employee, e.employee_code AS "employeeCode", e.email, e.department, e.designation,
+      (SELECT count(*)::int FROM asset_agent_alerts x WHERE x.agent_id = g.id AND x.closed_at IS NULL AND x.ignored_at IS NULL) AS "openItems"
+    FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id LEFT JOIN users e ON e.id = coalesce(CASE WHEN s.status = 'Allocated' THEN s.owner_id END, g.user_id)
+    WHERE ${all} OR g.status = 'Active' ORDER BY g.hostname`));
+  const d = (v: any) => (v ? new Date(v).toLocaleString("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
+  const yn = (v: any) => (v === true ? "Yes" : v === false ? "No" : "Not reported");
+  const out = rows.map(g => { const h = g.latest || {}; const sec = h.security || {}; const ac = h.access || {}; const os = h.os || {}; const pt = h.patches || {}; const c = g.compliance || {};
+    const sys = (sec.bitlocker || []).find((b: any) => /^c/i.test(b.drive || "")) || (sec.bitlocker || [])[0]; const fw = sec.firewall || {};
+    const minDisk = (h.disks || []).filter((x: any) => Number(x.sizeGb) >= 1).reduce((m: number | null, x: any) => (m === null || x.freePct < m ? x.freePct : m), null);
+    return {
+      "Device": g.hostname, "Asset tag": g.assetTag || "Not linked", "Asset status": g.assetStatus || "", "Employee": g.employee || "", "Employee code": g.employeeCode || "", "Email": g.email || "",
+      "Department": g.department || g.assetDept || "", "Designation": g.designation || "", "Location": g.assetLocation || "", "Signed-in user": g.last_user || "", "Last IP": g.last_ip || "",
+      "Type": g.platform || "", "Maker": g.manufacturer || "", "Model": g.model || "", "Serial number": g.serial_number || "",
+      "Windows": g.os_name || "", "Build": os.build ? `${os.build}${os.ubr ? "." + os.ubr : ""}` : g.os_version || "", "Activation": os.activation?.status || "Not reported",
+      "Agent version": g.agent_version || "Not reported", "Agent status": g.status, "Enrolled": d(g.enrolled_at), "Last report": d(g.last_seen_at), "Last online signal": d(g.last_pulse_at),
+      "Health": g.health_state || "", "Open items": g.openItems, "Device policy": ({ compliant: "Compliant", non_compliant: "Not compliant", not_applicable: "Not applicable" } as any)[g.compliance_state] || "Not checked",
+      "Rules not met": (c.failed || []).map((f: any) => f.label).join("; "),
+      "CPU %": h.cpu?.pct ?? "", "Memory %": h.mem?.usedPct ?? "", "Memory GB": h.mem?.totalGb ?? "", "Lowest disk free %": minDisk === null ? "" : Math.round(minDisk), "Uptime (days)": h.uptimeHours != null ? Math.round(h.uptimeHours / 24) : "",
+      "Battery health %": h.battery?.present ? (h.battery.healthPct ?? "") : "No battery",
+      "BitLocker (system drive)": sys?.status || "Not reported", "Antivirus": (sec.av || []).map((a: any) => `${a.name}${a.enabled === false ? " (off)" : a.upToDate === false ? " (out of date)" : ""}`).join(", ") || "Not reported",
+      "Firewall all networks": fw.domain === undefined ? "Not reported" : yn(!!(fw.domain && fw.private && fw.public)),
+      "Last Windows update": pt.lastInstalled ? String(pt.lastInstalled).slice(0, 10) : "", "Restart pending": yn(pt.pendingReboot),
+      "USB storage": ac.usbStorage || "Not reported", "Remote Desktop": yn(ac.rdpEnabled), "Guest account": yn(ac.guestEnabled), "Local administrators": (ac.localAdmins || []).join(", "),
+      "Shared folders": Array.isArray(ac.shares) ? (ac.shares.map((x: any) => x.name || x).join(", ") || "None") : "Not reported", "Secure Boot": yn(ac.secureBoot), "TPM ready": yn(ac.tpm?.ready),
+      "Screen lock (min)": ac.screenLockSecs ? Math.round(ac.screenLockSecs / 60) : (h.access ? "Not set" : "Not reported"),
+    }; });
+  const wb = XLSX.utils.book_new(); const ws = XLSX.utils.json_to_sheet(out.length ? out : [{ Device: "No devices" }]);
+  ws["!cols"] = Object.keys(out[0] || { Device: 1 }).map(k => ({ wch: Math.min(40, Math.max(10, k.length + 2)) })); ws["!autofilter"] = { ref: ws["!ref"] as string };
+  XLSX.utils.book_append_sheet(wb, ws, "Devices");
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  const by = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
+  void logAudit({ entityType: "asset_agent", entityId: 0, action: "export", performedBy: by, summary: `Device report downloaded (${out.length} devices)` }).catch(() => {});
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="IT_Hub_Devices_${new Date().toISOString().slice(0, 10)}.xlsx"`);
+  res.send(buf);
+}));
 router.get("/asset-agents", requireAuth, wrap(async (_req, res) => {
   const st = await agentSettings();
   const rows = rowsOf(await db.execute(sql`
     SELECT g.id, g.device_id AS "deviceId", g.hostname, g.serial_number AS "serialNumber", g.manufacturer, g.model, g.platform, g.os_name AS "osName", g.os_version AS "osVersion",
            g.agent_version AS "agentVersion", g.last_user AS "lastUser", g.last_ip AS "lastIp", g.health_state AS "healthState", g.enrolled_at AS "enrolledAt", g.last_seen_at AS "lastSeenAt",
-           g.status, ${ONLINE_SQL("g.")} AS online, g.last_pulse_at AS "lastPulseAt", g.match_note AS "matchNote", g.asset_id AS "assetId", s.asset_tag AS "assetTag", s.name AS "assetName", s.owner_name AS "ownerName", s.department, s.location,
+           g.status, ${ONLINE_SQL("g.")} AS online, g.last_pulse_at AS "lastPulseAt", g.compliance_state AS "complianceState", g.match_note AS "matchNote", g.asset_id AS "assetId", s.asset_tag AS "assetTag", s.name AS "assetName", s.owner_name AS "ownerName", s.department, s.location,
            g.latest->'cpu'->>'pct' AS cpu, g.latest->'mem'->>'usedPct' AS mem, g.latest->>'uptimeHours' AS "uptimeHours",
            (SELECT min((d->>'freePct')::numeric) FROM jsonb_array_elements(coalesce(g.latest->'disks','[]'::jsonb)) d WHERE coalesce((d->>'sizeGb')::numeric, 0) >= 1) AS "diskFreePct",
            CASE WHEN (g.latest->'battery'->>'healthPct')::numeric > 0 AND (g.latest->'battery'->>'healthPct')::numeric <= 150 THEN g.latest->'battery'->>'healthPct' END AS "batteryHealthPct",
@@ -405,7 +569,8 @@ router.get("/asset-agents", requireAuth, wrap(async (_req, res) => {
 export const ONLINE_SQL = (p: string) => sql.raw(`(${p}status = 'Active' AND greatest(coalesce(${p}last_pulse_at, 'epoch'), coalesce(${p}last_seen_at, 'epoch')) > now() - interval '3 minutes')`);
 export const AG_COLS = sql`id, hostname, serial_number AS "serialNumber", platform, os_name AS "osName", os_version AS "osVersion", agent_version AS "agentVersion", last_user AS "lastUser",
       last_seen_at AS "lastSeenAt", enrolled_at AS "enrolledAt", health_state AS "healthState", latest, status, software_at AS "softwareAt", manufacturer, model, asset_id AS "assetId", user_id AS "userId",
-      last_pulse_at AS "lastPulseAt", refresh_requested_at AS "refreshRequestedAt", refresh_requested_by AS "refreshRequestedBy", ${ONLINE_SQL("")} AS online`;
+      last_pulse_at AS "lastPulseAt", refresh_requested_at AS "refreshRequestedAt", refresh_requested_by AS "refreshRequestedBy", ${ONLINE_SQL("")} AS online,
+      compliance, compliance_state AS "complianceState"`;
 router.get("/asset-agents/:id/health", requireAuth, wrap(async (req, res) => {
   const id = Number(req.params.id); if (!Number.isInteger(id)) return fail(res, 400, "Invalid device");
   const [ag] = rowsOf(await db.execute(sql`SELECT ${AG_COLS} FROM asset_agents WHERE id = ${id}`));

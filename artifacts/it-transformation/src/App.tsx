@@ -36,6 +36,8 @@ import AssetDepreciation from "@/pages/asset-depreciation";
 import AssetHandovers from "@/pages/asset-handovers";
 import AssetEmployees from "@/pages/asset-employees";
 import AssetAgents from "@/pages/asset-agents";
+import DevicePolicy from "@/pages/device-policy";
+import SoftwareCompliance from "@/pages/software-compliance";
 import AgentKeys from "@/pages/agent-keys";
 import AgentChats from "@/pages/agent-chats";
 import DeviceData from "@/pages/device-data";
@@ -104,7 +106,7 @@ function guard(module: string, Component: React.ComponentType) {
 const G = {
   dashboard: guard("assets", AssetDashboard), registry: guard("asset_registry", AssetRegistry), vendors: guard("asset_vendors", AssetVendors),
   licenses: guard("asset_licenses", AssetLicenses), contracts: guard("asset_contracts", AssetContracts), depreciation: guard("asset_depreciation", AssetDepreciation),
-  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), agentKeys: guard("asset_registry", AgentKeys), agentChats: guard("asset_registry", AgentChats), deviceData: guard("asset_registry", DeviceData), itsmChats: ItsmChats,
+  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), devicePolicy: guard("asset_registry", DevicePolicy), software: guard("asset_registry", SoftwareCompliance), agentKeys: guard("asset_registry", AgentKeys), agentChats: guard("asset_registry", AgentChats), deviceData: guard("asset_registry", DeviceData), itsmChats: ItsmChats,
   audits: guard("asset_audits", AssetAudits), auditDetail: guard("asset_audits", AssetAuditDetail),
 };
 
@@ -191,6 +193,8 @@ function Router() {
               <Route path="/asset-agents/data" component={G.deviceData} />
               <Route path="/itsm-chats" component={G.itsmChats} />
               <Route path="/asset-agents" component={G.agents} />
+              <Route path="/device-policy" component={G.devicePolicy} />
+              <Route path="/software-compliance" component={G.software} />
               <Route path="/my-assets" component={MyAssets} />
               <Route path="/a/:tag" component={AssetScan} />
               <Route path="/asset-scan" component={AssetScanCamera} />

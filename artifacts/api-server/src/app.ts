@@ -81,6 +81,8 @@ export async function createApp(): Promise<Express> {
     origin: (origin, cb) => cb(null, !origin || !allowed.length || allowed.includes(origin)),
     credentials: true,
   }));
+  // ITH-091: keep the exact bytes of device-agent requests so their signature can be checked; agents may send at most 5 MB
+  app.use("/api/agent/", express.json({ limit: "5mb", verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
