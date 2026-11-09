@@ -1,4 +1,5 @@
 import { confirmHeader } from "@/components/confirm-dialog";
+import { usePresence, PresenceDot, PresenceLabel, useMyPresence } from "@/lib/presence";
 import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,7 @@ export function ChatThread({ chatId, onChanged, compact = false }: { chatId: num
   const end = useRef<HTMLDivElement>(null); const fileIn = useRef<HTMLInputElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [data?.messages?.length]);
   const c = data?.chat; const msgs: any[] = data?.messages || []; const role: string = data?.role;
+  const presFor = usePresence([data?.chat?.with?.id, data?.chat?.assignedToId, data?.chat?.userId]);   // ITH-077
   const refresh = () => { qc.invalidateQueries({ queryKey: ["chat", chatId] }); qc.invalidateQueries({ queryKey: ["chats"] }); qc.invalidateQueries({ queryKey: ["device-chats"] }); qc.invalidateQueries({ queryKey: ["chats-unread"] }); onChanged?.(); };
   async function act(path: string, body: any, ok?: string) {
     setBusy(true);
@@ -71,10 +73,15 @@ export function ChatThread({ chatId, onChanged, compact = false }: { chatId: num
   if (error) return <div className="p-6 text-sm text-red-600">{(error as Error).message}</div>;
   if (isLoading || !c) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
   const support = c.kind === "support";
+  const pres = presFor;
   const mine = (m: any) => role === "member" ? m.senderId === user?.id : role === "employee" ? m.side === "Employee" : role === "it" ? m.side === "IT" && m.senderId === user?.id || (role === "it" && m.side === "IT") : false;
   const canWrite = role === "member" || role === "it" || (role === "employee" && (c.status === "Waiting on employee" || c.status === "Waiting on IT"));
   return (
     <div className={cn("flex flex-col h-full", compact ? "" : "min-h-[460px]")}>
+      {(() => { const otherId = c.kind === "direct" ? c.with?.id : role === "employee" ? c.assignedToId : c.userId; const st = pres(otherId); const nm = c.kind === "direct" ? c.with?.name : role === "employee" ? c.assignedTo : c.userName;
+        return otherId && st ? <div className={cn("mb-2 text-[11px] flex items-center gap-1.5", st === "dnd" ? "rounded-md border border-red-200 bg-red-50 dark:bg-red-900/20 px-2 py-1 text-red-700 dark:text-red-300" : "text-muted-foreground")}><PresenceDot status={st} ring={false} />{nm}: {st === "dnd" ? "Do not disturb — they will see your message later" : st === "online" ? "Online" : st === "away" ? "Away" : "Offline"}</div> : null; })()}
+      {support && role === "it" && c.status !== "Closed" && <QueueBar c={c} meId={user?.id} onDone={refresh} />}
+      {support && role === "employee" && c.status !== "Closed" && <div className="mb-2 text-[11px] text-muted-foreground">{c.assignedTo ? <>Handled by <b>{c.assignedTo}</b>{c.teamName ? ` · ${c.teamName}` : ""}</> : c.teamName ? <>Waiting for someone in <b>{c.teamName}</b> to pick it up</> : null}</div>}
       {role === "admin" && <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 px-2.5 py-1.5 text-xs flex items-center gap-1.5"><ShieldAlert className="w-3.5 h-3.5 text-amber-600" />Super Admin view — read-only. Opening this chat is recorded in the audit log.</div>}
       {compact ? <div className="text-[11px] text-muted-foreground border-b pb-1.5 mb-1.5 flex gap-2 flex-wrap items-center"><KindTag kind={c.kind} /><ChatStatus status={c.status} /><span>{support ? [role !== "employee" ? `${c.employeeCode || ""} ${c.userName}`.trim() : null, c.hostname, c.ticketNo].filter(Boolean).join(" · ") : c.title}</span></div> :
       <div className="border-b pb-3 mb-2 space-y-2">
@@ -155,28 +162,52 @@ export function StartChatDialog({ agent, alert, employee, onClose, onStarted }: 
 
 /** New chat: anyone → direct chat with a person; IT staff can also start an IT support chat with an employee. */
 export function NewChatDialog({ staff, onClose, onStarted }: { staff: boolean; onClose: () => void; onStarted: (id: number) => void }) {
+  /* ITH-079 — choose the kind of chat first, then the details:
+     colleague = a private chat with one person · help = an IT support request to the mapped support team (no person to pick)
+     employee = IT staff start an IT support chat with an employee */
   const { toast } = useToast();
-  const [kind, setKind] = useState<"direct" | "support">("direct"); const [q, setQ] = useState(""); const [who, setWho] = useState<any>(null);
+  const [kind, setKind] = useState<"direct" | "help" | "support" | null>(null); const [q, setQ] = useState(""); const [who, setWho] = useState<any>(null);
   const [subject, setSubject] = useState(""); const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
-  const { data: people = [] } = useQuery({ queryKey: ["chat-people", q], queryFn: () => apiFetch<any[]>(`/chats/people?q=${encodeURIComponent(q.trim())}`), enabled: q.trim().length > 1 });
+  const { data: people = [] } = useQuery({ queryKey: ["chat-people", q], queryFn: () => apiFetch<any[]>(`/chats/people?q=${encodeURIComponent(q.trim())}`), enabled: (kind === "direct" || kind === "support") && q.trim().length > 1 });
+  const { data: team } = useQuery({ queryKey: ["chat-support-team"], queryFn: () => apiFetch<any>("/chats-support-team") });
+  const peoplePres = usePresence(people.map((p: any) => p.id));
+  const short = (t: string) => (t.length > 160 ? t.slice(0, 157) + "…" : t);
   async function go() {
     setBusy(true);
-    try { const r = await apiFetch<any>("/chats", { method: "POST", body: JSON.stringify({ kind, userId: who.id, message: msg.trim(), subject: subject.trim() || undefined }),
-      headers: confirmHeader(`${kind === "support" ? "Start an IT support chat with" : "Start a chat with"} ${who.name}${subject.trim() ? ` about “${subject.trim()}”` : ""}, starting with the message:\n“${msg.trim().length > 160 ? msg.trim().slice(0, 157) + "…" : msg.trim()}”`) }); toast({ title: r.existing ? `Added to your chat with ${who.name}` : "Chat started" }); onStarted(r.id); }
-    catch (e: any) { if (!e.cancelled) toast({ title: "Could not start chat", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+    try {
+      const body = kind === "help" ? { kind: "support-request", subject: subject.trim() || undefined, message: msg.trim() } : { kind, userId: who.id, message: msg.trim(), subject: subject.trim() || undefined };
+      const say = kind === "help" ? `Send an IT support request to ${team?.team?.name || "the IT support team"}${subject.trim() ? ` about “${subject.trim()}”` : ""}, starting with the message:\n“${short(msg.trim())}”`
+        : `${kind === "support" ? "Start an IT support chat with" : "Start a chat with"} ${who.name}${subject.trim() ? ` about “${subject.trim()}”` : ""}, starting with the message:\n“${short(msg.trim())}”`;
+      const r = await apiFetch<any>("/chats", { method: "POST", body: JSON.stringify(body), headers: confirmHeader(say) });
+      toast({ title: kind === "help" ? `Sent to ${r.team || "IT support"}` : r.existing ? `Added to your chat with ${who.name}` : "Chat started" }); onStarted(r.id);
+    } catch (e: any) { if (!e.cancelled) toast({ title: "Could not start chat", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
   }
+  const Choice = ({ k, icon: I, title, text }: { k: "direct" | "help" | "support"; icon: any; title: string; text: string }) => (
+    <button onClick={() => { setKind(k); setWho(null); setQ(""); }} className="w-full text-left rounded-xl border p-3 hover:bg-muted/50 hover:border-primary/40 flex gap-3 items-start">
+      <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0"><I className="w-4 h-4" /></div>
+      <div><div className="font-semibold text-sm">{title}</div><div className="text-xs text-muted-foreground">{text}</div></div></button>);
+  const noTeam = kind === "help" && team && !team.configured;
   return (
     <Dialog open onOpenChange={o => !o && !busy && onClose()}><DialogContent className="max-w-lg">
-      <DialogHeader><DialogTitle>New chat</DialogTitle><DialogDescription>{kind === "direct" ? "A private chat between you and one person. Only the two of you can read it." : "An IT support chat with an employee — visible to the employee and the IT team."}</DialogDescription></DialogHeader>
-      <div className="space-y-3">
-        {staff && <div className="flex gap-2">{(["direct", "support"] as const).map(k => <button key={k} onClick={() => setKind(k)} className={cn("px-2.5 py-1 rounded-md border text-xs", kind === k ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground")}>{k === "direct" ? "Direct message" : "IT support chat"}</button>)}</div>}
-        {who ? <div className="flex items-center gap-2 rounded-lg border p-2 text-sm"><Avatar name={who.name} /><div className="flex-1"><b>{who.name}</b>{who.employeeCode ? ` · ${who.employeeCode}` : ""}<div className="text-xs text-muted-foreground">{[who.designation, who.department].filter(Boolean).join(" · ")}</div></div><Button size="sm" variant="ghost" onClick={() => setWho(null)}>Change</Button></div>
+      <DialogHeader><DialogTitle>{!kind ? "New chat" : kind === "direct" ? "Message a colleague" : kind === "help" ? "Get IT support" : "IT support chat with an employee"}</DialogTitle>
+        <DialogDescription>{!kind ? "What would you like to do?" : kind === "direct" ? "A private chat between you and one person. Only the two of you can read it." : kind === "help" ? `Your request goes to ${team?.team?.name || "the IT support team"}. Anyone in the team can pick it up and reply.` : "Visible to the employee and the IT support team."}</DialogDescription></DialogHeader>
+      {!kind ? <div className="space-y-2">
+        <Choice k="help" icon={ShieldAlert} title="Get IT support" text="Ask the IT support team for help — no need to pick a person." />
+        <Choice k="direct" icon={MessageSquare} title="Message a colleague" text="A private chat with one person." />
+        {staff && <Choice k="support" icon={Plus} title="IT support chat with an employee" text="For IT staff: contact an employee about their computer or request." />}
+      </div> : <div className="space-y-3">
+        {noTeam && <div className="rounded-md border border-red-300 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">IT support chat is not set up yet: {team.team ? `the support team “${team.team.name}” has no members.` : "no IT support team is mapped."} Please ask your ITSM Admin to {team.team ? "add people to it" : "map one in ITSM Setup › Teams"}.</div>}
+        {(kind === "direct" || kind === "support") && (who ? <div className="flex items-center gap-2 rounded-lg border p-2 text-sm"><Avatar name={who.name} /><div className="flex-1"><b>{who.name}</b>{who.employeeCode ? ` · ${who.employeeCode}` : ""}<div className="text-xs text-muted-foreground">{[who.designation, who.department].filter(Boolean).join(" · ")}</div></div><Button size="sm" variant="ghost" onClick={() => setWho(null)}>Change</Button></div>
           : <><Input autoFocus placeholder="Search name, employee code or email…" value={q} onChange={e => setQ(e.target.value)} />
-            {people.length > 0 && <div className="border rounded-lg divide-y max-h-52 overflow-y-auto">{people.map((p: any) => <button key={p.id} onClick={() => { setWho(p); setQ(""); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 flex gap-2 items-center"><Avatar name={p.name} /><span><b>{p.name}</b>{p.employeeCode ? ` · ${p.employeeCode}` : ""}<span className="text-xs text-muted-foreground"> · {p.department || p.designation || ""}</span></span></button>)}</div>}</>}
-        {kind === "support" && <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject, e.g. Outlook keeps asking for password" />}
-        <Textarea rows={4} value={msg} onChange={e => setMsg(e.target.value)} placeholder="First message" />
-      </div>
-      <DialogFooter><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={go} disabled={busy || !who || !msg.trim()} className="gap-1">{busy && <Loader2 className="w-4 h-4 animate-spin" />}Start chat</Button></DialogFooter>
+            {people.length > 0 && <div className="border rounded-lg divide-y max-h-52 overflow-y-auto">{people.map((p: any) => <button key={p.id} onClick={() => { setWho(p); setQ(""); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 flex gap-2 items-center"><Avatar name={p.name} /><PresenceDot status={peoplePres(p.id)} ring={false} /><span className="flex-1">{p.name}<span className="text-xs text-muted-foreground"> · {[p.employeeCode, p.department].filter(Boolean).join(" · ")}</span></span></button>)}</div>}</>)}
+        {(kind === "help" || kind === "support") && !noTeam && <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject, e.g. Outlook keeps asking for password" />}
+        {!noTeam && <Textarea rows={4} value={msg} onChange={e => setMsg(e.target.value)} placeholder={kind === "help" ? "Describe the problem" : "First message"} />}
+      </div>}
+      <DialogFooter>
+        {kind && <Button variant="ghost" className="mr-auto" onClick={() => setKind(null)} disabled={busy}>Back</Button>}
+        <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+        {kind && <Button onClick={go} disabled={busy || !!noTeam || !msg.trim() || ((kind === "direct" || kind === "support") && !who)} className="gap-1">{busy && <Loader2 className="w-4 h-4 animate-spin" />}{kind === "help" ? "Send to IT support" : "Start chat"}</Button>}
+      </DialogFooter>
     </DialogContent></Dialog>
   );
 }
@@ -184,16 +215,20 @@ export function NewChatDialog({ staff, onClose, onStarted }: { staff: boolean; o
 /** Chats list: box mine / support / all, search, status filter, 10 a page; a row opens the conversation. */
 export function ChatTable({ box, onMe }: { box: "mine" | "support" | "all"; onMe?: (m: any) => void }) {
   const [q, setQ] = useState(""); const [term, setTerm] = useState(""); const [st, setSt] = useState("Open"); const [page, setPage] = useState(1);
+  const [queue, setQueue] = useState<"" | "unassigned" | "me">("");
   const [sel, setSel0] = useState<number | null>(() => Number(new URLSearchParams(window.location.search).get("c")) || null);
   const setSel = (v: number | null) => { setSel0(v); const u = new URL(window.location.href); if (v) u.searchParams.set("c", String(v)); else u.searchParams.delete("c"); window.history.replaceState(null, "", u.pathname + u.search); };
   useEffect(() => { const t = setTimeout(() => { setTerm(q.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
-  const { data, isLoading, error } = useQuery({ queryKey: ["chats", box, term, st, page], queryFn: () => apiFetch<any>(`/chats?${new URLSearchParams({ box, q: term, status: st, page: String(page), pageSize: "10" })}`), refetchInterval: 20_000 });
+  const { data, isLoading, error } = useQuery({ queryKey: ["chats", box, term, st, page, queue], queryFn: () => apiFetch<any>(`/chats?${new URLSearchParams({ box, q: term, status: st, page: String(page), pageSize: "10", queue: box === "support" ? queue : "" })}`), refetchInterval: 20_000 });
   useEffect(() => { if (data?.me) onMe?.(data.me); }, [data?.me?.staff, data?.me?.superAdmin]);
-  const rows: any[] = data?.rows || []; const total = data?.total || 0; const pages = Math.max(1, Math.ceil(total / 10));
+  const rows: any[] = data?.rows || []; const total = data?.total || 0;
+  const rowPres = usePresence(rows.map((c: any) => c.kind === "direct" ? c.with?.id : c.userId)); const pages = Math.max(1, Math.ceil(total / 10));
   const filters = box === "mine" ? ["Open", "Resolved", "Closed", "All"] : ["Open", "Waiting on IT", "Waiting on employee", "Resolved", "Closed", "All"];
   if (error) return <div className="p-6 text-sm text-red-600">{(error as Error).message}</div>;
   return (
     <div className="space-y-3">
+      {box === "support" && <div className="flex gap-2 flex-wrap">{([["", "All my team's chats", null], ["unassigned", "In queue", data?.queue?.unassigned], ["me", "Assigned to me", data?.queue?.me]] as const).map(([k, l, n]) =>
+        <button key={k} onClick={() => { setQueue(k as any); setPage(1); }} className={cn("px-3 py-1.5 rounded-full border text-xs", queue === k ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground hover:bg-muted/50")}>{l}{n != null ? <span className={cn("ml-1.5 font-semibold", queue !== k && k === "unassigned" && n > 0 && "text-amber-700")}>{n}</span> : null}</button>)}</div>}
       <div className="flex flex-wrap items-center gap-2">
         <Input className="flex-1 min-w-[240px]" placeholder="Search name, emp code, subject, computer, ticket, #id…" value={q} onChange={e => setQ(e.target.value)} />
         <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px] flex-wrap">{filters.map(k => <button key={k} onClick={() => { setSt(k); setPage(1); }} className={cn("px-2.5 py-1 rounded-[8px] text-[12px]", st === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{k} <span className="text-[11px] text-muted-foreground">{data?.counts?.[k] ?? ""}</span></button>)}</div>
@@ -209,10 +244,11 @@ export function ChatTable({ box, onMe }: { box: "mine" | "support" | "all"; onMe
               <td className="p-2.5 text-xs text-muted-foreground">#{c.id}</td>
               <td className="p-2.5"><div className="flex items-center gap-1.5">{c.title}{c.unread > 0 && <span className="text-[10px] rounded-full bg-primary text-primary-foreground px-1.5">{c.unread} new</span>}</div></td>
               <td className="p-2.5"><KindTag kind={c.kind} /></td>
-              <td className="p-2.5 text-xs">{c.kind === "direct" ? (box === "all" ? (c.members || []).map((x: any) => x.name).join(" ↔ ") : <>{c.with?.name}<div className="text-muted-foreground font-normal">{c.with?.employeeCode} {c.with?.department}</div></>) : <>{c.employeeCode || "—"} · {c.userName}<div className="text-muted-foreground font-normal">{c.department}</div></>}</td>
+              <td className="p-2.5 text-xs">{c.kind === "direct" ? (box === "all" ? (c.members || []).map((x: any) => x.name).join(" ↔ ") : <><span className="inline-flex items-center gap-1.5"><PresenceDot status={rowPres(c.with?.id)} ring={false} />{c.with?.name}</span><div className="text-muted-foreground font-normal">{c.with?.employeeCode} {c.with?.department}</div></>) : <>{c.employeeCode || "—"} · {c.userName}<div className="text-muted-foreground font-normal">{c.department}</div></>}</td>
               <td className="p-2.5 text-xs font-normal">{c.hostname || "—"}<div className="text-muted-foreground">{[c.assetTag, c.ticketNo].filter(Boolean).join(" · ")}</div>
                 {c.sessions > 0 && <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold rounded bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300 px-1.5 py-0.5" title="Screen sessions / recordings (IT and Super Admin only)"><Video className="w-3 h-3" />{c.sessions} session{c.sessions > 1 ? "s" : ""}{c.recordings ? ` · ${c.recordings} rec.` : ""}</div>}</td>
-              <td className="p-2.5"><ChatStatus status={c.status} /></td>
+              <td className="p-2.5"><ChatStatus status={c.status} />
+                {c.kind === "support" && box !== "mine" && <div className="mt-0.5 text-[11px]">{c.assignedTo ? <span className="text-muted-foreground">→ {c.assignedTo}</span> : c.teamId && c.status !== "Closed" && c.status !== "Resolved" ? <span className="font-semibold text-amber-700 dark:text-amber-400">In queue{c.teamName ? ` · ${c.teamName}` : ""}</span> : null}</div>}</td>
               <td className="p-2.5 text-xs font-normal text-muted-foreground max-w-[240px] truncate">{c.lastMessage}</td>
               <td className="p-2.5 text-xs font-normal whitespace-nowrap">{fmtDateTime(c.lastMsgAt)}</td></tr>)}
           </tbody>
@@ -232,8 +268,9 @@ export function ChatPopup() {
   const [open, setOpen] = useState<{ id: number; title: string } | null>(null); const [min, setMin] = useState(false);
   const seen = useRef<Record<string, string>>({});
   const { data } = useQuery({ queryKey: ["chats-unread"], queryFn: () => apiFetch<any[]>("/chats-unread"), refetchInterval: 15_000, refetchIntervalInBackground: false, retry: false });
+  const { data: myPres } = useMyPresence();
   useEffect(() => {
-    if (!data) return;
+    if (!data || myPres?.status === "dnd") return;   // ITH-077: Do not disturb — no chat windows pop up
     const items = [...data].sort((a, b) => +new Date(b.lastAt) - +new Date(a.lastAt));
     for (const x of items) {
       const k = String(x.id); if (seen.current[k] === x.lastAt) continue; seen.current[k] = x.lastAt;
@@ -301,5 +338,38 @@ function SessionLog({ chatId, onClose }: { chatId: number; onClose: () => void }
             <div className="mt-1 border rounded divide-y">{x.events.map((e: any, i: number) => <div key={i} className="px-2 py-1 flex gap-2"><span className="text-muted-foreground whitespace-nowrap">{fmtDateTime(e.at)}</span><span className="flex-1">{e.summary}</span><span className="text-muted-foreground">{String(e.by || "").replace(/ <.*>$/, "")}</span></div>)}</div></details>}
         </div>))}</div>
     </DialogContent></Dialog>
+  );
+}
+
+
+/** ITH-079 — who is handling an IT support chat; pick up / take over, put back in the queue, assign to a team member. */
+function QueueBar({ c, meId, onDone }: { c: any; meId?: number; onDone: () => void }) {
+  const { toast } = useToast(); const [busy, setBusy] = useState(false); const [assign, setAssign] = useState(false);
+  const { data: team } = useQuery({ queryKey: ["chat-support-team"], queryFn: () => apiFetch<any>("/chats-support-team"), enabled: assign });
+  const mine = Number(c.assignedToId) === Number(meId);
+  const memberPres = usePresence((team?.memberList || []).map((u: any) => u.id));
+  async function op(path: string, body: any, say: string) {
+    setBusy(true);
+    try { await apiFetch(`/chats/${c.id}/queue/${path}`, { method: "POST", body: JSON.stringify(body), headers: confirmHeader(say) }); toast({ title: "Done" }); setAssign(false); onDone(); }
+    catch (e: any) { if (!e.cancelled) toast({ title: "Could not do that", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
+  return (
+    <div className={cn("mb-2 rounded-lg border px-3 py-2 text-xs flex items-center gap-2 flex-wrap", c.assignedToId ? "bg-muted/30" : "bg-amber-50 border-amber-300 dark:bg-amber-900/20")}>
+      {c.assignedToId ? <span>Handled by <b>{mine ? "you" : c.assignedTo}</b>{c.pickedAt ? ` since ${fmtDateTime(c.pickedAt)}` : ""}{c.teamName ? ` · ${c.teamName}` : ""}</span>
+        : <span className="font-semibold text-amber-800 dark:text-amber-300">In the {c.teamName || "IT support"} queue — nobody has picked it up yet</span>}
+      <div className="ml-auto flex gap-1.5">
+        {!c.assignedToId && <Button size="sm" className="h-7" disabled={busy} onClick={() => op("pickup", {}, `Pick up “${c.subject || "this chat"}” from ${c.userName}? You will handle it.`)}>Pick up</Button>}
+        {c.assignedToId && !mine && <Button size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => op("pickup", { takeOver: true }, `Take over “${c.subject || "this chat"}” from ${c.assignedTo}? They will be told.`)}>Take over</Button>}
+        {c.assignedToId && <Button size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => op("release", {}, `Put “${c.subject || "this chat"}” back in the ${c.teamName || "support"} queue for anyone in the team to pick up?`)}>Back to queue</Button>}
+        <Button size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => setAssign(true)}>Assign…</Button>
+      </div>
+      {assign && <Dialog open onOpenChange={o => !o && setAssign(false)}><DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Assign to a team member</DialogTitle><DialogDescription>{team?.team?.name || "IT support team"}</DialogDescription></DialogHeader>
+        <div className="border rounded-lg divide-y max-h-72 overflow-y-auto">{(team?.memberList || []).filter((u: any) => u.id !== c.userId).map((u: any) => (
+          <button key={u.id} disabled={busy} className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 flex gap-2 items-center" onClick={() => op("assign", { userId: u.id }, `Assign “${c.subject || "this chat"}” to ${u.name}? They will be notified.`)}>
+            <Avatar name={u.name} /><PresenceDot status={memberPres(u.id)} ring={false} /><span className="flex-1">{u.name}{u.employeeCode ? <span className="text-xs text-muted-foreground"> · {u.employeeCode}</span> : null}</span>{Number(c.assignedToId) === u.id && <span className="text-[10px] text-muted-foreground">current</span>}</button>))}
+          {team && !(team.memberList || []).length && <div className="p-3 text-xs text-muted-foreground">No members to choose from.</div>}</div>
+      </DialogContent></Dialog>}
+    </div>
   );
 }

@@ -30,12 +30,38 @@ export default function ItsmSetup() {
           {([["catalog", "Categories & routing"], ["teams", "Teams & members"], ["lists", "Lookup lists"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
         </div>
       </div>
-      {tab === "teams" ? <Teams /> : tab === "lists" ? <ItsmListsPanel /> : <Catalog />}
+      {tab === "teams" ? <><SupportChatTeam /><Teams /></> : tab === "lists" ? <ItsmListsPanel /> : <Catalog />}
     </div>
   );
 }
 
 const usePeople = () => useQuery<any[]>({ queryKey: ["users-for-combobox"], queryFn: () => apiFetch("/itsm-people") });
+
+/** ITH-079 — the team that receives IT support chats (queue). Set by an ITSM Admin; every change is audited. */
+function SupportChatTeam() {
+  const qc = useQueryClient(); const { toast } = useToast();
+  const { data } = useQuery({ queryKey: ["chat-support-team"], queryFn: () => apiFetch<any>("/chats-support-team") });
+  const [busy, setBusy] = useState(false);
+  if (!data) return null;
+  async function save(id: string) {
+    const t = (data.teams || []).find((x: any) => String(x.id) === id);
+    setBusy(true);
+    try { await apiFetch("/chats-support-team", { method: "PUT", body: JSON.stringify({ teamId: id ? Number(id) : null }), headers: { "X-Confirm-Text": encodeURIComponent(t ? `Send all IT support chats to ${t.name} (${t.members} member${t.members === 1 ? "" : "s"})? Its members will see and pick them up from the queue.` : "Stop IT support chats? Employees will see that IT support chat is not set up.") } });
+      qc.invalidateQueries({ queryKey: ["chat-support-team"] }); toast({ title: t ? `IT support chats go to ${t.name}` : "IT support chat switched off" }); }
+    catch (e: any) { if (!e.cancelled) toast({ title: "Not changed", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
+  return (
+    <Card className="mb-4"><CardContent className="p-4 flex items-center gap-3 flex-wrap">
+      <div className="flex-1 min-w-[260px]"><div className="font-semibold text-sm">IT support chat team</div>
+        <div className="text-xs text-muted-foreground">“Get IT support” chats from employees go to this team's queue. Members pick them up and reply; ITSM Admins can assign them.</div>
+        {data.team && !data.team.members && <div className="text-xs text-red-600 mt-1">{data.team.name} has no members — employees cannot start IT support chats until you add people.</div>}
+        {!data.team && <div className="text-xs text-red-600 mt-1">No team mapped — employees see “IT support chat is not set up”.</div>}</div>
+      {data.canMap ? <select className="h-9 rounded-md border bg-background px-2 text-sm min-w-[220px]" disabled={busy} value={data.team?.id ?? ""} onChange={e => save(e.target.value)}>
+        <option value="">Not mapped</option>{(data.teams || []).map((t: any) => <option key={t.id} value={t.id}>{t.name} ({t.members})</option>)}</select>
+        : <div className="text-sm font-medium">{data.team?.name || "Not mapped"}</div>}
+    </CardContent></Card>
+  );
+}
 
 function Teams() {
   const qc = useQueryClient(); const { toast } = useToast(); const { canAccess } = useAuth(); const canEdit = canAccess("itsm_setup", "write");

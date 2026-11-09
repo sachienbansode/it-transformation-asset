@@ -5,8 +5,9 @@ import { eq, sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { getAccess } from "../lib/rbac";
-import { isSupportStaff, isSuperAdmin } from "../lib/access-model";
-import { openText, sealBuf, openBuf } from "../lib/secure-text";
+import { isSupportStaff, isSuperAdmin, isItsmAdmin } from "../lib/access-model";
+import { openText, sealText, sealBuf, openBuf } from "../lib/secure-text";
+import { putObject, getObject, deleteObject, fullKey, storeConfigured, storeLabel, type StoreCfg } from "../lib/object-store";
 import { post, autoClose, notify, tellIT, tooFast } from "./device-support";
 
 /*
@@ -35,7 +36,8 @@ async function setting(key: string, def: any) {
 async function me(req: Request) {
   const a = await getAccess(req);
   const [u] = rowsOf(await db.execute(sql`SELECT id, name, coalesce(user_type, 'internal') AS "userType", is_active FROM users WHERE id = ${uid(req)}`));
-  return { a, u, id: uid(req)!, superAdmin: isSuperAdmin(a), staff: await isSupportStaff(a) };
+  const teams = rowsOf(await db.execute(sql`SELECT team_id FROM itsm_team_members WHERE user_id = ${uid(req)}`)).map(r => Number(r.team_id));
+  return { a, u, id: uid(req)!, superAdmin: isSuperAdmin(a), staff: await isSupportStaff(a), itsmAdmin: isItsmAdmin(a), teams };
 }
 
 /** My relation to a chat: member (direct), employee / it (support), admin (Super Admin read-only) — or null (no access). */
@@ -45,12 +47,18 @@ async function roleIn(c: any, m: Awaited<ReturnType<typeof me>>): Promise<"membe
     return x ? "member" : m.superAdmin ? "admin" : null;
   }
   if (c.user_id === m.id) return "employee";
+  // ITH-079: a chat routed to a support team is for that team (plus ITSM Admin, Super Admin, whoever it is assigned to / who opened it)
+  if (c.team_id) {
+    if (m.superAdmin || m.itsmAdmin || m.teams.includes(Number(c.team_id)) || Number(c.assigned_to_id) === m.id || Number(c.opened_by_id) === m.id) return "it";
+    return null;
+  }
   if (m.staff) return "it";
   return m.superAdmin ? "admin" : null;
 }
 const COLS = sql`c.id, c.kind, c.subject, c.status, c.user_id AS "userId", c.agent_id AS "agentId", c.alert_id AS "alertId", c.incident_id AS "incidentId", i.ticket_no AS "ticketNo",
   c.opened_by AS "openedBy", c.opened_by_id AS "openedById", c.opened_at AS "openedAt", c.resolved_at AS "resolvedAt", c.resolved_by AS "resolvedBy", c.resolution,
   c.closed_at AS "closedAt", c.closed_by AS "closedBy", c.close_note AS "closeNote", c.last_msg_at AS "lastMsgAt",
+  c.team_id AS "teamId", (SELECT t.name FROM itsm_teams t WHERE t.id = c.team_id) AS "teamName", c.assigned_to_id AS "assignedToId", c.assigned_to AS "assignedTo", c.picked_at AS "pickedAt",
   u.name AS "userName", u.employee_code AS "employeeCode", u.department, g.hostname, s.asset_tag AS "assetTag", x.message AS "alertMessage",
   (SELECT body FROM device_chat_messages m WHERE m.chat_id = c.id ORDER BY m.at DESC, m.id DESC LIMIT 1) AS "lastMessage",
   (SELECT json_agg(json_build_object('id', mu.id, 'name', mu.name, 'employeeCode', mu.employee_code, 'department', mu.department)) FROM chat_members cm JOIN users mu ON mu.id = cm.user_id WHERE cm.chat_id = c.id) AS members`;
@@ -70,7 +78,8 @@ router.get("/chats", requireAuth, wrap(async (req, res) => {
   const box = String(req.query.box || "mine");
   if (box === "support" && !m.staff) return fail(res, 403, "Only IT staff can see IT support chats");
   if (box === "all" && !m.superAdmin) return fail(res, 403, "Only the Super Admin can see all chats");
-  const scope = box === "all" ? sql`true` : box === "support" ? sql`c.kind = 'support'`
+  const mine = sql`(c.team_id IS NULL OR ${m.superAdmin || m.itsmAdmin} OR c.team_id = ANY(${`{${m.teams.join(",")}}`}::int[]) OR c.assigned_to_id = ${m.id} OR c.opened_by_id = ${m.id})`;
+  const scope = box === "all" ? sql`true` : box === "support" ? sql`c.kind = 'support' AND c.user_id <> ${m.id} AND ${mine}`
     : sql`((c.kind = 'direct' AND EXISTS (SELECT 1 FROM chat_members cm WHERE cm.chat_id = c.id AND cm.user_id = ${m.id})) OR (c.kind = 'support' AND c.user_id = ${m.id}))`;
   const q = String(req.query.q || "").trim().toLowerCase(); const like = q ? `%${q}%` : null;
   const search = sql`(${like}::text IS NULL OR lower(concat_ws(' ', '#' || c.id, c.subject, u.name, u.employee_code, u.department, g.hostname, s.asset_tag, i.ticket_no, c.opened_by,
@@ -79,7 +88,9 @@ router.get("/chats", requireAuth, wrap(async (req, res) => {
   const stc = st === "All" ? sql`true` : st === "Open" ? sql`c.status IN ('Active', 'Waiting on employee', 'Waiting on IT')` : sql`c.status = ${st}`;
   const kind = req.query.kind === "direct" || req.query.kind === "support" ? sql`c.kind = ${req.query.kind}` : sql`true`;
   const agent = Number(req.query.agentId) || null;
-  const where = sql`${scope} AND ${search} AND ${kind} AND (${agent}::int IS NULL OR c.agent_id = ${agent})`;
+  const queue = String(req.query.queue || "");   // ITH-079: queue = unassigned (waiting to be picked up) | me (assigned to me)
+  const qf = queue === "unassigned" ? sql`c.kind = 'support' AND c.assigned_to_id IS NULL` : queue === "me" ? sql`c.assigned_to_id = ${m.id}` : sql`true`;
+  const where = sql`${scope} AND ${search} AND ${kind} AND ${qf} AND (${agent}::int IS NULL OR c.agent_id = ${agent})`;
   const size = Math.min(50, Math.max(5, Number(req.query.pageSize) || 10)); const page = Math.max(1, Number(req.query.page) || 1);
   const rows = rowsOf(await db.execute(sql`SELECT ${COLS}, ${UNREAD(m.id)} AS unread ${FROM} WHERE ${where} AND ${stc}
     ORDER BY (${UNREAD(m.id)} > 0) DESC, c.last_msg_at DESC LIMIT ${size} OFFSET ${(page - 1) * size}`)).map(c => view(c, m.id));
@@ -93,7 +104,9 @@ router.get("/chats", requireAuth, wrap(async (req, res) => {
     const ss = rowsOf(await db.execute(sql`SELECT chat_id, count(*)::int AS sessions, count(recording_attachment_id)::int AS recordings FROM chat_sessions WHERE chat_id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)}) AND status IN ('live', 'ended') GROUP BY 1`));
     for (const r of rows) { const x = ss.find(y => Number(y.chat_id) === Number(r.id)); r.sessions = x?.sessions || 0; r.recordings = x?.recordings || 0; }
   }
-  res.json({ rows, total: by[st] ?? by.All, page, pageSize: size, counts: by, me: { staff: m.staff, superAdmin: m.superAdmin } });
+  const [qc] = box === "support" ? rowsOf(await db.execute(sql`SELECT count(*) FILTER (WHERE c.assigned_to_id IS NULL)::int AS unassigned, count(*) FILTER (WHERE c.assigned_to_id = ${m.id})::int AS me
+      FROM device_chats c WHERE c.kind = 'support' AND c.user_id <> ${m.id} AND ${mine} AND c.status IN ('Active', 'Waiting on employee', 'Waiting on IT')`)) : [null];
+  res.json({ rows, total: by[st] ?? by.All, page, pageSize: size, counts: by, queue: qc, me: { staff: m.staff, superAdmin: m.superAdmin, itsmAdmin: m.itsmAdmin } });
 }));
 
 /** People to start a chat with (active users; no one-self). */
@@ -106,6 +119,23 @@ router.get("/chats/people", requireAuth, wrap(async (req, res) => {
 /** Start a chat. kind direct: anyone internal → another active user. kind support: IT staff → an employee (optionally about a computer). */
 router.post("/chats", requireAuth, wrap(async (req, res) => {
   const m = await me(req); const b = req.body || {};
+  // ITH-079: anyone asks IT for help — no person to choose; it goes to the support team mapped by the ITSM Admin
+  if (b.kind === "support-request") {
+    const t = await supportTeam(); if (!t) return fail(res, 400, "IT support chat is not set up yet: no IT support team is mapped. Please ask your ITSM Admin to map one (ITSM Setup › Teams › IT support chat).");
+    if (!t.members) return fail(res, 400, `The IT support team “${t.name}” has no members yet. Please ask your ITSM Admin to add people to it.`);
+    const msg = s(b.message); if (!msg) return fail(res, 400, "Write your first message");
+    if (tooFast(m.id)) return fail(res, 429, "Too many messages — wait a minute");
+    const name = String(await getPerformedBy(m.id).catch(() => m.u?.name || "User")).replace(/ <.*>$/, "");
+    const subject = s(b.subject, 200) || msg.slice(0, 80);
+    const agentId = Number(b.agentId) || null;
+    const [c] = rowsOf(await db.execute(sql`INSERT INTO device_chats (kind, status, agent_id, user_id, subject, opened_by, opened_by_id, team_id) VALUES ('support', 'Waiting on IT', ${agentId}, ${m.id}, ${subject}, ${name}, ${m.id}, ${t.id}) RETURNING *`));
+    await db.execute(sql`INSERT INTO chat_members (chat_id, user_id) VALUES (${c.id}, ${m.id}) ON CONFLICT DO NOTHING`);
+    await post(c, "System", null, "System", `IT support request sent to ${t.name}. Someone from the team will pick it up.`);
+    await post(c, "Employee", m.id, name, msg);
+    for (const u of rowsOf(await db.execute(sql`SELECT user_id FROM itsm_team_members WHERE team_id = ${t.id}`))) if (Number(u.user_id) !== m.id) await notify(Number(u.user_id), `New IT support request from ${name}`, `“${subject}” is waiting in the ${t.name} queue.`, `/chats?box=support&c=${c.id}`, "warning");
+    await audit({ entityType: "device_chat", entityId: c.id, action: "open_support_request", performedBy: name, summary: `IT support request #${c.id} to ${t.name}: ${subject}` });
+    return res.status(201).json({ id: c.id, team: t.name });
+  }
   const other = Number(b.userId); const msg = s(b.message);
   if (!other) return fail(res, 400, "Choose the person");
   if (other === m.id) return fail(res, 400, b.kind === "support" ? "You cannot open an IT chat about your own computer or account — ask another IT team member" : "You cannot start a chat with yourself");
@@ -118,7 +148,8 @@ router.post("/chats", requireAuth, wrap(async (req, res) => {
     const agentId = Number(b.agentId) || null;
     if (agentId && !rowsOf(await db.execute(sql`SELECT 1 FROM asset_agents WHERE id = ${agentId}`)).length) return fail(res, 400, "Computer not found");
     const subject = s(b.subject, 200) || "Message from IT";
-    const [c] = rowsOf(await db.execute(sql`INSERT INTO device_chats (kind, agent_id, user_id, subject, opened_by, opened_by_id) VALUES ('support', ${agentId}, ${other}, ${subject}, ${name}, ${m.id}) RETURNING *`));
+    const t = await supportTeam();
+    const [c] = rowsOf(await db.execute(sql`INSERT INTO device_chats (kind, agent_id, user_id, subject, opened_by, opened_by_id, team_id, assigned_to_id, assigned_to, picked_at) VALUES ('support', ${agentId}, ${other}, ${subject}, ${name}, ${m.id}, ${t?.id ?? null}, ${m.id}, ${name}, now()) RETURNING *`));
     await db.execute(sql`INSERT INTO chat_members (chat_id, user_id) VALUES (${c.id}, ${other}) ON CONFLICT DO NOTHING`);
     await post(c, "IT", m.id, name, msg);
     await notify(other, "Message from IT", `${name} sent you a message — open Chats to read and reply.`, `/chats?c=${c.id}`);
@@ -145,7 +176,7 @@ router.post("/chats", requireAuth, wrap(async (req, res) => {
 /** One chat with messages and attachments. Super Admin views of chats they are not part of are audited. */
 router.get("/chats/:id", requireAuth, wrap(async (req, res) => {
   const m = await me(req); const id = Number(req.params.id);
-  const [c] = rowsOf(await db.execute(sql`SELECT ${COLS}, c.user_id, c.kind AS k ${FROM} WHERE c.id = ${id}`)); if (!c) return fail(res, 404, "Chat not found");
+  const [c] = rowsOf(await db.execute(sql`SELECT ${COLS}, c.user_id, c.team_id, c.assigned_to_id, c.opened_by_id, c.kind AS k ${FROM} WHERE c.id = ${id}`)); if (!c) return fail(res, 404, "Chat not found");
   const role = await roleIn({ ...c, id, user_id: c.user_id, kind: c.kind }, m); if (!role) return fail(res, 404, "Chat not found");
   const msgs = rowsOf(await db.execute(sql`SELECT m.id, m.sender_id AS "senderId", m.sender_name AS "senderName", m.side, m.body, m.at, m.read_at AS "readAt",
       (SELECT json_agg(json_build_object('id', a.id, 'name', a.file_name, 'size', a.size_bytes, 'kind', a.kind)) FROM chat_attachments a WHERE a.message_id = m.id) AS files
@@ -189,6 +220,7 @@ router.post("/chats/:id/messages", requireAuth, wrap(async (req, res) => {
   }
   if (c.status === "Resolved" || c.status === "Closed") { await db.execute(sql`UPDATE device_chats SET resolved_at = NULL, resolved_by = NULL, closed_at = NULL, closed_by = NULL WHERE id = ${c.id}`); await post(c, "System", null, "System", `Re-opened by ${name}.`); }
   await db.execute(sql`UPDATE device_chats SET status = 'Waiting on employee' WHERE id = ${c.id}`);
+  if (!c.assigned_to_id) { await db.execute(sql`UPDATE device_chats SET assigned_to_id = ${m.id}, assigned_to = ${name}, picked_at = now() WHERE id = ${c.id}`); await post(c, "System", null, "System", `${name} picked up this chat.`); }
   await post(c, "IT", m.id, name, msg);
   await notify(c.user_id, "New message from IT", `${name} replied — open Chats to read it.`, `/chats?c=${c.id}`);
   res.json({ ok: true });
@@ -229,14 +261,17 @@ router.post("/chats/:id/:action", requireAuth, (req, _res, next) => ["resolve", 
   res.json({ ok: true });
 }));
 
+/** ITH-088 — recording storage set by the administrator (S3 / Azure Blob); none = sessions are not recorded. */
+async function recStore(): Promise<StoreCfg | null> { const v: any = await setting("chat.recordingStorage", { provider: "none" }); const c = typeof v === "string" ? JSON.parse(v) : v; return storeConfigured(c) ? c : null; }
+
 /* ── attachments (max size and file types set by the administrator; stored encrypted) ── */
 const MIME: Record<string, string> = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", txt: "text/plain", log: "text/plain", csv: "text/csv",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", zip: "application/zip", webm: "video/webm" };
-export async function storeAttachment(c: any, by: { id: number | null; name: string }, side: "IT" | "Employee" | "Member", fileName: string, data: Buffer, kind: "file" | "recording" = "file", note?: string | null) {
+export async function storeAttachment(c: any, by: { id: number | null; name: string }, side: "IT" | "Employee" | "Member", fileName: string, data: Buffer, kind: "file" | "recording" = "file", note?: string | null, ext?: { storage: string; key: string; cfg: StoreCfg }) {
   const msgId = await post(c, kind === "recording" ? "System" : side, by.id, by.name, note || `${kind === "recording" ? "Session recording" : "Attachment"}: ${fileName} (${(data.length / 1024 / 1024).toFixed(2)} MB)`);
-  const ext = fileName.split(".").pop()!.toLowerCase();
-  const [a] = rowsOf(await db.execute(sql`INSERT INTO chat_attachments (chat_id, message_id, file_name, mime, size_bytes, sha256, data, kind, uploaded_by_id, uploaded_by)
-    VALUES (${c.id}, ${msgId}, ${fileName}, ${MIME[ext] || "application/octet-stream"}, ${data.length}, ${crypto.createHash("sha256").update(data).digest("hex")}, ${sealBuf(data)}, ${kind}, ${by.id}, ${by.name}) RETURNING id`));
+  const extStore = ext; const ext2 = fileName.split(".").pop()!.toLowerCase();
+  const [a] = rowsOf(await db.execute(sql`INSERT INTO chat_attachments (chat_id, message_id, file_name, mime, size_bytes, sha256, data, kind, uploaded_by_id, uploaded_by, storage, object_key, store_cfg)
+    VALUES (${c.id}, ${msgId}, ${fileName}, ${MIME[ext2] || "application/octet-stream"}, ${data.length}, ${crypto.createHash("sha256").update(data).digest("hex")}, ${extStore ? null : sealBuf(data)}, ${kind}, ${by.id}, ${by.name}, ${extStore?.storage || "db"}, ${extStore?.key || null}, ${extStore ? JSON.stringify(extStore.cfg) : null}::jsonb) RETURNING id`));
   await audit({ entityType: "device_chat", entityId: c.id, action: kind === "recording" ? "recording" : "attach", performedBy: by.name, summary: `Chat #${c.id}: ${kind} "${fileName}" (${data.length} bytes, sha256 ${crypto.createHash("sha256").update(data).digest("hex").slice(0, 12)})` });
   return a.id as number;
 }
@@ -267,7 +302,11 @@ router.get("/chats/:id/attachments/:aid", requireAuth, wrap(async (req, res) => 
   const { c, role, name } = await load(req); if (!c || !role) return fail(res, 404, "Not found");
   const [a] = rowsOf(await db.execute(sql`SELECT * FROM chat_attachments WHERE id = ${Number(req.params.aid)} AND chat_id = ${c.id}`)); if (!a) return fail(res, 404, "Not found");
   if (a.kind === "recording" && role !== "it" && role !== "admin") return fail(res, 403, "Session recordings are available to the IT support team and Super Admin only");
-  const data = openBuf(Buffer.from(a.data));
+  let data: Buffer;
+  if (a.storage && a.storage !== "db") {
+    const st: StoreCfg = { ...(typeof a.store_cfg === "string" ? JSON.parse(a.store_cfg) : a.store_cfg || {}), provider: a.storage };   // read from where it was saved
+    try { data = openBuf(await getObject(st, a.object_key)); } catch (e: any) { return fail(res, 502, `Could not read the recording from ${storeLabel(st)}: ${e.message}`); }
+  } else data = openBuf(Buffer.from(a.data));
   await audit({ entityType: "device_chat", entityId: c.id, action: "download", performedBy: name, summary: `Chat #${c.id}: downloaded ${a.kind} "${a.file_name}"${role === "admin" ? " (Super Admin)" : ""}` });
   res.setHeader("Content-Type", a.mime); res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Content-Disposition", `attachment; filename="${String(a.file_name).replace(/"/g, "")}"`); res.setHeader("Cache-Control", "private, no-store");
@@ -280,11 +319,16 @@ async function sess(req: Request) {
   const [ss] = sid ? rowsOf(await db.execute(sql`SELECT * FROM chat_sessions WHERE id = ${sid} AND chat_id = ${Number(req.params.id)}`)) : [null];
   return { ...ctx, ss };
 }
-const SESSION_VIEW = (x: any) => x && ({ id: x.id, status: x.status, control: x.control, requestedBy: x.requested_by, requestedById: x.requested_by_id, sharerId: x.sharer_id, startedAt: x.started_at, endedAt: x.ended_at, consentAt: x.consent_at, recordingId: x.recording_attachment_id });
+const SESSION_VIEW = (x: any) => x && ({ id: x.id, status: x.status, control: x.control, requestedBy: x.requested_by, requestedById: x.requested_by_id, sharerId: x.sharer_id, startedAt: x.started_at, endedAt: x.ended_at, consentAt: x.consent_at, recordingId: x.recording_attachment_id, recorded: x.recorded !== false,
+  controlGrantedAt: x.control_granted_at, controlStartedAt: x.control_started_at, controlEndedAt: x.control_ended_at, codeSentAt: x.control_code_at });
 router.get("/chats/:id/sessions/current", requireAuth, wrap(async (req, res) => {
   const { c, role } = await load(req); if (!c || !role) return fail(res, 404, "Chat not found");
   const [x] = rowsOf(await db.execute(sql`SELECT * FROM chat_sessions WHERE chat_id = ${c.id} AND status IN ('requested', 'live') ORDER BY id DESC LIMIT 1`));
-  res.json({ session: SESSION_VIEW(x), role, iceServers: await setting("chat.iceServers", []), maxRecordingMB: Number(await setting("chat.maxRecordingMB", 300)) || 300 });
+  const st = await recStore();
+  const view: any = SESSION_VIEW(x);
+  if (view && role === "employee" && x.control_code && x.control === "granted" && Date.now() - new Date(x.control_code_at).getTime() < 15 * 60_000) view.controlCode = openText(x.control_code);
+  res.json({ session: view, role, iceServers: await setting("chat.iceServers", []), maxRecordingMB: Number(await setting("chat.maxRecordingMB", 300)) || 300,
+    recording: { enabled: !!st, where: st ? storeLabel(st) : null, message: st ? null : "Recording storage is not configured by the administrator — this session will NOT be recorded." } });
 }));
 router.post("/chats/:id/sessions", requireAuth, wrap(async (req, res) => {
   const { m, c, role, name } = await load(req); if (!c || !role) return fail(res, 404, "Chat not found");
@@ -292,8 +336,9 @@ router.post("/chats/:id/sessions", requireAuth, wrap(async (req, res) => {
   if (role !== "it") return fail(res, 403, "Only IT can ask to see a screen");
   if (c.status === "Closed") return fail(res, 400, "Re-open the chat first");
   const [open] = rowsOf(await db.execute(sql`SELECT id FROM chat_sessions WHERE chat_id = ${c.id} AND status IN ('requested', 'live')`)); if (open) return fail(res, 400, "A session is already open");
-  const [x] = rowsOf(await db.execute(sql`INSERT INTO chat_sessions (chat_id, requested_by_id, requested_by, sharer_id) VALUES (${c.id}, ${m.id}, ${name}, ${c.user_id}) RETURNING *`));
-  await post(c, "System", null, "System", `${name} asked to see your screen (session #${x.id}).`);
+  const recorded = !!(await recStore());
+  const [x] = rowsOf(await db.execute(sql`INSERT INTO chat_sessions (chat_id, requested_by_id, requested_by, sharer_id, recorded) VALUES (${c.id}, ${m.id}, ${name}, ${c.user_id}, ${recorded}) RETURNING *`));
+  await post(c, "System", null, "System", `${name} asked to see your screen (session #${x.id}). ${recorded ? "The session will be recorded." : "The session will not be recorded."}`);
   await notify(c.user_id, "IT asks to see your screen", `${name} asked to see your screen — open Chats to accept or decline.`, `/chats?c=${c.id}`, "warning");
   await audit({ entityType: "chat_session", entityId: x.id, action: "request", performedBy: name, summary: `Screen share requested in chat #${c.id}` });
   res.status(201).json(SESSION_VIEW(x));
@@ -306,7 +351,7 @@ router.post("/chats/:id/sessions/:sid/:action", requireAuth, (req, _res, next) =
   if (act === "accept" || act === "decline") {
     if (!employee || ss.status !== "requested") return fail(res, 400, "Nothing to accept");
     if (act === "decline") { await db.execute(sql`UPDATE chat_sessions SET status = 'declined', ended_at = now(), ended_by = ${name} WHERE id = ${ss.id}`); await ev(`${name} declined screen sharing.`); return done("Screen share declined"); }
-    await db.execute(sql`UPDATE chat_sessions SET status = 'live', consent_at = now(), started_at = now() WHERE id = ${ss.id}`); await ev(`${name} agreed and is sharing the screen. This session is recorded.`); return done("Employee consented; screen sharing started");
+    await db.execute(sql`UPDATE chat_sessions SET status = 'live', consent_at = now(), started_at = now() WHERE id = ${ss.id}`); await ev(`${name} agreed and is sharing the screen.${ss.recorded === false ? " This session is not recorded." : " This session is recorded."}`); return done("Employee consented; screen sharing started");
   }
   if (act === "control") {   // IT asks for control → employee grants / denies → either ends
     const step = String(req.body?.step || "");
@@ -314,14 +359,24 @@ router.post("/chats/:id/sessions/:sid/:action", requireAuth, (req, _res, next) =
     if (step === "request") { if (!it) return fail(res, 403, "Only the IT person on the session can ask"); await db.execute(sql`UPDATE chat_sessions SET control = 'requested' WHERE id = ${ss.id}`); await ev(`${name} asked for remote control.`); return done("Remote control requested"); }
     if (step === "grant" || step === "deny") { if (!employee || ss.control !== "requested") return fail(res, 400, "Nothing to answer");
       await db.execute(sql`UPDATE chat_sessions SET control = ${step === "grant" ? "granted" : "denied"}, control_granted_at = ${step === "grant" ? sql`now()` : null} WHERE id = ${ss.id}`);
-      await ev(step === "grant" ? `${name} allowed remote control (Quick Assist). Everything on screen is recorded.` : `${name} did not allow remote control.`); return done(step === "grant" ? "Remote control granted by the employee" : "Remote control denied"); }
-    if (step === "end") { if (!employee && !it) return fail(res, 403, "Not on this session"); await db.execute(sql`UPDATE chat_sessions SET control = 'ended', control_ended_at = now() WHERE id = ${ss.id}`); await ev(`Remote control ended by ${name}.`); return done("Remote control ended"); }
+      await ev(step === "grant" ? `${name} allowed remote control (Quick Assist).${ss.recorded === false ? " This session is not recorded." : " Everything on screen is recorded."}` : `${name} did not allow remote control.`); return done(step === "grant" ? "Remote control granted by the employee" : "Remote control denied"); }
+    // ITH-084: IT sends the Quick Assist code (shown only to the employee, expires after 15 min); the employee confirms IT is connected
+    if (step === "code") { if (!it) return fail(res, 403, "Only the IT person on the session sends the code"); if (ss.control !== "granted" && ss.control !== "active") return fail(res, 400, "The employee has not allowed control");
+      const code = String(req.body?.code || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); if (!/^[A-Z0-9]{6,8}$/.test(code)) return fail(res, 400, "Enter the 6-character code Quick Assist shows you");
+      await db.execute(sql`UPDATE chat_sessions SET control_code = ${sealText(code)}, control_code_at = now() WHERE id = ${ss.id}`);
+      await ev(`${name} sent the Quick Assist code. Enter it in Quick Assist › Help from someone.`); return done("Quick Assist code sent to the employee"); }
+    if (step === "connected") { if (!employee) return fail(res, 403, "Only the employee confirms"); if (ss.control !== "granted") return fail(res, 400, "Control is not allowed");
+      await db.execute(sql`UPDATE chat_sessions SET control = 'active', control_started_at = now(), control_code = NULL WHERE id = ${ss.id}`);
+      await ev(`${name} confirmed: ${ss.requested_by} is now controlling the computer.${ss.recorded === false ? "" : " Everything on screen is recorded."}`); return done("Remote control started (employee confirmed)"); }
+    if (step === "end") { if (!employee && !it) return fail(res, 403, "Not on this session"); if (!["granted", "active", "requested"].includes(ss.control)) return fail(res, 400, "Remote control is not on");
+      const mins = ss.control_started_at ? Math.max(1, Math.round((Date.now() - new Date(ss.control_started_at).getTime()) / 60000)) : 0;
+      await db.execute(sql`UPDATE chat_sessions SET control = 'ended', control_ended_at = now(), control_code = NULL WHERE id = ${ss.id}`); await ev(`Remote control ended by ${name}${mins ? ` after ${mins} min` : ""}.`); return done(`Remote control ended${mins ? ` after ${mins} min` : ""}`); }
     return fail(res, 400, "Unknown step");
   }
   if (act === "end") {
     if (!employee && !it && !(role === "it")) return fail(res, 403, "Not on this session");
     if (ss.status === "ended" || ss.status === "declined") return fail(res, 400, "Session already ended");
-    await db.execute(sql`UPDATE chat_sessions SET status = 'ended', ended_at = now(), ended_by = ${name}, control = CASE WHEN control = 'granted' THEN 'ended' ELSE control END WHERE id = ${ss.id}`);
+    await db.execute(sql`UPDATE chat_sessions SET status = 'ended', ended_at = now(), ended_by = ${name}, control_code = NULL, control_ended_at = CASE WHEN control IN ('granted', 'active') THEN now() ELSE control_ended_at END, control = CASE WHEN control IN ('granted', 'active') THEN 'ended' ELSE control END WHERE id = ${ss.id}`);
     const mins = ss.started_at ? Math.max(1, Math.round((Date.now() - new Date(ss.started_at).getTime()) / 60000)) : 0;
     await ev(`Screen session ended by ${name}${mins ? ` after ${mins} min` : ""}.`); return done(`Screen session ended${mins ? ` after ${mins} min` : ""}`);
   }
@@ -340,8 +395,9 @@ router.get("/chats/:id/sessions/:sid/signals", requireAuth, wrap(async (req, res
   const { m, role, ss } = await sess(req); if (!role || !ss) return fail(res, 404, "Session not found");
   if (!(role === "employee" || (role === "it" && ss.requested_by_id === m.id))) return fail(res, 403, "Not on this session");
   const after = Number(req.query.after) || 0;
-  const [st] = rowsOf(await db.execute(sql`SELECT status, control FROM chat_sessions WHERE id = ${ss.id}`));
-  res.json({ status: st.status, control: st.control, signals: rowsOf(await db.execute(sql`SELECT id, type, payload FROM chat_signals WHERE session_id = ${ss.id} AND from_id <> ${m.id} AND id > ${after} ORDER BY id`)) });
+  const [st] = rowsOf(await db.execute(sql`SELECT status, control, control_code, control_code_at, control_started_at, control_granted_at FROM chat_sessions WHERE id = ${ss.id}`));
+  const code = role === "employee" && st.control_code && st.control === "granted" && Date.now() - new Date(st.control_code_at).getTime() < 15 * 60_000 ? openText(st.control_code) : null;
+  res.json({ status: st.status, control: st.control, controlCode: code, codeSentAt: st.control_code_at, controlStartedAt: st.control_started_at, controlGrantedAt: st.control_granted_at, signals: rowsOf(await db.execute(sql`SELECT id, type, payload FROM chat_signals WHERE session_id = ${ss.id} AND from_id <> ${m.id} AND id > ${after} ORDER BY id`)) });
 }));
 /** IT uploads the session recording (webm) — kept encrypted as a chat attachment; size limit set by the administrator. */
 router.post("/chats/:id/sessions/:sid/recording", requireAuth, express.raw({ type: () => true, limit: "400mb" }), wrap(async (req, res) => {
@@ -352,7 +408,11 @@ router.post("/chats/:id/sessions/:sid/recording", requireAuth, express.raw({ typ
   if (!data.length) return fail(res, 400, "Empty recording");
   if (data.length > maxMB * 1048576) return fail(res, 400, `Recording is larger than ${maxMB} MB`);
   if (!(data[0] === 0x1a && data[1] === 0x45 && data[2] === 0xdf && data[3] === 0xa3)) return fail(res, 400, "Not a WebM recording");
-  const aid = await storeAttachment(c, { id: m.id, name }, "IT", `session-${ss.id}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.webm`, data, "recording", `Recording of screen session #${ss.id} (${(data.length / 1048576).toFixed(1)} MB)`);
+  const st = await recStore(); if (!st) return fail(res, 409, "Recording storage is not configured by the administrator — this session is not recorded");
+  const fname = `session-${ss.id}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.webm`;
+  const key = fullKey(st, `chat-${c.id}/${fname}.enc`);
+  try { await putObject(st, key, sealBuf(data)); } catch (e: any) { return fail(res, 502, `Could not save the recording to ${storeLabel(st)}: ${e.message}`); }
+  const aid = await storeAttachment(c, { id: m.id, name }, "IT", fname, data, "recording", `Recording of screen session #${ss.id} (${(data.length / 1048576).toFixed(1)} MB) — saved to ${storeLabel(st)}`, { storage: st.provider, key, cfg: st });
   await db.execute(sql`UPDATE chat_sessions SET recording_attachment_id = ${aid} WHERE id = ${ss.id}`);
   res.status(201).json({ id: aid });
 }));
@@ -366,7 +426,9 @@ router.get("/chats-unread", requireAuth, wrap(async (req, res) => {
     WHERE c.status <> 'Closed' AND (
       (c.kind = 'direct' AND EXISTS (SELECT 1 FROM chat_members cm WHERE cm.chat_id = c.id AND cm.user_id = ${m.id}))
       OR (c.kind = 'support' AND c.user_id = ${m.id} AND x.side = 'IT')
-      OR (c.kind = 'support' AND c.user_id <> ${m.id} AND x.side = 'Employee' AND (c.opened_by_id = ${m.id} OR EXISTS (SELECT 1 FROM device_chat_messages y WHERE y.chat_id = c.id AND y.side = 'IT' AND y.sender_id = ${m.id}))))
+      OR (c.kind = 'support' AND c.user_id <> ${m.id} AND x.side = 'Employee' AND (c.assigned_to_id = ${m.id}
+        OR (c.assigned_to_id IS NULL AND c.team_id = ANY(${`{${m.teams.join(",")}}`}::int[]))   -- ITH-079: unassigned → the whole support team
+        OR (c.assigned_to_id IS NULL AND (c.opened_by_id = ${m.id} OR EXISTS (SELECT 1 FROM device_chat_messages y WHERE y.chat_id = c.id AND y.side = 'IT' AND y.sender_id = ${m.id}))))))
     GROUP BY c.id, c.kind, c.subject`));
   res.json(rows);
 }));
@@ -377,11 +439,80 @@ router.get("/chats/:id/session-log", requireAuth, wrap(async (req, res) => {
   if (role !== "it" && role !== "admin") return fail(res, 403, "Session logs are available to the IT support team and Super Admin only");
   const rows = rowsOf(await db.execute(sql`SELECT s.id, s.status, s.control, s.requested_by AS "requestedBy", s.created_at AS "requestedAt", s.consent_at AS "consentAt", s.started_at AS "startedAt",
       s.control_granted_at AS "controlGrantedAt", s.control_ended_at AS "controlEndedAt", s.ended_at AS "endedAt", s.ended_by AS "endedBy",
-      a.id AS "recordingId", a.file_name AS "recordingName", a.size_bytes AS "recordingBytes", a.sha256 AS "recordingSha256",
+      a.id AS "recordingId", a.file_name AS "recordingName", a.storage AS "recordingStorage", s.recorded, a.size_bytes AS "recordingBytes", a.sha256 AS "recordingSha256",
       (SELECT json_agg(json_build_object('at', l.performed_at, 'action', l.action, 'by', l.performed_by, 'summary', l.summary) ORDER BY l.id) FROM audit_logs l WHERE l.entity_type = 'chat_session' AND l.entity_id = s.id) AS events
     FROM chat_sessions s LEFT JOIN chat_attachments a ON a.id = s.recording_attachment_id WHERE s.chat_id = ${c.id} ORDER BY s.id DESC`));
   await audit({ entityType: "device_chat", entityId: c.id, action: "session_log_view", performedBy: name, summary: `Chat #${c.id}: screen session log viewed${role === "admin" ? " (Super Admin)" : ""}` });
   res.json(rows);
+}));
+
+/** ITH-079: the IT support team for chats (mapped by an ITSM Admin in ITSM Setup). */
+async function supportTeam() {
+  const id = Number(await setting("chat.supportTeamId", 0)) || 0; if (!id) return null;
+  const [t] = rowsOf(await db.execute(sql`SELECT t.id, t.name, (SELECT count(*)::int FROM itsm_team_members m WHERE m.team_id = t.id) AS members FROM itsm_teams t WHERE t.id = ${id}`));
+  return t || null;
+}
+router.get("/chats-support-team", requireAuth, wrap(async (req, res) => {
+  const m = await me(req); const t = await supportTeam();
+  const out: any = { configured: !!t && t.members > 0, team: t ? { id: t.id, name: t.name, members: t.members } : null, canMap: m.superAdmin || m.itsmAdmin };
+  if (out.canMap) out.teams = rowsOf(await db.execute(sql`SELECT t.id, t.name, (SELECT count(*)::int FROM itsm_team_members x WHERE x.team_id = t.id) AS members FROM itsm_teams t ORDER BY t.name`));
+  if (t && (m.superAdmin || m.itsmAdmin || m.teams.includes(t.id))) out.memberList = rowsOf(await db.execute(sql`SELECT u.id, u.name, u.employee_code AS "employeeCode" FROM itsm_team_members x JOIN users u ON u.id = x.user_id WHERE x.team_id = ${t.id} AND u.is_active ORDER BY u.name`));
+  res.json(out);
+}));
+router.put("/chats-support-team", requireAuth, wrap(async (req, res) => {
+  const m = await me(req); if (!m.superAdmin && !m.itsmAdmin) return fail(res, 403, "Only an ITSM Admin can map the IT support team");
+  const id = Number(req.body?.teamId) || null;
+  if (id && !rowsOf(await db.execute(sql`SELECT 1 FROM itsm_teams WHERE id = ${id}`)).length) return fail(res, 400, "Team not found");
+  const old = await supportTeam();
+  await db.insert(settingsTable).values({ key: "chat.supportTeamId", value: JSON.stringify(id) as any }).onConflictDoUpdate({ target: settingsTable.key, set: { value: JSON.stringify(id) as any } });
+  const t = await supportTeam(); const by = String(await getPerformedBy(m.id).catch(() => "ITSM Admin")).replace(/ <.*>$/, "");
+  await audit({ entityType: "setting", action: "support_team", performedBy: by, summary: `IT support chat team: ${old?.name || "none"} → ${t?.name || "none"}` });
+  res.json({ team: t });
+}));
+/** Queue actions: pick up (or take over), release back to the queue, assign to a team member. */
+router.post("/chats/:id/queue/:op", requireAuth, wrap(async (req, res) => {
+  const { m, c, role, name } = await load(req); if (!c || !role) return fail(res, 404, "Chat not found");
+  if (c.kind !== "support") return fail(res, 400, "Only IT support chats have a queue");
+  if (role !== "it") return fail(res, 403, "Only the IT support team can do that");
+  if (c.status === "Closed") return fail(res, 400, "This chat is closed");
+  const mm = await me(req); const op = String(req.params.op);
+  const lead = mm.superAdmin || mm.itsmAdmin;
+  const say = async (t: string) => { await post(c, "System", null, "System", t); await audit({ entityType: "device_chat", entityId: c.id, action: `queue_${op}`, performedBy: name, summary: `Chat #${c.id}: ${t}` }); };
+  if (op === "pickup") {
+    if (Number(c.assigned_to_id) === m.id) return fail(res, 400, "It is already yours");
+    if (c.assigned_to_id && !req.body?.takeOver) return fail(res, 409, `${c.assigned_to} is handling it — use Take over`);
+    await db.execute(sql`UPDATE device_chats SET assigned_to_id = ${m.id}, assigned_to = ${name}, picked_at = now() WHERE id = ${c.id}`);
+    await say(c.assigned_to_id ? `${name} took over this chat from ${c.assigned_to}.` : `${name} picked up this chat.`);
+    if (c.assigned_to_id) await notify(Number(c.assigned_to_id), `${name} took over chat #${c.id}`, c.subject || "", `/chats?box=support&c=${c.id}`);
+  } else if (op === "release") {
+    if (Number(c.assigned_to_id) !== m.id && !lead) return fail(res, 403, "Only the person handling it, or an ITSM Admin, can put it back in the queue");
+    if (!c.assigned_to_id) return fail(res, 400, "It is already in the queue");
+    await db.execute(sql`UPDATE device_chats SET assigned_to_id = NULL, assigned_to = NULL, picked_at = NULL WHERE id = ${c.id}`);
+    await say(`${name} put the chat back in the ${(await supportTeam())?.name || "support"} queue.`);
+  } else if (op === "assign") {
+    if (Number(c.assigned_to_id) !== m.id && !lead) return fail(res, 403, "Only the person handling it, or an ITSM Admin, can assign it");
+    const to = Number(req.body?.userId); const tid = Number(c.team_id) || Number((await supportTeam())?.id) || 0;
+    const [u] = rowsOf(await db.execute(sql`SELECT u.id, u.name FROM users u JOIN itsm_team_members x ON x.user_id = u.id AND x.team_id = ${tid} WHERE u.id = ${to} AND u.is_active`));
+    if (!u) return fail(res, 400, "Choose a member of the support team");
+    if (Number(c.user_id) === u.id) return fail(res, 400, "That person raised the chat — choose someone else");
+    await db.execute(sql`UPDATE device_chats SET assigned_to_id = ${u.id}, assigned_to = ${u.name}, picked_at = now(), team_id = coalesce(team_id, ${tid || null}) WHERE id = ${c.id}`);
+    await say(`${name} assigned the chat to ${u.name}.`);
+    await notify(u.id, `Chat #${c.id} assigned to you`, `${name} assigned “${c.subject || "an IT support chat"}” to you.`, `/chats?box=support&c=${c.id}`, "warning");
+  } else return fail(res, 404, "Unknown action");
+  res.json({ ok: true });
+}));
+
+/** ITH-088: test the recording storage set in Admin › Settings › Chats (writes, reads and removes a small test file). Super Admin only. */
+router.post("/chats-recording-storage/test", requireAuth, wrap(async (req, res) => {
+  if (!isSuperAdmin(await getAccess(req))) return fail(res, 403, "Super Admin only");
+  const c: StoreCfg = req.body && req.body.provider ? req.body : await setting("chat.recordingStorage", { provider: "none" });
+  if (!storeConfigured(c)) return res.json({ ok: false, message: "Recording storage is not configured — screen sessions will not be recorded." });
+  const key = fullKey(c, `_test/it-hub-${Date.now()}.txt`); const probe = Buffer.from(`IT Hub storage test ${new Date().toISOString()}`);
+  try { await putObject(c, key, sealBuf(probe)); const back = openBuf(await getObject(c, key)); await deleteObject(c, key).catch(() => {});
+    if (!back.equals(probe)) throw new Error("the file read back did not match");
+    await audit({ entityType: "setting", action: "recording_storage_test", performedBy: await getPerformedBy(Number((req.session as any).userId)).catch(() => "Super Admin"), summary: `Recording storage test passed: ${storeLabel(c)}` });
+    res.json({ ok: true, message: `Recording storage works: ${storeLabel(c)}` });
+  } catch (e: any) { res.json({ ok: false, message: `${storeLabel(c)}: ${e.message}` }); }
 }));
 
 /** ITH-080: are all stored chats readable with the keys this server has? Super Admin only; counts only, no content or keys. */
@@ -389,7 +520,7 @@ router.get("/chats-key-check", requireAuth, wrap(async (req, res) => {
   if (!isSuperAdmin(await getAccess(req))) return fail(res, 403, "Super Admin only");
   const msgs = rowsOf(await db.execute(sql`SELECT body FROM device_chat_messages WHERE body LIKE 'enc:v1:%'`));
   const bad = msgs.filter(m => openText(m.body) === "[message cannot be decrypted]").length;
-  const files = rowsOf(await db.execute(sql`SELECT data FROM chat_attachments`));
+  const files = rowsOf(await db.execute(sql`SELECT data FROM chat_attachments WHERE data IS NOT NULL`));
   let badF = 0; for (const f of files) { try { openBuf(Buffer.from(f.data)); } catch { badF++; } }
   res.json({ messages: msgs.length, unreadableMessages: bad, files: files.length, unreadableFiles: badF, chatSecretSet: !!process.env.CHAT_SECRET, oldKeys: (process.env.CHAT_SECRET_OLD || "").split(",").filter(Boolean).length,
     advice: bad || badF ? "Some chats were written with a key this server no longer has. Put the earlier CHAT_SECRET (or the earlier SESSION_SECRET) value in CHAT_SECRET_OLD in /etc/it-hub.env and restart." : "All chats are readable." });

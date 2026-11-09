@@ -11,7 +11,7 @@ import { getPerformedBy } from "../routes/audit-logs";
 const als = new AsyncLocalStorage<{ audited: boolean }>();
 export function markAudited() { const s = als.getStore(); if (s) s.audited = true; }
 
-const SKIP = [/^\/notifications(\/|$)/, /^\/agent\/v1\/(checkin|files)/, /\/chats\/\d+\/messages$/, /^\/my-it-chats\/\d+\/messages$/, /^\/healthz$/, /^\/auth\/(me|session|keepalive)/];
+const SKIP = [/^\/presence\/heartbeat$/, /^\/notifications(\/|$)/, /^\/agent\/v1\/(checkin|files)/, /\/chats\/\d+\/messages$/, /^\/my-it-chats\/\d+\/messages$/, /^\/healthz$/, /^\/auth\/(me|session|keepalive)/];
 const SECRET = /pass(word)?|token|secret|otp|mfa|totp|p256dh|^auth$|private|api.?key|^code$|^keys$|cookie/i;
 const NAMES: Record<string, string> = {
   assets: "asset", "asset-agents": "device", "asset-agent-codes": "installation_key", "asset-allocations": "asset_allocation", "asset-handovers": "asset_allocation",

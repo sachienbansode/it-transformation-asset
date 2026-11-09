@@ -155,28 +155,14 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
         <HealthBadge state={a.healthState} />
       </div>}
       {a.status === "Active" && <LiveBar agentId={a.id} staff={!employee && canAct} onFresh={reload} />}
-      <div className="grid grid-cols-2 gap-2">
-        <Meter label="CPU" value={h.cpu?.pct} icon={Cpu} />
-        <Meter label={`Memory${h.mem?.totalGb ? ` (${h.mem.totalGb} GB)` : ""}`} value={h.mem?.usedPct} icon={MemoryStick} />
-        <Meter label="Lowest disk free" value={minDisk} icon={HardDrive} invert warnAt={(data.settings?.thresholds?.diskFreePct ?? 10) * 1.5} badAt={data.settings?.thresholds?.diskFreePct ?? 10} />
-        {h.battery?.present ? <Meter label="Battery health" value={h.battery.healthPct} icon={Battery} invert warnAt={data.settings?.thresholds?.batteryHealthPct ?? 60} badAt={(data.settings?.thresholds?.batteryHealthPct ?? 60) - 20} /> : <div className="rounded-lg border p-2.5 text-[11px] text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />Up {h.uptimeHours != null ? `${Math.floor(h.uptimeHours / 24)}d ${Math.round(h.uptimeHours % 24)}h` : "—"}</div>}
-      </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        {(h.disks || []).map((d: any) => <div key={d.drive} className="flex justify-between"><span className="text-muted-foreground">Drive {d.drive}</span><span>{d.freeGb} GB free of {d.sizeGb} GB</span></div>)}
-        <div className="flex justify-between"><span className="text-muted-foreground">Antivirus</span><span>{(h.security?.av || []).map((x: any) => `${x.name} ${x.enabled ? "on" : "OFF"}${x.enabled && x.upToDate === false ? " (old definitions)" : ""}`).join(", ") || "—"}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">BitLocker</span><span>{(h.security?.bitlocker || []).map((x: any) => `${x.drive} ${x.status}`).join(", ") || "—"}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Last update</span><span>{h.patches?.lastInstalled ? fmtDate(h.patches.lastInstalled) : "—"}{h.patches?.pendingReboot ? " · restart pending" : ""}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Uptime</span><span>{h.uptimeHours != null ? `${Math.floor(h.uptimeHours / 24)}d ${Math.round(h.uptimeHours % 24)}h` : "—"}</span></div>
-        {(h.physicalDisks || []).map((p: any) => <div key={p.name} className="flex justify-between"><span className="text-muted-foreground truncate">{p.mediaType || "Disk"} {p.name}</span><span className={cn(!/healthy/i.test(p.health) && "text-red-600 font-semibold")}>{p.health}</span></div>)}
-        {h.network?.ip && <div className="flex justify-between"><span className="text-muted-foreground">IP</span><span className="font-mono">{h.network.ip}</span></div>}
-      </div>
+      <DeviceDetails h={h} a={a} thresholds={data.settings?.thresholds} latest={data.agentLatest} minDisk={minDisk} />
       {open.length > 0 && <div className="space-y-1">{open.map((x: any) => (
         <div key={x.id} className={cn("rounded-md border px-2.5 py-1.5 text-xs", x.ignored ? "bg-muted/40 text-muted-foreground" : x.severity === "Critical" ? STATE_TONE.Critical : STATE_TONE.Warning)}>
           <div className="flex items-start gap-1.5">{x.ignored ? <EyeOff className="w-3.5 h-3.5 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
             <span className="flex-1">{x.message}<span className="opacity-70"> · since {fmtDateTime(x.openedAt)}</span>
               {x.ticketNo && <> · <Link href={`/itsm-incidents?q=${x.ticketNo}`} className="underline font-semibold">{x.ticketNo}</Link>{x.ticketStatus ? ` (${x.ticketStatus}${x.ticketAuto ? ", auto" : ""})` : ""}</>}
               {employee && !x.ignored && tipFor(x.kind) && <div className="mt-0.5 flex items-start gap-1 text-foreground/80"><Lightbulb className="w-3 h-3 mt-0.5 shrink-0" />{tipFor(x.kind)}</div>}
-              {x.ignored && <div className="mt-0.5">Ignored by {String(x.ignoredBy || "").replace(/ <.*>$/, "")} · {fmtDate(x.ignoredAt)}{x.ignoreUntil ? ` · until ${fmtDate(x.ignoreUntil)}` : ""} — {x.ignoreReason}</div>}</span></div>
+              {x.ignored && <div className="mt-0.5">{employee || !x.ignoredBy ? <>Marked by IT as not needing action{x.ignoreUntil ? ` until ${fmtDate(x.ignoreUntil)}` : ""}</> : <>Ignored by {String(x.ignoredBy || "").replace(/ <.*>$/, "")} · {fmtDateTime(x.ignoredAt)}{x.ignoreUntil ? ` · until ${fmtDate(x.ignoreUntil)}` : ""}{x.ignoreReason ? ` — ${x.ignoreReason}` : ""}</>}</div>}</span></div>
           {canAct && <div className="flex gap-1 mt-1 justify-end flex-wrap">
             {!x.ticketNo && <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1 bg-background" disabled={busyA === x.id} onClick={() => act(x, "ticket", {}, r => `Ticket ${r.ticketNo} raised`)}><Ticket className="w-3 h-3" />Raise ticket</Button>}
             {onChat && <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1 bg-background" onClick={() => onChat({ ...x, agentId: data.agent.id })}><MessageSquare className="w-3 h-3" />Chat with employee</Button>}
@@ -221,6 +207,103 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
         </div>}
       </section>
       <div className="text-[10px] text-muted-foreground">Agent {a.agentVersion} · enrolled {fmtDate(a.enrolledAt)}{employee ? " · the agent reports computer health only — no keystrokes, screenshots, files or content." : " · usage records active vs idle minutes and the foreground application only — no keystrokes, screenshots or content."}</div>
+    </div>
+  );
+}
+
+/* ── ITH-093…097: device information grouped — Performance, Storage, Battery, Security, OS & updates, Ports & access, NIYTRI Agent ── */
+type Tone = "good" | "warn" | "bad" | undefined;
+const toneCls = (t: Tone) => t === "good" ? "text-emerald-700 dark:text-emerald-400" : t === "warn" ? "text-amber-700 dark:text-amber-400" : t === "bad" ? "text-red-600 font-semibold" : "";
+function Row({ k, v, tone, title, mono }: { k: string; v: React.ReactNode; tone?: Tone; title?: string; mono?: boolean }) {
+  return <div className="flex justify-between gap-3 py-0.5"><span className="text-muted-foreground shrink-0">{k}</span><span className={cn("text-right min-w-0 break-words", toneCls(tone), mono && "font-mono")} title={title}>{v ?? "—"}</span></div>;
+}
+function Group({ title, icon: I, children, badge }: { title: string; icon: React.ElementType; children: React.ReactNode; badge?: React.ReactNode }) {
+  return (
+    <section className="rounded-lg border p-3">
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5"><I className="w-3.5 h-3.5" />{title}{badge && <span className="ml-auto normal-case tracking-normal">{badge}</span>}</h4>
+      <div className="text-xs">{children}</div>
+    </section>
+  );
+}
+const yn = (v: any, good = true): [string, Tone] => v === null || v === undefined ? ["Not reported", undefined] : v ? ["Yes", good ? "good" : "bad"] : ["No", good ? "bad" : "good"];
+const onOff = (v: any, goodWhenOn = true): [string, Tone] => v === null || v === undefined ? ["Not reported", undefined] : v ? ["On", goodWhenOn ? "good" : "bad"] : ["Off", goodWhenOn ? "bad" : "good"];
+const upt = (hrs?: number | null) => hrs == null ? "—" : `${Math.floor(hrs / 24)}d ${Math.round(hrs % 24)}h`;
+const verLt = (a?: string, b?: string) => { if (!a || !b) return false; const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
+
+function DeviceDetails({ h, a, thresholds, latest, minDisk }: { h: any; a: any; thresholds?: any; latest?: string | null; minDisk: number | null }) {
+  const t = thresholds || {}; const bat = h.battery; const sec = h.security || {}; const acc = h.access || {}; const os = h.os || {}; const pt = h.patches || {}; const ag = h.agent || {};
+  const fw = sec.firewall || {}; const fwAll = [fw.domain, fw.private, fw.public];
+  const patchDays = pt.lastInstalled ? Math.floor((Date.now() - +new Date(pt.lastInstalled)) / 86400e3) : null;
+  const sys = (sec.bitlocker || []).find((b: any) => /^c/i.test(b.drive || "")) || (sec.bitlocker || [])[0];
+  const tasks = Object.entries(ag.tasks || {}) as [string, string][];
+  const tasksOk = tasks.length > 0 && tasks.every(([, v]) => /Ready|Running/i.test(v));
+  const old = verLt(a.agentVersion, latest || undefined);
+  return (
+    <div className="grid md:grid-cols-2 gap-3">
+      <Group title="Performance" icon={Activity}>
+        <div className="grid grid-cols-2 gap-2 mb-2"><Meter label="CPU" value={h.cpu?.pct} icon={Cpu} /><Meter label={`Memory${h.mem?.totalGb ? ` (${h.mem.totalGb} GB)` : ""}`} value={h.mem?.usedPct} icon={MemoryStick} /></div>
+        <Row k="Processor" v={h.cpu?.name ? `${h.cpu.name}${h.cpu.cores ? ` · ${h.cpu.cores} cores` : ""}` : "—"} />
+        <Row k="Up for" v={upt(h.uptimeHours)} tone={h.uptimeHours / 24 > (t.rebootDays ?? 14) ? "warn" : undefined} />
+        {h.network?.ip && <Row k="IP address" v={h.network.ip} mono />}
+      </Group>
+      <Group title="Storage" icon={HardDrive}>
+        <div className="mb-2"><Meter label="Lowest disk free" value={minDisk} icon={HardDrive} invert warnAt={(t.diskFreePct ?? 10) * 1.5} badAt={t.diskFreePct ?? 10} /></div>
+        {(h.disks || []).filter((d: any) => Number(d.sizeGb) >= 1).map((d: any) => <Row key={d.drive} k={`Drive ${d.drive}`} v={`${d.freeGb} GB free of ${d.sizeGb} GB (${Math.round(d.freePct)}%)`} tone={d.freePct < (t.diskFreePct ?? 10) ? "bad" : undefined} />)}
+        {(h.physicalDisks || []).map((p: any) => <Row key={p.name} k={`${p.mediaType && p.mediaType !== "Unspecified" ? p.mediaType : "Disk"} ${p.name}`} v={p.health || "—"} tone={/healthy/i.test(p.health) ? "good" : "bad"} />)}
+      </Group>
+      {bat?.present ? <Group title="Battery" icon={Battery}>
+        {bat.healthPct ? <div className="mb-2"><Meter label="Battery health (capacity left)" value={bat.healthPct} icon={Battery} invert warnAt={t.batteryHealthPct ?? 60} badAt={(t.batteryHealthPct ?? 60) - 20} /></div>
+          : <div className="mb-2 text-[11px] text-muted-foreground">Health not reported by this laptop yet — agent 1.1.9 reads it from the Windows battery report.</div>}
+        <Row k="Charge" v={bat.chargePct != null ? `${bat.chargePct}%${bat.onPower ? " · on power" : " · on battery"}` : "—"} />
+        {bat.fullMwh ? <Row k="Capacity" v={`${Math.round(bat.fullMwh / 1000)} of ${Math.round((bat.designMwh || 0) / 1000)} Wh (new)`} /> : null}
+        {bat.cycleCount ? <Row k="Charge cycles" v={bat.cycleCount} /> : null}
+        {(bat.maker || bat.chemistry) ? <Row k="Battery" v={[bat.maker, bat.chemistry].filter(Boolean).join(" · ")} /> : null}
+      </Group> : <Group title="Battery" icon={Battery}><div className="text-muted-foreground">No battery (desktop or server).</div></Group>}
+      <Group title="Security" icon={ShieldCheck}>
+        <Row k="Antivirus" v={(sec.av || []).map((x: any) => `${x.name} ${x.enabled ? "on" : "OFF"}${x.enabled && x.upToDate === false ? " (old definitions)" : ""}`).join(", ") || "Not reported"} tone={(sec.av || []).some((x: any) => x.enabled && x.upToDate !== false) ? "good" : "bad"} />
+        <Row k="Firewall" v={fwAll.some(v => v === undefined) ? "Not reported" : fwAll.every(Boolean) ? "On (domain, private, public)" : `Off for ${[["domain", fw.domain], ["private", fw.private], ["public", fw.public]].filter(([, v]) => !v).map(([k]) => k).join(", ")}`} tone={fwAll.every(Boolean) ? "good" : "bad"} />
+        <Row k="Drive encryption (BitLocker)" v={(sec.bitlocker || []).map((x: any) => `${x.drive} ${x.status}`).join(", ") || "Not reported"} tone={sys ? (/on|encrypt/i.test(sys.status) && !/decrypt/i.test(sys.status) ? "good" : "bad") : undefined} />
+        <Row k="Secure Boot" v={onOff(acc.secureBoot)[0]} tone={onOff(acc.secureBoot)[1]} />
+        <Row k="TPM security chip" v={acc.tpm ? (acc.tpm.present ? (acc.tpm.ready ? "Present and ready" : "Present, not ready") : "Not present") : "Not reported"} tone={acc.tpm ? (acc.tpm.ready ? "good" : "bad") : undefined} />
+        <Row k="User Account Control" v={onOff(acc.uac)[0]} tone={onOff(acc.uac)[1]} />
+        <Row k="SMB1 (old file sharing)" v={acc.smb1 == null ? "Not reported" : acc.smb1 ? "On — should be off" : "Off"} tone={acc.smb1 == null ? undefined : acc.smb1 ? "bad" : "good"} />
+      </Group>
+      <Group title="OS & updates" icon={Package}>
+        <Row k="Windows" v={[os.name, os.displayVersion].filter(Boolean).join(" ") || "—"} />
+        <Row k="Build" v={os.build ? `${os.build}${os.ubr ? `.${os.ubr}` : ""}${os.arch ? ` · ${os.arch}` : ""}` : "—"} />
+        <Row k="Licence / activation" v={os.activation ? `${os.activation.status}${os.activation.channel ? ` · ${os.activation.channel}` : ""}` : "Not reported yet"} tone={os.activation ? (os.activation.status === "Licensed" ? "good" : "bad") : undefined} title={os.activation?.description} />
+        <Row k="Installed on" v={os.installDate ? fmtDate(os.installDate) : "—"} />
+        <Row k="Last restart" v={os.lastBoot ? fmtDateTime(os.lastBoot) : "—"} />
+        <Row k="Last Windows update" v={pt.lastInstalled ? `${fmtDate(pt.lastInstalled)}${patchDays != null ? ` (${patchDays} days ago)` : ""}` : "—"} tone={patchDays != null && patchDays > (t.patchDays ?? 30) ? "bad" : patchDays != null ? "good" : undefined} title={pt.lastTitle || ""} />
+        <Row k="Restart pending" v={pt.pendingReboot ? "Yes — restart to finish updates" : "No"} tone={pt.pendingReboot ? "warn" : "good"} />
+        {pt.lastSearch && <Row k="Last check for updates" v={fmtDateTime(pt.lastSearch)} />}
+        {pt.service && <Row k="Windows Update service" v={pt.service} tone={/Disabled/i.test(pt.service) ? "bad" : undefined} />}
+        {(pt.history || []).length > 0 && <details className="mt-1"><summary className="cursor-pointer text-muted-foreground">Recent updates ({pt.history.length})</summary>
+          <div className="mt-1 border rounded divide-y">{pt.history.map((u: any, i: number) => <div key={i} className="px-2 py-1 flex gap-2"><span className="flex-1">{u.title}</span><span className={cn("whitespace-nowrap", /Failed|Aborted/.test(u.result) && "text-red-600")}>{u.result}</span><span className="text-muted-foreground whitespace-nowrap">{fmtDate(u.date)}</span></div>)}</div></details>}
+      </Group>
+      <Group title="Ports & access" icon={EyeOff}>
+        <Row k="USB storage" v={acc.usbStorage || "Not reported"} tone={acc.usbStorage === "Blocked" ? "good" : acc.usbStorage === "Read only" ? "warn" : acc.usbStorage === "Allowed" ? "bad" : undefined} />
+        <Row k="USB disks connected" v={(acc.usbDisks || []).length ? acc.usbDisks.map((d: any) => `${d.model}${d.sizeGb ? ` (${d.sizeGb} GB)` : ""}`).join(", ") : acc.usbDisks ? "None" : "Not reported"} tone={(acc.usbDisks || []).length ? "warn" : undefined} />
+        <Row k="Removable drives" v={(acc.removableDrives || []).length ? acc.removableDrives.join(", ") : acc.removableDrives ? "None" : "Not reported"} />
+        <Row k="CD / DVD drive" v={acc.cdDrives == null ? "Not reported" : acc.cdDrives ? "Yes" : "No"} />
+        <Row k="Bluetooth" v={acc.bluetooth == null ? "Not reported" : acc.bluetooth ? "On" : "Off / none"} />
+        <Row k="Remote Desktop (RDP)" v={acc.rdpEnabled == null ? "Not reported" : acc.rdpEnabled ? "Allowed" : "Off"} tone={acc.rdpEnabled == null ? undefined : acc.rdpEnabled ? "warn" : "good"} />
+        <Row k="Guest account" v={acc.guestEnabled == null ? "Not reported" : acc.guestEnabled ? "Enabled" : "Disabled"} tone={acc.guestEnabled == null ? undefined : acc.guestEnabled ? "bad" : "good"} />
+        <Row k="Local administrators" v={(acc.localAdmins || []).length ? `${acc.localAdmins.slice(0, 5).join(", ")}${acc.localAdmins.length > 5 ? ` +${acc.localAdmins.length - 5} more` : ""}` : "Not reported"} title={(acc.localAdmins || []).join("\n")} tone={(acc.localAdmins || []).length > 3 ? "warn" : undefined} />
+        <Row k="Shared folders" v={(acc.shares || []).length ? acc.shares.join(", ") : acc.shares ? "None" : "Not reported"} tone={(acc.shares || []).length ? "warn" : undefined} />
+        <Row k="Autorun (USB / CD)" v={acc.autorunOff == null ? "Not reported" : acc.autorunOff ? "Off" : "On"} tone={acc.autorunOff == null ? undefined : acc.autorunOff ? "good" : "warn"} />
+        <Row k="Screen lock" v={acc.screenLockSecs ? `After ${Math.round(acc.screenLockSecs / 60)} min` : "Not set by policy"} tone={acc.screenLockSecs ? (acc.screenLockSecs <= 900 ? "good" : "warn") : "warn"} />
+      </Group>
+      <Group title="NIYTRI Agent" icon={Clock} badge={<span className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5", !ag.version ? "bg-slate-100 text-slate-600" : tasksOk && !old ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{!ag.version ? `Agent ${a.agentVersion}` : tasksOk ? (old ? "Update pending" : "Running") : "Needs attention"}</span>}>
+        <Row k="Version" v={`${a.agentVersion}${latest ? (old ? ` — ${latest} available (updates itself)` : " — latest") : ""}`} tone={old ? "warn" : "good"} />
+        <Row k="Last full report" v={a.lastSeenAt ? `${fmtDateTime(a.lastSeenAt)} (${ago(a.lastSeenAt)})` : "never"} />
+        {a.lastPulseAt && <Row k="Last online signal" v={`${fmtDateTime(a.lastPulseAt)} (${ago(a.lastPulseAt)})`} />}
+        {tasks.map(([k, v]) => <Row key={k} k={({ "IT Hub Agent": "Health report task", "IT Hub Agent Usage": "Tray & usage task", "IT Hub Agent Pulse": "Online signal task" } as Record<string, string>)[k] || k} v={v} tone={/Ready|Running/i.test(v) ? "good" : "bad"} />)}
+        {ag.trayRunning != null && <Row k="Tray icon / usage monitor" v={ag.trayRunning ? "Running" : "Not running (restarts by itself)"} tone={ag.trayRunning ? "good" : "warn"} />}
+        {ag.errors24h != null && <Row k="Errors in the last 24 h" v={ag.errors24h} tone={ag.errors24h ? "warn" : "good"} title={ag.lastError || ""} />}
+        <Row k="Enrolled" v={fmtDate(a.enrolledAt)} />
+        {!ag.version && <div className="text-[11px] text-muted-foreground mt-1">Detailed agent status arrives with agent 1.1.9 (installed automatically).</div>}
+      </Group>
     </div>
   );
 }

@@ -208,6 +208,11 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
   // keep the payload bounded
   for (const k of ["disks", "physicalDisks"]) if (Array.isArray(h[k])) h[k] = h[k].slice(0, 26);
   if (h.security?.av) h.security.av = h.security.av.slice(0, 10);
+  // ITH-091 groundwork: keep every list the device sends bounded (no oversized / malicious payloads stored)
+  const cap = (o: any, k: string, n: number) => { if (o && Array.isArray(o[k])) o[k] = o[k].slice(0, n).map((x: any) => typeof x === "string" ? x.slice(0, 200) : x); else if (o && o[k] !== undefined && o[k] !== null && !Array.isArray(o[k]) && typeof o[k] === "object" && k !== "tpm") o[k] = null; };
+  if (h.patches) cap(h.patches, "history", 10);
+  if (h.access) { for (const k of ["usbDisks", "removableDrives", "localAdmins", "shares"]) cap(h.access, k, 30); }
+  if (h.agent && typeof h.agent === "object") { h.agent.lastError = h.agent.lastError ? String(h.agent.lastError).slice(0, 300) : null; }
   const user = s(h.user, 120);
   const ev = evaluate(h, ag.platform, st.thresholds, now);
   // serial changed (motherboard swap / re-image) → try to match again if unlinked
@@ -431,7 +436,7 @@ export async function healthOf(ag: any, opt: { usage?: boolean } = {}) {
     FROM asset_agent_alerts WHERE agent_id = ${ag.id} ORDER BY closed_at IS NULL DESC, opened_at DESC LIMIT 30`));
   const software = rowsOf(await db.execute(sql`SELECT name, version, publisher, install_date AS "installDate" FROM asset_software WHERE agent_id = ${ag.id} ORDER BY name`));
   const showUsage = !!opt.usage;
-  return { agent: ag, trend, usage: showUsage ? usage : [], apps: showUsage ? apps : [], users: showUsage ? users : [], usageHidden: !showUsage, alerts, software, settings: { trackApps: st.trackApps, thresholds: st.thresholds } };
+  return { agent: ag, trend, usage: showUsage ? usage : [], apps: showUsage ? apps : [], users: showUsage ? users : [], usageHidden: !showUsage, alerts, software, settings: { trackApps: st.trackApps, thresholds: st.thresholds }, agentLatest: agentRelease()?.version || null };
 }
 
 /** Link a device to an employee and a register asset (existing, or registered from what the device reports) and,

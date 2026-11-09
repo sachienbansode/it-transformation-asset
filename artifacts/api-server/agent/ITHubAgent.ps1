@@ -9,7 +9,7 @@
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Pulse, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.7'
+$AgentVersion = '1.1.9'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -167,7 +167,22 @@ $b = Try-Get { Get-CimInstance Win32_Battery }
 if ($b) {
   $design = Try-Get { (Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData | Select-Object -First 1).DesignedCapacity }
   $full = Try-Get { (Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity | Select-Object -First 1).FullChargedCapacity }
-  $battery = [pscustomobject]@{ present = $true; chargePct = $b.EstimatedChargeRemaining; designMwh = $design; fullMwh = $full; healthPct = if ($design -and $full) { [math]::Min(100, [math]::Round($full * 100 / $design, 1)) } else { $null } }
+  $battery = [pscustomobject]@{ present = $true; chargePct = $b.EstimatedChargeRemaining; onPower = ($b.BatteryStatus -in 2, 6, 7, 8, 9); designMwh = $design; fullMwh = $full; healthPct = if ($design -and $full) { [math]::Min(100, [math]::Round($full * 100 / $design, 1)) } else { $null }; cycleCount = $null; chemistry = $null; maker = $null; source = 'wmi' }
+  # many laptops (e.g. HP) do not fill the WMI battery classes: fall back to the Windows battery report
+  if (-not $battery.healthPct) {
+    try {
+      $bx = Join-Path $env:TEMP ('ithub-batt-' + [guid]::NewGuid().ToString('N') + '.xml')
+      & "$env:SystemRoot\System32\powercfg.exe" /batteryreport /xml /output $bx | Out-Null
+      [xml]$br = Get-Content $bx -Raw; Remove-Item $bx -Force -ErrorAction SilentlyContinue
+      $bt = @($br.BatteryReport.Batteries.Battery)[0]
+      if ($bt) {
+        $d = [double]$bt.DesignCapacity; $f = [double]$bt.FullChargeCapacity
+        $battery.designMwh = $d; $battery.fullMwh = $f; $battery.source = 'battery report'
+        if ($d -gt 0) { $battery.healthPct = [math]::Min(100, [math]::Round($f * 100 / $d, 1)) }
+        $battery.cycleCount = Try-Get { [int]$bt.CycleCount }; $battery.chemistry = "$($bt.Chemistry)"; $battery.maker = "$($bt.Manufacturer)"
+      }
+    } catch { }
+  }
 }
 # antivirus: Security Center on workstations, Defender status on servers
 $av = @()
@@ -181,19 +196,85 @@ if (-not $isServer) {
 }
 $bitlocker = @(Try-Get { Get-BitLockerVolume | ForEach-Object { [pscustomobject]@{ drive = $_.MountPoint; status = "$($_.ProtectionStatus)"; encryption = "$($_.VolumeStatus)" } } } @())
 $fw = Try-Get { $p = Get-NetFirewallProfile; [pscustomobject]@{ domain = [bool]($p | Where-Object Name -eq 'Domain').Enabled; private = [bool]($p | Where-Object Name -eq 'Private').Enabled; public = [bool]($p | Where-Object Name -eq 'Public').Enabled } }
-$lastHotfix = Try-Get { (Get-HotFix | Where-Object InstalledOn | Sort-Object InstalledOn -Descending | Select-Object -First 1).InstalledOn.ToString('yyyy-MM-dd') }
+# last Windows update: the Windows Update history (cumulative / monthly updates), else the hotfix list - whichever is newer
+$lastHotfix = Try-Get { (Get-HotFix | Where-Object InstalledOn | Sort-Object InstalledOn -Descending | Select-Object -First 1).InstalledOn }
+$wu = Try-Get {
+  $se = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $n = $se.GetTotalHistoryCount()
+  if ($n -gt 0) { $se.QueryHistory(0, [Math]::Min($n, 300)) | Where-Object { $_.Operation -eq 1 -and $_.ResultCode -in 2, 3 -and $_.Title -notmatch 'Defender|Security Intelligence|Malicious Software Removal' } | Sort-Object Date -Descending | Select-Object -First 1 }
+}
+$lastUpd = @($lastHotfix, $(if ($wu) { $wu.Date.ToLocalTime() })) | Where-Object { $_ } | Sort-Object -Descending | Select-Object -First 1
+$lastHotfix = if ($lastUpd) { ([datetime]$lastUpd).ToString('yyyy-MM-dd') } else { $null }
+$lastUpdTitle = if ($wu) { [string]$wu.Title } else { $null }
 $pendingReboot = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending')
 $ip = Try-Get { (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Sort-Object InterfaceMetric | Select-Object -First 1).IPAddress }
+# ---- OS details, activation and update status (ITH-094)
+$cv = Try-Get { Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' }
+$lic = $null
+if (-not $cfg.licenseAt -or ((Get-Date) - [datetime]$cfg.licenseAt).TotalHours -gt 23 -or -not $cfg.license) {
+  $lic = Try-Get {
+    $l = Get-CimInstance SoftwareLicensingProduct -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" | Select-Object -First 1
+    if ($l) { [pscustomobject]@{ status = @('Unlicensed', 'Licensed', 'Grace period', 'Grace period (out of tolerance)', 'Grace period (non-genuine)', 'Notification', 'Extended grace')[[int]$l.LicenseStatus]; channel = "$($l.ProductKeyChannel)"; description = "$($l.Description)"; partialKey = "$($l.PartialProductKey)" } }
+  }
+  if ($lic) { $cfg | Add-Member -NotePropertyName license -NotePropertyValue $lic -Force; $cfg | Add-Member -NotePropertyName licenseAt -NotePropertyValue (Get-Date).ToString('o') -Force }
+} else { $lic = $cfg.license }
+$wuHist = @(Try-Get {
+  $se2 = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $n2 = $se2.GetTotalHistoryCount()
+  if ($n2 -gt 0) { $se2.QueryHistory(0, [Math]::Min($n2, 60)) | Where-Object { $_.Operation -eq 1 -and $_.Title } | Sort-Object Date -Descending | Select-Object -First 10 | ForEach-Object {
+    [pscustomobject]@{ title = [string]$_.Title; date = $_.Date.ToUniversalTime().ToString('o'); result = @('Not started', 'In progress', 'Succeeded', 'Succeeded with errors', 'Failed', 'Aborted')[[int]$_.ResultCode] } } }
+} @())
+$au = Try-Get { (New-Object -ComObject Microsoft.Update.AutoUpdate).Results }
+$wus = Try-Get { Get-Service wuauserv }
+$osd = [ordered]@{ name = $os.Caption; version = $os.Version; build = $os.BuildNumber; ubr = $cv.UBR; displayVersion = $cv.DisplayVersion; edition = $cv.EditionID; arch = $os.OSArchitecture
+  installDate = $os.InstallDate.ToString('yyyy-MM-dd'); lastBoot = $os.LastBootUpTime.ToUniversalTime().ToString('o'); activation = $lic }
+# ---- ports, USB and open access (ITH-095)
+$usbStart = Try-Get { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\USBSTOR').Start }
+$denyAll = Try-Get { (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices' -ErrorAction Stop).Deny_All }
+$denyWrite = Try-Get { (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}' -ErrorAction Stop).Deny_Write }
+$usbDisks = @(Try-Get { Get-CimInstance Win32_DiskDrive | Where-Object { $_.InterfaceType -eq 'USB' } | ForEach-Object { [pscustomobject]@{ model = "$($_.Model)".Trim(); sizeGb = [math]::Round($_.Size / 1GB, 1); serial = "$($_.SerialNumber)".Trim() } } } @())
+$removable = @(Try-Get { Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2' | ForEach-Object { $_.DeviceID } } @())
+$cd = @(Try-Get { Get-CimInstance Win32_CDROMDrive } @()).Count
+$ts = Try-Get { Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' }
+$admins = @(Try-Get { Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop | ForEach-Object { "$($_.Name)" } } @())
+if (-not $admins.Count) { $admins = @(Try-Get { ([ADSI]'WinNT://./Administrators,group').psbase.Invoke('Members') | ForEach-Object { $_.GetType().InvokeMember('Name', 'GetProperty', $null, $_, $null) } } @()) }
+$guest = Try-Get { (Get-LocalUser | Where-Object { "$($_.SID)" -like '*-501' }).Enabled }
+$shares = @(Try-Get { Get-SmbShare | Where-Object { -not $_.Special -and $_.Name -notmatch '\$$' } | ForEach-Object { "$($_.Name)" } } @())
+$bt2 = @(Try-Get { Get-PnpDevice -Class Bluetooth -Status OK -ErrorAction Stop } @()).Count
+$smb = Try-Get { Get-SmbServerConfiguration }
+$pol = Try-Get { Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' }
+$expl = Try-Get { Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' -ErrorAction Stop }
+$sb = Try-Get { Confirm-SecureBootUEFI -ErrorAction Stop }
+$tpm = Try-Get { Get-Tpm -ErrorAction Stop }
+$access = [ordered]@{
+  usbStorage = if ($usbStart -eq 4 -or $denyAll -eq 1) { 'Blocked' } elseif ($denyWrite -eq 1) { 'Read only' } else { 'Allowed' }
+  usbDisks = $usbDisks; removableDrives = $removable; cdDrives = $cd; bluetooth = ($bt2 -gt 0)
+  rdpEnabled = if ($ts) { $ts.fDenyTSConnections -eq 0 } else { $null }
+  localAdmins = @($admins | Select-Object -First 30); guestEnabled = $guest; shares = @($shares | Select-Object -First 30)
+  autorunOff = if ($expl -and $expl.NoDriveTypeAutoRun -ge 255) { $true } elseif ($expl) { $false } else { $null }
+  smb1 = if ($smb) { [bool]$smb.EnableSMB1Protocol } else { $null }
+  uac = if ($pol) { $pol.EnableLUA -eq 1 } else { $null }
+  screenLockSecs = if ($pol -and $pol.InactivityTimeoutSecs) { [int]$pol.InactivityTimeoutSecs } else { $null }
+  secureBoot = $sb; tpm = if ($tpm) { [pscustomobject]@{ present = [bool]$tpm.TpmPresent; ready = [bool]$tpm.TpmReady } } else { $null }
+}
+# ---- this agent (ITH-097)
+$tasks = [ordered]@{}
+foreach ($tn in 'IT Hub Agent', 'IT Hub Agent Usage', 'IT Hub Agent Pulse') { $tasks[$tn] = Try-Get { "$((Get-ScheduledTask -TaskName $tn -ErrorAction Stop).State)" } 'Missing' }
+$monRunning = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*ITHubAgent.ps1*-UsageMonitor*' }).Count -gt 0
+$errs = @(Try-Get { Get-Content $LogFile -Tail 300 | Where-Object { $_ -match 'failed|error|rejected' -and $_ -ge (Get-Date).AddDays(-1).ToString('yyyy-MM-dd HH:mm') } } @())
+$agentInfo = [ordered]@{ version = $AgentVersion; url = $cfg.url; tasks = $tasks; trayRunning = $monRunning; errors24h = $errs.Count; lastError = if ($errs.Count) { [string]$errs[-1] } else { $null }; installedAt = $cfg.installedAt; ps = "$($PSVersionTable.PSVersion)" }
 $health = [ordered]@{
   hostname = $env:COMPUTERNAME; serial = "$($bios.SerialNumber)".Trim(); manufacturer = $cs.Manufacturer; model = $cs.Model; user = $cs.UserName
   platform = if ($isServer) { 'Server' } else { 'Workstation' }
-  os = @{ name = $os.Caption; version = $os.Version; build = $os.BuildNumber; installDate = $os.InstallDate.ToString('yyyy-MM-dd'); lastBoot = $os.LastBootUpTime.ToUniversalTime().ToString('o') }
+  os = $osd
   uptimeHours = [math]::Round(((Get-Date) - $os.LastBootUpTime).TotalHours, 1)
   cpu = @{ pct = $cpuPct; name = $cpuAll[0].Name; cores = ($cpuAll | Measure-Object NumberOfCores -Sum).Sum }
   mem = @{ totalGb = [math]::Round($memTot / 1MB, 1); usedPct = [math]::Round(($memTot - $memFree) * 100 / $memTot, 1) }
   disks = $disks; physicalDisks = $phys; battery = $battery
   security = @{ av = $av; bitlocker = $bitlocker; firewall = $fw }
-  patches = @{ lastInstalled = $lastHotfix; pendingReboot = $pendingReboot }
+  patches = @{ lastInstalled = $lastHotfix; lastTitle = $lastUpdTitle; pendingReboot = $pendingReboot; history = $wuHist
+    lastSearch = if ($au -and $au.LastSearchSuccessDate) { $au.LastSearchSuccessDate.ToUniversalTime().ToString('o') } else { $null }
+    service = if ($wus) { "$($wus.Status) / $($wus.StartType)" } else { $null } }
+  access = $access
+  agent = $agentInfo
   network = @{ ip = $ip }
 }
 # daily usage written by the user-session monitor (last 7 days)

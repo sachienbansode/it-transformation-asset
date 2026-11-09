@@ -56,3 +56,51 @@ export function ChatSettings() {
     </CardContent></Card>
   );
 }
+
+/** ITH-088 — where screen-session recordings are kept. Without storage, sessions are not recorded (shown on screen). Keys stay in /etc/it-hub.env. */
+export function RecordingStorageSettings() {
+  const qc = useQueryClient(); const { toast } = useToast();
+  const { data } = useQuery({ queryKey: ["admin-settings"], queryFn: () => apiFetch<Record<string, unknown>>("/admin/settings") });
+  const [f, setF] = React.useState<any>(null); const [busy, setBusy] = React.useState(false); const [result, setResult] = React.useState<any>(null);
+  React.useEffect(() => { if (data && !f) { let v: any = data["chat.recordingStorage"] ?? { provider: "none" }; if (typeof v === "string") { try { v = JSON.parse(v); } catch { v = { provider: "none" }; } } setF({ provider: "none", prefix: "it-hub/recordings", ...v }); } }, [data]);
+  if (!f) return null;
+  const clean = () => {
+    const base = { provider: f.provider, prefix: String(f.prefix || "it-hub/recordings").trim() };
+    if (f.provider === "s3") return { ...base, bucket: String(f.bucket || "").trim(), region: String(f.region || "").trim(), ...(f.endpoint ? { endpoint: String(f.endpoint).trim() } : {}) };
+    if (f.provider === "azure") return { ...base, account: String(f.account || "").trim(), container: String(f.container || "").trim(), ...(f.endpoint ? { endpoint: String(f.endpoint).trim() } : {}) };
+    return { provider: "none" };
+  };
+  const where = f.provider === "s3" ? `Amazon S3 bucket ${f.bucket || "?"} (${f.region || "?"})` : f.provider === "azure" ? `Azure Blob ${f.account || "?"}/${f.container || "?"}` : "nowhere — screen sessions will NOT be recorded";
+  async function test() { setBusy(true); setResult(null); try { setResult(await apiFetch<any>("/chats-recording-storage/test", { method: "POST", body: JSON.stringify(clean()), headers: { "X-No-Confirm": "1" } })); } catch (e: any) { setResult({ ok: false, message: e.message }); } finally { setBusy(false); } }
+  async function save() {
+    try { await apiFetch("/admin/settings", { method: "PUT", body: JSON.stringify({ "chat.recordingStorage": clean() }), headers: confirmHeaderLocal(`Keep screen-session recordings in ${where}?`) });
+      qc.invalidateQueries({ queryKey: ["admin-settings"] }); setF(null); toast({ title: "Recording storage saved" }); }
+    catch (e: any) { if (!e.cancelled) toast({ title: "Could not save", description: e.message, variant: "destructive" }); }
+  }
+  const row = "grid sm:grid-cols-[220px_1fr] gap-2 items-center text-sm"; const inp = "h-8 rounded-md border bg-background px-2";
+  return (
+    <Card className="mt-4"><CardContent className="p-4 space-y-3">
+      <div className="font-semibold text-sm">Screen-session recordings</div>
+      <div className="text-xs text-muted-foreground">Recordings are encrypted by IT Hub and kept in your cloud storage — never in the IT Hub database. If no storage is set, screen sessions still work but are <b>not recorded</b>, and both sides see that on screen.</div>
+      <div className={row}><span>Keep recordings in</span>
+        <select className={inp} value={f.provider} onChange={e => { setF({ ...f, provider: e.target.value }); setResult(null); }}>
+          <option value="none">Not configured — do not record</option><option value="s3">Amazon S3</option><option value="azure">Azure Blob Storage</option></select></div>
+      {f.provider === "s3" && <>
+        <div className={row}><span>Bucket</span><input className={inp} value={f.bucket || ""} onChange={e => setF({ ...f, bucket: e.target.value })} placeholder="e.g. ashika-it-hub-recordings" /></div>
+        <div className={row}><span>Region</span><input className={inp} value={f.region || ""} onChange={e => setF({ ...f, region: e.target.value })} placeholder="e.g. ap-south-1" /></div>
+        <div className="text-[11px] text-muted-foreground">Access: give the IT Hub server an IAM role allowing s3:PutObject, s3:GetObject and s3:DeleteObject on this bucket (recommended), or set RECORDINGS_S3_ACCESS_KEY_ID and RECORDINGS_S3_SECRET_ACCESS_KEY in /etc/it-hub.env. Keys are never stored here.</div>
+      </>}
+      {f.provider === "azure" && <>
+        <div className={row}><span>Storage account</span><input className={inp} value={f.account || ""} onChange={e => setF({ ...f, account: e.target.value })} placeholder="e.g. ashikaithub" /></div>
+        <div className={row}><span>Container</span><input className={inp} value={f.container || ""} onChange={e => setF({ ...f, container: e.target.value })} placeholder="e.g. recordings" /></div>
+        <div className="text-[11px] text-muted-foreground">Access: set RECORDINGS_AZURE_SAS in /etc/it-hub.env to a SAS token for this container (read, create, write, delete). It is never stored here.</div>
+      </>}
+      {f.provider !== "none" && <div className={row}><span>Folder (prefix)</span><input className={inp} value={f.prefix || ""} onChange={e => setF({ ...f, prefix: e.target.value })} /></div>}
+      {result && <div className={`rounded-md border px-3 py-2 text-xs ${result.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-300 bg-red-50 text-red-800"}`}>{result.message}</div>}
+      <div className="flex justify-end gap-2">
+        {f.provider !== "none" && <button className="h-8 px-3 rounded-md border text-sm" disabled={busy} onClick={test}>{busy ? "Testing…" : "Test connection"}</button>}
+        <button className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm" onClick={save}>Save recording storage</button></div>
+    </CardContent></Card>
+  );
+}
+const confirmHeaderLocal = (t: string) => ({ "X-Confirm-Text": encodeURIComponent(t) });

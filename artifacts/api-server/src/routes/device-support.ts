@@ -86,6 +86,10 @@ export async function raiseTicket(alertId: number, by: string, auto: boolean) {
 export async function autoTickets(agentId: number) {
   const mode = String(await setting("assetAgent.autoTicket", "all"));   // ITH-085: warnings and critical items raise incidents by default
   if (mode === "off") return;
+  // ITH-090: an item still reported whose ticket was closed by hand gets a fresh ticket (closed tickets are never re-opened automatically)
+  await db.execute(sql`UPDATE asset_agent_alerts a SET incident_id = NULL, ticket_no = NULL, ticket_auto = false, ticket_tried_at = NULL
+    WHERE a.agent_id = ${agentId} AND a.closed_at IS NULL AND ${NOT_IGNORED} AND a.incident_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM itsm_incidents i WHERE i.id = a.incident_id AND i.status = 'Closed')`);
   const open = rowsOf(await db.execute(sql`SELECT id FROM asset_agent_alerts WHERE agent_id = ${agentId} AND closed_at IS NULL AND incident_id IS NULL AND ticket_tried_at IS NULL
     AND kind NOT IN ('idle') AND ${NOT_IGNORED} ${mode === "all" ? sql`` : sql`AND severity = 'Critical'`}`));
   for (const a of open) { try { await raiseTicket(a.id, "IT Hub agent", true); } catch (e) { console.error("auto ticket failed", e); } }
@@ -364,9 +368,16 @@ router.get("/my-it-chats/:cid", requireAuth, wrap(async (req, res) => {
   res.json({ chat: clean(c), messages: await chatMessages(c0.id) });
 }));
 export async function tellIT(c: any, title: string, msg: string) {
-  const ids = new Set<number>(); if (c.opened_by_id) ids.add(c.opened_by_id);
-  for (const r of rowsOf(await db.execute(sql`SELECT DISTINCT sender_id FROM device_chat_messages WHERE chat_id = ${c.id} AND side = 'IT' AND sender_id IS NOT NULL`))) ids.add(r.sender_id);
-  for (const i of ids) await notify(i, title, msg, `/itsm-chats?c=${c.id}`);
+  const ids = new Set<number>();
+  // ITH-079: the person handling it only; if nobody has picked it up, the whole support team (older chats: whoever opened / replied)
+  if (c.assigned_to_id) ids.add(Number(c.assigned_to_id));
+  else if (c.team_id) for (const r of rowsOf(await db.execute(sql`SELECT user_id FROM itsm_team_members WHERE team_id = ${c.team_id}`))) ids.add(Number(r.user_id));
+  else {
+    if (c.opened_by_id) ids.add(Number(c.opened_by_id));
+    for (const r of rowsOf(await db.execute(sql`SELECT DISTINCT sender_id FROM device_chat_messages WHERE chat_id = ${c.id} AND side = 'IT' AND sender_id IS NOT NULL`))) ids.add(Number(r.sender_id));
+  }
+  ids.delete(Number(c.user_id));
+  for (const i of ids) await notify(i, title, msg, `/chats?box=support&c=${c.id}`);
 }
 router.post("/my-it-chats/:cid/messages", requireAuth, wrap(async (req, res) => {
   const c = await myChat(req); if (!c) return fail(res, 404, "Chat not found");

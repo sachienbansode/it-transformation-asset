@@ -1,3 +1,5 @@
+import { Info } from "lucide-react";
+import { usePresenceHeartbeat, useMyPresence, PresenceDot, PRESENCE_LABEL, setMyPresence } from "@/lib/presence";
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -211,6 +213,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  usePresenceHeartbeat(!!user);   // ITH-077
+  const { data: myPres, refetch: refetchPres } = useMyPresence();
+  const setPres = async (mode: "auto" | "dnd", minutes?: number) => { try { await setMyPresence(mode, minutes); refetchPres(); } catch { /* ignore */ } };
   const handleLogout = async () => {
     await logout();
     navigate("/login");
@@ -235,7 +240,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ASSET_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ITSM_ITEMS.find(i => location.startsWith(i.href))?.label
-    ?? (location.startsWith("/admin/policies") ? "Policies & Consent" : location.startsWith("/my-policies") ? "My Policies" : location.startsWith("/chats") ? "Chats" : location.startsWith("/my-device") ? "My Device" : location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
+    ?? (location.startsWith("/admin/policies") ? "Policies & Consent" : location.startsWith("/my-policies") ? "My Policies" : location.startsWith("/chats") ? "Chats" : location.startsWith("/my-device") ? "My Device" : location.startsWith("/about") ? "About IT Hub" : location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
 
   const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
   const isCollapsed = sidebar === "collapsed";
@@ -441,8 +446,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {!isCollapsed ? (
               <div className="px-2 pb-2">
                 <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[#4D93FA] to-[#1B63D6] flex items-center justify-center flex-shrink-0">
+                  <div className="relative h-8 w-8 rounded-full bg-gradient-to-br from-[#4D93FA] to-[#1B63D6] flex items-center justify-center flex-shrink-0">
                     <span className="text-[12px] text-white font-semibold">{user?.name?.[0]?.toUpperCase()}</span>
+                    <PresenceDot status={myPres?.status} className="absolute -bottom-0.5 -right-0.5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-[12.5px] font-semibold text-foreground truncate">{user?.name}</div>
@@ -461,11 +467,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         <p className="text-sm font-medium">{user?.name}</p>
                         <p className="text-xs text-muted-foreground">{user?.email}</p>
                       </div>
+                      <div className="px-3 pb-1 text-[11px] text-muted-foreground flex items-center gap-1.5"><PresenceDot status={myPres?.status} ring={false} />{myPres ? PRESENCE_LABEL[myPres.status] : "…"}{myPres?.status === "dnd" && myPres.dndUntil ? ` until ${new Date(myPres.dndUntil).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : ""}</div>
+                      <DropdownMenuItem onClick={() => setPres("auto")}><PresenceDot status="online" ring={false} className="mr-2" />Automatic (Online / Away)</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setPres("dnd", 60)}><PresenceDot status="dnd" ring={false} className="mr-2" />Do not disturb — 1 hour</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setPres("dnd", 240)}><PresenceDot status="dnd" ring={false} className="mr-2" />Do not disturb — 4 hours</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setPres("dnd")}><PresenceDot status="dnd" ring={false} className="mr-2" />Do not disturb — until I turn it off</DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => navigate("/profile")}><User className="h-4 w-4 mr-2" /> Profile</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => navigate("/my-assets")}><Laptop className="h-4 w-4 mr-2" /> My Assets</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => navigate("/my-policies")}><FileSignature className="h-4 w-4 mr-2" /> My Policies</DropdownMenuItem>
                       {isAdmin && <DropdownMenuItem onClick={() => navigate("/admin")}><Settings className="h-4 w-4 mr-2" /> Admin Panel</DropdownMenuItem>}
+                      {(isAdmin || canAccess("asset_registry", "admin")) && <DropdownMenuItem onClick={() => navigate("/about")}><Info className="h-4 w-4 mr-2" /> About IT Hub</DropdownMenuItem>}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
                         <LogOut className="h-4 w-4 mr-2" /> Sign Out

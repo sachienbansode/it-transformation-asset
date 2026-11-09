@@ -129,8 +129,9 @@ function entry(id: string | number, hint: string) {
   const list = seen.get(String(id)); if (!list?.length) return null;
   const h = norm(hint);
   const person = /user|owner|lead|requester|member|employee|people|person/.test(h);
-  return list.find(x => x.hints.some(y => norm(y) === h)) || list.find(x => x.hints.some(y => norm(y).includes(h) || h.includes(norm(y))))
-    || (person ? list.find(x => x.o.email || x.o.employeeCode) : null) || null;
+  const ok = (y: string) => norm(y).length > 2;   // an empty / short list name must not match everything
+  return list.find(x => x.hints.some(y => ok(y) && norm(y) === h)) || list.find(x => x.hints.some(y => ok(y) && (norm(y).includes(h) || h.includes(norm(y)))))
+    || (person ? list.find(x => (x.o.email || x.o.employeeCode) && !x.o.assetTag && !x.o.hostname) : null) || null;
 }
 const lookup = (id: string | number, hint: string): any => entry(id, hint)?.o || null;
 function nameOf(o: any): string {

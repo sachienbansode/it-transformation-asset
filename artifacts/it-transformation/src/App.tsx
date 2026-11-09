@@ -1,4 +1,5 @@
 import ScreenSession from "@/pages/screen-session";
+import About from "@/pages/about";
 import React from "react";
 import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -213,6 +214,7 @@ function Router() {
               <Route path="/my-policies" component={MyPolicies} />
               <Route path="/my-it-chats" component={MyItChats} />
               <Route path="/my-device" component={MyDevice} />
+              <Route path="/about" component={About} />
               <Route path="/chats" component={Chats} />
               <Route path="/admin/policies">
                 {user.role === "admin" ? <AdminPolicies /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
