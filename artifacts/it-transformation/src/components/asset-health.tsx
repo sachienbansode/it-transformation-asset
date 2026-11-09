@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { confirmHeader } from "@/components/confirm-dialog";
 import { fmtDate, fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { Ticket, EyeOff, Eye, MessageSquare, Activity, AlertTriangle, Battery, Cpu, HardDrive, MemoryStick, ShieldCheck, WifiOff, CheckCircle2, Clock, Package, RefreshCw, Lightbulb, Loader2, XCircle } from "lucide-react";
@@ -137,7 +138,8 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
   const reload = () => { qc.invalidateQueries({ queryKey: ["asset-health"] }); qc.invalidateQueries({ queryKey: ["asset-agents"] }); };
   async function act(x: any, path: string, body: any = {}, ok?: (r: any) => string) {
     setBusyA(x.id);
-    try { const r = await apiFetch<any>(`/asset-agents/alerts/${x.id}/${path}`, { method: "POST", body: JSON.stringify(body) }); if (ok) toast({ title: ok(r) }); reload(); return true; }
+    const say = path === "ticket" ? `Raise an ITSM ticket for the health item “${x.message}” on ${a.hostname}?` : path === "unignore" ? `Stop ignoring the health item “${x.message}” on ${a.hostname}? It will count towards the device's health again.` : `${path} “${x.message}” on ${a.hostname}?`;
+    try { const r = await apiFetch<any>(`/asset-agents/alerts/${x.id}/${path}`, { method: "POST", body: JSON.stringify(body), headers: confirmHeader(say) }); if (ok) toast({ title: ok(r) }); reload(); return true; }
     catch (e: any) { toast({ title: "Could not do that", description: e.message, variant: "destructive" }); return false; } finally { setBusyA(null); }
   }
   const maxU = Math.max(60, ...(data.usage || []).map((u: any) => u.active + u.idle));
@@ -184,7 +186,7 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
         </div>))}</div>}
       {(() => { const fixed = (data.alerts || []).filter((x: any) => x.closedAt && x.closedNote && Date.now() - +new Date(x.closedAt) < 30 * 86400e3); return fixed.length > 0 && <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">Fixed in the last 30 days ({fixed.length})</summary>
         <div className="mt-1 space-y-1">{fixed.map((x: any) => <div key={x.id} className="rounded-md border px-2.5 py-1.5 flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-emerald-600 shrink-0" /><span>{x.closedNote}{x.ticketNo ? ` · ${x.ticketNo} resolved` : ""}</span></div>)}</div></details>; })()}
-      {ign && <IgnoreDialog alert={ign} onClose={() => setIgn(null)} onDone={reload} />}
+      {ign && <IgnoreDialog alert={ign} host={a.hostname} onClose={() => setIgn(null)} onDone={reload} />}
       {!open.length && <div className={cn("rounded-md border px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5", STATE_TONE.Healthy)}><ShieldCheck className="w-3.5 h-3.5" />No open health issues</div>}
 
       {data.usageHidden ? (!employee && <div className="text-[11px] text-muted-foreground">Daily usage and applications are visible to Super Admin only.</div>) : <>
@@ -224,11 +226,12 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
 }
 
 /** Ignore a health item — reason is mandatory; ignored items do not count towards the device's health. */
-function IgnoreDialog({ alert, onClose, onDone }: { alert: any; onClose: () => void; onDone: () => void }) {
+function IgnoreDialog({ alert, host, onClose, onDone }: { alert: any; host?: string; onClose: () => void; onDone: () => void }) {
   const { toast } = useToast(); const [reason, setReason] = useState(""); const [until, setUntil] = useState(""); const [busy, setBusy] = useState(false);
   async function go() {
     setBusy(true);
-    try { await apiFetch(`/asset-agents/alerts/${alert.id}/ignore`, { method: "POST", body: JSON.stringify({ reason: reason.trim(), until: until || undefined }) }); toast({ title: "Ignored", description: "It no longer counts towards this device's health." }); onDone(); onClose(); }
+    try { await apiFetch(`/asset-agents/alerts/${alert.id}/ignore`, { method: "POST", body: JSON.stringify({ reason: reason.trim(), until: until || undefined }),
+      headers: confirmHeader(`Ignore the health item “${alert.message}”${host ? ` on ${host}` : ""}${until ? ` until ${new Date(until).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : " until it is fixed"}?\nReason: “${reason.trim()}”\nIt stays on record, is shown as ignored and does not count towards the device's health.${alert.ticketNo ? `\nThe reason is added to ${alert.ticketNo}.` : ""}`) }); toast({ title: "Ignored", description: "It no longer counts towards this device's health." }); onDone(); onClose(); }
     catch (e: any) { toast({ title: "Could not ignore", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
   }
   return (

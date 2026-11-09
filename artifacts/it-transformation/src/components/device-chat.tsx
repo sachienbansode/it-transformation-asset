@@ -1,3 +1,4 @@
+import { confirmHeader } from "@/components/confirm-dialog";
 import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { Link } from "wouter";
 import { fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { reasonDialog } from "@/components/confirm-dialog";
-import { Download, CheckCircle2, Loader2, MessageSquare, RotateCcw, Send, XCircle, Paperclip, Plus, ShieldAlert, FileText, Eye } from "lucide-react";
+import { Video, Download, CheckCircle2, Loader2, MessageSquare, RotateCcw, Send, XCircle, Paperclip, Plus, ShieldAlert, FileText, Eye } from "lucide-react";
 import { ScreenShare } from "@/components/screen-share";
 
 /*
@@ -47,7 +48,7 @@ const toB64 = (file: File) => new Promise<string>((ok, bad) => { const r = new F
 export function ChatThread({ chatId, onChanged, compact = false }: { chatId: number; mode?: string; onChanged?: () => void; compact?: boolean }) {
   const qc = useQueryClient(); const { toast } = useToast(); const { user } = useAuth();
   const { data, isLoading, error } = useQuery({ queryKey: ["chat", chatId], queryFn: () => apiFetch<any>(`/chats/${chatId}`), refetchInterval: 10_000 });
-  const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false); const [share, setShare] = useState(false);
+  const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false); const [share, setShare] = useState(false); const [log, setLog] = useState(false);
   const end = useRef<HTMLDivElement>(null); const fileIn = useRef<HTMLInputElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [data?.messages?.length]);
   const c = data?.chat; const msgs: any[] = data?.messages || []; const role: string = data?.role;
@@ -63,7 +64,8 @@ export function ChatThread({ chatId, onChanged, compact = false }: { chatId: num
     if (lim && !lim.extensions.includes(ext)) { toast({ title: "This file type is not allowed", description: `Allowed: ${lim.extensions.join(", ")}`, variant: "destructive" }); return; }
     if (lim && file.size > lim.maxMB * 1048576) { toast({ title: `Files can be at most ${lim.maxMB} MB`, variant: "destructive" }); return; }
     setBusy(true);
-    try { await apiFetch(`/chats/${chatId}/attachments`, { method: "POST", body: JSON.stringify({ fileName: file.name, dataBase64: await toB64(file), message: msg.trim() || undefined }) }); setMsg(""); toast({ title: `Sent ${file.name}` }); refresh(); }
+    try { await apiFetch(`/chats/${chatId}/attachments`, { method: "POST", body: JSON.stringify({ fileName: file.name, dataBase64: await toB64(file), message: msg.trim() || undefined }),
+      headers: confirmHeader(`Send ${file.name} (${(file.size / 1048576).toFixed(1)} MB) in this chat${msg.trim() ? ` with the message “${msg.trim().slice(0, 120)}”` : ""}?`) }); setMsg(""); toast({ title: `Sent ${file.name}` }); refresh(); }
     catch (e: any) { if (!e.cancelled) toast({ title: "Could not send the file", description: e.message, variant: "destructive" }); } finally { setBusy(false); if (fileIn.current) fileIn.current.value = ""; }
   }
   if (error) return <div className="p-6 text-sm text-red-600">{(error as Error).message}</div>;
@@ -102,6 +104,7 @@ export function ChatThread({ chatId, onChanged, compact = false }: { chatId: num
           </React.Fragment>; })}
         <div ref={end} />
       </div>
+      {log && <SessionLog chatId={c.id} onClose={() => setLog(false)} />}
       {share && <ScreenShare chatId={c.id} role={role} onClose={() => { setShare(false); refresh(); }} />}
       <div className="border-t pt-2 mt-2 space-y-2">
         {canWrite ? <div className="flex gap-2 items-end">
@@ -112,8 +115,13 @@ export function ChatThread({ chatId, onChanged, compact = false }: { chatId: num
         </div> : role === "admin" ? null : c.status === "Resolved" ? <div className="text-sm text-muted-foreground">{c.resolvedBy} marked this resolved: {c.resolution}</div>
           : <div className="text-sm text-muted-foreground">This chat is closed{c.closeNote ? ` — ${c.closeNote}` : ""}.</div>}
         <div className="flex gap-2 flex-wrap">
-          {support && role !== "admin" && c.status !== "Closed" && <Button size="sm" variant="outline" className="gap-1" onClick={() => setShare(true)}><Eye className="w-3.5 h-3.5" />Screen share / remote help</Button>}
+          {support && role !== "admin" && c.status !== "Closed" && <Button size="sm" variant="outline" className="gap-1" onClick={() => {
+            // ITH-082: IT watches in its own window (full screen, take control, end); the employee shares from the chat
+            if (role === "it") { const w = window.open(`/screen-session/${c.id}`, `ithub-screen-${c.id}`, "popup=yes,width=1366,height=860"); if (w) { w.focus(); return; } }
+            setShare(true);
+          }}><Eye className="w-3.5 h-3.5" />Screen share / remote help</Button>}
           {role === "it" && !["Resolved", "Closed"].includes(c.status) && <Button size="sm" variant="outline" className="gap-1" disabled={busy} onClick={async () => { const r = await reasonDialog("How was it resolved? The employee is asked to confirm, or can re-open it.", { title: "Mark resolved", confirmText: "Mark resolved", label: "Resolution", minLength: 5 }); if (r) act("/resolve", { resolution: r }, "Marked resolved"); }}><CheckCircle2 className="w-3.5 h-3.5" />Mark resolved</Button>}
+          {support && (role === "it" || role === "admin") && <Button size="sm" variant="ghost" className="gap-1" onClick={() => setLog(true)}><Video className="w-3.5 h-3.5" />Sessions & recordings</Button>}
           {role === "it" && <Button size="sm" variant="ghost" className="gap-1" onClick={async () => { const r = await fetch(`/api/asset-agents/chats/${chatId}/transcript`, { credentials: "include" }); if (!r.ok) return; const u = URL.createObjectURL(await r.blob()); Object.assign(document.createElement("a"), { href: u, download: `chat_${chatId}.csv` }).click(); URL.revokeObjectURL(u); }}><Download className="w-3.5 h-3.5" />Transcript</Button>}
           {((role === "it" && c.status !== "Closed") || (role === "member" && c.status !== "Closed")) && <Button size="sm" variant="ghost" className="gap-1" disabled={busy} onClick={async () => { const r = role === "member" ? "closed" : await reasonDialog("Close this chat? The employee can no longer reply.", { title: "Close chat", confirmText: "Close", label: "Reason", minLength: 5 }); if (r) act("/close", { note: r }, "Chat closed"); }}><XCircle className="w-3.5 h-3.5" />Close</Button>}
           {role === "employee" && c.status === "Resolved" && <>
@@ -132,7 +140,8 @@ export function StartChatDialog({ agent, alert, employee, onClose, onStarted }: 
   const [msg, setMsg] = useState(alert ? `Hi, our monitoring shows an issue on your computer ${agent.hostname}: ${alert.message}. ` : ""); const [busy, setBusy] = useState(false);
   async function go() {
     setBusy(true);
-    try { const r = await apiFetch<any>(`/asset-agents/${agent.id}/chats`, { method: "POST", body: JSON.stringify({ subject, message: msg, alertId: alert?.id }) }); toast({ title: "Chat started", description: "The employee is notified (in-app and push)." }); onStarted(r.id); }
+    try { const r = await apiFetch<any>(`/asset-agents/${agent.id}/chats`, { method: "POST", body: JSON.stringify({ subject, message: msg, alertId: alert?.id }),
+      headers: confirmHeader(`Start an IT support chat with ${employee || "the employee"} about ${agent.hostname} (“${subject}”), starting with the message:\n“${msg.trim().length > 160 ? msg.trim().slice(0, 157) + "…" : msg.trim()}”`) }); toast({ title: "Chat started", description: "The employee is notified (in-app and push)." }); onStarted(r.id); }
     catch (e: any) { if (!e.cancelled) toast({ title: "Could not start chat", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
   }
   return (
@@ -152,7 +161,8 @@ export function NewChatDialog({ staff, onClose, onStarted }: { staff: boolean; o
   const { data: people = [] } = useQuery({ queryKey: ["chat-people", q], queryFn: () => apiFetch<any[]>(`/chats/people?q=${encodeURIComponent(q.trim())}`), enabled: q.trim().length > 1 });
   async function go() {
     setBusy(true);
-    try { const r = await apiFetch<any>("/chats", { method: "POST", body: JSON.stringify({ kind, userId: who.id, message: msg.trim(), subject: subject.trim() || undefined }) }); toast({ title: r.existing ? `Added to your chat with ${who.name}` : "Chat started" }); onStarted(r.id); }
+    try { const r = await apiFetch<any>("/chats", { method: "POST", body: JSON.stringify({ kind, userId: who.id, message: msg.trim(), subject: subject.trim() || undefined }),
+      headers: confirmHeader(`${kind === "support" ? "Start an IT support chat with" : "Start a chat with"} ${who.name}${subject.trim() ? ` about “${subject.trim()}”` : ""}, starting with the message:\n“${msg.trim().length > 160 ? msg.trim().slice(0, 157) + "…" : msg.trim()}”`) }); toast({ title: r.existing ? `Added to your chat with ${who.name}` : "Chat started" }); onStarted(r.id); }
     catch (e: any) { if (!e.cancelled) toast({ title: "Could not start chat", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
   }
   return (
@@ -200,7 +210,8 @@ export function ChatTable({ box, onMe }: { box: "mine" | "support" | "all"; onMe
               <td className="p-2.5"><div className="flex items-center gap-1.5">{c.title}{c.unread > 0 && <span className="text-[10px] rounded-full bg-primary text-primary-foreground px-1.5">{c.unread} new</span>}</div></td>
               <td className="p-2.5"><KindTag kind={c.kind} /></td>
               <td className="p-2.5 text-xs">{c.kind === "direct" ? (box === "all" ? (c.members || []).map((x: any) => x.name).join(" ↔ ") : <>{c.with?.name}<div className="text-muted-foreground font-normal">{c.with?.employeeCode} {c.with?.department}</div></>) : <>{c.employeeCode || "—"} · {c.userName}<div className="text-muted-foreground font-normal">{c.department}</div></>}</td>
-              <td className="p-2.5 text-xs font-normal">{c.hostname || "—"}<div className="text-muted-foreground">{[c.assetTag, c.ticketNo].filter(Boolean).join(" · ")}</div></td>
+              <td className="p-2.5 text-xs font-normal">{c.hostname || "—"}<div className="text-muted-foreground">{[c.assetTag, c.ticketNo].filter(Boolean).join(" · ")}</div>
+                {c.sessions > 0 && <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold rounded bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300 px-1.5 py-0.5" title="Screen sessions / recordings (IT and Super Admin only)"><Video className="w-3 h-3" />{c.sessions} session{c.sessions > 1 ? "s" : ""}{c.recordings ? ` · ${c.recordings} rec.` : ""}</div>}</td>
               <td className="p-2.5"><ChatStatus status={c.status} /></td>
               <td className="p-2.5 text-xs font-normal text-muted-foreground max-w-[240px] truncate">{c.lastMessage}</td>
               <td className="p-2.5 text-xs font-normal whitespace-nowrap">{fmtDateTime(c.lastMsgAt)}</td></tr>)}
@@ -245,3 +256,50 @@ export function ChatPopup() {
   );
 }
 export { Plus };
+
+
+/** ITH-083 — screen sessions of a chat: timeline and recording. IT support team and Super Admin only; viewing is audited. */
+function SessionLog({ chatId, onClose }: { chatId: number; onClose: () => void }) {
+  const { toast } = useToast();
+  const { data = [], isLoading, error } = useQuery({ queryKey: ["chat-session-log", chatId], queryFn: () => apiFetch<any[]>(`/chats/${chatId}/session-log`) });
+  const [play, setPlay] = useState<{ id: number; url: string } | null>(null); const [busy, setBusy] = useState<number | null>(null);
+  useEffect(() => () => { if (play) URL.revokeObjectURL(play.url); }, [play]);
+  async function get(id: number, save = false, name = "recording.webm") {
+    setBusy(id);
+    try { const r = await fetch(`/api/chats/${chatId}/attachments/${id}`, { credentials: "include" }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not open the recording");
+      const u = URL.createObjectURL(await r.blob());
+      if (save) { const a = document.createElement("a"); a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000); } else setPlay({ id, url: u });
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } finally { setBusy(null); }
+  }
+  const mins = (a?: string, b?: string) => a && b ? Math.max(1, Math.round((+new Date(b) - +new Date(a)) / 60000)) : null;
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}><DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogHeader><DialogTitle className="flex items-center gap-2"><Video className="w-4 h-4" />Screen sessions & recordings</DialogTitle>
+        <DialogDescription>Visible to the IT support team and Super Admin only. Opening this log and every recording is recorded in the audit trail.</DialogDescription></DialogHeader>
+      {isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {error && <div className="text-sm text-red-600">{(error as Error).message}</div>}
+      {!isLoading && !data.length && !error && <div className="text-sm text-muted-foreground">No screen sessions in this chat.</div>}
+      <div className="space-y-3">{data.map((x: any) => (
+        <div key={x.id} className="border rounded-lg p-3 space-y-2 text-sm">
+          <div className="flex items-center gap-2 flex-wrap"><b>Session #{x.id}</b>
+            <span className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5", x.status === "live" ? "bg-red-50 text-red-700" : x.status === "declined" ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700")}>{x.status === "live" ? "Live now" : x.status === "declined" ? "Declined" : x.status === "requested" ? "Waiting for consent" : "Ended"}</span>
+            {x.controlGrantedAt && <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-700">Remote control used</span>}
+            <span className="ml-auto text-xs text-muted-foreground">{mins(x.startedAt, x.endedAt) ? `${mins(x.startedAt, x.endedAt)} min` : ""}</span></div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div><div className="text-muted-foreground">Asked by</div>{x.requestedBy}<div className="text-muted-foreground">{fmtDateTime(x.requestedAt)}</div></div>
+            <div><div className="text-muted-foreground">Employee agreed</div>{x.consentAt ? fmtDateTime(x.consentAt) : "—"}</div>
+            <div><div className="text-muted-foreground">Remote control</div>{x.controlGrantedAt ? `${fmtDateTime(x.controlGrantedAt)}${x.controlEndedAt ? ` → ${fmtDateTime(x.controlEndedAt)}` : ""}` : x.control === "denied" ? "Not allowed" : "Not used"}</div>
+            <div><div className="text-muted-foreground">Ended</div>{x.endedAt ? `${fmtDateTime(x.endedAt)}${x.endedBy ? ` · ${x.endedBy}` : ""}` : "—"}</div>
+          </div>
+          {x.recordingId ? <div className="flex items-center gap-2 flex-wrap text-xs"><Video className="w-3.5 h-3.5 text-red-600" />{x.recordingName} · {(x.recordingBytes / 1048576).toFixed(1)} MB
+            <span className="text-muted-foreground font-mono" title="SHA-256 of the recording">{String(x.recordingSha256 || "").slice(0, 12)}…</span>
+            <Button size="sm" variant="outline" className="h-7 ml-auto" disabled={busy === x.recordingId} onClick={() => get(x.recordingId)}>Play</Button>
+            <Button size="sm" variant="outline" className="h-7" disabled={busy === x.recordingId} onClick={() => get(x.recordingId, true, x.recordingName)}>Download</Button></div>
+            : x.status === "ended" && <div className="text-xs text-muted-foreground">No recording was uploaded for this session.</div>}
+          {play?.id === x.recordingId && <video src={play!.url} controls autoPlay className="w-full rounded border bg-black max-h-[50vh]" />}
+          {(x.events || []).length > 0 && <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">Activity log ({x.events.length})</summary>
+            <div className="mt-1 border rounded divide-y">{x.events.map((e: any, i: number) => <div key={i} className="px-2 py-1 flex gap-2"><span className="text-muted-foreground whitespace-nowrap">{fmtDateTime(e.at)}</span><span className="flex-1">{e.summary}</span><span className="text-muted-foreground">{String(e.by || "").replace(/ <.*>$/, "")}</span></div>)}</div></details>}
+        </div>))}</div>
+    </DialogContent></Dialog>
+  );
+}

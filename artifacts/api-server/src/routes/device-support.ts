@@ -84,7 +84,7 @@ export async function raiseTicket(alertId: number, by: string, auto: boolean) {
 }
 /** Called after a device check-in: raise incidents for new open (not ignored) items per the auto-ticket setting. */
 export async function autoTickets(agentId: number) {
-  const mode = String(await setting("assetAgent.autoTicket", "critical"));
+  const mode = String(await setting("assetAgent.autoTicket", "all"));   // ITH-085: warnings and critical items raise incidents by default
   if (mode === "off") return;
   const open = rowsOf(await db.execute(sql`SELECT id FROM asset_agent_alerts WHERE agent_id = ${agentId} AND closed_at IS NULL AND incident_id IS NULL AND ticket_tried_at IS NULL
     AND kind NOT IN ('idle') AND ${NOT_IGNORED} ${mode === "all" ? sql`` : sql`AND severity = 'Critical'`}`));
@@ -118,7 +118,7 @@ export async function alertsClosed(ids: number[], ctx?: { at: Date; h: any; host
   for (const r of rows) {
     const note = `Cleared by the device report of ${when}${ctx?.hostname ? ` from ${ctx.hostname}` : ""}: “${r.message}” no longer applies — now ${nowValue(r.kind, ctx?.h)}.`;
     await db.execute(sql`UPDATE asset_agent_alerts SET closed_note = ${note} WHERE id = ${r.id}`).catch(() => {});
-    if (r.incident_id) { try { await noteIncident(r.incident_id, "IT Hub agent", note, "any"); } catch (e) { console.error(e); } }
+    if (r.incident_id) { try { await noteIncident(r.incident_id, "IT Hub agent", note, "close"); } catch (e) { console.error(e); } }
   }
 }
 
@@ -141,7 +141,8 @@ router.post("/asset-agents/alerts/:id/ignore", requireAuth, wrap(async (req, res
   const by = await getPerformedBy(uid(req) ?? undefined).catch(() => "IT");
   await db.execute(sql`UPDATE asset_agent_alerts SET ignored_at = now(), ignored_by = ${by}, ignore_reason = ${reason}, ignore_until = ${until ? sql`${until}::date` : null} WHERE id = ${a.id}`);
   const state = await recomputeState(a.agent_id);
-  if (a.incident_id) { const { noteIncident } = await import("./itsm"); await noteIncident(a.incident_id, by, `Device health item ignored${until ? ` until ${until}` : ""}: ${reason}`); }
+  // ITH-085: an ignored item does not need its ticket any more — close it with the reference
+  if (a.incident_id) { const { noteIncident } = await import("./itsm"); await noteIncident(a.incident_id, by, `Closed: the device health item “${a.message}” on ${a.hostname} was ignored by ${by}${until ? ` until ${until}` : ""}. Reason: ${reason}`, "close"); }
   audit({ entityType: "asset_agent_alert", entityId: a.id, action: "ignore", performedBy: by, summary: `Ignored on ${a.hostname}: ${a.message}${until ? ` (until ${until})` : ""} — ${reason}` });
   res.json({ ok: true, state });
 }));
@@ -150,9 +151,13 @@ router.post("/asset-agents/alerts/:id/unignore", requireAuth, wrap(async (req, r
   if (!await isIT(req)) return fail(res, 403, "Only IT can act on device health items");
   const a = await alertRow(Number(req.params.id)); if (!a) return fail(res, 404, "Health item not found");
   const by = await getPerformedBy(uid(req) ?? undefined).catch(() => "IT");
-  await db.execute(sql`UPDATE asset_agent_alerts SET ignored_at = NULL, ignored_by = NULL, ignore_reason = NULL, ignore_until = NULL WHERE id = ${a.id}`);
+  // ITH-085: its ticket was closed when it was ignored — clear the link so the next report raises a fresh ticket (closed tickets are not re-opened)
+  const [tk] = a.incident_id ? rowsOf(await db.execute(sql`SELECT status, ticket_no FROM itsm_incidents WHERE id = ${a.incident_id}`)) : [];
+  const fresh = tk && tk.status === "Closed";
+  await db.execute(sql`UPDATE asset_agent_alerts SET ignored_at = NULL, ignored_by = NULL, ignore_reason = NULL, ignore_until = NULL${fresh ? sql`, incident_id = NULL, ticket_no = NULL, ticket_auto = false, ticket_tried_at = NULL` : sql``} WHERE id = ${a.id}`);
   const state = await recomputeState(a.agent_id);
-  audit({ entityType: "asset_agent_alert", entityId: a.id, action: "unignore", performedBy: by, summary: `No longer ignored on ${a.hostname}: ${a.message}` });
+  audit({ entityType: "asset_agent_alert", entityId: a.id, action: "unignore", performedBy: by, summary: `No longer ignored on ${a.hostname}: ${a.message}${fresh ? ` — ${tk.ticket_no} stays closed; a new ticket is raised if the issue is still reported` : ""}` });
+  if (fresh) void autoTickets(a.agent_id).catch(() => {});
   res.json({ ok: true, state });
 }));
 

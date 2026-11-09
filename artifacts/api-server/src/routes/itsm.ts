@@ -973,6 +973,10 @@ router.get("/itsm-config", async (_req, res): Promise<void> => {
       config[key] = value;
     }
   }
+  // ITH-076: the lookup lists live in Masters (active values only; inactive ones stay on old tickets)
+  const { seedItsmLists, itsmListValues } = await import("./masters");
+  await seedItsmLists(ITSM_CONFIG_DEFAULTS);
+  Object.assign(config, await itsmListValues());
   res.json(config);
 });
 
@@ -986,8 +990,10 @@ router.put("/itsm-config", requireAdmin, async (req, res): Promise<void> => {
     const r = body["itsm.approvalReminderHours"]; if (r !== undefined && !(Number(r) >= 1 && Number(r) <= 168)) { bad("Approval reminder must be every 1–168 hours"); return; }
     const e = body["itsm.approvalEscalateAfter"]; if (e !== undefined && !(Number(e) >= 1 && Number(e) <= 10)) { bad("Escalate after 1–10 reminders"); return; }
     const ps = body["itsm.slaPauseStatuses"]; if (ps !== undefined && (!Array.isArray(ps) || ps.some(x => !["On Hold", "Pending Approval", "Escalated"].includes(String(x))))) { bad("Pause statuses can be On Hold, Pending Approval or Escalated"); return; } }
+  const { ITSM_LISTS } = await import("./masters");
   for (const [key, value] of Object.entries(body)) {
     if (!key.startsWith("itsm.")) continue;
+    if (ITSM_LISTS.some(l => l.key === key)) continue;   // ITH-076: lists are edited in Masters (audited, no deletion)
     const serialized = typeof value === "string" ? value : JSON.stringify(value);
     await db.insert(settingsTable).values({ key, value: serialized })
       .onConflictDoUpdate({ target: settingsTable.key, set: { value: serialized } });
@@ -1189,9 +1195,17 @@ export async function createSystemIncident(o: { title: string; description: stri
   return item;
 }
 /** Add a note to an incident; when resolve is true and nobody has picked it up yet, resolve it. */
-export async function noteIncident(id: number, by: string, note: string, resolve: boolean | "any" = false) {
+export async function noteIncident(id: number, by: string, note: string, resolve: boolean | "any" | "close" = false) {
   const [t]: any[] = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.id, id));
   if (!t) return null;
+  // ITH-085 "close": the device data (or IT ignoring the item) settles it — close whatever the working status, with the reference
+  if (resolve === "close") {
+    if (t.status === "Closed") { await history("incident", id, by, note, null, null); return t.status; }
+    await db.update(itsmIncidentsTable).set({ status: "Closed", resolvedAt: t.resolvedAt || new Date(), closedAt: new Date(), resolutionNotes: note, updatedBy: by, updatedAt: new Date() }).where(eq(itsmIncidentsTable.id, id));
+    await history("incident", id, by, note, t.status, "Closed");
+    await logAudit({ entityType: "incident", entityId: id, action: "auto_close", performedBy: by, summary: `${t.ticketNo} closed automatically: ${note}`.slice(0, 1000) }).catch(() => {});
+    return "Closed";
+  }
   // resolve === "any": the device itself reports the issue gone — resolve whatever the working status (never a Resolved / Closed ticket)
   if ((resolve === "any" && !["Resolved", "Closed"].includes(t.status)) || (resolve === true && t.status === "Open" && !t.assignedTo)) {
     await db.update(itsmIncidentsTable).set({ status: "Resolved", resolvedAt: new Date(), resolutionNotes: note, updatedBy: by, updatedAt: new Date() }).where(eq(itsmIncidentsTable.id, id));

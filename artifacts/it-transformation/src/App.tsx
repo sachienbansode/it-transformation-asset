@@ -1,3 +1,4 @@
+import ScreenSession from "@/pages/screen-session";
 import React from "react";
 import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -145,6 +146,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/auditor/login">{user?.auditor ? <Redirect to="/auditor" /> : <AuditorLogin />}</Route>
       <Route path="/auditor/setup" component={AuditorSetup} />
+      <Route path="/screen-session/:chatId">{user && !user.auditor ? <ScreenSession /> : <LoginRedirect />}</Route>
       <Route>
         {!user ? (
           <LoginRedirect />

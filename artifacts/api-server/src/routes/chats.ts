@@ -87,6 +87,12 @@ router.get("/chats", requireAuth, wrap(async (req, res) => {
   const n = (k: string) => counts.find((x: any) => x.status === k)?.n || 0;
   const by: Record<string, number> = { Open: n("Active") + n("Waiting on employee") + n("Waiting on IT"), "Waiting on IT": n("Waiting on IT"), "Waiting on employee": n("Waiting on employee"), Resolved: n("Resolved"), Closed: n("Closed"), All: counts.reduce((a: number, x: any) => a + x.n, 0) };
   if (box === "all") audit({ entityType: "device_chat", action: "admin_list", performedBy: await getPerformedBy(m.id).catch(() => "Super Admin"), summary: `Super Admin listed all chats${q ? ` (search "${q.slice(0, 60)}")` : ""}` });
+  // ITH-083: screen sessions and recordings are listed for IT (support / all boxes) and Super Admin only
+  if (box !== "mine" && rows.length) {
+    const ids = rows.map(r => Number(r.id));
+    const ss = rowsOf(await db.execute(sql`SELECT chat_id, count(*)::int AS sessions, count(recording_attachment_id)::int AS recordings FROM chat_sessions WHERE chat_id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)}) AND status IN ('live', 'ended') GROUP BY 1`));
+    for (const r of rows) { const x = ss.find(y => Number(y.chat_id) === Number(r.id)); r.sessions = x?.sessions || 0; r.recordings = x?.recordings || 0; }
+  }
   res.json({ rows, total: by[st] ?? by.All, page, pageSize: size, counts: by, me: { staff: m.staff, superAdmin: m.superAdmin } });
 }));
 
@@ -143,7 +149,10 @@ router.get("/chats/:id", requireAuth, wrap(async (req, res) => {
   const role = await roleIn({ ...c, id, user_id: c.user_id, kind: c.kind }, m); if (!role) return fail(res, 404, "Chat not found");
   const msgs = rowsOf(await db.execute(sql`SELECT m.id, m.sender_id AS "senderId", m.sender_name AS "senderName", m.side, m.body, m.at, m.read_at AS "readAt",
       (SELECT json_agg(json_build_object('id', a.id, 'name', a.file_name, 'size', a.size_bytes, 'kind', a.kind)) FROM chat_attachments a WHERE a.message_id = m.id) AS files
-    FROM device_chat_messages m WHERE m.chat_id = ${id} ORDER BY m.at, m.id`)).map((x: any) => ({ ...x, body: openText(x.body) }));
+    FROM device_chat_messages m WHERE m.chat_id = ${id} ORDER BY m.at, m.id`)).map((x: any) => ({ ...x, body: openText(x.body) }))
+    // ITH-083: session recordings are for IT and Super Admin only
+    .filter((x: any) => role === "it" || role === "admin" || !(Array.isArray(x.files) && x.files.length && x.files.every((f: any) => f.kind === "recording")))
+    .map((x: any) => role === "it" || role === "admin" || !Array.isArray(x.files) ? x : { ...x, files: x.files.filter((f: any) => f.kind !== "recording") });
   if (role === "admin") await audit({ entityType: "device_chat", entityId: id, action: "admin_view", performedBy: await getPerformedBy(m.id).catch(() => "Super Admin"), summary: `Super Admin opened chat #${id} (${c.kind === "direct" ? "direct chat" : "IT support chat"}) read-only` });
   else {   // mark the other side's messages read
     const cond = c.kind === "direct" ? sql`coalesce(sender_id, 0) <> ${m.id}` : role === "employee" ? sql`side = 'IT'` : sql`side = 'Employee'`;
@@ -224,7 +233,7 @@ router.post("/chats/:id/:action", requireAuth, (req, _res, next) => ["resolve", 
 const MIME: Record<string, string> = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", txt: "text/plain", log: "text/plain", csv: "text/csv",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", zip: "application/zip", webm: "video/webm" };
 export async function storeAttachment(c: any, by: { id: number | null; name: string }, side: "IT" | "Employee" | "Member", fileName: string, data: Buffer, kind: "file" | "recording" = "file", note?: string | null) {
-  const msgId = await post(c, side, by.id, by.name, note || `${kind === "recording" ? "Session recording" : "Attachment"}: ${fileName} (${(data.length / 1024 / 1024).toFixed(2)} MB)`);
+  const msgId = await post(c, kind === "recording" ? "System" : side, by.id, by.name, note || `${kind === "recording" ? "Session recording" : "Attachment"}: ${fileName} (${(data.length / 1024 / 1024).toFixed(2)} MB)`);
   const ext = fileName.split(".").pop()!.toLowerCase();
   const [a] = rowsOf(await db.execute(sql`INSERT INTO chat_attachments (chat_id, message_id, file_name, mime, size_bytes, sha256, data, kind, uploaded_by_id, uploaded_by)
     VALUES (${c.id}, ${msgId}, ${fileName}, ${MIME[ext] || "application/octet-stream"}, ${data.length}, ${crypto.createHash("sha256").update(data).digest("hex")}, ${sealBuf(data)}, ${kind}, ${by.id}, ${by.name}) RETURNING id`));
@@ -257,6 +266,7 @@ router.post("/chats/:id/attachments", requireAuth, wrap(async (req, res) => {
 router.get("/chats/:id/attachments/:aid", requireAuth, wrap(async (req, res) => {
   const { c, role, name } = await load(req); if (!c || !role) return fail(res, 404, "Not found");
   const [a] = rowsOf(await db.execute(sql`SELECT * FROM chat_attachments WHERE id = ${Number(req.params.aid)} AND chat_id = ${c.id}`)); if (!a) return fail(res, 404, "Not found");
+  if (a.kind === "recording" && role !== "it" && role !== "admin") return fail(res, 403, "Session recordings are available to the IT support team and Super Admin only");
   const data = openBuf(Buffer.from(a.data));
   await audit({ entityType: "device_chat", entityId: c.id, action: "download", performedBy: name, summary: `Chat #${c.id}: downloaded ${a.kind} "${a.file_name}"${role === "admin" ? " (Super Admin)" : ""}` });
   res.setHeader("Content-Type", a.mime); res.setHeader("X-Content-Type-Options", "nosniff");
@@ -359,6 +369,30 @@ router.get("/chats-unread", requireAuth, wrap(async (req, res) => {
       OR (c.kind = 'support' AND c.user_id <> ${m.id} AND x.side = 'Employee' AND (c.opened_by_id = ${m.id} OR EXISTS (SELECT 1 FROM device_chat_messages y WHERE y.chat_id = c.id AND y.side = 'IT' AND y.sender_id = ${m.id}))))
     GROUP BY c.id, c.kind, c.subject`));
   res.json(rows);
+}));
+
+/** ITH-083: screen sessions of a chat — who asked, consent, control, duration, recording. IT support team and Super Admin only. */
+router.get("/chats/:id/session-log", requireAuth, wrap(async (req, res) => {
+  const { c, role, name } = await load(req); if (!c || !role) return fail(res, 404, "Chat not found");
+  if (role !== "it" && role !== "admin") return fail(res, 403, "Session logs are available to the IT support team and Super Admin only");
+  const rows = rowsOf(await db.execute(sql`SELECT s.id, s.status, s.control, s.requested_by AS "requestedBy", s.created_at AS "requestedAt", s.consent_at AS "consentAt", s.started_at AS "startedAt",
+      s.control_granted_at AS "controlGrantedAt", s.control_ended_at AS "controlEndedAt", s.ended_at AS "endedAt", s.ended_by AS "endedBy",
+      a.id AS "recordingId", a.file_name AS "recordingName", a.size_bytes AS "recordingBytes", a.sha256 AS "recordingSha256",
+      (SELECT json_agg(json_build_object('at', l.performed_at, 'action', l.action, 'by', l.performed_by, 'summary', l.summary) ORDER BY l.id) FROM audit_logs l WHERE l.entity_type = 'chat_session' AND l.entity_id = s.id) AS events
+    FROM chat_sessions s LEFT JOIN chat_attachments a ON a.id = s.recording_attachment_id WHERE s.chat_id = ${c.id} ORDER BY s.id DESC`));
+  await audit({ entityType: "device_chat", entityId: c.id, action: "session_log_view", performedBy: name, summary: `Chat #${c.id}: screen session log viewed${role === "admin" ? " (Super Admin)" : ""}` });
+  res.json(rows);
+}));
+
+/** ITH-080: are all stored chats readable with the keys this server has? Super Admin only; counts only, no content or keys. */
+router.get("/chats-key-check", requireAuth, wrap(async (req, res) => {
+  if (!isSuperAdmin(await getAccess(req))) return fail(res, 403, "Super Admin only");
+  const msgs = rowsOf(await db.execute(sql`SELECT body FROM device_chat_messages WHERE body LIKE 'enc:v1:%'`));
+  const bad = msgs.filter(m => openText(m.body) === "[message cannot be decrypted]").length;
+  const files = rowsOf(await db.execute(sql`SELECT data FROM chat_attachments`));
+  let badF = 0; for (const f of files) { try { openBuf(Buffer.from(f.data)); } catch { badF++; } }
+  res.json({ messages: msgs.length, unreadableMessages: bad, files: files.length, unreadableFiles: badF, chatSecretSet: !!process.env.CHAT_SECRET, oldKeys: (process.env.CHAT_SECRET_OLD || "").split(",").filter(Boolean).length,
+    advice: bad || badF ? "Some chats were written with a key this server no longer has. Put the earlier CHAT_SECRET (or the earlier SESSION_SECRET) value in CHAT_SECRET_OLD in /etc/it-hub.env and restart." : "All chats are readable." });
 }));
 
 export default router;

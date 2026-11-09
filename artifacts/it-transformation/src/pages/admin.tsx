@@ -34,6 +34,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { fmtDate, fmtDateTime } from "@/lib/date";
+import { ItsmListsPanel, MasterTable } from "@/components/master-table";
 
 type Tab = "settings" | "masters" | "business-units" | "audit" | "itsm-config";
 
@@ -909,103 +910,11 @@ function MastersTab() {
           ))}
         </div>
 
-        {/* Items table */}
+        {/* Items table (ITH-076: paged, audited, activate / deactivate — no deletion) */}
         {selectedCategory === "compliance_status" ? <div className="flex-1 min-w-0 overflow-x-auto"><ComplianceStatusMaster /></div> :
-        <div className="flex-1 min-w-0 space-y-3 overflow-x-auto">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">
-              <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mr-1.5">
-                {MASTER_MODULES.find(m => m.items.some(i => i.key === selectedCategory))?.module} /
-              </span>
-              {CATEGORIES.find(c => c.key === selectedCategory)?.label}
-              <span className="text-muted-foreground font-normal ml-2">({filtered.length} items)</span>
-            </h3>
-            <Button size="sm" onClick={openAdd}><Plus className="h-3.5 w-3.5 mr-1" />Add</Button>
-          </div>
-
-          {isLoading ? (
-            <Skeleton className="h-32 w-full" />
-          ) : (
-            <div className="border border-border rounded-md overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    {["Label", "Color", "Sort", "Active", ""].map(h => (
-                      <th key={h} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(item => (
-                    <tr key={item.id} className={`border-t border-border hover:bg-muted/30 ${!item.isActive ? "opacity-60" : ""}`}>
-                      <td className="px-3 py-2 font-medium">{item.label}</td>
-                      <td className="px-3 py-2">
-                        {item.color ? (
-                          <Badge variant="outline" className={`text-xs ${getBadgeClass(item.color)}`}>{item.color}</Badge>
-                        ) : "-"}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">{item.sortOrder}</td>
-                      <td className="px-3 py-2">
-                        <Badge variant="outline" className={item.isActive ? "border-green-500/30 text-green-400" : "border-red-500/30 text-red-400"}>
-                          {item.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost" size="sm"
-                            className={`h-7 px-2 text-xs ${item.isActive ? "text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20" : "text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"}`}
-                            onClick={() => handleToggleActive(item)}
-                            title={item.isActive ? "Deactivate" : "Reactivate"}
-                          >
-                            {item.isActive ? "Deactivate" : "Reactivate"}
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(item)}><Pencil className="h-3 w-3" /></Button>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(item)}><Trash2 className="h-3 w-3" /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>}
+        <div className="flex-1 min-w-0"><MasterTable category={selectedCategory} showColor
+          title={`${MASTER_MODULES.find(m => m.items.some(i => i.key === selectedCategory))?.module || ""} / ${CATEGORIES.find(c => c.key === selectedCategory)?.label || selectedCategory}`} /></div>}
       </div>
-
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editItem ? "Edit Master" : "Add Master"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5"><Label>Label</Label><Input value={form.label} onChange={e => setForm(f => ({...f, label: e.target.value}))} /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Color (for badge)</Label>
-                <Select value={form.color || "none"} onValueChange={v => setForm(f => ({...f, color: v === "none" ? "" : v}))}>
-                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {["red","orange","yellow","green","blue","purple","teal","gray","indigo","pink"].map(c => (
-                      <SelectItem key={c} value={c}><span className={`inline-block w-3 h-3 rounded-full mr-2 bg-${c}-500`} />{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5"><Label>Sort Order</Label><Input type="number" value={form.sortOrder} onChange={e => setForm(f => ({...f, sortOrder: +e.target.value}))} /></div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch checked={form.isActive} onCheckedChange={v => setForm(f => ({...f, isActive: v}))} />
-              <Label>Active</Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave}>{editItem ? "Update" : "Add"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -2031,7 +1940,7 @@ function ItsmConfigTab() {
         body: JSON.stringify(cfg),
       });
       queryClient.invalidateQueries({ queryKey: ["itsm-config"] });
-      toast({ title: "ITSM configuration saved", description: "All lookup lists have been updated." });
+      toast({ title: "Attachment settings saved" });
     } catch {
       toast({ title: "Save failed", variant: "destructive" });
     } finally {
@@ -2066,120 +1975,14 @@ function ItsmConfigTab() {
   if (loading) return <div className="text-muted-foreground text-sm py-8">Loading ITSM configuration…</div>;
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* ── Save Banner ── */}
-      <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3">
-        <div>
-          <p className="text-sm font-medium">ITSM Lookup Configuration</p>
-          <p className="text-[11px] text-muted-foreground">All dropdown lists used in Incident, Problem, Change, and Service Request forms are managed here.</p>
-        </div>
-        <Button onClick={handleSave} disabled={saving} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white shrink-0">
-          {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-          {saving ? "Saving…" : "Save All Changes"}
-        </Button>
-      </div>
-
-      {/* ── Shared Lookup Lists ── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Database className="h-4 w-4" />Shared Lookup Lists
-          </CardTitle>
-          <CardDescription>These lists are used across multiple ticket types.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <ListEditor
-            label="Urgency Levels"
-            description="Used in Incidents and Service Requests."
-            items={cfg["itsm.urgencyLevels"]}
-            onChange={v => set("itsm.urgencyLevels", v)}
-          />
-          <ListEditor
-            label="Impact Levels"
-            description="Used in Incidents and Problems."
-            items={cfg["itsm.impactLevels"]}
-            onChange={v => set("itsm.impactLevels", v)}
-          />
-          <ListEditor
-            label="Departments"
-            description="Used in Service Requests."
-            items={cfg["itsm.departments"]}
-            onChange={v => set("itsm.departments", v)}
-          />
-          <ListEditor
-            label="IT Groups"
-            description="Assignable groups for all ticket types (Assigned Group dropdown)."
-            items={cfg["itsm.itGroups"]}
-            onChange={v => set("itsm.itGroups", v)}
-          />
-          <ListEditor
-            label="Incident Sources"
-            description="How an incident was reported (Phone, Email, Portal, etc.)."
-            items={cfg["itsm.incidentSources"]}
-            onChange={v => set("itsm.incidentSources", v)}
-          />
-        </CardContent>
-      </Card>
-
-      {/* ── Category Lists ── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Sliders className="h-4 w-4" />Category Lists
-          </CardTitle>
-          <CardDescription>Each ticket type has its own category list.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <ListEditor
-            label="Incident Categories"
-            description="Used in the Incidents form. Each category can have subcategories (see below)."
-            items={cfg["itsm.incidentCategories"]}
-            onChange={v => set("itsm.incidentCategories", v)}
-          />
-          <ListEditor
-            label="Problem Categories"
-            description="Used in the Problems form."
-            items={cfg["itsm.problemCategories"]}
-            onChange={v => set("itsm.problemCategories", v)}
-          />
-          <ListEditor
-            label="Change Categories"
-            description="Used in the Change Requests form."
-            items={cfg["itsm.changeCategories"]}
-            onChange={v => set("itsm.changeCategories", v)}
-          />
-          <ListEditor
-            label="Service Request Categories"
-            description="Used in the Service Requests form."
-            items={cfg["itsm.srCategories"]}
-            onChange={v => set("itsm.srCategories", v)}
-          />
-        </CardContent>
-      </Card>
-
-      {/* ── Incident Subcategories ── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <ChevronDown className="h-4 w-4" />Incident Subcategories
-          </CardTitle>
-          <CardDescription>
-            Subcategories appear when an incident category is selected. Click a category to expand and edit its subcategories.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <SubcategoryEditor
-            categories={cfg["itsm.incidentCategories"]}
-            subcategories={cfg["itsm.incidentSubcategories"]}
-            onChange={v => set("itsm.incidentSubcategories", v)}
-          />
-        </CardContent>
-      </Card>
-
+    <div className="space-y-6 max-w-6xl">
+      {/* ── Lookup lists (ITH-076: masters — paged, audited, activate / deactivate, no deletion) ── */}
+      <ItsmListsPanel />
       {/* ── Attachment Settings ── */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><Paperclip className="h-4 w-4" />Ticket Attachment Settings</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2"><Paperclip className="h-4 w-4" />Ticket Attachment Settings
+            <Button size="sm" onClick={handleSave} disabled={saving} className="ml-auto">{saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}Save</Button></CardTitle>
           <CardDescription>Control file uploads allowed on ITSM tickets (Incidents, Problems, Changes, Service Requests).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">

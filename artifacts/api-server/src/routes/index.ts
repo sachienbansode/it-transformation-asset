@@ -83,7 +83,8 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
     // Only these paths require admin privileges for write operations
     const adminOnlyPrefixes = [
-      "/admin/", "/masters", "/roles", "/user-roles", "/settings", "/data-archive", "/notification-rules",
+      "/admin/", "/roles",   // /masters: checked in the route (Super Admin; ITSM Admin for ITSM lists) — ITH-076
+      "/user-roles", "/settings", "/data-archive", "/notification-rules",
       "/business-units", "/audit-logs",
       // ITSM writes are governed by module permissions (lib/rbac.ts), not base role Admin
     ];

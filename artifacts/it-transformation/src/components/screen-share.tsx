@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-import { Loader2, MonitorUp, MonitorX, MousePointerClick, Circle, Hand } from "lucide-react";
+import { Loader2, MonitorUp, MonitorX, MousePointerClick, Circle, Hand, Maximize2, Minimize2, X, ExternalLink } from "lucide-react";
 
 /*
  * Screen share / remote help inside an IT support chat.
@@ -12,7 +12,7 @@ import { Loader2, MonitorUp, MonitorX, MousePointerClick, Circle, Hand } from "l
  *  shared screen keeps being recorded. Every step is a message in the chat and an audit-log entry.
  */
 const H = { "X-No-Confirm": "1" };
-export function ScreenShare({ chatId, role, onClose }: { chatId: number; role: string; onClose: () => void }) {
+export function ScreenShare({ chatId, role, onClose, popup = false, title }: { chatId: number; role: string; onClose: () => void; popup?: boolean; title?: string }) {
   const { toast } = useToast();
   const [s, setS] = useState<any>(null); const [ice, setIce] = useState<any[]>([]); const [maxMB, setMaxMB] = useState(300);
   const [phase, setPhase] = useState<"idle" | "connecting" | "live">("idle"); const [busy, setBusy] = useState(false); const [recMB, setRecMB] = useState(0);
@@ -92,6 +92,45 @@ export function ScreenShare({ chatId, role, onClose }: { chatId: number; role: s
   async function end() { const sid = s?.id; if (it && sid) await upload(sid).catch(() => {}); stop(false); if (sid) await call(`/${sid}/end`).catch(() => {}); }
 
   const ctl = s?.control;
+  // ITH-082 — IT's viewer in its own window: auto-connects, full screen, remote control and end / close in one toolbar
+  const box = useRef<HTMLDivElement>(null); const [fs, setFs] = useState(false); const auto = useRef(false);
+  useEffect(() => { const f = () => setFs(!!document.fullscreenElement); document.addEventListener("fullscreenchange", f); return () => document.removeEventListener("fullscreenchange", f); }, []);
+  useEffect(() => { if (popup && it && s?.status === "live" && phase === "idle" && !auto.current) { auto.current = true; watch(); } if (s?.status !== "live") auto.current = false; }, [popup, s?.status, phase]);
+  useEffect(() => {
+    if (!popup) return;
+    const warn = (e: BeforeUnloadEvent) => { if (phase !== "idle") { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
+  }, [popup, phase]);
+  const toggleFs = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else box.current?.requestFullscreen().catch(() => {}); };
+  if (popup) return (
+    <div ref={box} className="h-screen flex flex-col bg-neutral-950 text-white">
+      <div className="flex items-center gap-2 px-3 py-2 bg-neutral-900 border-b border-neutral-800 flex-wrap text-sm">
+        <MonitorUp className="w-4 h-4 text-sky-400" /><b className="truncate max-w-[40vw]">{title || "Screen session"}</b>
+        {phase !== "idle" && it && <span className="inline-flex items-center gap-1 text-xs text-red-400"><Circle className="w-2.5 h-2.5 fill-red-500 text-red-500 animate-pulse" />Recording {recMB.toFixed(1)} MB</span>}
+        {phase === "connecting" && <span className="text-xs text-neutral-400 inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Connecting…</span>}
+        {s?.status === "live" && it && <>
+          {(ctl === "none" || ctl === "denied" || ctl === "ended" || !ctl) && <Button size="sm" variant="secondary" className="h-8 gap-1 ml-2" disabled={busy || phase === "idle"} onClick={() => call(`/${s.id}/control`, { step: "request" })}><MousePointerClick className="w-3.5 h-3.5" />Take control</Button>}
+          {ctl === "requested" && <span className="text-xs text-amber-300 ml-2">Waiting for the employee to allow control…</span>}
+          {ctl === "granted" && <><span className="text-xs text-emerald-300 ml-2">Control allowed — open <b>Quick Assist</b> (Win + Ctrl + Q) › Help someone, and send the code in the chat.</span>
+            <Button size="sm" variant="secondary" className="h-8" onClick={() => call(`/${s.id}/control`, { step: "end" })}>End control</Button></>}
+        </>}
+        <div className="ml-auto flex items-center gap-1">
+          <Button size="sm" variant="ghost" className="h-8 gap-1 text-white hover:bg-neutral-800 hover:text-white" onClick={toggleFs} title="Full screen (Esc to leave)">{fs ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}{fs ? "Exit full screen" : "Full screen"}</Button>
+          {s?.status === "live" && <Button size="sm" variant="destructive" className="h-8 gap-1" onClick={async () => { await end(); }}><MonitorX className="w-4 h-4" />End session</Button>}
+          <Button size="sm" variant="ghost" className="h-8 gap-1 text-white hover:bg-neutral-800 hover:text-white" title="Close window" onClick={async () => { if (phase !== "idle") await end(); onClose(); }}><X className="w-4 h-4" />Close</Button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 flex items-center justify-center relative">
+        <video ref={video} autoPlay playsInline className={phase === "idle" ? "hidden" : "w-full h-full object-contain bg-black"} />
+        {phase === "idle" && <div className="text-center space-y-3 max-w-md px-6">
+          {!s && it && <><div className="text-neutral-300">Ask the employee to share their screen with you. They must agree; the session is recorded and kept in the chat.</div>
+            <Button disabled={busy} onClick={() => call("", {})}>{busy && <Loader2 className="w-4 h-4 animate-spin mr-1" />}Ask to see the screen</Button></>}
+          {s?.status === "requested" && <div className="text-neutral-300 inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Waiting for the employee to agree and share…</div>}
+          {s?.status === "live" && <div className="text-neutral-300 inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />The employee is choosing a screen to share…</div>}
+        </div>}
+      </div>
+    </div>
+  );
   return (
     <div className="my-2 rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
       <div className="flex items-center gap-2"><MonitorUp className="w-4 h-4 text-primary" /><b>Screen share & remote help</b>

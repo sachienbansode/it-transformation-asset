@@ -61,7 +61,7 @@ export function Approvals() {
   const list: any[] = data?.requests || [];
 
   async function approve(r: any) {
-    if (!await confirmDialog(`Approve ${r.requestNo} — ${r.title}?\n\nRaised by ${r.requestedBy}. The change is applied immediately${r.kind === "finance_upload" ? ", archived as a batch and emailed" : ""} and recorded in the audit log.`, { title: "Approve finance change", confirmText: "Approve & apply" })) return;
+    if (!await confirmDialog(`Approve ${r.requestNo} — ${r.title}?\n\nRaised by ${r.requestedBy}. The change is applied immediately${r.kind === "finance_upload" ? ", archived as a batch and emailed" : ""}.`, { title: "Approve finance change", confirmText: "Approve & apply" })) return;
     setBusy(r.id);
     try { const x = await apiFetch<any>(`/asset-finance-requests/${r.id}/approve`, { method: "POST", body: JSON.stringify({}) }); refresh(qc); toast({ title: `${r.requestNo} approved and applied`, description: x.result?.archiveBatch ? `Archived as ${x.result.archiveBatch}` : undefined }); }
     catch (e: any) { toast({ title: "Could not approve", description: e.message, variant: "destructive" }); } finally { setBusy(null); }

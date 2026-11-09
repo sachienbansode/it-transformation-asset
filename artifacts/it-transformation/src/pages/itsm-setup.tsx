@@ -1,3 +1,4 @@
+import { ItsmListsPanel } from "@/components/master-table";
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +18,7 @@ import { CatalogUploadDialog, downloadCatalogSheet } from "@/components/itsm-cat
 /* ITSM Setup — assignment groups (teams + members + lead) and the category / sub-category catalog that routes tickets. */
 
 export default function ItsmSetup() {
-  const [tab, setTab] = useState<"teams" | "catalog">("catalog");
+  const [tab, setTab] = useState<"teams" | "catalog" | "lists">(() => (new URLSearchParams(window.location.search).get("tab") as any) || "catalog");
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -26,10 +27,10 @@ export default function ItsmSetup() {
           <p className="text-sm text-muted-foreground">Teams (assignment groups) and the categories that route incidents and service requests to them, with the expected closure days.</p>
         </div>
         <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">
-          {([["catalog", "Categories & routing"], ["teams", "Teams & members"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
+          {([["catalog", "Categories & routing"], ["teams", "Teams & members"], ["lists", "Lookup lists"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
         </div>
       </div>
-      {tab === "teams" ? <Teams /> : <Catalog />}
+      {tab === "teams" ? <Teams /> : tab === "lists" ? <ItsmListsPanel /> : <Catalog />}
     </div>
   );
 }
