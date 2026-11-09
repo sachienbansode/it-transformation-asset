@@ -75,6 +75,43 @@ router.get("/device-policy/compliance", requireAuth, wrap(async (req, res) => {
   res.json({ rows, total: c.n, top });
 }));
 
+/** ITH-107 — compliance report for every device and user: one row per device, one column per policy rule. ?format=csv|xlsx */
+router.get("/device-policy/report", requireAuth, wrap(async (req, res) => {
+  if (!await canView(req)) return fail(res, 403, "No access to the compliance report");
+  const p = await activePolicy(); if (!p) return fail(res, 404, "No device policy");
+  const rules = p.rules.filter((r: any) => r.on);
+  const rows = rowsOf(await db.execute(sql`SELECT g.hostname, g.platform, g.serial_number, g.agent_version, g.last_seen_at, g.last_user, coalesce(g.compliance_state, 'unknown') AS state, g.compliance,
+      s.asset_tag, s.location, s.department AS asset_dept, e.name AS employee, e.employee_code, e.email, e.department, e.designation
+    FROM asset_agents g LEFT JOIN assets s ON s.id = g.asset_id LEFT JOIN users e ON e.id = coalesce(CASE WHEN s.status = 'Allocated' THEN s.owner_id END, g.user_id)
+    WHERE g.status = 'Active' ORDER BY CASE g.compliance_state WHEN 'non_compliant' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END, g.hostname`));
+  const d = (v: any) => (v ? new Date(v).toLocaleString("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
+  const STATE: Record<string, string> = { compliant: "Compliant", non_compliant: "Not compliant", unknown: "Not checked yet", not_applicable: "Not applicable (server)" };
+  const out = rows.map(g => {
+    const c = g.compliance || {}; const failed = new Map((c.failed || []).map((f: any) => [f.key, f])); const unknown = new Set((c.unknown || []).map((u: any) => u.key));
+    const row: Record<string, any> = { "Device": g.hostname, "Asset tag": g.asset_tag || "Not linked", "Employee": g.employee || "", "Employee code": g.employee_code || "", "Email": g.email || "",
+      "Department": g.department || g.asset_dept || "", "Designation": g.designation || "", "Location": g.location || "", "Signed-in user": g.last_user || "", "Type": g.platform || "", "Serial number": g.serial_number || "",
+      "Agent version": g.agent_version || "", "Last report": d(g.last_seen_at), "Compliance": STATE[g.state] || g.state, "Rules met": c.total ? `${c.passed} of ${c.total}` : "",
+      "Rules not met": (c.failed || []).map((f: any) => f.label).join("; "), "Policy version": c.version ? `v${c.version}` : "", "Checked": d(c.at) };
+    for (const r of rules) {
+      const f: any = failed.get(r.key);
+      row[r.label + (r.unit && r.value !== undefined ? ` (${r.value} ${r.unit})` : "")] = g.state === "not_applicable" ? "N/A" : !c.at ? "Not checked" : f ? `Fail${f.detail ? ": " + f.detail : ""}` : unknown.has(r.key) ? "Not reported" : "Pass";
+    }
+    return row;
+  });
+  const by = await getPerformedBy(uid(req)).catch(() => "System");
+  const fmt = qs(req.query.format) === "xlsx" ? "xlsx" : "csv"; const name = `IT_Hub_Device_Compliance_${new Date().toISOString().slice(0, 10)}.${fmt}`;
+  void logAudit({ entityType: "device_policy", entityId: p.id, action: "export", performedBy: by, summary: `Compliance report downloaded (${out.length} devices, ${fmt.toUpperCase()}, policy v${p.version})` }).catch(() => {});
+  const XLSX = await import("xlsx"); const ws = XLSX.utils.json_to_sheet(out.length ? out : [{ Device: "No devices" }]);
+  res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+  if (fmt === "csv") { res.setHeader("Content-Type", "text/csv; charset=utf-8"); return res.send("\uFEFF" + XLSX.utils.sheet_to_csv(ws)); }
+  ws["!cols"] = Object.keys(out[0] || { Device: 1 }).map(k => ({ wch: Math.min(36, Math.max(10, k.length + 2)) })); ws["!autofilter"] = { ref: ws["!ref"] as string };
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Compliance");
+  const sum = [["Policy", p.name], ["Version", `v${p.version}`], ["Devices", out.length], ...Object.entries(STATE).map(([k, l]) => [l, rows.filter(r => r.state === k).length])];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sum), "Summary");
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.send(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+}));
+
 /* ── software & licences ── */
 router.get("/software/apps", requireAuth, wrap(async (req, res) => {
   if (!await canView(req)) return fail(res, 403, "No access");

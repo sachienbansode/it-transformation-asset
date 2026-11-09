@@ -9,6 +9,7 @@ import { route, RoutingError, isMember, teamIdsOf, teamByName, teamById, userByN
 import { z } from "zod";
 import { fmtDateTime } from "../lib/dates";
 import { slaConfig, slaInfo, slaColumns, pauseColumns, clearSlaCache } from "../lib/itsm-sla";
+import { pickWorkflow, wfStart, wfCheckStatus, wfAfterStatus } from "../lib/itsm-workflow";
 
 /*
  * IT Service Management API.
@@ -313,14 +314,17 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
     await history(kind, row.id, who.label, `${TYPE_NAME[kind]} raised by ${who.name}${row.assignedGroup || row.assignedTo ? ` — assigned to ${[row.assignedTo, row.assignedGroup].filter(Boolean).join(" / ")}` : ""}`, null, row.status, tx);
     return row;
   });
-  const pending = await createApprovalRecords(kind, item.id, item, who.label);
+  // ITH-101: a matching published workflow runs the ticket (approvals, escalation, assignment come from the workflow)
+  const wf = await pickWorkflow(kind, item);
+  const pending = wf ? 0 : await createApprovalRecords(kind, item.id, item, who.label);
   let out = item;
   if (pending > 0 && (kind === "change" || kind === "request")) {
     [out] = await db.update(TABLE[kind]).set({ status: "Pending Approval", ...(SLA_KINDS.includes(kind) ? pauseColumns(kind, item, "Pending Approval", await slaConfig(), new Date(item.createdAt)) : {}) }).where(eq(TABLE[kind].id, item.id)).returning();
-  } else if (pending === 0 && kind === "change") {
+  } else if (pending === 0 && kind === "change" && !wf) {
     [out] = await db.update(itsmChangesTable).set({ approvalStatus: "Approved", approvedBy: "No approval required" }).where(eq(itsmChangesTable.id, item.id)).returning();
   }
-  if (kind === "incident" && item.priority === "Critical" && item.severity === "S1") {
+  if (wf) { await wfStart(kind, item.id, who.label); [out] = await db.select().from(TABLE[kind]).where(eq(TABLE[kind].id, item.id)); }
+  else if (kind === "incident" && item.priority === "Critical" && item.severity === "S1") {
     [out] = await db.update(itsmIncidentsTable).set({ status: "Escalated" }).where(eq(itsmIncidentsTable.id, item.id)).returning();
     await history(kind, item.id, "System", "Auto-escalated: Critical / S1 incident needs immediate attention", "Open", "Escalated");
   }
@@ -394,6 +398,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     if (kind === "request" && to === "Completed" && !s(body.fulfillmentNotes ?? old.fulfillmentNotes)) throw new Bad("Fulfilment notes are required to complete a request");
     if (kind === "change" && ["Scheduled", "In Progress", "Completed"].includes(to) && old.approvalStatus !== "Approved") throw new Bad("Change request must be approved before it is scheduled or implemented");
     await assertApproved(kind, id, to);
+    await wfCheckStatus(kind, id, old.status, to, isItsmAdmin(await getAccess(req)));
   }
   const updates: any = { ...body, ...extra, updatedBy: who.label, updatedAt: new Date() };
   if (kind === "incident" && to === "Resolved" && old.status !== "Resolved") updates.resolvedAt = new Date();
@@ -416,6 +421,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if ((old.assignedGroup || null) !== (item.assignedGroup || null)) await history(kind, id, who.label, `Passed to team ${item.assignedGroup || "(none)"} from ${old.assignedGroup || "(none)"}${s(req.body?.transferReason) ? ` — ${s(req.body.transferReason)}` : ""}`);
   if ((old.assignedTo || null) !== (item.assignedTo || null)) await history(kind, id, who.label, item.assignedTo ? `Assigned to ${item.assignedTo}${old.assignedTo ? ` (was ${old.assignedTo})` : ""}` : `Unassigned (was ${old.assignedTo})`);
   if (old.priority && item.priority && old.priority !== item.priority) await history(kind, id, who.label, `Priority ${old.priority} → ${item.priority}`);
+  if (old.status !== item.status) await wfAfterStatus(kind, id, old.status, item.status, who.label, isItsmAdmin(await getAccess(req)));
   for (const ev of events) void notifyTicket(kind, item, ev, transferReason);
   const changed = [...Object.keys(body), ...Object.keys(extra)].filter(k => String(old[k] ?? "") !== String(item[k] ?? ""));
   if (changed.length) await audit({ entityType: ENTITY[kind], entityId: id, action: "update", performedBy: who.label, summary: `Updated ${old[NO[kind][3]]}: ${changed.join(", ")}`, newValues: { changed: Object.fromEntries(changed.map(k => [k, { from: old[k], to: item[k] }])) } });

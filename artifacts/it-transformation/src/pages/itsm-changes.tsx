@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketWorkflow } from "@/components/ticket-workflow";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -327,6 +328,7 @@ export default function ItsmChanges() {
                   <div className="text-sm text-teal-800 dark:text-teal-300 whitespace-pre-wrap">{viewModal.testPlan}</div>
                 </div>
               )}
+              <TicketWorkflow kind="change" id={viewModal.id} ticketNo={viewModal.changeNo} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Change Request" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Change Request" ticketId={viewModal.id} readonly />

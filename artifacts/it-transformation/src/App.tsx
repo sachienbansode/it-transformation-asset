@@ -37,6 +37,7 @@ import AssetHandovers from "@/pages/asset-handovers";
 import AssetEmployees from "@/pages/asset-employees";
 import AssetAgents from "@/pages/asset-agents";
 import DevicePolicy from "@/pages/device-policy";
+import ItsmWorkflows from "@/pages/itsm-workflows";
 import SoftwareCompliance from "@/pages/software-compliance";
 import AgentKeys from "@/pages/agent-keys";
 import AgentChats from "@/pages/agent-chats";
@@ -194,6 +195,7 @@ function Router() {
               <Route path="/itsm-chats" component={G.itsmChats} />
               <Route path="/asset-agents" component={G.agents} />
               <Route path="/device-policy" component={G.devicePolicy} />
+              <Route path="/itsm-workflows" component={ItsmWorkflows} />
               <Route path="/software-compliance" component={G.software} />
               <Route path="/my-assets" component={MyAssets} />
               <Route path="/a/:tag" component={AssetScan} />

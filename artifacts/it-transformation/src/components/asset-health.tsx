@@ -314,6 +314,9 @@ function DeviceDetails({ h, a, thresholds, latest, minDisk }: { h: any; a: any; 
       </Group>
       <Group title="NIYTRI Agent" icon={Clock} badge={<span className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5", !ag.version ? "bg-slate-100 text-slate-600" : tasksOk && !old ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{!ag.version ? (a.agentVersion ? `Agent ${a.agentVersion}` : "Not reported yet") : tasksOk ? (old ? "Update pending" : "Running") : "Needs attention"}</span>}>
         <Row k="Version" v={!a.agentVersion ? "Not reported yet" : `${a.agentVersion}${latest ? (old ? ` — ${latest} available (updates itself)` : " — latest") : ""}`} tone={!a.agentVersion ? undefined : old ? "warn" : "good"} />
+        {old && <Row k="Update" v={a.updateFetchedAt && (!a.lastSeenAt || new Date(a.updateFetchedAt) <= new Date(a.lastSeenAt) || Date.now() - new Date(a.updateFetchedAt).getTime() > 5 * 60e3)
+          ? `${a.updateFetchedVersion || latest} downloaded ${ago(a.updateFetchedAt)} but not applied — see agent.log on the computer (checksum or antivirus)`
+          : a.updateFetchedAt ? `Downloading ${a.updateFetchedVersion || latest}…` : "Not downloaded yet — at the next health report"} tone={a.updateFetchedAt ? "bad" : "warn"} />}
         <Row k="Last full report" v={a.lastSeenAt ? `${fmtDateTime(a.lastSeenAt)} (${ago(a.lastSeenAt)})` : "never"} />
         {a.lastPulseAt && <Row k="Last online signal" v={`${fmtDateTime(a.lastPulseAt)} (${ago(a.lastPulseAt)})`} />}
         {tasks.map(([k, v]) => <Row key={k} k={({ "IT Hub Agent": "Health report task", "IT Hub Agent Usage": "Tray & usage task", "IT Hub Agent Pulse": "Online signal task" } as Record<string, string>)[k] || k} v={v} tone={/Ready|Running/i.test(v) ? "good" : "bad"} />)}

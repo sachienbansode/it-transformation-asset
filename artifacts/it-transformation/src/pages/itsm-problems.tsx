@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketWorkflow } from "@/components/ticket-workflow";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useLocation } from "wouter";
@@ -323,6 +324,7 @@ export default function ItsmProblems() {
                   <div className="text-sm text-amber-800 dark:text-amber-300">{viewModal.workaround}</div>
                 </div>
               )}
+              <TicketWorkflow kind="problem" id={viewModal.id} ticketNo={viewModal.problemNo} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Problem" ticketId={viewModal.id} readonly />

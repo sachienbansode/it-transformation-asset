@@ -2,6 +2,7 @@ import { createApp } from "./app";
 import { logger } from "./lib/logger";
 import { seedProductionDatabase } from "./seed-production";
 import { startItsmMonitor } from "./lib/itsm-monitor";
+import { startWorkflowSweep } from "./lib/itsm-workflow";
 import { startAgentSweep } from "./routes/asset-agent";
 import { startPushDispatcher } from "./lib/webpush";
 
@@ -29,6 +30,7 @@ createApp()
       }
       logger.info({ port }, "Server listening");
       startItsmMonitor();
+      startWorkflowSweep();
       startAgentSweep();
       startPushDispatcher();
     });

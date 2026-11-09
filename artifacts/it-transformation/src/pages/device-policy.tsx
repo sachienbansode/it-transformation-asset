@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
-import { ShieldCheck, ShieldAlert, HelpCircle, RefreshCw, Save, Search, Loader2 } from "lucide-react";
+import { ShieldCheck, ShieldAlert, HelpCircle, RefreshCw, Save, Search, Loader2, Download } from "lucide-react";
 
 /* ITH-098 — IT Assets › Device Policy: the company end-user device policy (rules the agent's data is checked against)
    and which devices comply. Editing: Super Admin and IT Asset Admin. Every save bumps the version and re-checks all devices. */
@@ -28,14 +28,23 @@ export function ComplianceBadge({ state }: { state?: string | null }) {
   return <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", s.cls)}><I className="w-3 h-3" />{s.label}</span>;
 }
 
+async function downloadReport(fmt: "csv" | "xlsx") {
+  const r = await fetch(`/api/device-policy/report?format=${fmt}`, { credentials: "include" });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Download failed (${r.status})`);
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await r.blob()), download: `IT_Hub_Device_Compliance_${new Date().toISOString().slice(0, 10)}.${fmt}` }); a.click(); URL.revokeObjectURL(a.href);
+}
+
 export default function DevicePolicy() {
+  const { toast } = useToast();
+  const dl = (f: "csv" | "xlsx") => downloadReport(f).catch(e => toast({ title: "Download failed", description: e.message, variant: "destructive" }));
   const [tab, setTab] = useState<"policy" | "devices">("devices");
   const { data: pol, error } = useQuery({ queryKey: ["device-policy"], queryFn: () => apiFetch<any>("/device-policy"), retry: false });
   if (error) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">{(error as Error).message}</CardContent></Card>;
   const c = pol?.counts || {};
   return (
     <div className="space-y-4 max-w-7xl">
-      <PageHero icon={ShieldCheck} tone="green" title="Device Policy" subtitle={<>The company end-user device policy. The NIYTRI agent's data from every computer is checked against it; failed rules show on the device and raise tickets.</>} />
+      <PageHero icon={ShieldCheck} tone="green" title="Device Policy" subtitle={<>The company end-user device policy. The NIYTRI agent's data from every computer is checked against it; failed rules show on the device and raise tickets.</>}
+        right={<div className="flex gap-1.5"><Button size="sm" variant="outline" onClick={() => dl("csv")}><Download className="w-4 h-4 mr-1" />Compliance CSV</Button><Button size="sm" variant="outline" onClick={() => dl("xlsx")}><Download className="w-4 h-4 mr-1" />Excel</Button></div>} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {[["Compliant", c.compliant || 0, "text-emerald-600"], ["Not compliant", c.non_compliant || 0, "text-red-600"], ["Not checked yet", c.unknown || 0, "text-slate-500"], ["Servers (not applicable)", c.not_applicable || 0, "text-slate-500"]].map(([l, v, cl]) =>
           <div key={l as string} className="rounded-xl border bg-card px-3.5 py-3"><div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div><div className={cn("text-2xl font-bold mt-1", cl as string)}>{v as any}</div></div>)}

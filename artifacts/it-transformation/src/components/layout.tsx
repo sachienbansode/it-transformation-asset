@@ -1,4 +1,4 @@
-import { Info, PackageSearch } from "lucide-react";
+import { Info, PackageSearch, Workflow } from "lucide-react";
 import { usePresenceHeartbeat, useMyPresence, PresenceDot, PRESENCE_LABEL, setMyPresence } from "@/lib/presence";
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
@@ -82,6 +82,7 @@ const ITSM_ITEMS = [
   { href: "/chats?box=support", label: "Chats", icon: MessageSquare, module: "itsm_problems" },
   { href: "/itsm-my-approvals", label: "My Approvals", icon: CheckSquare, module: "itsm_my_approvals" },
   { href: "/itsm-approval", label: "Approval Workflow", icon: GitMerge, module: "itsm_approval" },
+  { href: "/itsm-workflows", label: "Workflows", icon: Workflow, module: "itsm_setup" },
   { href: "/itsm-setup", label: "ITSM Setup", icon: Wrench, module: "itsm_setup" },
 ];
 

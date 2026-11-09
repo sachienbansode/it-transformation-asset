@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketWorkflow } from "@/components/ticket-workflow";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay, useCatalog } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -312,6 +313,7 @@ export default function ItsmServiceRequests() {
                 ))}
               </div>
               {viewModal.fulfillmentNotes && (<div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200/50 dark:border-emerald-800/30 p-3"><div className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-semibold mb-1">Fulfilment notes</div><div className="text-sm text-emerald-800 dark:text-emerald-300">{viewModal.fulfillmentNotes}</div></div>)}
+              <TicketWorkflow kind="request" id={viewModal.id} ticketNo={viewModal.requestNo} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
               <TicketHistory ticketId={viewModal.id} />
               <hr className="border-border/40" />

@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { MyWorkflowApprovals } from "@/components/ticket-workflow";
 import { CheckCircle2, XCircle, Search, Inbox, Loader2, ExternalLink, Clock, UserCheck, BellRing, AlertTriangle, Trash2 } from "lucide-react";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { fmtDate } from "@/lib/date";
@@ -50,6 +51,7 @@ export default function ItsmMyApprovals() {
         </div>
         {user?.role === "admin" && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={all} onChange={e => { setAll(e.target.checked); setPage(1); }} />Show everyone's pending approvals (admin)</label>}
       </div>
+      <MyWorkflowApprovals />
       <Delegation />
       <Card><CardContent className="p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap justify-between">

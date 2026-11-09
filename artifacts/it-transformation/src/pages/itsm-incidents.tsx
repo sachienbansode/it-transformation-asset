@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketWorkflow } from "@/components/ticket-workflow";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -453,6 +454,7 @@ export default function ItsmIncidents() {
                   <div className="text-sm text-emerald-800 dark:text-emerald-300">{viewModal.resolutionNotes}</div>
                 </div>
               )}
+              <TicketWorkflow kind="incident" id={viewModal.id} ticketNo={viewModal.ticketNo} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Incident" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Incident" ticketId={viewModal.id} readonly />

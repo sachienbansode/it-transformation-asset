@@ -371,6 +371,7 @@ publicAgentRouter.get("/agent/v1/files/ITHubAgent.ps1", wrap(async (req, res) =>
   const ag = await agentFromToken(req);
   if (!ag || ag.status === "Revoked") return fail(res, 401, "Unknown device");
   const r = agentRelease(); if (!r) return fail(res, 404, "Agent not on this server");
+  await db.execute(sql`UPDATE asset_agents SET update_fetched_at = now(), update_fetched_version = ${r.version} WHERE id = ${ag.id}`).catch(() => {});
   res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.setHeader("X-Agent-Version", r.version); res.setHeader("X-Agent-Sha256", r.sha256);
   res.send(r.body);
 }));
@@ -570,7 +571,7 @@ export const ONLINE_SQL = (p: string) => sql.raw(`(${p}status = 'Active' AND gre
 export const AG_COLS = sql`id, hostname, serial_number AS "serialNumber", platform, os_name AS "osName", os_version AS "osVersion", agent_version AS "agentVersion", last_user AS "lastUser",
       last_seen_at AS "lastSeenAt", enrolled_at AS "enrolledAt", health_state AS "healthState", latest, status, software_at AS "softwareAt", manufacturer, model, asset_id AS "assetId", user_id AS "userId",
       last_pulse_at AS "lastPulseAt", refresh_requested_at AS "refreshRequestedAt", refresh_requested_by AS "refreshRequestedBy", ${ONLINE_SQL("")} AS online,
-      compliance, compliance_state AS "complianceState"`;
+      compliance, compliance_state AS "complianceState", update_fetched_at AS "updateFetchedAt", update_fetched_version AS "updateFetchedVersion"`;
 router.get("/asset-agents/:id/health", requireAuth, wrap(async (req, res) => {
   const id = Number(req.params.id); if (!Number.isInteger(id)) return fail(res, 400, "Invalid device");
   const [ag] = rowsOf(await db.execute(sql`SELECT ${AG_COLS} FROM asset_agents WHERE id = ${id}`));
