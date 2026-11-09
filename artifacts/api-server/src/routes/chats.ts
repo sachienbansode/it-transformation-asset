@@ -158,21 +158,36 @@ router.post("/chats", requireAuth, wrap(async (req, res) => {
   }
   if ((await setting("chat.directEnabled", true)) === false) return fail(res, 403, "Person-to-person chats are switched off by the administrator");
   if (m.u?.userType === "external") return fail(res, 403, "External users can reply but not start chats");
-  // one direct conversation per pair: reuse it
-  const [ex] = rowsOf(await db.execute(sql`SELECT c.* FROM device_chats c WHERE c.kind = 'direct'
-    AND EXISTS (SELECT 1 FROM chat_members a WHERE a.chat_id = c.id AND a.user_id = ${m.id}) AND EXISTS (SELECT 1 FROM chat_members z WHERE z.chat_id = c.id AND z.user_id = ${other}) LIMIT 1`));
+  // ITH-105: one direct conversation per pair — reuse it (unique pair_key also stops two being made at the same moment)
+  const pair = `${Math.min(m.id, other)}:${Math.max(m.id, other)}`;
+  const findPair = async () => rowsOf(await db.execute(sql`SELECT c.* FROM device_chats c WHERE c.kind = 'direct' AND (c.pair_key = ${pair} OR (c.pair_key IS NULL
+    AND EXISTS (SELECT 1 FROM chat_members a WHERE a.chat_id = c.id AND a.user_id = ${m.id}) AND EXISTS (SELECT 1 FROM chat_members z WHERE z.chat_id = c.id AND z.user_id = ${other}))) ORDER BY c.id LIMIT 1`))[0];
+  let ex = await findPair();
   let c = ex;
   if (!c) {
-    [c] = rowsOf(await db.execute(sql`INSERT INTO device_chats (kind, status, user_id, subject, opened_by, opened_by_id) VALUES ('direct', 'Active', ${m.id}, ${`${name} ↔ ${o.name}`}, ${name}, ${m.id}) RETURNING *`));
-    await db.execute(sql`INSERT INTO chat_members (chat_id, user_id) VALUES (${c.id}, ${m.id}), (${c.id}, ${other}) ON CONFLICT DO NOTHING`);
-    await audit({ entityType: "device_chat", entityId: c.id, action: "open_direct", performedBy: name, summary: `Direct chat #${c.id} started with ${o.name}` });
-  } else if (c.status === "Closed") await db.execute(sql`UPDATE device_chats SET status = 'Active', closed_at = NULL, closed_by = NULL WHERE id = ${c.id}`);
+    [c] = rowsOf(await db.execute(sql`INSERT INTO device_chats (kind, status, user_id, subject, opened_by, opened_by_id, pair_key) VALUES ('direct', 'Active', ${m.id}, ${`${name} ↔ ${o.name}`}, ${name}, ${m.id}, ${pair})
+      ON CONFLICT (pair_key) WHERE kind = 'direct' DO NOTHING RETURNING *`));
+    if (c) {
+      await db.execute(sql`INSERT INTO chat_members (chat_id, user_id) VALUES (${c.id}, ${m.id}), (${c.id}, ${other}) ON CONFLICT DO NOTHING`);
+      await audit({ entityType: "device_chat", entityId: c.id, action: "open_direct", performedBy: name, summary: `Direct chat #${c.id} started with ${o.name}` });
+    } else { ex = await findPair(); c = ex; }
+  }
+  if (ex && !ex.pair_key) await db.execute(sql`UPDATE device_chats SET pair_key = ${pair} WHERE id = ${ex.id}`);
+  if (ex && c.status === "Closed") await db.execute(sql`UPDATE device_chats SET status = 'Active', closed_at = NULL, closed_by = NULL WHERE id = ${c.id}`);
   if (tooFast(m.id)) return fail(res, 429, "Too many messages — wait a minute");
   await post(c, "Member", m.id, name, msg);
   await notify(other, `New message from ${name}`, "Open Chats to read and reply.", `/chats?c=${c.id}`);
   res.status(ex ? 200 : 201).json({ id: c.id, existing: !!ex });
 }));
 
+/** ITH-105 — the existing direct chat with a person, if any (the New chat dialog opens it instead of making another). */
+router.get("/chats/direct-with/:userId", requireAuth, wrap(async (req, res) => {
+  const m = await me(req); const other = Number(req.params.userId); if (!other) return fail(res, 400, "Choose a person");
+  const pair = `${Math.min(m.id, other)}:${Math.max(m.id, other)}`;
+  const [c] = rowsOf(await db.execute(sql`SELECT c.id, c.status, c.last_msg_at AS "lastMsgAt" FROM device_chats c WHERE c.kind = 'direct' AND (c.pair_key = ${pair} OR (c.pair_key IS NULL
+    AND EXISTS (SELECT 1 FROM chat_members a WHERE a.chat_id = c.id AND a.user_id = ${m.id}) AND EXISTS (SELECT 1 FROM chat_members z WHERE z.chat_id = c.id AND z.user_id = ${other}))) ORDER BY c.id LIMIT 1`));
+  res.json(c || null);
+}));
 /** One chat with messages and attachments. Super Admin views of chats they are not part of are audited. */
 router.get("/chats/:id", requireAuth, wrap(async (req, res) => {
   const m = await me(req); const id = Number(req.params.id);

@@ -171,13 +171,15 @@ export function NewChatDialog({ staff, onClose, onStarted }: { staff: boolean; o
   const { data: people = [] } = useQuery({ queryKey: ["chat-people", q], queryFn: () => apiFetch<any[]>(`/chats/people?q=${encodeURIComponent(q.trim())}`), enabled: (kind === "direct" || kind === "support") && q.trim().length > 1 });
   const { data: team } = useQuery({ queryKey: ["chat-support-team"], queryFn: () => apiFetch<any>("/chats-support-team") });
   const peoplePres = usePresence(people.map((p: any) => p.id));
+  // ITH-105 — one thread per pair: if you already chat with this person, the message goes into that thread
+  const { data: existing } = useQuery({ queryKey: ["chat-direct-with", who?.id], enabled: kind === "direct" && !!who, queryFn: () => apiFetch<any>(`/chats/direct-with/${who.id}`) });
   const short = (t: string) => (t.length > 160 ? t.slice(0, 157) + "…" : t);
   async function go() {
     setBusy(true);
     try {
       const body = kind === "help" ? { kind: "support-request", subject: subject.trim() || undefined, message: msg.trim() } : { kind, userId: who.id, message: msg.trim(), subject: subject.trim() || undefined };
       const say = kind === "help" ? `Send an IT support request to ${team?.team?.name || "the IT support team"}${subject.trim() ? ` about “${subject.trim()}”` : ""}, starting with the message:\n“${short(msg.trim())}”`
-        : `${kind === "support" ? "Start an IT support chat with" : "Start a chat with"} ${who.name}${subject.trim() ? ` about “${subject.trim()}”` : ""}, starting with the message:\n“${short(msg.trim())}”`;
+        : kind === "direct" && existing?.id ? `Send to your chat with ${who.name}:\n“${short(msg.trim())}”` : `${kind === "support" ? "Start an IT support chat with" : "Start a chat with"} ${who.name}${subject.trim() ? ` about “${subject.trim()}”` : ""}, starting with the message:\n“${short(msg.trim())}”`;
       const r = await apiFetch<any>("/chats", { method: "POST", body: JSON.stringify(body), headers: confirmHeader(say) });
       toast({ title: kind === "help" ? `Sent to ${r.team || "IT support"}` : r.existing ? `Added to your chat with ${who.name}` : "Chat started" }); onStarted(r.id);
     } catch (e: any) { if (!e.cancelled) toast({ title: "Could not start chat", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
@@ -200,13 +202,16 @@ export function NewChatDialog({ staff, onClose, onStarted }: { staff: boolean; o
         {(kind === "direct" || kind === "support") && (who ? <div className="flex items-center gap-2 rounded-lg border p-2 text-sm"><Avatar name={who.name} /><div className="flex-1"><b>{who.name}</b>{who.employeeCode ? ` · ${who.employeeCode}` : ""}<div className="text-xs text-muted-foreground">{[who.designation, who.department].filter(Boolean).join(" · ")}</div></div><Button size="sm" variant="ghost" onClick={() => setWho(null)}>Change</Button></div>
           : <><Input autoFocus placeholder="Search name, employee code or email…" value={q} onChange={e => setQ(e.target.value)} />
             {people.length > 0 && <div className="border rounded-lg divide-y max-h-52 overflow-y-auto">{people.map((p: any) => <button key={p.id} onClick={() => { setWho(p); setQ(""); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 flex gap-2 items-center"><Avatar name={p.name} /><PresenceDot status={peoplePres(p.id)} ring={false} /><span className="flex-1">{p.name}<span className="text-xs text-muted-foreground"> · {[p.employeeCode, p.department].filter(Boolean).join(" · ")}</span></span></button>)}</div>}</>)}
+        {kind === "direct" && who && existing?.id && <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs flex items-center gap-2">
+          <span className="flex-1">You already have a chat with {who.name}{existing.lastMsgAt ? ` (last message ${fmtDateTime(existing.lastMsgAt)})` : ""}. Your message is added to it — no new thread.</span>
+          <Button size="sm" variant="outline" className="h-7" onClick={() => onStarted(existing.id)}>Open chat</Button></div>}
         {(kind === "help" || kind === "support") && !noTeam && <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject, e.g. Outlook keeps asking for password" />}
         {!noTeam && <Textarea rows={4} value={msg} onChange={e => setMsg(e.target.value)} placeholder={kind === "help" ? "Describe the problem" : "First message"} />}
       </div>}
       <DialogFooter>
         {kind && <Button variant="ghost" className="mr-auto" onClick={() => setKind(null)} disabled={busy}>Back</Button>}
         <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-        {kind && <Button onClick={go} disabled={busy || !!noTeam || !msg.trim() || ((kind === "direct" || kind === "support") && !who)} className="gap-1">{busy && <Loader2 className="w-4 h-4 animate-spin" />}{kind === "help" ? "Send to IT support" : "Start chat"}</Button>}
+        {kind && <Button onClick={go} disabled={busy || !!noTeam || !msg.trim() || ((kind === "direct" || kind === "support") && !who)} className="gap-1">{busy && <Loader2 className="w-4 h-4 animate-spin" />}{kind === "help" ? "Send to IT support" : kind === "direct" && existing?.id ? "Send" : "Start chat"}</Button>}
       </DialogFooter>
     </DialogContent></Dialog>
   );
