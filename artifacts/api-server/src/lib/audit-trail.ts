@@ -20,12 +20,14 @@ const NAMES: Record<string, string> = {
   "knowledge-base": "knowledge_base", "sla-policies": "sla_policy", "approval-matrix": "approval_matrix", approvals: "approval", "my-approvals": "approval", policies: "policy", "my-policies": "policy_decision",
   users: "user", admin: "admin", roles: "role", "user-roles": "role", applications: "application", roadmap: "roadmap", checklist: "checklist", kpis: "kpi", settings: "setting", push: "push", "my-it-chats": "device_chat", auth: "auth",
 };
-function clean(v: any, depth = 0): any {
+const CHAT = /chats|my-it-chats/;   // chat text is never copied into the audit log (it stays encrypted in the chat)
+const CHAT_FIELDS = /^(message|body|subject|resolution|note|reason)$/i;
+function clean(v: any, depth = 0, chat = false): any {
   if (v === null || typeof v !== "object") return typeof v === "string" && v.length > 500 ? v.slice(0, 500) + "…" : v;
-  if (Array.isArray(v)) return v.length > 20 ? { items: v.length, first: clean(v[0], depth + 1) } : v.map(x => clean(x, depth + 1));
+  if (Array.isArray(v)) return v.length > 20 ? { items: v.length, first: clean(v[0], depth + 1, chat) } : v.map(x => clean(x, depth + 1, chat));
   if (depth > 3) return "…";
   const o: any = {};
-  for (const [k, x] of Object.entries(v)) o[k] = SECRET.test(k) ? "[hidden]" : clean(x, depth + 1);
+  for (const [k, x] of Object.entries(v)) o[k] = SECRET.test(k) ? "[hidden]" : chat && CHAT_FIELDS.test(k) ? `[${String(x ?? "").length} characters — not stored]` : clean(x, depth + 1, chat);
   return o;
 }
 function describe(method: string, path: string) {
@@ -48,7 +50,7 @@ export function auditTrail(req: Request, res: Response, next: NextFunction) {
     const d = describe(method, path);
     void (async () => {
       const who = userId ? await getPerformedBy(userId).catch(() => `User #${userId}`) : (/^\/agent\//.test(path) ? "Device agent" : "Not signed in");
-      let body: any = clean(req.body && typeof req.body === "object" ? req.body : undefined);
+      let body: any = clean(req.body && typeof req.body === "object" ? req.body : undefined, 0, CHAT.test(path));
       if (body && JSON.stringify(body).length > 6000) body = { fields: Object.keys(req.body || {}), note: "large request — details not stored" };
       await db.insert(auditLogsTable).values({
         entityType: d.entityType, entityId: d.entityId, action: denied ? `denied_${d.action}` : d.action, performedBy: who,

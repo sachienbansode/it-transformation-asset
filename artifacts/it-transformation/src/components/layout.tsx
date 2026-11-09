@@ -6,6 +6,7 @@ import { useCurrency } from "@/contexts/currency-context";
 import { useTheme } from "@/contexts/theme-context";
 import { PolicyGate } from "@/components/policy-gate";
 import { PushPrompt } from "@/pages/my-policies";
+import { ChatPopup } from "@/components/device-chat";
 import {
   LayoutDashboard, CheckSquare, Map, Archive, Server,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
@@ -74,6 +75,7 @@ const ITSM_ITEMS = [
   { href: "/itsm-kb", label: "Knowledge Base", icon: BookOpen, module: "itsm_kb" },
   { href: "/itsm-sla", label: "SLA Policies", icon: Shield, module: "itsm_sla" },
   { href: "/itsm-requests", label: "Service Requests", icon: Clock, module: "itsm_requests" },
+  { href: "/itsm-chats", label: "IT Chats", icon: MessageSquare, module: "itsm_incidents" },
   { href: "/itsm-my-approvals", label: "My Approvals", icon: CheckSquare, module: "itsm_my_approvals" },
   { href: "/itsm-approval", label: "Approval Workflow", icon: GitMerge, module: "itsm_approval" },
   { href: "/itsm-setup", label: "ITSM Setup", icon: Wrench, module: "itsm_setup" },
@@ -575,6 +577,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <PushPrompt />
             {children}
             <PolicyGate />
+            <ChatPopup />
           </div>
           <footer className="shrink-0 border-t border-border/40 px-5 py-2 text-center text-[10px] text-muted-foreground/60">
             &copy; 2026 NIYTRI Technologies. All rights reserved.

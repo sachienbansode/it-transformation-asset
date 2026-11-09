@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/contexts/auth-context";
 import { Link } from "wouter";
 import { fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
@@ -23,8 +24,8 @@ export const CHAT_TONE: Record<string, string> = {
 export function ChatStatus({ status }: { status: string }) { return <span className={cn("px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap", CHAT_TONE[status])}>{status}</span>; }
 
 /** One conversation. mode "it" = IT Hub staff view, "me" = the employee's view. */
-export function ChatThread({ chatId, mode, onChanged }: { chatId: number; mode: "it" | "me"; onChanged?: () => void }) {
-  const qc = useQueryClient(); const { toast } = useToast();
+export function ChatThread({ chatId, mode, onChanged, compact = false }: { chatId: number; mode: "it" | "me"; onChanged?: () => void; compact?: boolean }) {
+  const qc = useQueryClient(); const { toast } = useToast(); const { user } = useAuth();
   const base = mode === "it" ? `/asset-agents/chats/${chatId}` : `/my-it-chats/${chatId}`;
   const { data, isLoading } = useQuery({ queryKey: ["device-chat", mode, chatId], queryFn: () => apiFetch<any>(base), refetchInterval: 15_000 });
   const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
@@ -39,9 +40,11 @@ export function ChatThread({ chatId, mode, onChanged }: { chatId: number; mode: 
   }
   async function send() { if (!msg.trim()) return; if (await act("/messages", { message: msg.trim() })) setMsg(""); }
   if (isLoading || !c) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
-  const canWrite = mode === "it" ? true : c.status === "Waiting on employee" || c.status === "Waiting on IT";
+  const self = mode === "it" && c.userId === user?.id;   // IT person viewing a chat about themselves: read-only here
+  const canWrite = mode === "it" ? !self : c.status === "Waiting on employee" || c.status === "Waiting on IT";
   return (
-    <div className="flex flex-col h-full min-h-[460px]">
+    <div className={cn("flex flex-col h-full", compact ? "" : "min-h-[460px]")}>
+      {compact ? <div className="text-[11px] text-muted-foreground border-b pb-1.5 mb-1.5 flex gap-2 flex-wrap"><ChatStatus status={c.status} /><span>{[mode === "it" ? `${c.employeeCode || ""} ${c.userName}`.trim() : null, c.hostname, c.ticketNo].filter(Boolean).join(" · ")}</span></div> :
       <div className="border-b pb-3 mb-2 space-y-2">
         <div className="flex items-center gap-2 flex-wrap"><MessageSquare className="w-4 h-4 text-primary" /><span className="font-semibold text-base">{c.subject}</span><ChatStatus status={c.status} /><span className="text-xs text-muted-foreground ml-auto">#{c.id}</span></div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
@@ -50,8 +53,8 @@ export function ChatThread({ chatId, mode, onChanged }: { chatId: number; mode: 
           <Info l="Ticket" v={c.ticketNo ? (mode === "it" ? <Link href={`/itsm-incidents?q=${c.ticketNo}`} className="text-primary underline">{c.ticketNo}</Link> : c.ticketNo) : "—"} sub={c.alertMessage} />
           <Info l="Opened" v={c.openedBy} sub={fmtDateTime(c.openedAt)} />
         </div>
-      </div>
-      <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[260px] max-h-[calc(100vh-430px)]">
+      </div>}
+      <div className={cn("flex-1 overflow-y-auto space-y-2 pr-1", compact ? "min-h-[200px] max-h-[300px]" : "min-h-[260px] max-h-[calc(100vh-380px)]")}>
         {msgs.map((m, i) => { const day = dayOf(m.at); const showDay = i === 0 || dayOf(msgs[i - 1].at) !== day; const mine = mode === "it" ? m.side === "IT" : m.side === "Employee";
           return <React.Fragment key={m.id}>
             {showDay && <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1"><div className="flex-1 border-t" />{day}<div className="flex-1 border-t" /></div>}
@@ -72,12 +75,12 @@ export function ChatThread({ chatId, mode, onChanged }: { chatId: number; mode: 
         {canWrite ? <div className="flex gap-2 items-end">
           <Textarea rows={2} className="flex-1" placeholder={mode === "it" ? "Message to the employee…" : "Reply to IT…"} value={msg} onChange={e => setMsg(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }} />
           <Button onClick={send} disabled={busy || !msg.trim()} className="gap-1">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}Send</Button>
-        </div> : c.status === "Resolved" ? <div className="text-sm text-muted-foreground">{c.resolvedBy} marked this resolved: {c.resolution}</div>
+        </div> : self ? <div className="text-sm text-amber-700">This chat is about you — reply from My IT Chats. Another IT team member handles the IT side.</div> : c.status === "Resolved" ? <div className="text-sm text-muted-foreground">{c.resolvedBy} marked this resolved: {c.resolution}</div>
           : <div className="text-sm text-muted-foreground">This chat is closed{c.closeNote ? ` — ${c.closeNote}` : ""}. IT will contact you here if anything else is needed.</div>}
         <div className="flex gap-2 flex-wrap">
-          {mode === "it" && !["Resolved", "Closed"].includes(c.status) && <Button size="sm" variant="outline" className="gap-1" disabled={busy} onClick={async () => { const r = await reasonDialog("How was it resolved? The employee is asked to confirm, or can re-open it.", { title: "Mark resolved", confirmText: "Mark resolved", label: "Resolution", minLength: 5 }); if (r) act("/resolve", { resolution: r }, "Marked resolved"); }}><CheckCircle2 className="w-3.5 h-3.5" />Mark resolved</Button>}
+          {mode === "it" && !self && !["Resolved", "Closed"].includes(c.status) && <Button size="sm" variant="outline" className="gap-1" disabled={busy} onClick={async () => { const r = await reasonDialog("How was it resolved? The employee is asked to confirm, or can re-open it.", { title: "Mark resolved", confirmText: "Mark resolved", label: "Resolution", minLength: 5 }); if (r) act("/resolve", { resolution: r }, "Marked resolved"); }}><CheckCircle2 className="w-3.5 h-3.5" />Mark resolved</Button>}
           {mode === "it" && <Button size="sm" variant="ghost" className="gap-1" onClick={async () => { const r = await fetch(`/api/asset-agents/chats/${chatId}/transcript`, { credentials: "include" }); if (!r.ok) return; const u = URL.createObjectURL(await r.blob()); Object.assign(document.createElement("a"), { href: u, download: `it_chat_${chatId}.csv` }).click(); URL.revokeObjectURL(u); }}><Download className="w-3.5 h-3.5" />Transcript</Button>}
-          {mode === "it" && c.status !== "Closed" && <Button size="sm" variant="ghost" className="gap-1" disabled={busy} onClick={async () => { const r = await reasonDialog("Close this chat? The employee can no longer reply.", { title: "Close chat", confirmText: "Close", label: "Reason", minLength: 5 }); if (r) act("/close", { note: r }, "Chat closed"); }}><XCircle className="w-3.5 h-3.5" />Close</Button>}
+          {mode === "it" && !self && c.status !== "Closed" && <Button size="sm" variant="ghost" className="gap-1" disabled={busy} onClick={async () => { const r = await reasonDialog("Close this chat? The employee can no longer reply.", { title: "Close chat", confirmText: "Close", label: "Reason", minLength: 5 }); if (r) act("/close", { note: r }, "Chat closed"); }}><XCircle className="w-3.5 h-3.5" />Close</Button>}
           {mode === "me" && c.status === "Resolved" && <>
             <Button size="sm" className="gap-1" disabled={busy} onClick={() => act("/confirm", {}, "Thanks — closed")}><CheckCircle2 className="w-3.5 h-3.5" />Yes, it's fixed</Button>
             <Button size="sm" variant="outline" className="gap-1" disabled={busy} onClick={async () => { const r = await reasonDialog("What is still not working?", { title: "Re-open", confirmText: "Re-open", label: "Message to IT", minLength: 5 }); if (r) act("/reopen", { message: r }, "Re-opened"); }}><RotateCcw className="w-3.5 h-3.5" />Not fixed — re-open</Button></>}
@@ -150,6 +153,81 @@ export function ChatInbox({ mode, agentId }: { mode: "it" | "me"; agentId?: numb
         </div>
       </div>
       <div className="border rounded-lg p-4 bg-card">{sel ? <ChatThread key={sel} chatId={sel} mode={mode} /> : <div className="p-10 text-center text-sm text-muted-foreground"><MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-40" />Select a conversation on the left.</div>}</div>
+    </div>
+  );
+}
+
+/** Paginated chat list (10 a page) with search and status filter; row opens the conversation. */
+export function ChatTable({ mode }: { mode: "it" | "me" }) {
+  const base = mode === "it" ? "/asset-agents/chats" : "/my-it-chats";
+  const [q, setQ] = useState(""); const [term, setTerm] = useState(""); const [st, setSt] = useState("Open"); const [page, setPage] = useState(1);
+  const [sel, setSel] = useState<number | null>(() => Number(new URLSearchParams(window.location.search).get("c")) || null);
+  useEffect(() => { const t = setTimeout(() => { setTerm(q.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
+  const { data, isLoading } = useQuery({ queryKey: [mode === "it" ? "device-chats" : "my-it-chats", "page", term, st, page], queryFn: () => apiFetch<any>(`${base}?${new URLSearchParams({ q: term, status: st, page: String(page), pageSize: "10" })}`), refetchInterval: 20_000 });
+  const rows: any[] = data?.rows || []; const total = data?.total || 0; const pages = Math.max(1, Math.ceil(total / 10));
+  const filters = mode === "it" ? ["Open", "Waiting on IT", "Waiting on employee", "Resolved", "Closed", "All"] : ["Open", "Resolved", "Closed", "All"];
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[240px]"><Input placeholder={mode === "it" ? "Search #id, subject, employee, emp code, computer, asset, ticket…" : "Search subject, computer, ticket…"} value={q} onChange={e => setQ(e.target.value)} /></div>
+        <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px] flex-wrap">{filters.map(k => <button key={k} onClick={() => { setSt(k); setPage(1); }} className={cn("px-2.5 py-1 rounded-[8px] text-[12px]", st === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{k} <span className="text-[11px] text-muted-foreground">{data?.counts?.[k] ?? ""}</span></button>)}</div>
+      </div>
+      <div className="border rounded-lg overflow-x-auto bg-card">
+        <table className="w-full text-sm">
+          <thead><tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b bg-muted/30">
+            <th className="p-2.5 font-semibold">#</th><th className="p-2.5 font-semibold">Subject</th>{mode === "it" && <th className="p-2.5 font-semibold">Employee</th>}<th className="p-2.5 font-semibold">Computer</th><th className="p-2.5 font-semibold">Ticket</th><th className="p-2.5 font-semibold">Status</th><th className="p-2.5 font-semibold">Last message</th><th className="p-2.5 font-semibold">Last activity</th><th className="p-2.5 font-semibold">Opened</th></tr></thead>
+          <tbody>
+            {isLoading && <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">Loading…</td></tr>}
+            {!isLoading && !rows.length && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground"><MessageSquare className="w-7 h-7 mx-auto mb-1 opacity-40" />{mode === "it" ? "No chats match. Start one from a device or a health item in Device Health." : "No messages from IT."}</td></tr>}
+            {rows.map(c => <tr key={c.id} onClick={() => setSel(c.id)} className={cn("border-b last:border-0 cursor-pointer hover:bg-muted/40", sel === c.id && "bg-primary/5", c.unread > 0 && "font-semibold")}>
+              <td className="p-2.5 text-xs text-muted-foreground">#{c.id}</td>
+              <td className="p-2.5"><div className="flex items-center gap-1.5">{c.subject}{c.unread > 0 && <span className="text-[10px] rounded-full bg-primary text-primary-foreground px-1.5">{c.unread} new</span>}</div></td>
+              {mode === "it" && <td className="p-2.5 text-xs"><div className="font-medium">{c.employeeCode || "—"} · {c.userName}</div><div className="text-muted-foreground font-normal">{c.department}</div></td>}
+              <td className="p-2.5 text-xs font-normal">{c.hostname}<div className="text-muted-foreground">{c.assetTag}</div></td>
+              <td className="p-2.5 text-xs font-normal">{c.ticketNo || "—"}</td>
+              <td className="p-2.5"><ChatStatus status={c.status} /></td>
+              <td className="p-2.5 text-xs font-normal text-muted-foreground max-w-[260px] truncate">{c.lastMessage}</td>
+              <td className="p-2.5 text-xs font-normal whitespace-nowrap">{fmtDateTime(c.lastMsgAt)}</td>
+              <td className="p-2.5 text-xs font-normal whitespace-nowrap">{c.openedBy}<div className="text-muted-foreground">{fmtDateTime(c.openedAt)}</div></td></tr>)}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>{total ? `${(page - 1) * 10 + 1}–${Math.min(page * 10, total)} of ${total}` : "0 chats"}</span>
+        <div className="flex gap-1 items-center"><Button size="sm" variant="outline" className="h-7" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button><span className="px-2">Page {page} of {pages}</span><Button size="sm" variant="outline" className="h-7" disabled={page >= pages} onClick={() => setPage(p => p + 1)}>Next</Button></div>
+      </div>
+      {sel && <Dialog open onOpenChange={o => !o && setSel(null)}><DialogContent className="max-w-3xl max-h-[94vh] overflow-hidden"><DialogHeader><DialogTitle className="sr-only">Chat</DialogTitle></DialogHeader><ChatThread chatId={sel} mode={mode} /></DialogContent></Dialog>}
+    </div>
+  );
+}
+
+/** Floating chat window: opens by itself when a new message arrives for me (as employee, or as the IT person on the chat). */
+export function ChatPopup() {
+  const [open, setOpen] = useState<{ id: number; mode: "it" | "me"; title: string } | null>(null); const [min, setMin] = useState(false);
+  const seen = useRef<Record<string, string>>({});
+  const { data } = useQuery({ queryKey: ["chat-unread"], queryFn: () => apiFetch<any>("/chat-unread"), refetchInterval: 15_000, refetchIntervalInBackground: false, retry: false });
+  useEffect(() => {
+    if (!data) return;
+    const items = [...(data.me || []).map((x: any) => ({ ...x, mode: "me" as const, title: `IT Support · ${x.subject}` })), ...(data.it || []).map((x: any) => ({ ...x, mode: "it" as const, title: `${x.userName} · ${x.subject}` }))]
+      .sort((a, b) => +new Date(b.lastAt) - +new Date(a.lastAt));
+    const path = window.location.pathname;
+    for (const x of items) {
+      const k = `${x.mode}${x.id}`; if (seen.current[k] === x.lastAt) continue; seen.current[k] = x.lastAt;
+      if (open?.id === x.id) { setMin(false); continue; }
+      if ((path.startsWith("/my-it-chats") || path.startsWith("/itsm-chats")) && new URLSearchParams(window.location.search).get("c") === String(x.id)) continue;
+      setOpen({ id: x.id, mode: x.mode, title: x.title }); setMin(false); break;
+    }
+  }, [data]);
+  if (!open) return null;
+  return (
+    <div className="fixed bottom-4 right-4 z-[60] w-[380px] max-w-[calc(100vw-2rem)] rounded-xl border bg-card shadow-2xl">
+      <div className="flex items-center gap-2 px-3 py-2 border-b bg-primary text-primary-foreground rounded-t-xl">
+        <MessageSquare className="w-4 h-4" /><span className="text-sm font-semibold truncate flex-1">{open.title}</span>
+        <a href={`${open.mode === "it" ? "/itsm-chats" : "/my-it-chats"}?c=${open.id}`} className="text-[11px] underline opacity-90">Open</a>
+        <button className="px-1 opacity-90" title={min ? "Expand" : "Minimise"} onClick={() => setMin(!min)}>{min ? "▴" : "▾"}</button>
+        <button className="px-1 opacity-90" title="Close" onClick={() => setOpen(null)}>✕</button>
+      </div>
+      {!min && <div className="p-3"><ChatThread key={open.id} chatId={open.id} mode={open.mode} compact /></div>}
     </div>
   );
 }

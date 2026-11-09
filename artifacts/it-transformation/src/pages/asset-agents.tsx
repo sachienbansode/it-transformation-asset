@@ -32,7 +32,7 @@ async function download(file: string) {
 
 export default function AssetAgents() {
   const qc = useQueryClient(); const { toast } = useToast(); const [, navigate] = useLocation();
-  const { canAccess } = useAuth(); const canEdit = canAccess("asset_registry", "write");
+  const { canAccess, user } = useAuth(); const canEdit = canAccess("asset_registry", "write");
   const { data, isLoading } = useQuery({ queryKey: ["asset-agents"], queryFn: () => apiFetch<any>("/asset-agents"), refetchInterval: 60_000 });
   const agents: any[] = data?.agents || []; const sum = data?.summary || {};
   const [tab, setTab] = useState<typeof TABS[number]>("All"); const [q, setQ] = useState(""); const [kind, setKind] = useState(""); const [page, setPage] = useState(1);
@@ -70,7 +70,7 @@ export default function AssetAgents() {
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={exportCsv}><Download className="w-4 h-4" />Export CSV</Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/data")}><Search className="w-4 h-4" />Device data</Button>
-          {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/chats")}><MessageSquare className="w-4 h-4" />IT chats</Button>}
+          {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/itsm-chats")}><MessageSquare className="w-4 h-4" />IT chats</Button>}
           {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/keys")}><KeyRound className="w-4 h-4" />Installation keys</Button>}
           {canEdit && <Button className="gap-2" onClick={() => setEnrol(true)}><KeyRound className="w-4 h-4" />Install agent / keys</Button>}
         </div>
@@ -133,10 +133,10 @@ export default function AssetAgents() {
             <div className="text-[11px] text-muted-foreground">{m?.src}{view.lastUser ? ` · signed in as ${view.lastUser}` : ""}</div></div>
           <div className="flex-1 min-w-[160px]"><div className="text-[11px] text-muted-foreground">Register asset</div>{view.assetTag ? <><div className="font-medium">{view.assetTag}</div><div className="text-[11px] text-muted-foreground">{view.assetStatus}{view.ownerName ? ` · ${view.ownerName}` : ""}</div></> : <span className="text-amber-700">Not linked</span>}</div>
           {canEdit && view.status !== "Revoked" && <div className="flex flex-col gap-1"><Button size="sm" variant="outline" className="gap-1" onClick={() => setLink(view)}><Link2 className="w-3.5 h-3.5" />Assign / change</Button>
-            {m && <Button size="sm" variant="outline" className="gap-1" onClick={() => setChatFor({ agent: view, employee: m.name })}><MessageSquare className="w-3.5 h-3.5" />Chat with employee</Button>}</div>}
+            {m && m.id !== user?.id && <Button size="sm" variant="outline" className="gap-1" onClick={() => setChatFor({ agent: view, employee: m.name })}><MessageSquare className="w-3.5 h-3.5" />Chat with employee</Button>}</div>}
         </div>; })()}
         {canEdit && <DeviceChats agentId={view.id} onOpen={setOpenChat} />}
-        <div className="mt-4"><AssetHealthPanel agentId={view.id} canAct={canEdit} onChat={(al: any) => { const m = empOf(view); if (!m) { toast({ title: "Assign an employee to this device first", variant: "destructive" }); return; } setChatFor({ agent: view, alert: al, employee: m.name }); }} /></div>
+        <div className="mt-4"><AssetHealthPanel agentId={view.id} canAct={canEdit} onChat={empOf(view)?.id === user?.id ? undefined : (al: any) => { const m = empOf(view); if (m && m.id === user?.id) { toast({ title: "You cannot open an IT chat about your own computer", description: "Ask another IT team member.", variant: "destructive" }); return; } if (!m) { toast({ title: "Assign an employee to this device first", variant: "destructive" }); return; } setChatFor({ agent: view, alert: al, employee: m.name }); }} /></div>
         {canEdit && <DeviceHistory agentId={view.id} />}</SheetContent></Sheet>}
       {chatFor && <StartChatDialog agent={chatFor.agent} alert={chatFor.alert} employee={chatFor.employee} onClose={() => setChatFor(null)} onStarted={(id: number) => { setChatFor(null); refresh(); qc.invalidateQueries({ queryKey: ["device-chats"] }); setOpenChat(id); }} />}
       {openChat && <Dialog open onOpenChange={o => !o && setOpenChat(null)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>IT chat</DialogTitle></DialogHeader><ChatThread chatId={openChat} mode="it" onChanged={refresh} /></DialogContent></Dialog>}

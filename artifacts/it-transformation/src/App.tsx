@@ -37,6 +37,7 @@ import AssetAgents from "@/pages/asset-agents";
 import AgentKeys from "@/pages/agent-keys";
 import AgentChats from "@/pages/agent-chats";
 import DeviceData from "@/pages/device-data";
+import ItsmChats from "@/pages/itsm-chats";
 import MyItChats from "@/pages/my-it-chats";
 import MyAssets from "@/pages/my-assets";
 import MyPolicies from "@/pages/my-policies";
@@ -87,7 +88,7 @@ const queryClient = new QueryClient({
 function guard(module: string, Component: React.ComponentType) {
   return function Guarded(props: any) {
     const { canAccess } = useAuth();
-    if (!canAccess(module)) return (
+    if (!module.split("|").some(m => canAccess(m))) return (
       <div className="max-w-md mx-auto mt-20 text-center space-y-2">
         <div className="text-lg font-semibold">You don't have access to this page</div>
         <p className="text-sm text-muted-foreground">Your role does not include this module. If you need it, ask your administrator to add it to your role in the Ashika Portal / role settings.</p>
@@ -99,7 +100,7 @@ function guard(module: string, Component: React.ComponentType) {
 const G = {
   dashboard: guard("assets", AssetDashboard), registry: guard("asset_registry", AssetRegistry), vendors: guard("asset_vendors", AssetVendors),
   licenses: guard("asset_licenses", AssetLicenses), contracts: guard("asset_contracts", AssetContracts), depreciation: guard("asset_depreciation", AssetDepreciation),
-  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), agentKeys: guard("asset_registry", AgentKeys), agentChats: guard("asset_registry", AgentChats), deviceData: guard("asset_registry", DeviceData),
+  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), agentKeys: guard("asset_registry", AgentKeys), agentChats: guard("asset_registry", AgentChats), deviceData: guard("asset_registry", DeviceData), itsmChats: guard("itsm_incidents|asset_registry", ItsmChats),
   audits: guard("asset_audits", AssetAudits), auditDetail: guard("asset_audits", AssetAuditDetail),
 };
 
@@ -183,6 +184,7 @@ function Router() {
               <Route path="/asset-agents/keys" component={G.agentKeys} />
               <Route path="/asset-agents/chats" component={G.agentChats} />
               <Route path="/asset-agents/data" component={G.deviceData} />
+              <Route path="/itsm-chats" component={G.itsmChats} />
               <Route path="/asset-agents" component={G.agents} />
               <Route path="/my-assets" component={MyAssets} />
               <Route path="/a/:tag" component={AssetScan} />

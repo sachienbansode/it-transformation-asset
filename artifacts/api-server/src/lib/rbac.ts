@@ -67,6 +67,7 @@ const RULES: [RegExp, string | null][] = [
   [/^\/asset-finance-requests(\/|$)/, null], // maker-checker queue — checked in the route
   [/^\/asset-(licenses|license-assignments|license-compliance)(\/|$)/, "asset_licenses"],
   [/^\/asset-vendors(\/|$)/, "asset_vendors"],
+  [/^\/asset-agents\/(chats(\/|$)|\d+\/chats$)/, null],   // IT chats: Asset Registry or ITSM staff — checked in the route
   [/^\/asset-(agents|agent-codes)(\/|$)/, "asset_registry"],
   [/^\/asset-audits(\/|$)/, "asset_audits"],
   [/^\/assets\/(\d+\/(issue|return)|bulk-issue)$/, "asset_allocations"],

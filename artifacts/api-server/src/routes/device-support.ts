@@ -22,7 +22,7 @@ const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: 
   try { await fn(req, res); } catch (e: any) { if (!res.headersSent) fail(res, e?.status || 500, e?.message || String(e)); }
 };
 const uid = (req: Request) => Number((req.session as any)?.userId) || null;
-async function isIT(req: Request) { const a = await getAccess(req); return !!a && (a.isAdmin || can(a, "asset_registry", "write")); }
+async function isIT(req: Request) { const a = await getAccess(req); return !!a && (a.isAdmin || can(a, "asset_registry", "write") || can(a, "itsm_incidents", "write")); }
 async function setting(key: string, def: any) {
   const [r] = await db.select().from(settingsTable).where(eq(settingsTable.key, key));
   let v: any = r?.value; if (typeof v === "string") { try { v = JSON.parse(v); } catch { /* keep */ } }
@@ -180,13 +180,38 @@ function tooFast(userId: number | null) { if (!userId) return false; const now =
 const shortName = (by: string) => String(by || "").replace(/ <.*>$/, "");
 
 /** IT: all chats. */
+/** Search + status filter + page (10 a page). Without ?page the plain list is returned (device panel). */
+async function listChats(req: Request, scope: any, unreadSide: "Employee" | "IT") {
+  const q = String(req.query.q || "").trim().toLowerCase(); const like = q ? `%${q}%` : null;
+  const st = String(req.query.status || "Open");
+  const stCond = st === "All" ? sql`true` : st === "Open" ? sql`c.status IN ('Waiting on employee', 'Waiting on IT')` : sql`c.status = ${st}`;
+  const where = sql`${scope} AND (${like}::text IS NULL OR lower(concat_ws(' ', '#' || c.id, c.subject, u.name, u.employee_code, u.department, g.hostname, s.asset_tag, i.ticket_no, c.opened_by)) LIKE ${like})`;
+  const size = Math.min(50, Math.max(5, Number(req.query.pageSize) || 10)); const page = Math.max(1, Number(req.query.page) || 1);
+  const rows = rowsOf(await db.execute(sql`SELECT ${CHAT_COLS}, (SELECT count(*)::int FROM device_chat_messages m WHERE m.chat_id = c.id AND m.side = ${unreadSide} AND m.read_at IS NULL) AS unread
+    ${CHAT_FROM} WHERE ${where} AND ${stCond} ORDER BY (c.status = ${unreadSide === "Employee" ? "Waiting on IT" : "Waiting on employee"}) DESC, c.last_msg_at DESC LIMIT ${size} OFFSET ${(page - 1) * size}`)).map(clean);
+  const counts = rowsOf(await db.execute(sql`SELECT c.status, count(*)::int AS n ${CHAT_FROM} WHERE ${where} GROUP BY 1`));
+  const c = (k: string) => counts.find((x: any) => x.status === k)?.n || 0;
+  const byStatus = { Open: c("Waiting on employee") + c("Waiting on IT"), "Waiting on IT": c("Waiting on IT"), "Waiting on employee": c("Waiting on employee"), Resolved: c("Resolved"), Closed: c("Closed"), All: counts.reduce((a: number, x: any) => a + x.n, 0) } as Record<string, number>;
+  return { rows, total: byStatus[st] ?? byStatus.All, page, pageSize: size, counts: byStatus };
+}
 router.get("/asset-agents/chats", requireAuth, wrap(async (req, res) => {
   if (!await isIT(req)) return fail(res, 403, "Only IT can see device chats");
   await autoClose();
   const agent = Number(req.query.agentId) || null;
+  if (req.query.page) return res.json(await listChats(req, sql`(${agent}::int IS NULL OR c.agent_id = ${agent})`, "Employee"));
   res.json(rowsOf(await db.execute(sql`SELECT ${CHAT_COLS},
       (SELECT count(*)::int FROM device_chat_messages m WHERE m.chat_id = c.id AND m.side = 'Employee' AND m.read_at IS NULL) AS unread
     ${CHAT_FROM} WHERE (${agent}::int IS NULL OR c.agent_id = ${agent}) ORDER BY (c.status IN ('Waiting on IT')) DESC, c.last_msg_at DESC LIMIT 1000`)).map(clean));
+}));
+/** Cheap poll for the pop-up chat window: chats with unread messages for me (as employee) and, for IT, from employees. */
+router.get("/chat-unread", requireAuth, wrap(async (req, res) => {
+  const me = rowsOf(await db.execute(sql`SELECT c.id, c.subject, max(m.at) AS "lastAt", count(*)::int AS unread FROM device_chats c JOIN device_chat_messages m ON m.chat_id = c.id AND m.side = 'IT' AND m.read_at IS NULL
+    WHERE c.user_id = ${uid(req)} AND c.status <> 'Closed' GROUP BY c.id, c.subject`));
+  let it: any[] = [];
+  if (await isIT(req)) it = rowsOf(await db.execute(sql`SELECT c.id, c.subject, u.name AS "userName", max(m.at) AS "lastAt", count(*)::int AS unread FROM device_chats c JOIN users u ON u.id = c.user_id
+    JOIN device_chat_messages m ON m.chat_id = c.id AND m.side = 'Employee' AND m.read_at IS NULL
+    WHERE c.status <> 'Closed' AND (c.opened_by_id = ${uid(req)} OR EXISTS (SELECT 1 FROM device_chat_messages x WHERE x.chat_id = c.id AND x.side = 'IT' AND x.sender_id = ${uid(req)})) GROUP BY c.id, c.subject, u.name`));
+  res.json({ me, it });
 }));
 /** IT starts a chat with the device's employee (optionally about one health item). */
 router.post("/asset-agents/:id/chats", requireAuth, wrap(async (req, res) => {
@@ -196,6 +221,7 @@ router.post("/asset-agents/:id/chats", requireAuth, wrap(async (req, res) => {
   if (!g) return fail(res, 404, "Device not found");
   const userId = Number(req.body?.userId) || (g.asset_status === "Allocated" ? g.owner_id : null) || g.user_id;
   if (!userId) return fail(res, 400, "No employee is linked to this device — assign it first");
+  if (Number(userId) === uid(req)) return fail(res, 400, "You cannot open an IT chat about your own computer or account — ask another IT team member");
   const [u] = rowsOf(await db.execute(sql`SELECT id, name, is_active FROM users WHERE id = ${userId}`)); if (!u?.is_active) return fail(res, 400, "The employee is not an active user");
   const msg = s(req.body?.message, 4000); if (!msg) return fail(res, 400, "Write the first message");
   const alertId = Number(req.body?.alertId) || null;
@@ -232,6 +258,7 @@ router.get("/asset-agents/chats/:cid/transcript", requireAuth, wrap(async (req, 
 router.post("/asset-agents/chats/:cid/messages", requireAuth, wrap(async (req, res) => {
   if (!await isIT(req)) return fail(res, 403, "Only IT can reply here");
   const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)}`)); if (!c) return fail(res, 404, "Chat not found");
+  if (c.user_id === uid(req)) return fail(res, 403, "This chat is about you — reply from My IT Chats; another IT team member handles the IT side");
   const msg = s(req.body?.message, 4000); if (!msg) return fail(res, 400, "Write a message");
   if (tooFast(uid(req))) return fail(res, 429, "Too many messages — wait a minute");
   const by = shortName(await getPerformedBy(uid(req) ?? undefined).catch(() => "IT"));
@@ -245,6 +272,7 @@ router.post("/asset-agents/chats/:cid/messages", requireAuth, wrap(async (req, r
 router.post("/asset-agents/chats/:cid/resolve", requireAuth, wrap(async (req, res) => {
   if (!await isIT(req)) return fail(res, 403, "Only IT can resolve a chat");
   const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)}`)); if (!c) return fail(res, 404, "Chat not found");
+  if (c.user_id === uid(req)) return fail(res, 403, "This chat is about you — another IT team member must handle it");
   if (c.status === "Resolved" || c.status === "Closed") return fail(res, 400, `This chat is already ${c.status.toLowerCase()}`);
   const note = s(req.body?.resolution, 1000); if (!note || note.length < 5) return fail(res, 400, "Say how it was resolved");
   const by = shortName(await getPerformedBy(uid(req) ?? undefined).catch(() => "IT"));
@@ -258,6 +286,7 @@ router.post("/asset-agents/chats/:cid/resolve", requireAuth, wrap(async (req, re
 router.post("/asset-agents/chats/:cid/close", requireAuth, wrap(async (req, res) => {
   if (!await isIT(req)) return fail(res, 403, "Only IT can close a chat");
   const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)}`)); if (!c) return fail(res, 404, "Chat not found");
+  if (c.user_id === uid(req)) return fail(res, 403, "This chat is about you — another IT team member must handle it");
   if (c.status === "Closed") return fail(res, 400, "Already closed");
   const note = s(req.body?.note, 500); if (!note || note.length < 5) return fail(res, 400, "Give a reason for closing");
   const by = shortName(await getPerformedBy(uid(req) ?? undefined).catch(() => "IT"));
@@ -270,6 +299,7 @@ router.post("/asset-agents/chats/:cid/close", requireAuth, wrap(async (req, res)
 /* employee side — only chats IT has opened with them */
 router.get("/my-it-chats", requireAuth, wrap(async (req, res) => {
   await autoClose();
+  if (req.query.page) return res.json(await listChats(req, sql`c.user_id = ${uid(req)}`, "IT"));
   res.json(rowsOf(await db.execute(sql`SELECT ${CHAT_COLS}, (SELECT count(*)::int FROM device_chat_messages m WHERE m.chat_id = c.id AND m.side = 'IT' AND m.read_at IS NULL) AS unread
     ${CHAT_FROM} WHERE c.user_id = ${uid(req)} ORDER BY (c.status = 'Waiting on employee') DESC, c.last_msg_at DESC LIMIT 200`)).map(clean));
 }));
@@ -286,7 +316,7 @@ router.get("/my-it-chats/:cid", requireAuth, wrap(async (req, res) => {
 async function tellIT(c: any, title: string, msg: string) {
   const ids = new Set<number>(); if (c.opened_by_id) ids.add(c.opened_by_id);
   for (const r of rowsOf(await db.execute(sql`SELECT DISTINCT sender_id FROM device_chat_messages WHERE chat_id = ${c.id} AND side = 'IT' AND sender_id IS NOT NULL`))) ids.add(r.sender_id);
-  for (const i of ids) await notify(i, title, msg, `/asset-agents/chats?c=${c.id}`);
+  for (const i of ids) await notify(i, title, msg, `/itsm-chats?c=${c.id}`);
 }
 router.post("/my-it-chats/:cid/messages", requireAuth, wrap(async (req, res) => {
   const c = await myChat(req); if (!c) return fail(res, 404, "Chat not found");
@@ -297,7 +327,7 @@ router.post("/my-it-chats/:cid/messages", requireAuth, wrap(async (req, res) => 
   const [u] = rowsOf(await db.execute(sql`SELECT name FROM users WHERE id = ${uid(req)}`));
   await db.execute(sql`UPDATE device_chats SET status = 'Waiting on IT' WHERE id = ${c.id}`);
   await post(c, "Employee", uid(req), u?.name || "Employee", msg);
-  await tellIT(c, `Reply from ${u?.name} (IT chat #${c.id})`, "Open Device Health › IT chats to read it.");
+  await tellIT(c, `Reply from ${u?.name} (IT chat #${c.id})`, "Open ITSM › IT Chats to read it.");
   res.json({ ok: true });
 }));
 router.post("/my-it-chats/:cid/confirm", requireAuth, wrap(async (req, res) => {
@@ -319,7 +349,7 @@ router.post("/my-it-chats/:cid/reopen", requireAuth, wrap(async (req, res) => {
   await post(c, "System", null, "System", `${u?.name} re-opened it.`);
   audit({ entityType: "device_chat", entityId: c.id, action: "reopen", performedBy: u?.name || "Employee", summary: `Chat #${c.id} re-opened by the employee (reason kept encrypted in the chat)` });
   await post(c, "Employee", uid(req), u?.name || "Employee", why);
-  await tellIT(c, `Re-opened by ${u?.name} (IT chat #${c.id})`, "Open Device Health › IT chats to read why.");
+  await tellIT(c, `Re-opened by ${u?.name} (IT chat #${c.id})`, "Open ITSM › IT Chats to read why.");
   res.json({ ok: true });
 }));
 
