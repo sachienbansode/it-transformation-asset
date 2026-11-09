@@ -70,7 +70,7 @@ export default function AssetAgents() {
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={exportCsv}><Download className="w-4 h-4" />Export CSV</Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/data")}><Search className="w-4 h-4" />Device data</Button>
-          {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/itsm-chats")}><MessageSquare className="w-4 h-4" />IT chats</Button>}
+          {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/chats?box=support")}><MessageSquare className="w-4 h-4" />Chats</Button>}
           {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/keys")}><KeyRound className="w-4 h-4" />Installation keys</Button>}
           {canEdit && <Button className="gap-2" onClick={() => setEnrol(true)}><KeyRound className="w-4 h-4" />Install agent / keys</Button>}
         </div>
@@ -139,7 +139,7 @@ export default function AssetAgents() {
         <div className="mt-4"><AssetHealthPanel agentId={view.id} canAct={canEdit} onChat={empOf(view)?.id === user?.id ? undefined : (al: any) => { const m = empOf(view); if (m && m.id === user?.id) { toast({ title: "You cannot open an IT chat about your own computer", description: "Ask another IT team member.", variant: "destructive" }); return; } if (!m) { toast({ title: "Assign an employee to this device first", variant: "destructive" }); return; } setChatFor({ agent: view, alert: al, employee: m.name }); }} /></div>
         {canEdit && <DeviceHistory agentId={view.id} />}</SheetContent></Sheet>}
       {chatFor && <StartChatDialog agent={chatFor.agent} alert={chatFor.alert} employee={chatFor.employee} onClose={() => setChatFor(null)} onStarted={(id: number) => { setChatFor(null); refresh(); qc.invalidateQueries({ queryKey: ["device-chats"] }); setOpenChat(id); }} />}
-      {openChat && <Dialog open onOpenChange={o => !o && setOpenChat(null)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>IT chat</DialogTitle></DialogHeader><ChatThread chatId={openChat} mode="it" onChanged={refresh} /></DialogContent></Dialog>}
+      {openChat && <Dialog open onOpenChange={o => !o && setOpenChat(null)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>IT chat</DialogTitle></DialogHeader><ChatThread chatId={openChat} onChanged={refresh} /></DialogContent></Dialog>}
       {link && <AssignDialog agent={link} onClose={() => setLink(null)} onDone={() => { refresh(); setView(null); }} />}
       {person && <EmployeeSheet userId={person} onClose={() => setPerson(null)} onDevice={(d: any) => { setPerson(null); const a = agents.find(x => x.id === d.id); if (a) setView(a); }} />}
       {enrol && <EnrolDialog onClose={() => setEnrol(false)} />}

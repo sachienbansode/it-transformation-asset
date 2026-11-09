@@ -18,3 +18,13 @@ export function openText(t: string | null | undefined): string {
   } catch { return "[message cannot be decrypted]"; }
 }
 export const fingerprint = (t: string) => crypto.createHash("sha256").update(t).digest("hex").slice(0, 12);
+/* Files: iv(12) | tag(16) | data — same key, AES-256-GCM. */
+export function sealBuf(b: Buffer): Buffer {
+  const iv = crypto.randomBytes(12); const c = crypto.createCipheriv("aes-256-gcm", key(), iv);
+  const d = Buffer.concat([c.update(b), c.final()]);
+  return Buffer.concat([iv, c.getAuthTag(), d]);
+}
+export function openBuf(b: Buffer): Buffer {
+  const c = crypto.createDecipheriv("aes-256-gcm", key(), b.subarray(0, 12)); c.setAuthTag(b.subarray(12, 28));
+  return Buffer.concat([c.update(b.subarray(28)), c.final()]);
+}

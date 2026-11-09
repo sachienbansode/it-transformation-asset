@@ -23,6 +23,7 @@ const NAMES: Record<string, string> = {
 const CHAT = /chats|my-it-chats/;   // chat text is never copied into the audit log (it stays encrypted in the chat)
 const CHAT_FIELDS = /^(message|body|subject|resolution|note|reason)$/i;
 function clean(v: any, depth = 0, chat = false): any {
+  if (Buffer.isBuffer(v)) return { bytes: v.length };
   if (v === null || typeof v !== "object") return typeof v === "string" && v.length > 500 ? v.slice(0, 500) + "…" : v;
   if (Array.isArray(v)) return v.length > 20 ? { items: v.length, first: clean(v[0], depth + 1, chat) } : v.map(x => clean(x, depth + 1, chat));
   if (depth > 3) return "…";

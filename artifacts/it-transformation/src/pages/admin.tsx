@@ -1,5 +1,5 @@
 import { PushAdmin } from "@/components/push-admin";
-import { ConfirmChangesSetting } from "@/components/confirm-setting";
+import { ConfirmChangesSetting, ChatSettings } from "@/components/confirm-setting";
 import React, { useState, useEffect } from "react";
 import { getRoleLabel, cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
@@ -113,7 +113,7 @@ export default function Admin() {
         ))}
       </div>
 
-      {tab === "settings" && <><SettingsTab /><ConfirmChangesSetting /><PushAdmin /></>}
+      {tab === "settings" && <><SettingsTab /><ConfirmChangesSetting /><ChatSettings /><PushAdmin /></>}
       {tab === "masters" && <MastersTab />}
       {tab === "business-units" && <BusinessUnitsTab />}
       {tab === "audit" && <AuditTrailTab />}

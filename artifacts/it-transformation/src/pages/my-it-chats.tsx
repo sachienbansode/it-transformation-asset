@@ -1,15 +1,9 @@
-import React from "react";
-import { ChatTable } from "@/components/device-chat";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 
-/* My Workspace › My IT Chats — messages from IT about my computer. Only IT can start a chat. */
-export default function MyItChats() {
-  return (
-    <div className="space-y-4 max-w-6xl">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">My IT Chats</h1>
-        <p className="text-sm text-muted-foreground">Messages from the IT team about your computer. Click a chat to read and reply; when IT marks an issue resolved, confirm it or re-open it if it is not fixed.</p>
-      </div>
-      <ChatTable mode="me" />
-    </div>
-  );
+/* Old address — everything is under Chats now. */
+export default function Redirect() {
+  const [, navigate] = useLocation();
+  useEffect(() => { const q = new URLSearchParams(window.location.search); if (window.location.pathname.startsWith("/itsm") || window.location.pathname.startsWith("/asset-agents")) q.set("box", q.get("box") || "support"); navigate(`/chats?${q}`, { replace: true }); }, []);
+  return null;
 }

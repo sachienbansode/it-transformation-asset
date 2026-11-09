@@ -39,6 +39,7 @@ import AgentChats from "@/pages/agent-chats";
 import DeviceData from "@/pages/device-data";
 import ItsmChats from "@/pages/itsm-chats";
 import MyDevice from "@/pages/my-device";
+import Chats from "@/pages/chats";
 import MyItChats from "@/pages/my-it-chats";
 import MyAssets from "@/pages/my-assets";
 import MyPolicies from "@/pages/my-policies";
@@ -101,7 +102,7 @@ function guard(module: string, Component: React.ComponentType) {
 const G = {
   dashboard: guard("assets", AssetDashboard), registry: guard("asset_registry", AssetRegistry), vendors: guard("asset_vendors", AssetVendors),
   licenses: guard("asset_licenses", AssetLicenses), contracts: guard("asset_contracts", AssetContracts), depreciation: guard("asset_depreciation", AssetDepreciation),
-  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), agentKeys: guard("asset_registry", AgentKeys), agentChats: guard("asset_registry", AgentChats), deviceData: guard("asset_registry", DeviceData), itsmChats: guard("itsm_incidents|asset_registry", ItsmChats),
+  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), agentKeys: guard("asset_registry", AgentKeys), agentChats: guard("asset_registry", AgentChats), deviceData: guard("asset_registry", DeviceData), itsmChats: ItsmChats,
   audits: guard("asset_audits", AssetAudits), auditDetail: guard("asset_audits", AssetAuditDetail),
 };
 
@@ -210,6 +211,7 @@ function Router() {
               <Route path="/my-policies" component={MyPolicies} />
               <Route path="/my-it-chats" component={MyItChats} />
               <Route path="/my-device" component={MyDevice} />
+              <Route path="/chats" component={Chats} />
               <Route path="/admin/policies">
                 {user.role === "admin" ? <AdminPolicies /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>

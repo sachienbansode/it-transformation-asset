@@ -34,8 +34,8 @@ export function readableError(msg: unknown): string {
 export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...opts?.headers },
     ...opts,
+    headers: { "Content-Type": "application/json", ...opts?.headers },   // after ...opts, so custom headers never drop the JSON content type
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

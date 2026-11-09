@@ -1,15 +1,9 @@
-import React from "react";
-import { ChatTable } from "@/components/device-chat";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 
-/* ITSM › IT Chats — every IT ↔ employee conversation about a computer. */
-export default function ItsmChats() {
-  return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">IT Chats</h1>
-        <p className="text-sm text-muted-foreground">Conversations IT has started with employees about their computers (start one from a device or a health item in Device Health). Replies waiting on IT come first. Messages are encrypted at rest; the linked ticket and the audit log record each message.</p>
-      </div>
-      <ChatTable mode="it" />
-    </div>
-  );
+/* Old address — everything is under Chats now. */
+export default function Redirect() {
+  const [, navigate] = useLocation();
+  useEffect(() => { const q = new URLSearchParams(window.location.search); if (window.location.pathname.startsWith("/itsm") || window.location.pathname.startsWith("/asset-agents")) q.set("box", q.get("box") || "support"); navigate(`/chats?${q}`, { replace: true }); }, []);
+  return null;
 }

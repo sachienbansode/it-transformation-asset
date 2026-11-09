@@ -31,7 +31,7 @@ async function setting(key: string, def: any) {
   return v ?? def;
 }
 const audit = (p: Parameters<typeof logAudit>[0]) => void logAudit(p).catch(() => {});
-const notify = (userId: number, title: string, message: string, link: string, type = "info") =>
+export const notify = (userId: number, title: string, message: string, link: string, type = "info") =>
   db.execute(sql`INSERT INTO notifications (user_id, title, message, type, link) VALUES (${userId}, ${title.slice(0, 200)}, ${message.slice(0, 500)}, ${type}, ${link})`).catch(() => {});
 
 /* ── health state ignores ignored items ──────────────────────────────────── */
@@ -193,7 +193,7 @@ router.get("/my-devices/:id/health", requireAuth, wrap(async (req, res) => {
 }));
 
 /* ── support chat ────────────────────────────────────────────────────────── */
-async function autoClose() {
+export async function autoClose() {
   const days = Math.max(1, Number(await setting("assetAgent.chatAutoCloseDays", 3)) || 3);
   const done = rowsOf(await db.execute(sql`UPDATE device_chats SET status = 'Closed', closed_at = now(), closed_by = 'System', close_note = ${`Closed automatically ${days} days after it was resolved`}
     WHERE status = 'Resolved' AND resolved_at < now() - (${days} || ' days')::interval RETURNING id`));
@@ -204,19 +204,21 @@ const CHAT_COLS = sql`c.id, c.agent_id AS "agentId", c.alert_id AS "alertId", c.
   c.subject, c.status, c.opened_by AS "openedBy", c.opened_at AS "openedAt", c.resolved_at AS "resolvedAt", c.resolved_by AS "resolvedBy", c.resolution, c.closed_at AS "closedAt", c.closed_by AS "closedBy", c.close_note AS "closeNote", c.last_msg_at AS "lastMsgAt",
   g.hostname, s.asset_tag AS "assetTag", x.message AS "alertMessage",
   (SELECT body FROM device_chat_messages m WHERE m.chat_id = c.id ORDER BY m.at DESC, m.id DESC LIMIT 1) AS "lastMessage"`;
-const CHAT_FROM = sql`FROM device_chats c JOIN users u ON u.id = c.user_id JOIN asset_agents g ON g.id = c.agent_id LEFT JOIN assets s ON s.id = g.asset_id
+const CHAT_FROM = sql`FROM device_chats c JOIN users u ON u.id = c.user_id AND c.kind = 'support' JOIN asset_agents g ON g.id = c.agent_id LEFT JOIN assets s ON s.id = g.asset_id
   LEFT JOIN asset_agent_alerts x ON x.id = c.alert_id LEFT JOIN itsm_incidents i ON i.id = c.incident_id`;
 async function chatMessages(id: number) {
   return rowsOf(await db.execute(sql`SELECT id, sender_name AS "senderName", side, body, at, read_at AS "readAt" FROM device_chat_messages WHERE chat_id = ${id} ORDER BY at, id`)).map((m: any) => ({ ...m, body: openText(m.body) }));
 }
-async function post(chat: any, side: "IT" | "Employee" | "System", senderId: number | null, senderName: string, body: string) {
-  await db.execute(sql`INSERT INTO device_chat_messages (chat_id, sender_id, sender_name, side, body) VALUES (${chat.id}, ${senderId}, ${senderName}, ${side}, ${sealText(body)})`);
+export async function post(chat: any, side: "IT" | "Employee" | "System" | "Member", senderId: number | null, senderName: string, body: string) {
+  const [m] = rowsOf(await db.execute(sql`INSERT INTO device_chat_messages (chat_id, sender_id, sender_name, side, body) VALUES (${chat.id}, ${senderId}, ${senderName}, ${side}, ${sealText(body)}) RETURNING id`));
   await db.execute(sql`UPDATE device_chats SET last_msg_at = now() WHERE id = ${chat.id}`);
-  if (side !== "System") audit({ entityType: "device_chat", entityId: chat.id, action: side === "IT" ? "message_it" : "message_employee", performedBy: senderName, summary: `Chat #${chat.id} — ${side === "IT" ? "IT" : "employee"} message (${body.length} characters, fingerprint ${fingerprint(body)}); text kept encrypted in the chat` });
-  if (chat.incident_id && side !== "System") { const { noteIncident } = await import("./itsm"); await noteIncident(chat.incident_id, senderName, `Chat (${side === "IT" ? "IT → employee" : "employee → IT"}) message in IT chat #${chat.id} — open Device Health › IT chats to read it`).catch(() => {}); }
+  if (side !== "System") audit({ entityType: "device_chat", entityId: chat.id, action: side === "IT" ? "message_it" : side === "Member" ? "message" : "message_employee", performedBy: senderName, summary: `Chat #${chat.id} — ${side === "IT" ? "IT" : "employee"} message (${body.length} characters, fingerprint ${fingerprint(body)}); text kept encrypted in the chat` });
+  if (chat.incident_id && side !== "System") { const { noteIncident } = await import("./itsm"); await noteIncident(chat.incident_id, senderName, `Chat (${side === "IT" ? "IT → employee" : "employee → IT"}) message in IT chat #${chat.id} — open Chats to read it`).catch(() => {}); }
+  return m?.id as number;
 }
 const clean = (c: any) => ({ ...c, lastMessage: c.lastMessage ? openText(c.lastMessage) : c.lastMessage });
 const sent = new Map<number, number[]>();
+export { tooFast };
 /** At most 20 messages a minute per person (stops floods / scripts). */
 function tooFast(userId: number | null) { if (!userId) return false; const now = Date.now(); const l = (sent.get(userId) || []).filter(t => now - t < 60_000); l.push(now); sent.set(userId, l); return l.length > 20; }
 const shortName = (by: string) => String(by || "").replace(/ <.*>$/, "");
@@ -271,6 +273,7 @@ router.post("/asset-agents/:id/chats", requireAuth, wrap(async (req, res) => {
   const subject = s(req.body?.subject, 200) || (alert ? alert.message : `Your computer ${g.hostname}`);
   const by = await getPerformedBy(uid(req) ?? undefined).catch(() => "IT"); const name = shortName(by);
   const [c] = rowsOf(await db.execute(sql`INSERT INTO device_chats (agent_id, alert_id, incident_id, user_id, subject, opened_by, opened_by_id) VALUES (${id}, ${alertId}, ${alert?.incident_id ?? null}, ${userId}, ${subject}, ${name}, ${uid(req)}) RETURNING *`));
+  await db.execute(sql`INSERT INTO chat_members (chat_id, user_id) VALUES (${c.id}, ${userId}) ON CONFLICT DO NOTHING`);
   await post(c, "IT", uid(req), name, msg);
   await notify(userId, `Message from IT about your computer`, `${name} sent you a message — open My IT Chats to read and reply.`, `/my-it-chats?c=${c.id}`);
   audit({ entityType: "device_chat", entityId: c.id, action: "open", performedBy: by, summary: `Chat with ${u.name} about ${g.hostname}: ${subject}` });
@@ -299,7 +302,7 @@ router.get("/asset-agents/chats/:cid/transcript", requireAuth, wrap(async (req, 
 }));
 router.post("/asset-agents/chats/:cid/messages", requireAuth, wrap(async (req, res) => {
   if (!await isIT(req)) return fail(res, 403, "Only IT can reply here");
-  const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)}`)); if (!c) return fail(res, 404, "Chat not found");
+  const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)} AND kind = 'support'`)); if (!c) return fail(res, 404, "Chat not found");
   if (c.user_id === uid(req)) return fail(res, 403, "This chat is about you — reply from My IT Chats; another IT team member handles the IT side");
   const msg = s(req.body?.message, 4000); if (!msg) return fail(res, 400, "Write a message");
   if (tooFast(uid(req))) return fail(res, 429, "Too many messages — wait a minute");
@@ -313,7 +316,7 @@ router.post("/asset-agents/chats/:cid/messages", requireAuth, wrap(async (req, r
 }));
 router.post("/asset-agents/chats/:cid/resolve", requireAuth, wrap(async (req, res) => {
   if (!await isIT(req)) return fail(res, 403, "Only IT can resolve a chat");
-  const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)}`)); if (!c) return fail(res, 404, "Chat not found");
+  const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)} AND kind = 'support'`)); if (!c) return fail(res, 404, "Chat not found");
   if (c.user_id === uid(req)) return fail(res, 403, "This chat is about you — another IT team member must handle it");
   if (c.status === "Resolved" || c.status === "Closed") return fail(res, 400, `This chat is already ${c.status.toLowerCase()}`);
   const note = s(req.body?.resolution, 1000); if (!note || note.length < 5) return fail(res, 400, "Say how it was resolved");
@@ -327,7 +330,7 @@ router.post("/asset-agents/chats/:cid/resolve", requireAuth, wrap(async (req, re
 }));
 router.post("/asset-agents/chats/:cid/close", requireAuth, wrap(async (req, res) => {
   if (!await isIT(req)) return fail(res, 403, "Only IT can close a chat");
-  const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)}`)); if (!c) return fail(res, 404, "Chat not found");
+  const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)} AND kind = 'support'`)); if (!c) return fail(res, 404, "Chat not found");
   if (c.user_id === uid(req)) return fail(res, 403, "This chat is about you — another IT team member must handle it");
   if (c.status === "Closed") return fail(res, 400, "Already closed");
   const note = s(req.body?.note, 500); if (!note || note.length < 5) return fail(res, 400, "Give a reason for closing");
@@ -346,7 +349,7 @@ router.get("/my-it-chats", requireAuth, wrap(async (req, res) => {
     ${CHAT_FROM} WHERE c.user_id = ${uid(req)} ORDER BY (c.status = 'Waiting on employee') DESC, c.last_msg_at DESC LIMIT 200`)).map(clean));
 }));
 async function myChat(req: Request) {
-  const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)} AND user_id = ${uid(req)}`));
+  const [c] = rowsOf(await db.execute(sql`SELECT * FROM device_chats WHERE id = ${Number(req.params.cid)} AND user_id = ${uid(req)} AND kind = 'support'`));
   return c;
 }
 router.get("/my-it-chats/:cid", requireAuth, wrap(async (req, res) => {
@@ -355,7 +358,7 @@ router.get("/my-it-chats/:cid", requireAuth, wrap(async (req, res) => {
   await db.execute(sql`UPDATE device_chat_messages SET read_at = now() WHERE chat_id = ${c0.id} AND side = 'IT' AND read_at IS NULL`);
   res.json({ chat: clean(c), messages: await chatMessages(c0.id) });
 }));
-async function tellIT(c: any, title: string, msg: string) {
+export async function tellIT(c: any, title: string, msg: string) {
   const ids = new Set<number>(); if (c.opened_by_id) ids.add(c.opened_by_id);
   for (const r of rowsOf(await db.execute(sql`SELECT DISTINCT sender_id FROM device_chat_messages WHERE chat_id = ${c.id} AND side = 'IT' AND sender_id IS NOT NULL`))) ids.add(r.sender_id);
   for (const i of ids) await notify(i, title, msg, `/itsm-chats?c=${c.id}`);
