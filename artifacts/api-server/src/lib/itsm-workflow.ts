@@ -65,7 +65,7 @@ export function validateDef(kind: WfKind, d: WfDef, strict = true): string[] {
       if (c.timeoutHours && !o.some(e => e.outcome === "timeout")) errs.push(`${name(n)}: has a time limit but no “timeout” connection`);
       if (o.some(e => e.outcome === "timeout") && !(Number(c.timeoutHours) > 0)) errs.push(`${name(n)}: set the time limit (hours) for the “timeout” connection`); }
     if (n.type === "approval") { if (!o.some(e => e.outcome === "approved") || !o.some(e => e.outcome === "rejected")) errs.push(`${name(n)}: connect both “approved” and “rejected”`);
-      if (!(c.approverType === "users" ? (c.userIds || []).length : c.approverType === "team" ? c.team : c.approverType === "role" ? c.roleId : false)) errs.push(`${name(n)}: choose who approves`); }
+      if (!(c.approverType === "users" ? (c.userIds || []).length : c.approverType === "team" ? c.team : c.approverType === "role" ? c.roleId : ["assigned_team", "itsm_admins"].includes(c.approverType))) errs.push(`${name(n)}: choose who approves`); }
     if (n.type === "condition") { if (!o.some(e => e.outcome === "yes") || !o.some(e => e.outcome === "no")) errs.push(`${name(n)}: connect both “yes” and “no”`);
       if (!c.field || !WF_FIELDS[kind].some(f => f.key === c.field)) errs.push(`${name(n)}: choose a field to check`); if (c.value === undefined || c.value === "") errs.push(`${name(n)}: enter the value to compare`); }
     if (n.type === "assign" && !c.team && !c.user) errs.push(`${name(n)}: choose a team or a person`);
@@ -123,7 +123,7 @@ export async function pickWorkflow(kind: WfKind, t: any) {
     WHERE w.ticket_type = ${kind} AND w.is_active ORDER BY w.rank, w.id`));
   for (const w of rows) {
     const m = w.match || {}; const ok = (k: string) => !Array.isArray(m[k]) || !m[k].length || m[k].map((x: string) => x.toLowerCase()).includes(String(t[k] ?? "").toLowerCase());
-    if (ok("category") && ok("priority") && ok("subcategory") && ok("type")) return w;
+    if (ok("category") && ok("priority") && ok("severity") && ok("subcategory") && ok("type")) return w;
   }
   return null;
 }
@@ -140,7 +140,16 @@ async function event(instId: number, n: WfNode | null, ev: string, detail: strin
 const nodeOf = (d: WfDef, id: string) => d.nodes.find(n => n.id === id) || null;
 const outOf = (d: WfDef, id: string, outcome?: string) => d.edges.filter(e => e.from === id && (!outcome || (e.outcome || "next") === outcome));
 
-async function approversOf(c: any): Promise<{ ids: number[]; label: string }> {
+async function approversOf(c: any, t?: any): Promise<{ ids: number[]; label: string }> {
+  if (c.approverType === "assigned_team") {   // the team the ticket is with at that moment (falls back to ITSM Admins)
+    const tm = t?.assignedGroup ? await teamByName(t.assignedGroup) : null; const ids = tm ? (await teamMembers(tm.id)).map(m => m.id) : [];
+    if (ids.length) return { ids, label: `${tm!.name} team` };
+    return approversOf({ approverType: "itsm_admins" });
+  }
+  if (c.approverType === "itsm_admins") {
+    const ids = rowsOf(await db.execute(sql`SELECT u.id FROM users u WHERE u.is_active AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id WHERE ur.user_id = u.id AND rp.module = 'itsm_setup' AND rp.access_level = 'admin'))`)).map(r => r.id);
+    return { ids, label: "ITSM Admins" };
+  }
   if (c.approverType === "users") { const ids = (c.userIds || []).map(Number).filter(Boolean); const names = rowsOf(await db.execute(sql`SELECT name FROM users WHERE id = ANY(${sql.raw(`ARRAY[${ids.join(",") || "0"}]::int[]`)}) AND is_active`)).map(r => r.name); return { ids, label: names.join(", ") }; }
   if (c.approverType === "team") { const t = await teamByName(c.team); if (!t) return { ids: [], label: `${c.team} (team not found)` }; return { ids: (await teamMembers(t.id)).map(m => m.id), label: `${t.name} team` }; }
   if (c.approverType === "role") { const r = rowsOf(await db.execute(sql`SELECT u.id, ro.name FROM user_roles ur JOIN users u ON u.id = ur.user_id AND u.is_active JOIN roles ro ON ro.id = ur.role_id WHERE ur.role_id = ${Number(c.roleId)}`));
@@ -183,7 +192,7 @@ async function walk(kind: WfKind, inst: any, edge: WfEdge | null, by: string) {
       await event(inst.id, n, "entered", `status ${c.status}`, by); return;
     }
     if (n.type === "approval") {
-      const ap = await approversOf(c); const title = fill(c.title || n.label || "Approval", t, kind);
+      const ap = await approversOf(c, t); const title = fill(c.title || n.label || "Approval", t, kind);
       await db.execute(sql`INSERT INTO itsm_workflow_tasks (instance_id, node_id, title, approver_ids, approver_label) VALUES (${inst.id}, ${n.id}, ${title}, ${sql.raw(`ARRAY[${ap.ids.join(",")}]::int[]`)}, ${ap.label})`);
       await db.execute(sql`UPDATE itsm_ticket_workflows SET state = 'Waiting approval' WHERE id = ${inst.id}`);
       if (WF_STATUS[kind].includes("Pending Approval")) t = await setStatus(kind, t, "Pending Approval", `Workflow “${inst.workflow}”: waiting for ${title} (${ap.label})`, by);
@@ -288,6 +297,8 @@ let sweeping: NodeJS.Timeout | null = null;
 export function startWorkflowSweep(ms = 60_000) { if (!sweeping) { sweeping = setInterval(() => { wfSweep().catch(e => console.error("workflow sweep", e)); }, ms); sweeping.unref?.(); } }
 
 /** What the ticket screen shows: workflow, current step, next actions, open approvals, history. */
+/** Is a workflow running this ticket? (the workflow then governs approvals and allowed moves) */
+export async function wfRunning(kind: WfKind, ticketId: number) { const i = await instanceOf(kind, ticketId); return !!i && i.state !== "Finished" && i.state !== "Stopped"; }
 export async function wfView(kind: WfKind, ticketId: number, userId: number, admin: boolean) {
   const inst = await instanceOf(kind, ticketId); if (!inst) return null;
   const d: WfDef = inst.definition; const t = await ticket(kind, ticketId); const n = nodeOf(d, inst.current_node);

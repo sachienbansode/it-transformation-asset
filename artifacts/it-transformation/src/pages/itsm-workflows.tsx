@@ -13,7 +13,8 @@ import { apiFetch } from "@/lib/api";
 import { fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { WorkflowCanvas, Palette, remove, typeOf, OUTCOMES, type WDef, type Sel } from "@/components/workflow-canvas";
-import { Workflow, Plus, Save, Upload, FlaskConical, ArrowLeft, Trash2, History, Settings2, AlertTriangle, CheckCircle2, Loader2, Copy } from "lucide-react";
+import { Workflow, Plus, Save, Upload, FlaskConical, ArrowLeft, Trash2, History, Settings2, AlertTriangle, CheckCircle2, Loader2, Copy, ScrollText } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 /* ITH-101 — ITSM › Workflows: list per ticket type and the drag-and-drop designer with versions, checks, test run and publish. */
 const KIND_NAME: Record<string, string> = { incident: "Incidents", request: "Service Requests", problem: "Problems", change: "Change Requests" };
@@ -28,30 +29,42 @@ export default function ItsmWorkflows() {
 }
 
 function List({ meta, open }: { meta: any; open: (id: number) => void }) {
-  const [kind, setKind] = useState("incident"); const [create, setCreate] = useState(false);
+  const [kind, setKind] = useState("incident"); const [create, setCreate] = useState(false); const [audit, setAudit] = useState(false);
+  const qc = useQueryClient(); const { toast } = useToast();
   const { data } = useQuery({ queryKey: ["wf-list"], queryFn: () => apiFetch<any>("/itsm-workflows") });
+  async function toggle(r: any, on: boolean) {
+    const reason = on ? "" : await reasonDialog(`Disable “${r.name}”? New ${KIND_NAME[r.ticketType].toLowerCase()} will no longer use it; tickets already running on it continue to the end.`, { title: "Disable workflow", label: "Reason (kept in the audit log)", confirmText: "Disable", destructive: true });
+    if (reason === null) return;
+    try {
+      await apiFetch(`/itsm-workflows/${r.id}`, { method: "PATCH", body: JSON.stringify({ isActive: on, reason }), headers: on ? confirmHeader(`Enable “${r.name}” (v${r.published?.version}) for ${KIND_NAME[r.ticketType].toLowerCase()} — applies to ${matchText(r.match)}? New matching tickets will follow it.`) : { "X-No-Confirm": "1" } });
+      toast({ title: on ? `“${r.name}” enabled` : `“${r.name}” disabled` }); qc.invalidateQueries({ queryKey: ["wf-list"] });
+    } catch (e: any) { if (!e.cancelled) toast({ title: "Not changed", description: e.message, variant: "destructive" }); }
+  }
   const rows = (data?.rows || []).filter((r: any) => r.ticketType === kind);
   return (
     <div className="space-y-4 max-w-7xl">
       <PageHero icon={Workflow} tone="blue" title="ITSM Workflows" subtitle="Draw how each kind of ticket moves: stages, approvals, conditions, assignment, notices and time limits. Publish a version to use it; tickets keep the version they started on."
-        right={meta.canEdit && <Button size="sm" onClick={() => setCreate(true)}><Plus className="w-4 h-4 mr-1" />New workflow</Button>} />
+        right={<div className="flex gap-1.5"><Button size="sm" variant="outline" onClick={() => setAudit(true)}><History className="w-4 h-4 mr-1" />Audit log</Button>{meta.canEdit && <Button size="sm" onClick={() => setCreate(true)}><Plus className="w-4 h-4 mr-1" />New workflow</Button>}</div>} />
       <div className="flex gap-1 border-b">{Object.entries(KIND_NAME).map(([k, l]) =>
         <button key={k} onClick={() => setKind(k)} className={cn("px-3 py-2 text-sm border-b-2 -mb-px", kind === k ? "border-primary text-primary font-semibold" : "border-transparent text-muted-foreground hover:text-foreground")}>{l} <span className="text-xs">({(data?.rows || []).filter((r: any) => r.ticketType === k).length})</span></button>)}</div>
       <Card><CardContent className="p-0">
         {!rows.length ? <div className="p-8 text-center text-sm text-muted-foreground">No workflow for {KIND_NAME[kind].toLowerCase()} yet — tickets follow the standard statuses and the approval matrix.{meta.canEdit && " Click New workflow to draw one."}</div> :
-          <table className="w-full text-sm"><thead><tr className="text-left text-xs text-muted-foreground border-b"><th className="p-3">Workflow</th><th className="p-3">Applies to</th><th className="p-3">Order</th><th className="p-3">Published</th><th className="p-3">Draft</th><th className="p-3">Tickets</th><th className="p-3" /></tr></thead>
+          <table className="w-full text-sm"><thead><tr className="text-left text-xs text-muted-foreground border-b"><th className="p-3">Workflow</th><th className="p-3">Applies to</th><th className="p-3">Order</th><th className="p-3">Published</th><th className="p-3">Draft</th><th className="p-3">Tickets</th><th className="p-3">Enabled</th><th className="p-3" /></tr></thead>
             <tbody>{rows.map((r: any) => (
-              <tr key={r.id} className={cn("border-b hover:bg-muted/30 cursor-pointer", !r.isActive && "opacity-50")} onClick={() => open(r.id)}>
-                <td className="p-3"><div className="font-medium">{r.name}{!r.isActive && " (inactive)"}</div><div className="text-xs text-muted-foreground">{r.description || ""}</div></td>
+              <tr key={r.id} className={cn("border-b hover:bg-muted/30 cursor-pointer", !r.isActive && "text-muted-foreground")} onClick={() => open(r.id)} data-wf={r.name}>
+                <td className="p-3"><div className="font-medium flex items-center gap-1.5 flex-wrap">{r.name}{r.createdBy === "System (preconfigured)" && <span className="rounded-full border px-1.5 text-[10px] font-normal">Preconfigured</span>}</div><div className="text-xs text-muted-foreground">{r.description || ""}</div></td>
                 <td className="p-3 text-xs">{matchText(r.match)}</td><td className="p-3 text-xs">{r.rank}</td>
                 <td className="p-3 text-xs">{r.published ? <><span className="rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 font-semibold">v{r.published.version}</span><div className="text-muted-foreground mt-0.5">{fmtDateTime(r.published.publishedAt)}</div></> : <span className="text-muted-foreground">Not published</span>}</td>
                 <td className="p-3 text-xs">{r.draft ? <span className="rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5">v{r.draft.version} draft</span> : "—"}</td>
                 <td className="p-3 text-xs">{r.running} running · {r.tickets} total</td>
+                <td className="p-3" onClick={e => e.stopPropagation()}><div className="flex items-center gap-2"><Switch aria-label={`Enable ${r.name}`} checked={r.isActive} disabled={!meta.canEdit || (!r.isActive && !r.published)} onCheckedChange={v => toggle(r, v)} />
+                  <span className={cn("text-xs", r.isActive ? "text-emerald-600 font-semibold" : "text-muted-foreground")}>{r.isActive ? "On" : r.published ? "Off" : "Publish first"}</span></div></td>
                 <td className="p-3 text-right"><Button size="sm" variant="outline">Open</Button></td>
               </tr>))}</tbody></table>}
       </CardContent></Card>
-      <div className="text-xs text-muted-foreground">The first active workflow (lowest order) whose “applies to” matches a new ticket runs it. A ticket with a workflow uses the workflow's approvals instead of the approval matrix.</div>
+      <div className="text-xs text-muted-foreground">Preconfigured workflows are published but switched off — review one, change it if needed (Edit as new draft → Publish), then switch it on. The first enabled workflow (lowest order) whose “applies to” matches a new ticket runs it. A ticket with a workflow uses the workflow's approvals instead of the approval matrix.</div>
       {create && <CreateDialog meta={meta} kind={kind} onClose={() => setCreate(false)} onDone={open} />}
+      <Dialog open={audit} onOpenChange={setAudit}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>Workflow audit log</DialogTitle><DialogDescription>Every create, save, publish, enable / disable, settings change and approval decision.</DialogDescription></DialogHeader>{audit && <AuditLog />}</DialogContent></Dialog>
     </div>
   );
 }
@@ -79,7 +92,7 @@ function Designer({ id, meta, onBack }: { id: number; meta: any; onBack: () => v
   const [ver, setVer] = useState<number | null>(null);
   const { data: w, refetch } = useQuery({ queryKey: ["wf", id, ver], queryFn: () => apiFetch<any>(`/itsm-workflows/${id}${ver ? `?version=${ver}` : ""}`) });
   const [def, setDef] = useState<WDef>({ nodes: [], edges: [] }); const [dirty, setDirty] = useState(false); const [sel, setSel] = useState<Sel>(null);
-  const [problems, setProblems] = useState<string[]>([]); const [busy, setBusy] = useState(""); const [panel, setPanel] = useState<"props" | "test" | "versions" | "settings">("props");
+  const [problems, setProblems] = useState<string[]>([]); const [busy, setBusy] = useState(""); const [panel, setPanel] = useState<"props" | "test" | "versions" | "audit" | "settings">("props");
   const [hl, setHl] = useState<string[] | undefined>();
   useEffect(() => { if (w?.current) { setDef(w.current.definition); setProblems(w.current.problems || []); setDirty(false); setSel(null); setHl(undefined); } }, [w?.current?.id, w?.current?.definition && JSON.stringify(w.current.definition)]);
   if (!w) return <div className="text-sm text-muted-foreground">Loading…</div>;
@@ -108,7 +121,7 @@ function Designer({ id, meta, onBack }: { id: number; meta: any; onBack: () => v
       <div className="flex items-center gap-2 flex-wrap">
         <Button size="sm" variant="ghost" onClick={() => { if (!dirty || window.confirm("Leave without saving the drawing?")) onBack(); }}><ArrowLeft className="w-4 h-4 mr-1" />Workflows</Button>
         <div><div className="font-semibold">{w.name} <span className="text-xs font-normal text-muted-foreground">· {kind?.name} · {matchText(w.match)}</span></div>
-          <div className="text-xs text-muted-foreground">Viewing v{w.current?.version} <span className={cn("rounded-full px-1.5 font-semibold", isDraft ? "bg-amber-100 text-amber-700" : w.current?.status === "Published" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600")}>{w.current?.status}</span>{dirty && <span className="ml-2 text-amber-600">unsaved changes</span>}{!w.isActive && " · workflow inactive"}</div></div>
+          <div className="text-xs text-muted-foreground">Viewing v{w.current?.version} <span className={cn("rounded-full px-1.5 font-semibold", isDraft ? "bg-amber-100 text-amber-700" : w.current?.status === "Published" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600")}>{w.current?.status}</span>{dirty && <span className="ml-2 text-amber-600">unsaved changes</span>}{w.isActive ? <span className="ml-2 text-emerald-600 font-semibold">· enabled</span> : <span className="ml-2">· disabled</span>}</div></div>
         <div className="ml-auto flex gap-1.5 flex-wrap">
           {w.canEdit && !isDraft && !draft && <Button size="sm" variant="outline" disabled={!!busy} onClick={() => call("Edit", () => apiFetch<any>(`/itsm-workflows/${id}/versions/${w.current.id}/copy`, { method: "POST", headers: { "X-No-Confirm": "1" } }), r => `Draft v${r.version} started`).then(r => { if (r) { setVer(r.versionId); refresh(); } })}><Copy className="w-4 h-4 mr-1" />Edit as new draft</Button>}
           {w.canEdit && !isDraft && draft && <Button size="sm" variant="outline" onClick={() => setVer(draft.id)}>Open draft v{draft.version}</Button>}
@@ -123,7 +136,7 @@ function Designer({ id, meta, onBack }: { id: number; meta: any; onBack: () => v
           {editable && <div className="text-[10px] text-muted-foreground leading-relaxed">Drag a step onto the canvas. Drag from a step's right-hand dot to another step to connect. Click to edit; Delete removes.</div>}</div>
         <WorkflowCanvas def={def} onChange={editable ? change : undefined} sel={sel} onSel={s => { setSel(s); if (s) setPanel("props"); }} readOnly={!editable} highlight={hl} />
         <Card className="h-[calc(100vh-260px)] min-h-[480px] overflow-hidden flex flex-col"><div className="flex border-b text-xs">
-          {([["props", "Properties", Settings2], ["test", "Test run", FlaskConical], ["versions", "Versions", History], ["settings", "Settings", Workflow]] as const).map(([k, l, I]) =>
+          {([["props", "Properties", Settings2], ["test", "Test run", FlaskConical], ["versions", "Versions", History], ["audit", "Audit", ScrollText], ["settings", "Settings", Workflow]] as const).map(([k, l, I]) =>
             <button key={k} onClick={() => setPanel(k)} className={cn("flex-1 py-2 flex flex-col items-center gap-0.5", panel === k ? "text-primary border-b-2 border-primary font-semibold" : "text-muted-foreground")}><I className="w-3.5 h-3.5" />{l}</button>)}</div>
           <div className="p-3 overflow-y-auto flex-1 text-sm space-y-3">
             {panel === "props" && (S ? <NodeProps n={S} meta={meta} kind={kind} editable={editable} setNode={setNode} setCfg={setCfg} del={() => { remove(def, sel, change); setSel(null); }} />
@@ -139,6 +152,7 @@ function Designer({ id, meta, onBack }: { id: number; meta: any; onBack: () => v
                   {w.canEdit && !draft && v.status !== "Draft" && <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => call("Copy", () => apiFetch<any>(`/itsm-workflows/${id}/versions/${v.id}/copy`, { method: "POST", headers: confirmHeader(`Start a new draft of “${w.name}” from v${v.version}?`) }), r => `Draft v${r.version} started from v${v.version}`).then(r => { if (r) { setVer(r.versionId); refresh(); } })}>Restore as draft</Button>}
                   {w.canEdit && v.status === "Draft" && w.versions.length > 1 && <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-red-600" onClick={() => call("Discard", () => apiFetch<any>(`/itsm-workflows/${id}/draft/discard`, { method: "POST", headers: confirmHeader(`Discard draft v${v.version} of “${w.name}”? It is kept in the history as Retired.`) }), () => "Draft discarded").then(r => { if (r) { setVer(null); refresh(); } })}>Discard</Button>}</div>
               </div>))}</div>}
+            {panel === "audit" && <AuditLog id={id} compact />}
             {panel === "settings" && <SettingsPanel w={w} meta={meta} kind={kind} onSaved={refresh} />}
           </div></Card>
       </div>
@@ -146,6 +160,17 @@ function Designer({ id, meta, onBack }: { id: number; meta: any; onBack: () => v
   );
 }
 
+function AuditLog({ id, compact }: { id?: number; compact?: boolean }) {
+  const [page, setPage] = useState(1);
+  const { data } = useQuery({ queryKey: ["wf-audit", id, page], queryFn: () => apiFetch<any>(`${id ? `/itsm-workflows/${id}/audit` : "/itsm-workflows-audit"}?page=${page}`) });
+  const pages = Math.max(1, Math.ceil((data?.total || 0) / 25));
+  if (!data) return <div className="text-xs text-muted-foreground">Loading…</div>;
+  if (!data.rows.length) return <div className="text-xs text-muted-foreground">Nothing recorded yet.</div>;
+  return <div className="space-y-2" data-testid="wf-audit"><div className={cn("space-y-1.5", !compact && "max-h-[60vh] overflow-auto")}>{data.rows.map((a: any) => (
+    <div key={a.id} className="rounded-md border px-2.5 py-1.5 text-xs"><div className="flex gap-2 flex-wrap"><span className={cn("rounded-full px-1.5 font-semibold", a.action === "enable" ? "bg-emerald-100 text-emerald-700" : a.action === "disable" ? "bg-red-100 text-red-700" : a.action === "publish" ? "bg-blue-100 text-blue-700" : "bg-muted")}>{a.action}</span>
+      {!compact && a.workflow && <b>{a.workflow}</b>}<span className="text-muted-foreground ml-auto">{a.by} · {fmtDateTime(a.at)}</span></div><div className="mt-0.5">{a.summary}</div></div>))}</div>
+    {pages > 1 && <div className="flex items-center gap-2 text-xs justify-end"><Button size="sm" variant="outline" className="h-6 px-2" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>{page} / {pages}<Button size="sm" variant="outline" className="h-6 px-2" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</Button></div>}</div>;
+}
 const Field = ({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) => <label className="block text-xs"><span className="font-medium">{label}</span><div className="mt-0.5">{children}</div>{hint && <div className="text-[10px] text-muted-foreground mt-0.5">{hint}</div>}</label>;
 const Sel_ = (p: React.SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={cn("w-full h-8 rounded-md border bg-background px-2 text-xs", p.className)} />;
 
@@ -199,17 +224,17 @@ function TestRun({ id, def, kind, onPath }: any) {
   </div>;
 }
 function SettingsPanel({ w, meta, kind, onSaved }: any) {
-  const { toast } = useToast(); const [f, setF] = useState({ name: w.name, description: w.description || "", rank: w.rank, category: (w.match?.category || []).join(", "), priority: w.match?.priority || [] as string[] });
+  const { toast } = useToast(); const [f, setF] = useState({ name: w.name, description: w.description || "", rank: w.rank, category: (w.match?.category || []).join(", "), priority: w.match?.priority || [] as string[], severity: w.match?.severity || [] as string[], type: w.match?.type || [] as string[] });
   const cats = meta.categories.filter((c: any) => c.type === { incident: "Incident", request: "Service Request" }[w.ticketType as string]).map((c: any) => c.category);
   const split = (s: string) => s.split(",").map(x => x.trim()).filter(Boolean);
   async function save() {
-    try { await apiFetch(`/itsm-workflows/${w.id}`, { method: "PATCH", body: JSON.stringify({ name: f.name, description: f.description, rank: f.rank, match: { category: split(f.category), priority: f.priority } }) }); toast({ title: "Settings saved" }); onSaved(); }
+    try { await apiFetch(`/itsm-workflows/${w.id}`, { method: "PATCH", body: JSON.stringify({ name: f.name, description: f.description, rank: f.rank, match: { category: split(f.category), priority: f.priority, severity: f.severity, type: f.type } }) }); toast({ title: "Settings saved" }); onSaved(); }
     catch (e: any) { if (!e.cancelled) toast({ title: "Not saved", description: e.message, variant: "destructive" }); }
   }
   async function toggle() {
-    const reason = w.isActive ? await reasonDialog(`Why is “${w.name}” being deactivated? New tickets will no longer use it; running tickets continue.`, { title: "Deactivate workflow", confirmText: "Deactivate" }) : "";
+    const reason = w.isActive ? await reasonDialog(`Why is “${w.name}” being deactivated? New tickets will no longer use it; running tickets continue.`, { title: "Disable workflow", confirmText: "Disable" }) : "";
     if (w.isActive && reason === null) return;
-    try { await apiFetch(`/itsm-workflows/${w.id}`, { method: "PATCH", body: JSON.stringify({ isActive: !w.isActive, reason }) }); toast({ title: w.isActive ? "Deactivated" : "Activated" }); onSaved(); }
+    try { await apiFetch(`/itsm-workflows/${w.id}`, { method: "PATCH", body: JSON.stringify({ isActive: !w.isActive, reason }) }); toast({ title: w.isActive ? "Disabled" : "Enabled" }); onSaved(); }
     catch (e: any) { if (!e.cancelled) toast({ title: "Not changed", description: e.message, variant: "destructive" }); }
   }
   const dis = !w.canEdit;
@@ -219,6 +244,8 @@ function SettingsPanel({ w, meta, kind, onSaved }: any) {
     <Field label="Order" hint="Lower is checked first when several workflows match."><Input disabled={dis} type="number" className="h-8 text-xs" value={f.rank} onChange={e => setF({ ...f, rank: Number(e.target.value) })} /></Field>
     {kind.fields.some((x: any) => x.key === "category") && <Field label="Applies to categories" hint={cats.length ? `Known: ${cats.slice(0, 12).join(", ")}` : "Empty = every category"}><Input disabled={dis} className="h-8 text-xs" value={f.category} onChange={e => setF({ ...f, category: e.target.value })} placeholder="All categories" /></Field>}
     {kind.fields.some((x: any) => x.key === "priority") && <Field label="Applies to priorities" hint="None ticked = every priority"><div className="flex flex-wrap gap-1">{["Critical", "High", "Medium", "Low"].map(p => <button key={p} disabled={dis} onClick={() => setF({ ...f, priority: f.priority.includes(p) ? f.priority.filter((x: string) => x !== p) : [...f.priority, p] })} className={cn("rounded-full border px-2 py-0.5 text-xs", f.priority.includes(p) && "bg-primary text-primary-foreground border-primary")}>{p}</button>)}</div></Field>}
-    {w.canEdit && <div className="flex gap-1.5"><Button size="sm" className="flex-1" onClick={save}>Save settings</Button><Button size="sm" variant="outline" onClick={toggle}>{w.isActive ? "Deactivate" : "Activate"}</Button></div>}
+    {kind.fields.some((x: any) => x.key === "severity") && <Field label="Applies to severities" hint="None ticked = every severity"><div className="flex flex-wrap gap-1">{["S1", "S2", "S3", "S4"].map(p => <button key={p} disabled={dis} onClick={() => setF({ ...f, severity: f.severity.includes(p) ? f.severity.filter((x: string) => x !== p) : [...f.severity, p] })} className={cn("rounded-full border px-2 py-0.5 text-xs", f.severity.includes(p) && "bg-primary text-primary-foreground border-primary")}>{p}</button>)}</div></Field>}
+    {kind.fields.some((x: any) => x.key === "type") && <Field label="Applies to change types" hint="None ticked = every type"><div className="flex flex-wrap gap-1">{["Standard", "Normal", "Emergency", "Major"].map(p => <button key={p} disabled={dis} onClick={() => setF({ ...f, type: f.type.includes(p) ? f.type.filter((x: string) => x !== p) : [...f.type, p] })} className={cn("rounded-full border px-2 py-0.5 text-xs", f.type.includes(p) && "bg-primary text-primary-foreground border-primary")}>{p}</button>)}</div></Field>}
+    {w.canEdit && <div className="flex gap-1.5"><Button size="sm" className="flex-1" onClick={save}>Save settings</Button><Button size="sm" variant="outline" onClick={toggle}>{w.isActive ? "Disable" : "Enable"}</Button></div>}
   </div>;
 }

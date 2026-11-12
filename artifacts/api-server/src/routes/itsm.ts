@@ -9,7 +9,7 @@ import { route, RoutingError, isMember, teamIdsOf, teamByName, teamById, userByN
 import { z } from "zod";
 import { fmtDateTime } from "../lib/dates";
 import { slaConfig, slaInfo, slaColumns, pauseColumns, clearSlaCache } from "../lib/itsm-sla";
-import { pickWorkflow, wfStart, wfCheckStatus, wfAfterStatus } from "../lib/itsm-workflow";
+import { pickWorkflow, wfStart, wfCheckStatus, wfAfterStatus, wfRunning } from "../lib/itsm-workflow";
 
 /*
  * IT Service Management API.
@@ -396,7 +396,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     }
     if (kind === "incident" && to === "Resolved" && !s(body.resolutionNotes ?? old.resolutionNotes)) throw new Bad("Resolution notes are required to resolve an incident");
     if (kind === "request" && to === "Completed" && !s(body.fulfillmentNotes ?? old.fulfillmentNotes)) throw new Bad("Fulfilment notes are required to complete a request");
-    if (kind === "change" && ["Scheduled", "In Progress", "Completed"].includes(to) && old.approvalStatus !== "Approved") throw new Bad("Change request must be approved before it is scheduled or implemented");
+    if (kind === "change" && ["Scheduled", "In Progress", "Completed"].includes(to) && old.approvalStatus !== "Approved" && !(await wfRunning(kind, id))) throw new Bad("Change request must be approved before it is scheduled or implemented");
     await assertApproved(kind, id, to);
     await wfCheckStatus(kind, id, old.status, to, isItsmAdmin(await getAccess(req)));
   }

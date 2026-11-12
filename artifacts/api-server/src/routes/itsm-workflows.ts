@@ -48,7 +48,7 @@ router.get("/itsm-workflows/meta", requireAuth, wrap(async (req, res) => {
 }));
 router.get("/itsm-workflows", requireAuth, wrap(async (req, res) => {
   if (!await canView(req)) return fail(res, 403, "No access to ITSM workflows");
-  const rows = rowsOf(await db.execute(sql`SELECT w.id, w.ticket_type AS "ticketType", w.name, w.description, w.match, w.rank, w.is_active AS "isActive", w.updated_by AS "updatedBy", w.updated_at AS "updatedAt",
+  const rows = rowsOf(await db.execute(sql`SELECT w.id, w.ticket_type AS "ticketType", w.name, w.description, w.match, w.rank, w.is_active AS "isActive", w.created_by AS "createdBy", w.updated_by AS "updatedBy", w.updated_at AS "updatedAt",
       (SELECT json_build_object('id', v.id, 'version', v.version, 'publishedBy', v.published_by, 'publishedAt', v.published_at) FROM itsm_workflow_versions v WHERE v.workflow_id = w.id AND v.status = 'Published') AS published,
       (SELECT json_build_object('id', v.id, 'version', v.version, 'updatedBy', v.updated_by, 'updatedAt', v.updated_at) FROM itsm_workflow_versions v WHERE v.workflow_id = w.id AND v.status = 'Draft') AS draft,
       (SELECT count(*)::int FROM itsm_ticket_workflows i WHERE i.workflow_id = w.id AND i.state NOT IN ('Finished', 'Stopped')) AS running,
@@ -68,7 +68,7 @@ router.post("/itsm-workflows", requireAuth, wrap(async (req, res) => {
   await logAudit({ entityType: "itsm_workflow", entityId: w.id, action: "create", performedBy: by, summary: `Workflow “${name}” created for ${KIND_NAME[kind]}` });
   res.status(201).json({ id: w.id });
 }));
-function matchOf(m: any) { const out: any = {}; for (const k of ["category", "subcategory", "priority", "type"]) if (Array.isArray(m?.[k])) { const v = m[k].map((x: any) => String(x).trim()).filter(Boolean).slice(0, 50); if (v.length) out[k] = v; } return out; }
+function matchOf(m: any) { const out: any = {}; for (const k of ["category", "subcategory", "priority", "severity", "type"]) if (Array.isArray(m?.[k])) { const v = m[k].map((x: any) => String(x).trim()).filter(Boolean).slice(0, 50); if (v.length) out[k] = v; } return out; }
 router.get("/itsm-workflows/:id", requireAuth, wrap(async (req, res, ) => {
   if (!await canView(req)) return fail(res, 403, "No access to ITSM workflows");
   const id = Number(req.params.id); const [w] = rowsOf(await db.execute(sql`SELECT id, ticket_type AS "ticketType", name, description, match, rank, is_active AS "isActive" FROM itsm_workflows WHERE id = ${id}`)); if (!w) return fail(res, 404, "Workflow not found");
@@ -84,13 +84,15 @@ router.patch("/itsm-workflows/:id", requireAuth, wrap(async (req, res) => {
   const b = req.body || {}; const next = { name: b.name !== undefined ? String(b.name).trim().slice(0, 120) : o.name, description: b.description !== undefined ? (String(b.description).slice(0, 500) || null) : o.description,
     match: b.match !== undefined ? matchOf(b.match) : o.match, rank: b.rank !== undefined ? Number(b.rank) || 100 : o.rank, is_active: b.isActive !== undefined ? !!b.isActive : o.is_active };
   if (next.name.length < 3) return fail(res, 400, "Name needs at least 3 characters");
-  if (o.is_active && !next.is_active && String(b.reason || "").trim().length < 5) return fail(res, 400, "Give a reason for deactivating the workflow");
+  if (o.is_active && !next.is_active && String(b.reason || "").trim().length < 5) return fail(res, 400, "Give a reason for disabling the workflow");
+  if (!o.is_active && next.is_active && !rowsOf(await db.execute(sql`SELECT 1 FROM itsm_workflow_versions WHERE workflow_id = ${id} AND status = 'Published'`)).length) return fail(res, 400, "Publish a version before enabling the workflow");
   const ch = (["name", "description", "rank", "is_active"] as const).filter(k => String((next as any)[k] ?? "") !== String(o[k] ?? "")).map(k => `${k === "is_active" ? "active" : k}: ${o[k] ?? "—"} → ${(next as any)[k] ?? "—"}`);
   if (JSON.stringify(next.match) !== JSON.stringify(o.match)) ch.push(`applies to: ${JSON.stringify(o.match)} → ${JSON.stringify(next.match)}`);
   if (!ch.length) return res.json({ ok: true, unchanged: true });
   const by = await getPerformedBy(uid(req));
   await db.execute(sql`UPDATE itsm_workflows SET name = ${next.name}, description = ${next.description}, match = ${JSON.stringify(next.match)}::jsonb, rank = ${next.rank}, is_active = ${next.is_active}, updated_by = ${by}, updated_at = now() WHERE id = ${id}`);
-  await logAudit({ entityType: "itsm_workflow", entityId: id, action: "update", performedBy: by, summary: `Workflow “${o.name}”: ${ch.join("; ")}${b.reason ? ` — ${b.reason}` : ""}` });
+  const act = o.is_active !== next.is_active ? (next.is_active ? "enable" : "disable") : "update";
+  await logAudit({ entityType: "itsm_workflow", entityId: id, action: act, performedBy: by, summary: `Workflow “${o.name}” ${act === "enable" ? "enabled" : act === "disable" ? "disabled" : "changed"}: ${ch.join("; ")}${b.reason ? ` — reason: ${b.reason}` : ""}`, newValues: { before: { name: o.name, isActive: o.is_active, match: o.match, rank: o.rank }, after: { name: next.name, isActive: next.is_active, match: next.match, rank: next.rank }, reason: b.reason || null } });
   res.json({ ok: true });
 }));
 /** Save the draft (creates one from the published version if there is none). */
@@ -144,6 +146,18 @@ router.post("/itsm-workflows/:id/simulate", requireAuth, wrap(async (req, res) =
   if (!await canView(req)) return fail(res, 403, "No access");
   const id = Number(req.params.id); const [w] = rowsOf(await db.execute(sql`SELECT ticket_type FROM itsm_workflows WHERE id = ${id}`)); if (!w) return fail(res, 404, "Workflow not found");
   res.json(wfSimulate(w.ticket_type, cleanDef(req.body?.definition), req.body?.facts || {}, Array.isArray(req.body?.choices) ? req.body.choices.map(String) : []));
+}));
+
+/** ITH-108 — audit log of workflow configuration (create, save, publish, enable / disable, …) and approval decisions. */
+router.get(["/itsm-workflows-audit", "/itsm-workflows/:id/audit"], requireAuth, wrap(async (req, res) => {
+  if (!await canView(req)) return fail(res, 403, "No access to ITSM workflows");
+  const id = Number(req.params.id) || null; const page = Math.max(1, Number(qs(req.query.page)) || 1); const size = 25;
+  const where = id ? sql`a.entity_type = 'itsm_workflow' AND a.entity_id = ${id}` : sql`a.entity_type IN ('itsm_workflow', 'itsm_workflow_task')`;
+  const [c] = rowsOf(await db.execute(sql`SELECT count(*)::int AS n FROM audit_logs a WHERE ${where}`));
+  const rows = rowsOf(await db.execute(sql`SELECT a.id, a.entity_type AS "entityType", a.entity_id AS "entityId", a.action, a.performed_by AS "by", a.performed_at AS "at", a.summary,
+      (SELECT w.name FROM itsm_workflows w WHERE a.entity_type = 'itsm_workflow' AND w.id = a.entity_id) AS workflow
+    FROM audit_logs a WHERE ${where} ORDER BY a.performed_at DESC, a.id DESC LIMIT ${size} OFFSET ${(page - 1) * size}`));
+  res.json({ rows, total: c.n, page, size });
 }));
 
 /* ── ticket side ── */
