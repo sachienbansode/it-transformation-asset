@@ -100,6 +100,7 @@ router.get("/admin/users", requireAdmin, async (_req, res): Promise<void> => {
       role: usersTable.role,
       department: usersTable.department,
       designation: usersTable.designation,
+      reportingManagerId: usersTable.reportingManagerId,
       employeeCode: usersTable.employeeCode,
       mobile: usersTable.mobile,
       mfaEnabled: usersTable.mfaEnabled,
@@ -111,7 +112,8 @@ router.get("/admin/users", requireAdmin, async (_req, res): Promise<void> => {
     })
     .from(usersTable)
     .orderBy(usersTable.createdAt);
-  res.json(users);
+  const nameOf = new Map(users.map(u => [u.id, u.name]));
+  res.json(users.map(u => ({ ...u, reportingManager: u.reportingManagerId ? nameOf.get(u.reportingManagerId) || null : null })));
 });
 
 /** Employee codes are unique (case-insensitive) — they map people to assets. Returns the clashing user, if any. */
@@ -119,6 +121,17 @@ async function employeeCodeClash(code: string, exceptId: number | null) {
   const [u] = await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable)
     .where(sql`lower(${usersTable.employeeCode}) = lower(${code})${exceptId ? sql` AND ${usersTable.id} <> ${exceptId}` : sql``}`);
   return u ? `${u.name} (${u.email})` : null;
+}
+
+/** ITH-109 — reporting manager: an active user, not the person themselves, and no loop (A → B → A). */
+async function managerProblem(userId: number | null, managerId: number | null | undefined) {
+  if (!managerId) return null;
+  const [m] = await db.select({ id: usersTable.id, isActive: usersTable.isActive, name: usersTable.name }).from(usersTable).where(eq(usersTable.id, managerId));
+  if (!m) return "The reporting manager was not found";
+  if (!m.isActive) return `${m.name} is not an active user`;
+  if (userId && managerId === userId) return "A person cannot be their own reporting manager";
+  if (userId) { let cur: number | null = managerId; for (let i = 0; cur && i < 20; i++) { const [r] = await db.select({ mgr: usersTable.reportingManagerId }).from(usersTable).where(eq(usersTable.id, cur)); cur = r?.mgr ?? null; if (cur === userId) return `${m.name} already reports (directly or indirectly) to this person`; } }
+  return null;
 }
 
 router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
@@ -134,11 +147,13 @@ router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
     mobile: z.string().optional(),
     status: z.enum(["active", "inactive", "dormant"]).default("active"),
     isActive: z.boolean().default(true),
+    reportingManagerId: z.number().int().positive().nullable().optional(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const { password, ...rest } = body.data;
   rest.email = rest.email.trim().toLowerCase();
   rest.employeeCode = rest.employeeCode.trim();
+  const mp = await managerProblem(null, rest.reportingManagerId); if (mp) { res.status(400).json({ error: mp }); return; }
   const clash = await employeeCodeClash(rest.employeeCode, null);
   if (clash) { res.status(400).json({ error: `Employee code ${rest.employeeCode} is already used by ${clash}` }); return; }
   const [emailClash] = await db.select({ id: usersTable.id }).from(usersTable).where(sql`lower(${usersTable.email}) = ${rest.email}`);
@@ -171,6 +186,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
     isActive: z.boolean().optional(),
     mfaEnabled: z.boolean().optional(),
     password: z.string().min(8).optional(),
+    reportingManagerId: z.number().int().positive().nullable().optional(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const { password, ...rest } = body.data;
@@ -179,6 +195,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
     const [clash] = await db.select({ id: usersTable.id }).from(usersTable).where(sql`lower(${usersTable.email}) = ${rest.email} AND ${usersTable.id} <> ${id}`);
     if (clash) { res.status(400).json({ error: `Another user already uses ${rest.email}` }); return; }
   }
+  if (rest.reportingManagerId !== undefined) { const mp = await managerProblem(id, rest.reportingManagerId); if (mp) { res.status(400).json({ error: mp }); return; } }
   if (rest.employeeCode !== undefined) {
     rest.employeeCode = rest.employeeCode.trim();
     if (!rest.employeeCode) { res.status(400).json({ error: "Employee code cannot be blank — it links the user to their assets" }); return; }
@@ -197,13 +214,13 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   const [oldUser] = await db.select({
     email: usersTable.email, name: usersTable.name, role: usersTable.role, status: usersTable.status,
     department: usersTable.department, designation: usersTable.designation, mobile: usersTable.mobile,
-    userType: usersTable.userType, employeeCode: usersTable.employeeCode, mfaEnabled: usersTable.mfaEnabled,
+    userType: usersTable.userType, employeeCode: usersTable.employeeCode, mfaEnabled: usersTable.mfaEnabled, reportingManagerId: usersTable.reportingManagerId,
   }).from(usersTable).where(eq(usersTable.id, id));
   const [user] = await db.update(usersTable).set(update).where(eq(usersTable.id, id)).returning({
     id: usersTable.id, email: usersTable.email, name: usersTable.name,
     userType: usersTable.userType, role: usersTable.role, status: usersTable.status,
     department: usersTable.department, designation: usersTable.designation,
-    mobile: usersTable.mobile, mfaEnabled: usersTable.mfaEnabled, employeeCode: usersTable.employeeCode,
+    mobile: usersTable.mobile, mfaEnabled: usersTable.mfaEnabled, employeeCode: usersTable.employeeCode, reportingManagerId: usersTable.reportingManagerId,
   });
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const adminNameU = await getPerformedBy((req as any).user?.id);
@@ -213,6 +230,10 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   for (const k of updatedKeys) {
     oldSnap[k] = (oldUser as any)?.[k];
     newSnap[k] = (user as any)[k] ?? (rest as any)[k];
+  }
+  if ("reportingManagerId" in oldSnap) {   // audit names, not ids
+    const nm = async (v: any) => v ? (await db.select({ n: usersTable.name }).from(usersTable).where(eq(usersTable.id, Number(v))))[0]?.n || `#${v}` : "none";
+    if (oldSnap.reportingManagerId !== newSnap.reportingManagerId) { oldSnap.reportingManagerId = await nm(oldSnap.reportingManagerId); newSnap.reportingManagerId = await nm(newSnap.reportingManagerId); } else { oldSnap.reportingManagerId = newSnap.reportingManagerId; }
   }
   logAudit({ entityType: "user", entityId: user.id, action: "update", performedBy: adminNameU, summary: `Updated user ${user.email}: ${updatedKeys.filter(k => oldSnap[k] !== newSnap[k]).map(k => `${k}: "${oldSnap[k]}" → "${newSnap[k]}"`).join(", ") || updatedKeys.join(", ")}`, oldValues: oldSnap, newValues: newSnap }).catch(() => {});
   { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(id).catch(() => {}); }

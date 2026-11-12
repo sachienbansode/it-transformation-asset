@@ -1,4 +1,4 @@
-import { pgTable, text, serial, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, boolean, timestamp, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -11,6 +11,7 @@ export const usersTable = pgTable("users", {
   role: text("role").notNull().default("user"),
   department: text("department"),
   designation: text("designation"),
+  reportingManagerId: integer("reporting_manager_id"),   // ITH-109: approvals by the reporting manager
   employeeCode: text("employee_code"),
   mobile: text("mobile"),
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),

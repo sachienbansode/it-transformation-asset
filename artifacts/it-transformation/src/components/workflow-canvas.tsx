@@ -28,6 +28,7 @@ const OUT_CLS: Record<string, string> = { yes: "#16a34a", no: "#dc2626", approve
 export function nodeSummary(n: WNode) {
   const c = n.config || {};
   if (n.type === "stage") return c.status ? `Status: ${c.status}${c.timeoutHours ? ` · ${c.timeoutHours} h limit` : ""}` : "Choose a status";
+  if (n.type === "approval" && ["reporting_manager", "assigned_team", "itsm_admins", "asset_admins"].includes(c.approverType)) return ({ reporting_manager: Number(c.level) === 2 ? "Manager's manager" : "Reporting manager", assigned_team: "Ticket's team", itsm_admins: "ITSM Admins", asset_admins: "IT Asset Admins" } as any)[c.approverType];
   if (n.type === "approval") return c.approverType === "users" ? `${(c.userNames || c.userIds || []).length} person(s)` : c.approverType === "team" ? (c.team ? `Team ${c.team}` : "Choose team") : c.approverType === "role" ? (c.roleName || "Choose role") : "Choose approvers";
   if (n.type === "condition") return c.field ? `${c.field} ${c.op === "neq" ? "is not" : c.op === "contains" ? "contains" : c.op === "empty" ? "is empty" : "is"} ${c.op === "empty" ? "" : c.value || "…"}` : "Choose field";
   if (n.type === "assign") return [c.team && `Team ${c.team}`, c.user].filter(Boolean).join(" · ") || "Choose team / person";

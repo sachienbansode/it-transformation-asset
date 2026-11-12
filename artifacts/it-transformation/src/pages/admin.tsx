@@ -40,7 +40,7 @@ type Tab = "settings" | "masters" | "business-units" | "audit" | "itsm-config";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
-  role: string; department?: string; designation?: string; employeeCode?: string;
+  role: string; department?: string; designation?: string; employeeCode?: string; reportingManagerId?: number | null; reportingManager?: string | null;
   mobile?: string; mfaEnabled: boolean;
   mfaMethod?: string; isActive: boolean; status: string;
   lastLoginAt?: string; createdAt: string;
@@ -439,7 +439,7 @@ function UsersTab() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [userPage, setUserPage] = useState(1);
   const USER_PAGE_SIZE = 10;
-  const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
+  const [form, setForm] = useState({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true, reportingManagerId: "" as string | number });
   const [deptMasters, setDeptMasters] = useState<DeptMaster[]>([]);
 
   const load = async () => {
@@ -458,20 +458,20 @@ function UsersTab() {
 
   const openAdd = () => {
     setEditUser(null);
-    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
+    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true, reportingManagerId: "" });
     setModalOpen(true);
   };
 
   const openEdit = (u: AdminUser) => {
     setEditUser(u);
-    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", designation: u.designation || "", employeeCode: u.employeeCode || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive });
+    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", designation: u.designation || "", employeeCode: u.employeeCode || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive , reportingManagerId: u.reportingManagerId || "" });
     setModalOpen(true);
   };
 
   const handleSave = async () => {
     try {
       if (editUser) {
-        const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
+        const body: any = { name: form.name, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status, reportingManagerId: form.reportingManagerId ? Number(form.reportingManagerId) : null };
         if (form.password) body.password = form.password;
         await apiFetch(`/admin/users/${editUser.id}`, { method: "PATCH", body: JSON.stringify(body) });
         toast({ title: "User updated" });
@@ -479,7 +479,7 @@ function UsersTab() {
         if (!form.designation.trim() || !form.employeeCode.trim() || !form.department.trim()) {
           toast({ title: "Designation, Department, and Employee Code are required", variant: "destructive" }); return;
         }
-        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
+        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status, reportingManagerId: form.reportingManagerId ? Number(form.reportingManagerId) : null };
         if (form.password) body.password = form.password;
         await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
         toast({ title: "User created" });
@@ -680,6 +680,12 @@ function UsersTab() {
             <div className="space-y-1.5"><Label>Full Name *</Label><Input value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} /></div>
             {!editUser && <div className="space-y-1.5"><Label>Email *</Label><Input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></div>}
             <div className="space-y-1.5"><Label>Designation *</Label><Input value={form.designation} onChange={e => setForm(f => ({...f, designation: e.target.value}))} placeholder="e.g. Senior Manager" /></div>
+            <div className="space-y-1.5"><Label>Reporting manager</Label>
+              <select data-testid="reporting-manager" value={String(form.reportingManagerId || "")} onChange={e => setForm(f => ({ ...f, reportingManagerId: e.target.value }))} className="w-full h-9 rounded-md border bg-background px-2 text-sm">
+                <option value="">— None —</option>
+                {users.filter(x => x.isActive && x.id !== editUser?.id).sort((a, b) => a.name.localeCompare(b.name)).map(x => <option key={x.id} value={x.id}>{x.name}{x.employeeCode ? ` · ${x.employeeCode}` : ""}{x.designation ? ` · ${x.designation}` : ""}</option>)}
+              </select>
+              <p className="text-[11px] text-muted-foreground">Approves this person's requests in workflows that use “reporting manager”.</p></div>
             <div className="space-y-1.5"><Label>Employee Code *</Label><Input value={form.employeeCode} onChange={e => setForm(f => ({...f, employeeCode: e.target.value}))} placeholder="e.g. EMP001" /></div>
             <div className="space-y-1.5">
               <Label>Department *</Label>

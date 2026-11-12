@@ -65,7 +65,7 @@ export function validateDef(kind: WfKind, d: WfDef, strict = true): string[] {
       if (c.timeoutHours && !o.some(e => e.outcome === "timeout")) errs.push(`${name(n)}: has a time limit but no “timeout” connection`);
       if (o.some(e => e.outcome === "timeout") && !(Number(c.timeoutHours) > 0)) errs.push(`${name(n)}: set the time limit (hours) for the “timeout” connection`); }
     if (n.type === "approval") { if (!o.some(e => e.outcome === "approved") || !o.some(e => e.outcome === "rejected")) errs.push(`${name(n)}: connect both “approved” and “rejected”`);
-      if (!(c.approverType === "users" ? (c.userIds || []).length : c.approverType === "team" ? c.team : c.approverType === "role" ? c.roleId : ["assigned_team", "itsm_admins"].includes(c.approverType))) errs.push(`${name(n)}: choose who approves`); }
+      if (!(c.approverType === "users" ? (c.userIds || []).length : c.approverType === "team" ? c.team : c.approverType === "role" ? c.roleId : ["assigned_team", "itsm_admins", "reporting_manager", "asset_admins"].includes(c.approverType))) errs.push(`${name(n)}: choose who approves`); }
     if (n.type === "condition") { if (!o.some(e => e.outcome === "yes") || !o.some(e => e.outcome === "no")) errs.push(`${name(n)}: connect both “yes” and “no”`);
       if (!c.field || !WF_FIELDS[kind].some(f => f.key === c.field)) errs.push(`${name(n)}: choose a field to check`); if (c.value === undefined || c.value === "") errs.push(`${name(n)}: enter the value to compare`); }
     if (n.type === "assign" && !c.team && !c.user) errs.push(`${name(n)}: choose a team or a person`);
@@ -119,7 +119,7 @@ export function conditionTrue(t: any, c: any) {
 
 /* ── choosing the workflow ── */
 export async function pickWorkflow(kind: WfKind, t: any) {
-  const rows = rowsOf(await db.execute(sql`SELECT w.id, w.name, w.match, v.id AS version_id, v.version, v.definition FROM itsm_workflows w JOIN itsm_workflow_versions v ON v.workflow_id = w.id AND v.status = 'Published'
+  const rows = rowsOf(await db.execute(sql`SELECT w.id, w.name, w.match, w.manager_approval, w.manager_level, v.id AS version_id, v.version, v.definition FROM itsm_workflows w JOIN itsm_workflow_versions v ON v.workflow_id = w.id AND v.status = 'Published'
     WHERE w.ticket_type = ${kind} AND w.is_active ORDER BY w.rank, w.id`));
   for (const w of rows) {
     const m = w.match || {}; const ok = (k: string) => !Array.isArray(m[k]) || !m[k].length || m[k].map((x: string) => x.toLowerCase()).includes(String(t[k] ?? "").toLowerCase());
@@ -145,6 +145,21 @@ async function approversOf(c: any, t?: any): Promise<{ ids: number[]; label: str
     const tm = t?.assignedGroup ? await teamByName(t.assignedGroup) : null; const ids = tm ? (await teamMembers(tm.id)).map(m => m.id) : [];
     if (ids.length) return { ids, label: `${tm!.name} team` };
     return approversOf({ approverType: "itsm_admins" });
+  }
+  if (c.approverType === "reporting_manager") {   // the requester's reporting manager (level 2 = the manager's manager)
+    let uid: number | null = t?.requesterUserId || null;
+    if (!uid) { const nm = t?.requestedBy || t?.reportedBy || null; const u = nm ? await userByName(nm) : null; uid = u?.id || null; }
+    const [req] = uid ? rowsOf(await db.execute(sql`SELECT id, name, reporting_manager_id FROM users WHERE id = ${uid}`)) : [];
+    let mgrId: number | null = req?.reporting_manager_id || null;
+    if (mgrId && Number(c.level) === 2) { const [m1] = rowsOf(await db.execute(sql`SELECT reporting_manager_id FROM users WHERE id = ${mgrId}`)); mgrId = m1?.reporting_manager_id || null; }
+    const [mgr] = mgrId ? rowsOf(await db.execute(sql`SELECT id, name, is_active FROM users WHERE id = ${mgrId}`)) : [];
+    if (mgr && mgr.is_active && mgr.id !== uid) return { ids: [mgr.id], label: `${mgr.name} (${Number(c.level) === 2 ? "manager's manager" : "reporting manager"} of ${req.name})` };
+    const fb = await approversOf({ approverType: c.fallback === "asset_admins" ? "asset_admins" : "itsm_admins" });
+    return { ids: fb.ids, label: `${fb.label} — no ${Number(c.level) === 2 ? "second-level " : ""}reporting manager set for ${req?.name || "the requester"}` };
+  }
+  if (c.approverType === "asset_admins") {
+    const ids = rowsOf(await db.execute(sql`SELECT u.id FROM users u WHERE u.is_active AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id WHERE ur.user_id = u.id AND rp.module = 'asset_registry' AND rp.access_level = 'admin'))`)).map(r => r.id);
+    return { ids, label: "IT Asset Admins" };
   }
   if (c.approverType === "itsm_admins") {
     const ids = rowsOf(await db.execute(sql`SELECT u.id FROM users u WHERE u.is_active AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id WHERE ur.user_id = u.id AND rp.module = 'itsm_setup' AND rp.access_level = 'admin'))`)).map(r => r.id);
@@ -232,9 +247,41 @@ export async function wfStart(kind: WfKind, ticketId: number, by: string) {
     ON CONFLICT (ticket_type, ticket_id) DO NOTHING RETURNING *`)); if (!inst) return null;
   await event(inst.id, start, "started", `“${w.name}” v${w.version}`, by);
   await history(kind, ticketId, `Workflow “${w.name}” v${w.version} started`, null, null, by);
-  await walk(kind, { ...inst, definition: d, workflow: w.name }, outOf(d, start.id)[0] || null, "Workflow");
+  const I = { ...inst, definition: d, workflow: w.name };
+  if (w.manager_approval && !(await managerStep(kind, I, t, Number(w.manager_level) || 1))) return w;   // waiting for the manager
+  await walk(kind, I, outOf(d, start.id)[0] || null, "Workflow");
   return w;
 }
+/** ITH-111 — "Reporting manager approves first" (workflow setting). Returns true when the step is skipped (no manager). */
+async function managerOf(t: any, level: number) {
+  let uid: number | null = t?.requesterUserId || null;
+  if (!uid) { const nm = t?.requestedBy || t?.reportedBy || t?.createdBy || null; const u = nm ? await userByName(String(nm).replace(/\s*<.*>$/, "")) : null; uid = u?.id || null; }
+  const [req] = uid ? rowsOf(await db.execute(sql`SELECT id, name, reporting_manager_id FROM users WHERE id = ${uid}`)) : [];
+  let mid: number | null = req?.reporting_manager_id || null;
+  if (mid && level === 2) { const [m1] = rowsOf(await db.execute(sql`SELECT reporting_manager_id FROM users WHERE id = ${mid}`)); mid = m1?.reporting_manager_id || null; }
+  const [mgr] = mid ? rowsOf(await db.execute(sql`SELECT id, name FROM users WHERE id = ${mid} AND is_active`)) : [];
+  return { req: req || null, mgr: mgr && mgr.id !== req?.id ? mgr : null };
+}
+async function managerStep(kind: WfKind, inst: any, t: any, level: number) {
+  const { req, mgr } = await managerOf(t, level); const what = level === 2 ? "manager's manager" : "reporting manager"; const no = t[NO_KEY[kind]];
+  const node: WfNode = { id: "__manager", type: "approval", label: level === 2 ? "Manager's manager approval" : "Reporting manager approval" };
+  if (!mgr) {
+    const msg = `Reporting manager approval was required, but no ${what} is assigned to ${req?.name || "the requester"} — the step was skipped.`;
+    await event(inst.id, node, "skipped", msg);
+    await history(kind, t.id, msg, null, null, "Workflow");
+    await inApp([req?.id], `${no}: manager approval skipped`, `${msg} Ask HR / IT to set your reporting manager in IT Hub.`, `${LINK[kind]}?open=${t.id}`, "warning");
+    void import("../routes/audit-logs").then(m => m.logAudit({ entityType: "itsm_workflow", entityId: inst.workflow_id, action: "manager_skipped", performedBy: "Workflow", summary: `${no}: ${msg}` })).catch(() => {});
+    return true;
+  }
+  const title = `${node.label} for ${no}`;
+  await db.execute(sql`INSERT INTO itsm_workflow_tasks (instance_id, node_id, title, approver_ids, approver_label) VALUES (${inst.id}, '__manager', ${title}, ${sql.raw(`ARRAY[${Number(mgr.id)}]::int[]`)}, ${`${mgr.name} (${what} of ${req.name})`})`);
+  await db.execute(sql`UPDATE itsm_ticket_workflows SET current_node = '__manager', entered_at = now(), state = 'Waiting approval' WHERE id = ${inst.id}`);
+  if (WF_STATUS[kind].includes("Pending Approval")) await setStatus(kind, t, "Pending Approval", `Workflow “${inst.workflow}”: waiting for ${mgr.name} (${what}) to approve`, "Workflow");
+  await inApp([mgr.id], `Approval needed: ${no}`, `${title} — ${t.title} (raised by ${req.name})`, `${LINK[kind]}?open=${t.id}`, "warning");
+  await event(inst.id, node, "entered", `approval by ${mgr.name} (${what} of ${req.name})`);
+  return false;
+}
+const MGR_REJECT: Record<WfKind, string> = { request: "Rejected", change: "Rejected", incident: "Closed", problem: "Closed" };
 /** Before a status change: refuse moves the workflow does not allow (ITSM Admin may override; the workflow then follows). */
 export async function wfCheckStatus(kind: WfKind, ticketId: number, from: string, to: string, admin: boolean) {
   if (from === to) return;
@@ -275,8 +322,18 @@ export async function wfDecide(taskId: number, userId: number, userName: string,
   await db.execute(sql`UPDATE itsm_workflow_tasks SET status = ${decision}, decided_by = ${by}, decided_by_id = ${userId}, decided_at = now(), notes = ${notes.trim() || null} WHERE id = ${taskId}`);
   const kind = tk.ticket_type as WfKind; const inst = await instanceOf(kind, tk.ticket_id); const d: WfDef = inst.definition; const n = nodeOf(d, tk.node_id);
   if (kind === "change") await db.update(itsmChangesTable).set({ approvalStatus: decision, approvedBy: by } as any).where(eq(itsmChangesTable.id, tk.ticket_id));
-  await event(inst.id, n, decision === "Approved" ? "approved" : "rejected", notes.trim() || null, by);
+  await event(inst.id, n || (tk.node_id === "__manager" ? { id: "__manager", type: "approval", label: "Reporting manager approval" } as WfNode : null), decision === "Approved" ? "approved" : "rejected", notes.trim() || null, by);
   await history(kind, tk.ticket_id, `${tk.title}: ${decision.toLowerCase()} by ${by}${notes.trim() ? ` — ${notes.trim()}` : ""}`, null, null, by);
+  if (tk.node_id === "__manager") {   // the "manager approves first" step
+    if (decision === "Approved") { const st = d.nodes.find(x => x.type === "start"); await walk(kind, inst, st ? outOf(d, st.id)[0] || null : null, by); }
+    else {
+      const t = await ticket(kind, tk.ticket_id); await setStatus(kind, t, MGR_REJECT[kind], `Workflow “${inst.workflow}”: not approved by the reporting manager`, by);
+      await db.execute(sql`UPDATE itsm_ticket_workflows SET state = 'Finished', finished_at = now() WHERE id = ${inst.id}`);
+      await event(inst.id, null, "finished", `not approved by the reporting manager — ${MGR_REJECT[kind]}`, by);
+      await inApp([t.requesterUserId], `${t[NO_KEY[kind]]} not approved`, `${t[NO_KEY[kind]]}: ${t.title} was not approved by your reporting manager${notes.trim() ? ` — ${notes.trim()}` : ""}.`, `${LINK[kind]}?open=${t.id}`, "warning");
+    }
+    return { kind, ticketId: tk.ticket_id };
+  }
   const e = outOf(d, tk.node_id, decision === "Approved" ? "approved" : "rejected")[0] || null;
   await walk(kind, inst, e, by);
   return { kind, ticketId: tk.ticket_id };
@@ -301,7 +358,7 @@ export function startWorkflowSweep(ms = 60_000) { if (!sweeping) { sweeping = se
 export async function wfRunning(kind: WfKind, ticketId: number) { const i = await instanceOf(kind, ticketId); return !!i && i.state !== "Finished" && i.state !== "Stopped"; }
 export async function wfView(kind: WfKind, ticketId: number, userId: number, admin: boolean) {
   const inst = await instanceOf(kind, ticketId); if (!inst) return null;
-  const d: WfDef = inst.definition; const t = await ticket(kind, ticketId); const n = nodeOf(d, inst.current_node);
+  const d: WfDef = inst.definition; const t = await ticket(kind, ticketId); const n = inst.current_node === "__manager" ? { id: "__manager", type: "approval", label: "Reporting manager approval" } as WfNode : nodeOf(d, inst.current_node);
   const tasks = rowsOf(await db.execute(sql`SELECT id, node_id AS "nodeId", title, approver_label AS "approvers", approver_ids AS ids, status, decided_by AS "decidedBy", decided_at AS "decidedAt", notes, created_at AS "createdAt" FROM itsm_workflow_tasks WHERE instance_id = ${inst.id} ORDER BY id`))
     .map(x => ({ ...x, canDecide: x.status === "Pending" && ((x.ids || []).map(Number).includes(userId) || admin), mine: (x.ids || []).map(Number).includes(userId), ids: undefined }));
   const events = rowsOf(await db.execute(sql`SELECT node_id AS "nodeId", node_label AS "label", node_type AS "type", event, detail, by_name AS "by", at FROM itsm_workflow_events WHERE instance_id = ${inst.id} ORDER BY at, id`));
@@ -328,4 +385,39 @@ export function wfSimulate(kind: WfKind, d: WfDef, facts: any, choices: string[]
     e = outOf(d, n.id)[0] || null;
   }
   return { path, stop: e ? "Too many steps (loop?)" : "Stopped — a step has no next step" };
+}
+
+/** ITH-111 — the workflow in plain English, generated from the drawing (so it is always accurate). */
+const WHO: Record<string, string> = { reporting_manager: "the requester's reporting manager", assigned_team: "the team the ticket is with", itsm_admins: "the ITSM Admins", asset_admins: "the IT Asset Admins" };
+const TO: Record<string, string> = { requester: "the requester", assignee: "the assigned person", team: "the assigned team", users: "named people" };
+export function explainDef(kind: WfKind, d: WfDef, opts: { managerApproval?: boolean; managerLevel?: number } = {}) {
+  const nodes = d?.nodes || []; const edges = d?.edges || []; const start = nodes.find(n => n.type === "start"); if (!start) return [] as string[];
+  const nm = (id: string) => { const n = nodes.find(x => x.id === id); return n ? `“${n.label || n.config?.status || n.type}”` : "?"; };
+  const out = (id: string, o?: string) => edges.filter(e => e.from === id && (!o || (e.outcome || "next") === o));
+  const order: string[] = []; const q = [start.id]; const seen = new Set(q);
+  while (q.length) { const id = q.shift()!; order.push(id); for (const e of edges.filter(x => x.from === id)) if (!seen.has(e.to)) { seen.add(e.to); q.push(e.to); } }
+  const lines: string[] = [];
+  const first = out(start.id)[0];
+  if (opts.managerApproval) lines.push(`When the ticket is raised, ${opts.managerLevel === 2 ? "the requester's manager's manager" : "the requester's reporting manager"} must approve it first. If no manager is assigned, this step is skipped and the ticket history, the requester and the audit log record that it was skipped. If the manager rejects it, the ticket is ${MGR_REJECT[kind].toLowerCase()} and the requester is told.`);
+  lines.push(`${opts.managerApproval ? "Then" : "When the ticket is raised"} it goes to ${first ? nm(first.to) : "— (no first step)"}.`);
+  for (const id of order) {
+    const n = nodes.find(x => x.id === id)!; const c = n.config || {}; const L = nm(id);
+    if (n.type === "stage") {
+      const acts = out(id, "next").map(e => `“${e.label || "move on"}” → ${nm(e.to)}`); const to = out(id, "timeout")[0];
+      lines.push(`${L}: the ticket status is ${c.status}.${acts.length ? ` The team can choose ${acts.join("; ")}.` : ""}${to && c.timeoutHours ? ` If it stays here longer than ${Number(c.timeoutHours) < 1 ? `${Math.round(Number(c.timeoutHours) * 60)} minutes` : `${c.timeoutHours} hour${Number(c.timeoutHours) === 1 ? "" : "s"}`}, it automatically goes to ${nm(to.to)}.` : ""}`);
+    } else if (n.type === "approval") {
+      const who = WHO[c.approverType] || (c.approverType === "team" ? `any member of the ${c.team || "?"} team` : c.approverType === "role" ? `anyone with the ${c.roleName || "chosen"} role` : c.approverType === "users" ? (c.userNames || []).join(" or ") || "named people" : "the approvers");
+      const a = out(id, "approved")[0], r = out(id, "rejected")[0];
+      lines.push(`${L}: the status becomes Pending Approval and ${who} must approve${c.approverType === "reporting_manager" ? ` (if no manager is set, ${c.fallback === "asset_admins" ? "the IT Asset Admins" : "the ITSM Admins"} approve instead)` : ""}. Approved → ${a ? nm(a.to) : "—"}; rejected (with a reason) → ${r ? nm(r.to) : "—"}.`);
+    } else if (n.type === "condition") {
+      const f = (WF_FIELDS[kind].find(x => x.key === c.field)?.label || c.field || "?").toLowerCase(); const y = out(id, "yes")[0], no = out(id, "no")[0];
+      const test = c.op === "neq" ? `is not ${c.value}` : c.op === "contains" ? `contains ${String(c.value).split(",").map((x: string) => x.trim()).join(" or ")}` : c.op === "empty" ? "is empty" : `is ${String(c.value).split(",").map((x: string) => x.trim()).join(" or ")}`;
+      lines.push(`${L}: checks whether the ${f} ${test}. Yes → ${y ? nm(y.to) : "—"}; no → ${no ? nm(no.to) : "—"}.`);
+    } else if (n.type === "assign") {
+      const nx = out(id)[0]; lines.push(`${L}: assigns the ticket to ${[c.team && `the ${c.team} team`, c.user].filter(Boolean).join(" and ") || "—"}, then → ${nx ? nm(nx.to) : "—"}.`);
+    } else if (n.type === "notify") {
+      const nx = out(id)[0]; lines.push(`${L}: sends an in-app notice to ${(c.to || []).map((x: string) => TO[x] || x).join(", ") || "—"}, then → ${nx ? nm(nx.to) : "—"}.`);
+    } else if (n.type === "end") lines.push(`${L}: the workflow ends${c.status ? ` and the status becomes ${c.status}` : ""}.`);
+  }
+  return lines;
 }

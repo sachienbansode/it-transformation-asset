@@ -13,7 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { WorkflowCanvas, Palette, remove, typeOf, OUTCOMES, type WDef, type Sel } from "@/components/workflow-canvas";
-import { Workflow, Plus, Save, Upload, FlaskConical, ArrowLeft, Trash2, History, Settings2, AlertTriangle, CheckCircle2, Loader2, Copy, ScrollText } from "lucide-react";
+import { Workflow, Plus, Save, Upload, FlaskConical, ArrowLeft, Trash2, History, Settings2, AlertTriangle, CheckCircle2, Loader2, Copy, ScrollText, BookOpenText } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 /* ITH-101 — ITSM › Workflows: list per ticket type and the drag-and-drop designer with versions, checks, test run and publish. */
@@ -52,7 +52,8 @@ function List({ meta, open }: { meta: any; open: (id: number) => void }) {
           <table className="w-full text-sm"><thead><tr className="text-left text-xs text-muted-foreground border-b"><th className="p-3">Workflow</th><th className="p-3">Applies to</th><th className="p-3">Order</th><th className="p-3">Published</th><th className="p-3">Draft</th><th className="p-3">Tickets</th><th className="p-3">Enabled</th><th className="p-3" /></tr></thead>
             <tbody>{rows.map((r: any) => (
               <tr key={r.id} className={cn("border-b hover:bg-muted/30 cursor-pointer", !r.isActive && "text-muted-foreground")} onClick={() => open(r.id)} data-wf={r.name}>
-                <td className="p-3"><div className="font-medium flex items-center gap-1.5 flex-wrap">{r.name}{r.createdBy === "System (preconfigured)" && <span className="rounded-full border px-1.5 text-[10px] font-normal">Preconfigured</span>}</div><div className="text-xs text-muted-foreground">{r.description || ""}</div></td>
+                <td className="p-3"><div className="font-medium flex items-center gap-1.5 flex-wrap">{r.name}{r.createdBy === "System (preconfigured)" && <span className="rounded-full border px-1.5 text-[10px] font-normal">Preconfigured</span>}{r.managerApproval && <span className="rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 text-[10px] font-semibold">Manager approves first</span>}</div><div className="text-xs text-muted-foreground">{r.description || ""}</div>
+                  {r.explain?.length > 0 && <details className="mt-1 text-xs" onClick={e => e.stopPropagation()}><summary className="cursor-pointer text-primary">How it works</summary><ol className="list-decimal pl-5 mt-1 space-y-0.5 text-foreground" data-testid="wf-explain">{r.explain.map((l: string, k: number) => <li key={k}>{l}</li>)}</ol></details>}</td>
                 <td className="p-3 text-xs">{matchText(r.match)}</td><td className="p-3 text-xs">{r.rank}</td>
                 <td className="p-3 text-xs">{r.published ? <><span className="rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 font-semibold">v{r.published.version}</span><div className="text-muted-foreground mt-0.5">{fmtDateTime(r.published.publishedAt)}</div></> : <span className="text-muted-foreground">Not published</span>}</td>
                 <td className="p-3 text-xs">{r.draft ? <span className="rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5">v{r.draft.version} draft</span> : "—"}</td>
@@ -71,7 +72,7 @@ function List({ meta, open }: { meta: any; open: (id: number) => void }) {
 const matchText = (m: any) => { const p = Object.entries(m || {}).filter(([, v]) => Array.isArray(v) && (v as any[]).length).map(([k, v]) => `${k}: ${(v as string[]).join(", ")}`); return p.length ? p.join(" · ") : "All tickets"; };
 
 function CreateDialog({ meta, kind, onClose, onDone }: { meta: any; kind: string; onClose: () => void; onDone: (id: number) => void }) {
-  const { toast } = useToast(); const [f, setF] = useState({ ticketType: kind, name: "", description: "", blank: false }); const [busy, setBusy] = useState(false);
+  const { toast } = useToast(); const [f, setF] = useState({ ticketType: kind, name: "", description: "", blank: false, managerApproval: false }); const [busy, setBusy] = useState(false);
   async function go() {
     setBusy(true);
     try { const r = await apiFetch<any>("/itsm-workflows", { method: "POST", body: JSON.stringify(f), headers: confirmHeader(`Create the workflow “${f.name}” for ${KIND_NAME[f.ticketType].toLowerCase()} as a draft${f.blank ? " (empty canvas)" : " (from the standard template)"}?`) }); onDone(r.id); }
@@ -82,6 +83,7 @@ function CreateDialog({ meta, kind, onClose, onDone }: { meta: any; kind: string
       <label className="block">Ticket type<select value={f.ticketType} onChange={e => setF({ ...f, ticketType: e.target.value })} className="w-full h-9 rounded-md border bg-background px-2">{meta.kinds.map((k: any) => <option key={k.key} value={k.key}>{k.name}</option>)}</select></label>
       <label className="block">Name<Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. Critical incident escalation" /></label>
       <label className="block">Description<Input value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></label>
+      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={f.managerApproval} onChange={e => setF({ ...f, managerApproval: e.target.checked })} />Reporting manager approves first (skipped and recorded when no manager is assigned)</label>
       <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={f.blank} onChange={e => setF({ ...f, blank: e.target.checked })} />Start from an empty canvas (otherwise the standard stages are drawn for you)</label>
     </div>
     <DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={busy || f.name.trim().length < 3} onClick={go}>{busy && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}Create</Button></DialogFooter></DialogContent></Dialog>;
@@ -92,7 +94,7 @@ function Designer({ id, meta, onBack }: { id: number; meta: any; onBack: () => v
   const [ver, setVer] = useState<number | null>(null);
   const { data: w, refetch } = useQuery({ queryKey: ["wf", id, ver], queryFn: () => apiFetch<any>(`/itsm-workflows/${id}${ver ? `?version=${ver}` : ""}`) });
   const [def, setDef] = useState<WDef>({ nodes: [], edges: [] }); const [dirty, setDirty] = useState(false); const [sel, setSel] = useState<Sel>(null);
-  const [problems, setProblems] = useState<string[]>([]); const [busy, setBusy] = useState(""); const [panel, setPanel] = useState<"props" | "test" | "versions" | "audit" | "settings">("props");
+  const [problems, setProblems] = useState<string[]>([]); const [busy, setBusy] = useState(""); const [panel, setPanel] = useState<"props" | "test" | "versions" | "explain" | "audit" | "settings">("props");
   const [hl, setHl] = useState<string[] | undefined>();
   useEffect(() => { if (w?.current) { setDef(w.current.definition); setProblems(w.current.problems || []); setDirty(false); setSel(null); setHl(undefined); } }, [w?.current?.id, w?.current?.definition && JSON.stringify(w.current.definition)]);
   if (!w) return <div className="text-sm text-muted-foreground">Loading…</div>;
@@ -136,7 +138,7 @@ function Designer({ id, meta, onBack }: { id: number; meta: any; onBack: () => v
           {editable && <div className="text-[10px] text-muted-foreground leading-relaxed">Drag a step onto the canvas. Drag from a step's right-hand dot to another step to connect. Click to edit; Delete removes.</div>}</div>
         <WorkflowCanvas def={def} onChange={editable ? change : undefined} sel={sel} onSel={s => { setSel(s); if (s) setPanel("props"); }} readOnly={!editable} highlight={hl} />
         <Card className="h-[calc(100vh-260px)] min-h-[480px] overflow-hidden flex flex-col"><div className="flex border-b text-xs">
-          {([["props", "Properties", Settings2], ["test", "Test run", FlaskConical], ["versions", "Versions", History], ["audit", "Audit", ScrollText], ["settings", "Settings", Workflow]] as const).map(([k, l, I]) =>
+          {([["props", "Properties", Settings2], ["test", "Test run", FlaskConical], ["versions", "Versions", History], ["explain", "How it works", BookOpenText], ["audit", "Audit", ScrollText], ["settings", "Settings", Workflow]] as const).map(([k, l, I]) =>
             <button key={k} onClick={() => setPanel(k)} className={cn("flex-1 py-2 flex flex-col items-center gap-0.5", panel === k ? "text-primary border-b-2 border-primary font-semibold" : "text-muted-foreground")}><I className="w-3.5 h-3.5" />{l}</button>)}</div>
           <div className="p-3 overflow-y-auto flex-1 text-sm space-y-3">
             {panel === "props" && (S ? <NodeProps n={S} meta={meta} kind={kind} editable={editable} setNode={setNode} setCfg={setCfg} del={() => { remove(def, sel, change); setSel(null); }} />
@@ -153,6 +155,9 @@ function Designer({ id, meta, onBack }: { id: number; meta: any; onBack: () => v
                   {w.canEdit && v.status === "Draft" && w.versions.length > 1 && <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-red-600" onClick={() => call("Discard", () => apiFetch<any>(`/itsm-workflows/${id}/draft/discard`, { method: "POST", headers: confirmHeader(`Discard draft v${v.version} of “${w.name}”? It is kept in the history as Retired.`) }), () => "Draft discarded").then(r => { if (r) { setVer(null); refresh(); } })}>Discard</Button>}</div>
               </div>))}</div>}
             {panel === "audit" && <AuditLog id={id} compact />}
+            {panel === "explain" && <div className="text-xs space-y-2" data-testid="wf-explain-panel">{w.description && <p className="text-muted-foreground">{w.description}</p>}
+              <ol className="list-decimal pl-5 space-y-1">{(w.current?.explain || []).map((l: string, k: number) => <li key={k}>{l}</li>)}</ol>
+              {dirty && <p className="text-amber-600">Save the draft to refresh this explanation.</p>}</div>}
             {panel === "settings" && <SettingsPanel w={w} meta={meta} kind={kind} onSaved={refresh} />}
           </div></Card>
       </div>
@@ -184,8 +189,10 @@ function NodeProps({ n, meta, kind, editable, setNode, setCfg, del }: any) {
     {n.type === "stage" && <><Field label="Ticket status"><Sel_ disabled={dis} value={c.status || ""} onChange={e => setCfg({ status: e.target.value })}><option value="">Choose…</option>{kind.statuses.map((s: string) => <option key={s}>{s}</option>)}</Sel_></Field>
       <Field label="Time limit (hours, optional)" hint="After this long at this stage the dashed “timeout” connection is followed by itself — e.g. escalate."><Input disabled={dis} type="number" min={0} className="h-8 text-xs" value={c.timeoutHours || ""} onChange={e => setCfg({ timeoutHours: Number(e.target.value) || undefined })} /></Field></>}
     {n.type === "approval" && <><Field label="Task title"><Input disabled={dis} className="h-8 text-xs" value={c.title || ""} onChange={e => setCfg({ title: e.target.value })} placeholder="e.g. Manager approval for {no}" /></Field>
-      <Field label="Who approves"><Sel_ disabled={dis} value={c.approverType || "team"} onChange={e => setCfg({ approverType: e.target.value })}><option value="team">Any member of a team</option><option value="role">Anyone with a role</option><option value="users">Named people</option></Sel_></Field>
-      {c.approverType === "role" ? <Field label="Role"><Sel_ disabled={dis} value={c.roleId || ""} onChange={e => setCfg({ roleId: Number(e.target.value) || undefined, roleName: meta.roles.find((r: any) => String(r.id) === e.target.value)?.name })}><option value="">Choose…</option>{meta.roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}</Sel_></Field>
+      <Field label="Who approves"><Sel_ disabled={dis} value={c.approverType || "team"} onChange={e => setCfg({ approverType: e.target.value })}><option value="reporting_manager">Requester's reporting manager</option><option value="team">Any member of a team</option><option value="assigned_team">The team the ticket is with</option><option value="role">Anyone with a role</option><option value="users">Named people</option><option value="itsm_admins">ITSM Admins</option><option value="asset_admins">IT Asset Admins</option></Sel_></Field>
+      {c.approverType === "reporting_manager" && <><Field label="Level" hint="Managers are set per user in Admin › Users (Reporting manager)."><Sel_ disabled={dis} value={c.level || 1} onChange={e => setCfg({ level: Number(e.target.value) })}><option value={1}>Reporting manager</option><option value={2}>Manager's manager (2nd level)</option></Sel_></Field>
+        <Field label="If no manager is set" hint="The task goes to them instead, and the task says no manager was set."><Sel_ disabled={dis} value={c.fallback || "itsm_admins"} onChange={e => setCfg({ fallback: e.target.value })}><option value="itsm_admins">ITSM Admins</option><option value="asset_admins">IT Asset Admins</option></Sel_></Field></>}
+      {["reporting_manager", "assigned_team", "itsm_admins", "asset_admins"].includes(c.approverType) ? null : c.approverType === "role" ? <Field label="Role"><Sel_ disabled={dis} value={c.roleId || ""} onChange={e => setCfg({ roleId: Number(e.target.value) || undefined, roleName: meta.roles.find((r: any) => String(r.id) === e.target.value)?.name })}><option value="">Choose…</option>{meta.roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}</Sel_></Field>
         : c.approverType === "users" ? <Field label="People" hint="One approval is enough. ITSM Admin can decide on their behalf with a reason.">
           <div className="space-y-1">{(c.userIds || []).map((u: number, i: number) => <div key={u} className="flex items-center gap-1 text-xs rounded border px-2 py-1"><span className="flex-1">{(c.userNames || [])[i] || `User ${u}`}</span>{!dis && <button className="text-red-600" onClick={() => setCfg({ userIds: c.userIds.filter((x: number) => x !== u), userNames: (c.userNames || []).filter((_: any, j: number) => j !== i) })}>×</button>}</div>)}
             {!dis && <><Input className="h-8 text-xs" value={q} onChange={e => setQ(e.target.value)} placeholder="Search name or code…" />{people.slice(0, 6).map((p: any) => <button key={p.id} className="block w-full text-left text-xs px-2 py-1 hover:bg-muted rounded" onClick={() => { if (!(c.userIds || []).includes(p.id)) setCfg({ userIds: [...(c.userIds || []), p.id], userNames: [...(c.userNames || []), p.name] }); setQ(""); }}>{p.name} <span className="text-muted-foreground">{p.employeeCode}</span></button>)}</>}</div></Field>
@@ -213,22 +220,23 @@ function EdgeProps({ e, def, editable, setEdge, del }: any) {
     {editable && <Button size="sm" variant="outline" className="text-red-600 w-full" onClick={del}><Trash2 className="w-3.5 h-3.5 mr-1" />Remove connection</Button>}</div>;
 }
 function TestRun({ id, def, kind, onPath }: any) {
-  const [facts, setFacts] = useState<any>({}); const [res, setRes] = useState<any>(null); const [reject, setReject] = useState(false);
-  async function run() { const r = await apiFetch<any>(`/itsm-workflows/${id}/simulate`, { method: "POST", body: JSON.stringify({ definition: def, facts, choices: reject ? Array(20).fill("rejected") : [] }), headers: { "X-No-Confirm": "1" } }); setRes(r); onPath(r.path.map((p: any) => p.id)); }
+  const [facts, setFacts] = useState<any>({}); const [res, setRes] = useState<any>(null); const [reject, setReject] = useState(false); const [noMgr, setNoMgr] = useState(false);
+  async function run() { const r = await apiFetch<any>(`/itsm-workflows/${id}/simulate`, { method: "POST", body: JSON.stringify({ definition: def, facts, noManager: noMgr, choices: reject ? Array(20).fill("rejected") : [] }), headers: { "X-No-Confirm": "1" } }); setRes(r); onPath(r.path.map((p: any) => p.id)); }
   return <div className="space-y-2"><div className="text-xs text-muted-foreground">Enter sample ticket values and see the path it would take. Nothing is saved and no ticket is touched.</div>
     {kind.fields.map((f: any) => <Field key={f.key} label={f.label}>{f.values ? <Sel_ value={facts[f.key] || ""} onChange={e => setFacts({ ...facts, [f.key]: e.target.value })}><option value="">—</option>{f.values.map((v: string) => <option key={v}>{v}</option>)}</Sel_> : <Input className="h-8 text-xs" value={facts[f.key] || ""} onChange={e => setFacts({ ...facts, [f.key]: e.target.value })} />}</Field>)}
     <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={reject} onChange={e => setReject(e.target.checked)} />Approvers reject</label>
+    <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={noMgr} onChange={e => setNoMgr(e.target.checked)} />Requester has no reporting manager</label>
     <div className="flex gap-1"><Button size="sm" className="flex-1" onClick={run}><FlaskConical className="w-3.5 h-3.5 mr-1" />Run test</Button>{res && <Button size="sm" variant="ghost" onClick={() => { setRes(null); onPath(undefined); }}>Clear</Button>}</div>
     {res && <div className="rounded-md border p-2 text-xs space-y-1" data-testid="wf-test-path">{res.path.map((p: any, i: number) => <div key={i} className="flex gap-1.5"><span className="text-muted-foreground w-4">{i + 1}.</span><span className="font-medium">{p.label}</span>{p.note && <span className="text-muted-foreground">— {p.note}</span>}</div>)}
       <div className={cn("font-semibold pt-1", res.stop === "Finished" ? "text-emerald-600" : "text-amber-600")}>{res.stop}</div></div>}
   </div>;
 }
 function SettingsPanel({ w, meta, kind, onSaved }: any) {
-  const { toast } = useToast(); const [f, setF] = useState({ name: w.name, description: w.description || "", rank: w.rank, category: (w.match?.category || []).join(", "), priority: w.match?.priority || [] as string[], severity: w.match?.severity || [] as string[], type: w.match?.type || [] as string[] });
+  const { toast } = useToast(); const [f, setF] = useState({ name: w.name, description: w.description || "", rank: w.rank, category: (w.match?.category || []).join(", "), priority: w.match?.priority || [] as string[], severity: w.match?.severity || [] as string[], type: w.match?.type || [] as string[], managerApproval: !!w.managerApproval, managerLevel: w.managerLevel || 1 });
   const cats = meta.categories.filter((c: any) => c.type === { incident: "Incident", request: "Service Request" }[w.ticketType as string]).map((c: any) => c.category);
   const split = (s: string) => s.split(",").map(x => x.trim()).filter(Boolean);
   async function save() {
-    try { await apiFetch(`/itsm-workflows/${w.id}`, { method: "PATCH", body: JSON.stringify({ name: f.name, description: f.description, rank: f.rank, match: { category: split(f.category), priority: f.priority, severity: f.severity, type: f.type } }) }); toast({ title: "Settings saved" }); onSaved(); }
+    try { await apiFetch(`/itsm-workflows/${w.id}`, { method: "PATCH", body: JSON.stringify({ name: f.name, description: f.description, rank: f.rank, match: { category: split(f.category), priority: f.priority, severity: f.severity, type: f.type }, managerApproval: f.managerApproval, managerLevel: f.managerLevel }) }); toast({ title: "Settings saved" }); onSaved(); }
     catch (e: any) { if (!e.cancelled) toast({ title: "Not saved", description: e.message, variant: "destructive" }); }
   }
   async function toggle() {
@@ -240,6 +248,10 @@ function SettingsPanel({ w, meta, kind, onSaved }: any) {
   const dis = !w.canEdit;
   return <div className="space-y-3">
     <Field label="Name"><Input disabled={dis} className="h-8 text-xs" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></Field>
+    <div className="rounded-md border border-violet-300 bg-violet-50 dark:bg-violet-950/30 p-2 text-xs space-y-1.5">
+      <label className="flex items-center gap-2 font-semibold"><input type="checkbox" data-testid="mgr-approval" disabled={dis} checked={f.managerApproval} onChange={e => setF({ ...f, managerApproval: e.target.checked })} />Reporting manager approves first</label>
+      <p className="text-muted-foreground">When ticked, the requester's manager must approve before the first step. If no manager is assigned, the step is skipped and the ticket history, the requester and the audit log record that.</p>
+      {f.managerApproval && <select disabled={dis} value={f.managerLevel} onChange={e => setF({ ...f, managerLevel: Number(e.target.value) })} className="h-7 rounded border bg-background px-1"><option value={1}>Reporting manager</option><option value={2}>Manager's manager</option></select>}</div>
     <Field label="Description"><Input disabled={dis} className="h-8 text-xs" value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></Field>
     <Field label="Order" hint="Lower is checked first when several workflows match."><Input disabled={dis} type="number" className="h-8 text-xs" value={f.rank} onChange={e => setF({ ...f, rank: Number(e.target.value) })} /></Field>
     {kind.fields.some((x: any) => x.key === "category") && <Field label="Applies to categories" hint={cats.length ? `Known: ${cats.slice(0, 12).join(", ")}` : "Empty = every category"}><Input disabled={dis} className="h-8 text-xs" value={f.category} onChange={e => setF({ ...f, category: e.target.value })} placeholder="All categories" /></Field>}

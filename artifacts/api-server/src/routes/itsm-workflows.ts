@@ -7,7 +7,7 @@ import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
 import { getAccess, can } from "../lib/rbac";
 import { isItsmAdmin } from "../lib/access-model";
-import { validateDef, wfSimulate, wfView, wfDecide, WF_STATUS, WF_FIELDS, type WfKind, type WfDef } from "../lib/itsm-workflow";
+import { validateDef, wfSimulate, wfView, wfDecide, explainDef, WF_STATUS, WF_FIELDS, type WfKind, type WfDef } from "../lib/itsm-workflow";
 
 const router = Router();
 const rowsOf = (r: any) => (r.rows ?? r) as any[];
@@ -48,13 +48,14 @@ router.get("/itsm-workflows/meta", requireAuth, wrap(async (req, res) => {
 }));
 router.get("/itsm-workflows", requireAuth, wrap(async (req, res) => {
   if (!await canView(req)) return fail(res, 403, "No access to ITSM workflows");
-  const rows = rowsOf(await db.execute(sql`SELECT w.id, w.ticket_type AS "ticketType", w.name, w.description, w.match, w.rank, w.is_active AS "isActive", w.created_by AS "createdBy", w.updated_by AS "updatedBy", w.updated_at AS "updatedAt",
+  const rows = rowsOf(await db.execute(sql`SELECT w.id, w.ticket_type AS "ticketType", w.name, w.description, w.match, w.rank, w.is_active AS "isActive", w.manager_approval AS "managerApproval", w.manager_level AS "managerLevel", w.created_by AS "createdBy",
+      (SELECT v.definition FROM itsm_workflow_versions v WHERE v.workflow_id = w.id AND v.status IN ('Published', 'Draft') ORDER BY (v.status = 'Published') DESC LIMIT 1) AS def, w.updated_by AS "updatedBy", w.updated_at AS "updatedAt",
       (SELECT json_build_object('id', v.id, 'version', v.version, 'publishedBy', v.published_by, 'publishedAt', v.published_at) FROM itsm_workflow_versions v WHERE v.workflow_id = w.id AND v.status = 'Published') AS published,
       (SELECT json_build_object('id', v.id, 'version', v.version, 'updatedBy', v.updated_by, 'updatedAt', v.updated_at) FROM itsm_workflow_versions v WHERE v.workflow_id = w.id AND v.status = 'Draft') AS draft,
       (SELECT count(*)::int FROM itsm_ticket_workflows i WHERE i.workflow_id = w.id AND i.state NOT IN ('Finished', 'Stopped')) AS running,
       (SELECT count(*)::int FROM itsm_ticket_workflows i WHERE i.workflow_id = w.id) AS tickets
     FROM itsm_workflows w ORDER BY w.ticket_type, w.is_active DESC, w.rank, w.name`));
-  res.json({ rows, canEdit: await canDesign(req) });
+  res.json({ rows: rows.map(({ def, ...r }) => ({ ...r, explain: explainDef(r.ticketType, def, { managerApproval: r.managerApproval, managerLevel: r.managerLevel }) })), canEdit: await canDesign(req) });
 }));
 router.post("/itsm-workflows", requireAuth, wrap(async (req, res) => {
   if (!await canDesign(req)) return fail(res, 403, "Only an ITSM Admin can design workflows");
@@ -62,7 +63,7 @@ router.post("/itsm-workflows", requireAuth, wrap(async (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 120); if (name.length < 3) return fail(res, 400, "Name needs at least 3 characters");
   const [dup] = rowsOf(await db.execute(sql`SELECT id FROM itsm_workflows WHERE ticket_type = ${kind} AND lower(name) = ${name.toLowerCase()}`)); if (dup) return fail(res, 409, "A workflow with this name already exists for this ticket type");
   const by = await getPerformedBy(uid(req)); const match = matchOf(req.body?.match);
-  const [w] = rowsOf(await db.execute(sql`INSERT INTO itsm_workflows (ticket_type, name, description, match, rank, created_by, updated_by) VALUES (${kind}, ${name}, ${String(req.body?.description || "").slice(0, 500) || null}, ${JSON.stringify(match)}::jsonb, ${Number(req.body?.rank) || 100}, ${by}, ${by}) RETURNING id`));
+  const [w] = rowsOf(await db.execute(sql`INSERT INTO itsm_workflows (ticket_type, name, description, match, rank, manager_approval, created_by, updated_by) VALUES (${kind}, ${name}, ${String(req.body?.description || "").slice(0, 500) || null}, ${JSON.stringify(match)}::jsonb, ${Number(req.body?.rank) || 100}, ${!!req.body?.managerApproval}, ${by}, ${by}) RETURNING id`));
   const def = req.body?.blank ? { nodes: [{ id: "start", type: "start", label: "Raised", x: 60, y: 200, config: {} }], edges: [] } : template(kind);
   await db.execute(sql`INSERT INTO itsm_workflow_versions (workflow_id, version, status, definition, created_by, updated_by) VALUES (${w.id}, 1, 'Draft', ${JSON.stringify(def)}::jsonb, ${by}, ${by})`);
   await logAudit({ entityType: "itsm_workflow", entityId: w.id, action: "create", performedBy: by, summary: `Workflow “${name}” created for ${KIND_NAME[kind]}` });
@@ -71,28 +72,30 @@ router.post("/itsm-workflows", requireAuth, wrap(async (req, res) => {
 function matchOf(m: any) { const out: any = {}; for (const k of ["category", "subcategory", "priority", "severity", "type"]) if (Array.isArray(m?.[k])) { const v = m[k].map((x: any) => String(x).trim()).filter(Boolean).slice(0, 50); if (v.length) out[k] = v; } return out; }
 router.get("/itsm-workflows/:id", requireAuth, wrap(async (req, res, ) => {
   if (!await canView(req)) return fail(res, 403, "No access to ITSM workflows");
-  const id = Number(req.params.id); const [w] = rowsOf(await db.execute(sql`SELECT id, ticket_type AS "ticketType", name, description, match, rank, is_active AS "isActive" FROM itsm_workflows WHERE id = ${id}`)); if (!w) return fail(res, 404, "Workflow not found");
+  const id = Number(req.params.id); const [w] = rowsOf(await db.execute(sql`SELECT id, ticket_type AS "ticketType", name, description, match, rank, is_active AS "isActive", manager_approval AS "managerApproval", manager_level AS "managerLevel", created_by AS "createdBy" FROM itsm_workflows WHERE id = ${id}`)); if (!w) return fail(res, 404, "Workflow not found");
   const versions = rowsOf(await db.execute(sql`SELECT id, version, status, notes, created_by AS "createdBy", created_at AS "createdAt", updated_by AS "updatedBy", updated_at AS "updatedAt", published_by AS "publishedBy", published_at AS "publishedAt",
       (SELECT count(*)::int FROM itsm_ticket_workflows i WHERE i.version_id = v.id) AS tickets FROM itsm_workflow_versions v WHERE workflow_id = ${id} ORDER BY version DESC`));
   const vid = Number(qs(req.query.version)) || (versions.find(v => v.status === "Draft") || versions.find(v => v.status === "Published") || versions[0])?.id;
   const [cur] = rowsOf(await db.execute(sql`SELECT id, version, status, definition FROM itsm_workflow_versions WHERE id = ${vid} AND workflow_id = ${id}`));
-  res.json({ ...w, versions, current: cur ? { ...cur, problems: validateDef(w.ticketType, cur.definition) } : null, canEdit: await canDesign(req) });
+  res.json({ ...w, versions, current: cur ? { ...cur, problems: validateDef(w.ticketType, cur.definition), explain: explainDef(w.ticketType, cur.definition, { managerApproval: w.managerApproval, managerLevel: w.managerLevel }) } : null, canEdit: await canDesign(req) });
 }));
 router.patch("/itsm-workflows/:id", requireAuth, wrap(async (req, res) => {
   if (!await canDesign(req)) return fail(res, 403, "Only an ITSM Admin can change workflows");
   const id = Number(req.params.id); const [o] = rowsOf(await db.execute(sql`SELECT * FROM itsm_workflows WHERE id = ${id}`)); if (!o) return fail(res, 404, "Workflow not found");
   const b = req.body || {}; const next = { name: b.name !== undefined ? String(b.name).trim().slice(0, 120) : o.name, description: b.description !== undefined ? (String(b.description).slice(0, 500) || null) : o.description,
-    match: b.match !== undefined ? matchOf(b.match) : o.match, rank: b.rank !== undefined ? Number(b.rank) || 100 : o.rank, is_active: b.isActive !== undefined ? !!b.isActive : o.is_active };
+    match: b.match !== undefined ? matchOf(b.match) : o.match, rank: b.rank !== undefined ? Number(b.rank) || 100 : o.rank, is_active: b.isActive !== undefined ? !!b.isActive : o.is_active,
+    manager_approval: b.managerApproval !== undefined ? !!b.managerApproval : o.manager_approval, manager_level: b.managerLevel !== undefined ? (Number(b.managerLevel) === 2 ? 2 : 1) : o.manager_level };
   if (next.name.length < 3) return fail(res, 400, "Name needs at least 3 characters");
   if (o.is_active && !next.is_active && String(b.reason || "").trim().length < 5) return fail(res, 400, "Give a reason for disabling the workflow");
   if (!o.is_active && next.is_active && !rowsOf(await db.execute(sql`SELECT 1 FROM itsm_workflow_versions WHERE workflow_id = ${id} AND status = 'Published'`)).length) return fail(res, 400, "Publish a version before enabling the workflow");
-  const ch = (["name", "description", "rank", "is_active"] as const).filter(k => String((next as any)[k] ?? "") !== String(o[k] ?? "")).map(k => `${k === "is_active" ? "active" : k}: ${o[k] ?? "—"} → ${(next as any)[k] ?? "—"}`);
+  const LBL: Record<string, string> = { is_active: "enabled", manager_approval: "reporting manager approves first", manager_level: "manager level" };
+  const ch = (["name", "description", "rank", "is_active", "manager_approval", "manager_level"] as const).filter(k => String((next as any)[k] ?? "") !== String(o[k] ?? "")).map(k => `${LBL[k] || k}: ${o[k] ?? "—"} → ${(next as any)[k] ?? "—"}`);
   if (JSON.stringify(next.match) !== JSON.stringify(o.match)) ch.push(`applies to: ${JSON.stringify(o.match)} → ${JSON.stringify(next.match)}`);
   if (!ch.length) return res.json({ ok: true, unchanged: true });
   const by = await getPerformedBy(uid(req));
-  await db.execute(sql`UPDATE itsm_workflows SET name = ${next.name}, description = ${next.description}, match = ${JSON.stringify(next.match)}::jsonb, rank = ${next.rank}, is_active = ${next.is_active}, updated_by = ${by}, updated_at = now() WHERE id = ${id}`);
+  await db.execute(sql`UPDATE itsm_workflows SET name = ${next.name}, description = ${next.description}, match = ${JSON.stringify(next.match)}::jsonb, rank = ${next.rank}, is_active = ${next.is_active}, manager_approval = ${next.manager_approval}, manager_level = ${next.manager_level}, updated_by = ${by}, updated_at = now() WHERE id = ${id}`);
   const act = o.is_active !== next.is_active ? (next.is_active ? "enable" : "disable") : "update";
-  await logAudit({ entityType: "itsm_workflow", entityId: id, action: act, performedBy: by, summary: `Workflow “${o.name}” ${act === "enable" ? "enabled" : act === "disable" ? "disabled" : "changed"}: ${ch.join("; ")}${b.reason ? ` — reason: ${b.reason}` : ""}`, newValues: { before: { name: o.name, isActive: o.is_active, match: o.match, rank: o.rank }, after: { name: next.name, isActive: next.is_active, match: next.match, rank: next.rank }, reason: b.reason || null } });
+  await logAudit({ entityType: "itsm_workflow", entityId: id, action: act, performedBy: by, summary: `Workflow “${o.name}” ${act === "enable" ? "enabled" : act === "disable" ? "disabled" : "changed"}: ${ch.join("; ")}${b.reason ? ` — reason: ${b.reason}` : ""}`, newValues: { before: { name: o.name, isActive: o.is_active, match: o.match, rank: o.rank, managerApproval: o.manager_approval, managerLevel: o.manager_level }, after: { name: next.name, isActive: next.is_active, match: next.match, rank: next.rank, managerApproval: next.manager_approval, managerLevel: next.manager_level }, reason: b.reason || null } });
   res.json({ ok: true });
 }));
 /** Save the draft (creates one from the published version if there is none). */
@@ -144,8 +147,10 @@ router.post("/itsm-workflows/:id/publish", requireAuth, wrap(async (req, res) =>
 }));
 router.post("/itsm-workflows/:id/simulate", requireAuth, wrap(async (req, res) => {
   if (!await canView(req)) return fail(res, 403, "No access");
-  const id = Number(req.params.id); const [w] = rowsOf(await db.execute(sql`SELECT ticket_type FROM itsm_workflows WHERE id = ${id}`)); if (!w) return fail(res, 404, "Workflow not found");
-  res.json(wfSimulate(w.ticket_type, cleanDef(req.body?.definition), req.body?.facts || {}, Array.isArray(req.body?.choices) ? req.body.choices.map(String) : []));
+  const id = Number(req.params.id); const [w] = rowsOf(await db.execute(sql`SELECT ticket_type, manager_approval FROM itsm_workflows WHERE id = ${id}`)); if (!w) return fail(res, 404, "Workflow not found");
+  const sim = wfSimulate(w.ticket_type, cleanDef(req.body?.definition), req.body?.facts || {}, Array.isArray(req.body?.choices) ? req.body.choices.map(String) : []);
+  if (w.manager_approval) sim.path.splice(1, 0, { id: "__manager", label: "Reporting manager approval", type: "approval", note: req.body?.noManager ? "skipped — no manager assigned (recorded)" : "approved" });
+  res.json(sim);
 }));
 
 /** ITH-108 — audit log of workflow configuration (create, save, publish, enable / disable, …) and approval decisions. */
