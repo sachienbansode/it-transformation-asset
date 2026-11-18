@@ -274,7 +274,9 @@ publicAgentRouter.post("/agent/v1/checkin", wrap(async (req, res) => {
   const cap = (o: any, k: string, n: number) => { if (o && Array.isArray(o[k])) o[k] = o[k].slice(0, n).map((x: any) => typeof x === "string" ? x.slice(0, 200) : x); else if (o && o[k] !== undefined && o[k] !== null && !Array.isArray(o[k]) && typeof o[k] === "object" && k !== "tpm") o[k] = null; };
   if (h.patches) cap(h.patches, "history", 10);
   if (h.access) { for (const k of ["usbDisks", "removableDrives", "localAdmins", "shares"]) cap(h.access, k, 30); }
-  if (h.agent && typeof h.agent === "object") { h.agent.lastError = h.agent.lastError ? String(h.agent.lastError).slice(0, 300) : null; }
+  if (h.agent && typeof h.agent === "object") { h.agent.lastError = h.agent.lastError ? String(h.agent.lastError).slice(0, 300) : null;
+    const sf = h.agent.self; if (sf && typeof sf === "object") { const n = (v: any, max: number) => { const x = Number(v); return Number.isFinite(x) ? Math.min(max, Math.max(0, x)) : null; };
+      h.agent.self = { runCpuSec: n(sf.runCpuSec, 3600), runMemMb: n(sf.runMemMb, 100000), runSec: n(sf.runSec, 3600), monitorMemMb: n(sf.monitorMemMb, 100000), monitorCpuPct: n(sf.monitorCpuPct, 100), monitorCount: n(sf.monitorCount, 50) }; } else delete h.agent.self; }
   const user = s(h.user, 120);
   const ev = evaluate(h, ag.platform, st.thresholds, now);
   // serial changed (motherboard swap / re-image) → try to match again if unlinked

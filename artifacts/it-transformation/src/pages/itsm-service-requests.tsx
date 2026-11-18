@@ -16,6 +16,7 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
+import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay, useCatalog } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -153,6 +154,7 @@ export default function ItsmServiceRequests() {
   const [formData, setFormData] = useState<any>({});
 
   const { data: requests = [] } = useQuery({ queryKey: ["service-requests", view], queryFn: () => apiFetch<any[]>(`/service-requests${view ? `?view=${view}` : ""}`) });
+  useOpenFromUrl(requests, setViewModal);
   const invalidate = () => { ["service-requests", "my-approvals", "my-approvals-count"].forEach(k => queryClient.invalidateQueries({ queryKey: [k] })); };
   const createReq = useMutation({ mutationFn: (d: any) => apiFetch("/service-requests", { method: "POST", body: JSON.stringify(d) }), onSuccess: invalidate });
   const updateReq = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/service-requests/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: invalidate });
@@ -314,6 +316,8 @@ export default function ItsmServiceRequests() {
               </div>
               {viewModal.fulfillmentNotes && (<div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200/50 dark:border-emerald-800/30 p-3"><div className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-semibold mb-1">Fulfilment notes</div><div className="text-sm text-emerald-800 dark:text-emerald-300">{viewModal.fulfillmentNotes}</div></div>)}
               <TicketWorkflow kind="request" id={viewModal.id} ticketNo={viewModal.requestNo} />
+              <CsatPanel kind="request" id={viewModal.id} />
+              <RelatedRecords kind="request" id={viewModal.id} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
               <TicketHistory ticketId={viewModal.id} />
               <hr className="border-border/40" />

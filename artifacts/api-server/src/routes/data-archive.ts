@@ -4,7 +4,8 @@ import { sql } from "drizzle-orm";
 import { requireAdmin } from "./auth";
 import { logAudit, getPerformedBy, buildContext } from "./audit-logs";
 import { ASSET_TABLES, batchSections, batchWorkbook, XLSX_TYPE } from "../lib/archive";
-import { mailConfigured, mailFrom, parseRecipients, EMAIL_RE, sendTest, notify, htmlTable } from "../lib/mailer";
+import { mailConfigured, mailFrom, parseRecipients, EMAIL_RE, sendTest, notify, htmlTable, loadMailConfig, clearMailCache } from "../lib/mailer";
+import { sealText } from "../lib/secure-text";
 import { fmtDateTime } from "../lib/dates";
 
 /* Admin › Archive (upload / clear batches, download, restore) and Admin › Notifications (email recipients per event). */
@@ -70,7 +71,8 @@ router.post("/data-archive/:id/restore", requireAdmin, async (req, res) => {
 router.get("/notification-rules", requireAdmin, async (_req, res) => {
   try {
     const list = rows(await db.execute(sql`SELECT event_key AS "eventKey", label, module, description, recipients, enabled, attach_excel AS "attachExcel", updated_by AS "updatedBy", updated_at AS "updatedAt" FROM notification_rules ORDER BY sort_order, label`));
-    res.json({ rules: list, mail: { configured: mailConfigured(), from: mailConfigured() ? mailFrom() : null } });
+    const mc = await loadMailConfig();
+    res.json({ rules: list, mail: { configured: mailConfigured(), from: mailConfigured() ? mailFrom() : null, provider: mc.provider } });
   } catch (e) { handleError(res, e); }
 });
 
@@ -86,6 +88,43 @@ router.put("/notification-rules/:key", requireAdmin, async (req, res) => {
     if (!r.length) return fail(res, 404, "Unknown event");
     try { await logAudit({ entityType: "notification_rule", action: "update", performedBy: who, summary: `Email recipients for ${req.params.key}: ${list.join(", ") || "(none)"}${req.body?.enabled === false ? " — switched off" : ""}`, context: buildContext(req, "Notifications") }); } catch { /* non-fatal */ }
     res.json({ ok: true, recipients: list.join(", ") });
+  } catch (e) { handleError(res, e); }
+});
+
+/* ─── ITH-113 Email delivery: Microsoft 365 or SMTP, chosen and configured by the admin ─────────────── */
+router.get("/mail-settings", requireAdmin, async (_req, res) => {
+  try {
+    clearMailCache(); const c = await loadMailConfig();
+    const r = rows(await db.execute(sql`SELECT value FROM settings WHERE key = 'mail.config'`)); const raw: any = r[0] ? (typeof r[0].value === "string" ? JSON.parse(r[0].value) : r[0].value) : null;
+    res.json({ provider: c.provider, fromEnvironment: !raw,
+      m365: { tenantId: c.m365.tenantId, clientId: c.m365.clientId, from: c.m365.from, hasSecret: !!c.m365.secret },
+      smtp: { host: c.smtp.host, port: c.smtp.port, security: c.smtp.security, user: c.smtp.user || "", from: c.smtp.from, fromName: c.smtp.fromName || "", rejectUnauthorized: c.smtp.rejectUnauthorized !== false, hasPassword: !!c.smtp.pass },
+      configured: mailConfigured() });
+  } catch (e) { handleError(res, e); }
+});
+router.put("/mail-settings", requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {}; const provider = ["m365", "smtp", "off"].includes(b.provider) ? b.provider : null; if (!provider) return fail(res, 400, "Choose Microsoft 365, SMTP or Off");
+    const r = rows(await db.execute(sql`SELECT value FROM settings WHERE key = 'mail.config'`)); const old: any = r[0] ? (typeof r[0].value === "string" ? JSON.parse(r[0].value) : r[0].value) : {};
+    const s = (v: any, n = 200) => String(v ?? "").trim().slice(0, n);
+    const next: any = { provider, m365: { ...(old.m365 || {}) }, smtp: { ...(old.smtp || {}) } };
+    if (b.m365) { next.m365.tenantId = s(b.m365.tenantId, 64); next.m365.clientId = s(b.m365.clientId, 64); next.m365.from = s(b.m365.from).toLowerCase(); if (b.m365.secret) next.m365.secretSealed = sealText(String(b.m365.secret)); }
+    if (b.smtp) {
+      const port = Number(b.smtp.port); if (b.smtp.port !== undefined && !(port > 0 && port < 65536)) return fail(res, 400, "Enter a valid SMTP port (e.g. 587 or 465)");
+      next.smtp.host = s(b.smtp.host); next.smtp.port = port || 587; next.smtp.security = ["tls", "starttls", "none"].includes(b.smtp.security) ? b.smtp.security : "starttls";
+      next.smtp.user = s(b.smtp.user); next.smtp.from = s(b.smtp.from).toLowerCase(); next.smtp.fromName = s(b.smtp.fromName, 80); next.smtp.rejectUnauthorized = b.smtp.rejectUnauthorized !== false;
+      if (b.smtp.password) next.smtp.passSealed = sealText(String(b.smtp.password)); if (b.smtp.clearPassword) delete next.smtp.passSealed;
+    }
+    if (provider === "smtp" && (!next.smtp.host || !EMAIL_RE.test(next.smtp.from || ""))) return fail(res, 400, "SMTP needs the server host and a valid From address");
+    if (provider === "m365" && (!next.m365.tenantId || !next.m365.clientId || !EMAIL_RE.test(next.m365.from || "") || !(next.m365.secretSealed || process.env.MAIL_M365_CLIENT_SECRET))) return fail(res, 400, "Microsoft 365 needs the tenant ID, client ID, client secret and a valid From mailbox");
+    await db.execute(sql`INSERT INTO settings (key, value) VALUES ('mail.config', ${JSON.stringify(next)}) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    clearMailCache();
+    const ch: string[] = []; const was = old.provider || "m365 (environment)"; if (was !== provider) ch.push(`provider: ${was} → ${provider}`);
+    for (const [k, v] of Object.entries({ ...next.smtp, passSealed: undefined })) if (v !== undefined && String(v) !== String((old.smtp || {})[k] ?? "")) ch.push(`smtp.${k}: ${(old.smtp || {})[k] ?? "—"} → ${v}`);
+    for (const k of ["tenantId", "clientId", "from"]) if (String(next.m365[k] ?? "") !== String((old.m365 || {})[k] ?? "")) ch.push(`m365.${k}: ${(old.m365 || {})[k] ?? "—"} → ${next.m365[k]}`);
+    if (b.smtp?.password) ch.push("SMTP password changed"); if (b.m365?.secret) ch.push("Microsoft 365 client secret changed");
+    try { await logAudit({ entityType: "mail_settings", action: "update", performedBy: await by(req), summary: `Email delivery settings: ${ch.join("; ") || "no change"}` }); } catch { /* audit is best effort */ }
+    res.json({ ok: true, changes: ch });
   } catch (e) { handleError(res, e); }
 });
 

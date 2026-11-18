@@ -16,6 +16,7 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
+import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useLocation } from "wouter";
@@ -130,6 +131,7 @@ export default function ItsmProblems() {
   const [formData, setFormData] = useState<any>({});
 
   const { data: problems = [] } = useQuery({ queryKey: ["problems"], queryFn: () => apiFetch<any[]>("/problems") });
+  useOpenFromUrl(problems, setViewModal);
   const { data: incidents = [] } = useQuery({ queryKey: ["incidents"], queryFn: () => apiFetch<any[]>("/incidents") });
 
   const createProblem = useMutation({ mutationFn: (d: any) => apiFetch("/problems", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["problems"] }) });
@@ -325,6 +327,7 @@ export default function ItsmProblems() {
                 </div>
               )}
               <TicketWorkflow kind="problem" id={viewModal.id} ticketNo={viewModal.problemNo} />
+              <RelatedRecords kind="problem" id={viewModal.id} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Problem" ticketId={viewModal.id} readonly />

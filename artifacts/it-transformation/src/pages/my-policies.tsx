@@ -43,12 +43,14 @@ export function PushCard() {
 /** Banner on every page until push is on for this device (cannot be dismissed while IT has push switched on). */
 export function PushPrompt() {
   const [st, setSt] = useState<string | null>(null); const { toast } = useToast();
+  const [later, setLater] = useState(() => { try { return sessionStorage.getItem("ithub.pushLater") === "1"; } catch { return false; } });
   useEffect(() => { ensurePush().then(setSt).catch(() => setSt(null)); }, []);
-  if (st !== "ask" && st !== "blocked") return null;
+  if ((st !== "ask" && st !== "blocked") || later) return null;
   return (
     <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-3 py-2 text-sm flex items-center gap-2 flex-wrap">
       <BellOff className="w-4 h-4 text-amber-600" />
       <span className="flex-1">{st === "ask" ? "IT requires notifications on this device so you don't miss approvals, ticket updates and policy reminders." : "Notifications are blocked in this browser. IT requires them: click the lock icon next to the address, set Notifications to Allow, then reload."}</span>
+      <Button size="sm" variant="ghost" onClick={() => { try { sessionStorage.setItem("ithub.pushLater", "1"); } catch { /* private mode */ } setLater(true); }}>Not now</Button>
       {st === "ask" && <Button size="sm" onClick={async () => { try { await enablePush(); setSt("on"); } catch (e: any) { toast({ title: "Could not turn on", description: e.message, variant: "destructive" }); ensurePush().then(setSt); } }}>Turn on</Button>}
     </div>
   );

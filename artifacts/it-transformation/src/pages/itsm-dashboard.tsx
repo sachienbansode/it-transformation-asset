@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import { useLocation, Link } from "wouter";
 import { fmtMins } from "@/components/itsm-sla";
+import { ItsmInsights } from "@/components/itsm-extras";
 
 const COLORS = ["#2D7FF9", "#0f766e", "#2563eb", "#dc2626", "#8b5cf6", "#ea580c", "#059669", "#6366f1"];
 const PRIORITY_COLORS: Record<string, string> = { Critical: "#dc2626", High: "#ea580c", Medium: "#2D7FF9", Low: "#2563eb" };
@@ -161,10 +162,11 @@ export default function ItsmDashboard() {
 
   const kbViews = kb.reduce((s: number, a: any) => s + (a.views || 0), 0);
 
+  /* ITH-112 — explainable score: 50% SLA compliance, 30% resolution rate, 20% critical backlog (−5 per open critical) */
   const serviceHealth = useMemo(() => {
-    const score = Math.max(0, 100 - (criticalIncidents * 15) - (openIncidents * 3) - (activeProblems * 5));
-    return Math.min(100, score);
-  }, [criticalIncidents, openIncidents, activeProblems]);
+    const sla = itsmMetrics?.slaCompliance ?? 100; const crit = Math.max(0, 100 - criticalIncidents * 5);
+    return Math.round(Math.min(100, Math.max(0, 0.5 * sla + 0.3 * resolutionRate + 0.2 * crit)));
+  }, [criticalIncidents, resolutionRate, itsmMetrics?.slaCompliance]);
 
   const healthColor = serviceHealth >= 80 ? "#059669" : serviceHealth >= 60 ? "#2D7FF9" : "#dc2626";
   const healthLabel = serviceHealth >= 80 ? "Healthy" : serviceHealth >= 60 ? "Degraded" : "Critical";
@@ -195,7 +197,6 @@ export default function ItsmDashboard() {
         <StatCard icon={GitBranch} label="Pending Changes" value={pendingChanges} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" sub={`${changes.length} total`} />
         <StatCard icon={Headphones} label="Open Requests" value={openSR} iconBg="bg-teal-100 dark:bg-teal-900/30" iconColor="text-teal-600" borderColor="border-l-teal-500" sub={`${serviceRequests.length} total`} />
         <StatCard icon={Shield} label="SLA Breached" value={slaBreachedCount} iconBg="bg-orange-100 dark:bg-orange-900/30" iconColor="text-orange-600" borderColor="border-l-orange-500" />
-        <StatCard icon={BookOpen} label="KB Articles" value={kb.length} iconBg="bg-indigo-100 dark:bg-indigo-900/30" iconColor="text-indigo-600" borderColor="border-l-indigo-500" sub={`${kbViews} views`} />
         <StatCard icon={Gauge} label="Total Tickets" value={totalTickets} iconBg="bg-gray-100 dark:bg-gray-900/30" iconColor="text-gray-600" borderColor="border-l-gray-400" sub={`${openIncidents + inProgressIncidents + activeProblems + openSR} open across all types`} />
       </div>
 
@@ -313,7 +314,7 @@ export default function ItsmDashboard() {
               </Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {incidents.filter((i: any) => i.priority === "Critical" && i.status !== "Closed" && i.status !== "Resolved").map((i: any) => (
+              {incidents.filter((i: any) => i.priority === "Critical" && i.status !== "Closed" && i.status !== "Resolved").sort((a: any, b: any) => +new Date(a.createdAt) - +new Date(b.createdAt)).slice(0, 6).map((i: any) => (
                 <div key={i.id} className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-lg px-3 py-2.5 border border-red-200 dark:border-red-800">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-mono text-[10px] text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded">{i.ticketNo}</span>
@@ -330,6 +331,8 @@ export default function ItsmDashboard() {
         </Card>
       )}
 
+      <ItsmInsights />
+
       <div className="grid grid-cols-12 gap-5">
         <Card className="col-span-12 lg:col-span-5">
           <CardHeader className="pb-2">
@@ -337,6 +340,7 @@ export default function ItsmDashboard() {
               <CardTitle className="text-sm font-semibold flex items-center gap-2"><Activity className="w-4 h-4 text-blue-500" />Service Health Score</CardTitle>
               <Badge variant="outline" className="text-[10px]" style={{ borderColor: healthColor, color: healthColor }}>{healthLabel}</Badge>
             </div>
+            <p className="text-[10px] text-muted-foreground">50% SLA compliance · 30% resolution rate · 20% open critical incidents (−5 each)</p>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-6">

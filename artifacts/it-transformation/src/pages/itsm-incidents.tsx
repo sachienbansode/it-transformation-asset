@@ -17,6 +17,7 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
+import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -170,6 +171,7 @@ export default function ItsmIncidents() {
   const [showBulkBar, setShowBulkBar] = useState(false);
 
   const { data: incidents = [] } = useQuery({ queryKey: ["incidents", view], queryFn: () => apiFetch<any[]>(`/incidents${view ? `?view=${view}` : ""}`) });
+  useOpenFromUrl(incidents, setViewModal);
   const { data: stats } = useQuery({ queryKey: ["incidents-stats"], queryFn: () => apiFetch<any>("/incidents/stats") });
   const { data: problems = [] } = useQuery({ queryKey: ["problems"], queryFn: () => apiFetch<any[]>("/problems") });
   const { data: kbArticles = [] } = useQuery({ queryKey: ["knowledge-base"], queryFn: () => apiFetch<any[]>("/knowledge-base").catch(() => []) });
@@ -455,6 +457,8 @@ export default function ItsmIncidents() {
                 </div>
               )}
               <TicketWorkflow kind="incident" id={viewModal.id} ticketNo={viewModal.ticketNo} />
+              <CsatPanel kind="incident" id={viewModal.id} />
+              <RelatedRecords kind="incident" id={viewModal.id} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Incident" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Incident" ticketId={viewModal.id} readonly />

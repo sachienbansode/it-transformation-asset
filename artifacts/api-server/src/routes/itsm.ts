@@ -422,6 +422,9 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if ((old.assignedTo || null) !== (item.assignedTo || null)) await history(kind, id, who.label, item.assignedTo ? `Assigned to ${item.assignedTo}${old.assignedTo ? ` (was ${old.assignedTo})` : ""}` : `Unassigned (was ${old.assignedTo})`);
   if (old.priority && item.priority && old.priority !== item.priority) await history(kind, id, who.label, `Priority ${old.priority} → ${item.priority}`);
   if (old.status !== item.status) await wfAfterStatus(kind, id, old.status, item.status, who.label, isItsmAdmin(await getAccess(req)));
+  // ITH-110: ask the requester to rate the service when an incident is resolved or a request completed
+  if (old.status !== item.status && ((kind === "incident" && item.status === "Resolved") || (kind === "request" && item.status === "Completed")) && item.requesterUserId && item.requesterUserId !== who.userId)
+    void inApp([item.requesterUserId], `How did we do? ${item[NO[kind][3]]}`, `${item.title} is ${item.status.toLowerCase()}. Please rate the service (1–5 stars).`, "success", `${kind === "incident" ? "/itsm-incidents" : "/itsm-requests"}?open=${id}`);
   for (const ev of events) void notifyTicket(kind, item, ev, transferReason);
   const changed = [...Object.keys(body), ...Object.keys(extra)].filter(k => String(old[k] ?? "") !== String(item[k] ?? ""));
   if (changed.length) await audit({ entityType: ENTITY[kind], entityId: id, action: "update", performedBy: who.label, summary: `Updated ${old[NO[kind][3]]}: ${changed.join(", ")}`, newValues: { changed: Object.fromEntries(changed.map(k => [k, { from: old[k], to: item[k] }])) } });

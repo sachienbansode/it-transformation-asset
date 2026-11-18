@@ -16,6 +16,7 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
+import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -139,6 +140,7 @@ export default function ItsmChanges() {
   const [formData, setFormData] = useState<any>({});
 
   const { data: changes = [] } = useQuery({ queryKey: ["changes"], queryFn: () => apiFetch<any[]>("/changes") });
+  useOpenFromUrl(changes, setViewModal);
   const { data: problems = [] } = useQuery({ queryKey: ["problems"], queryFn: () => apiFetch<any[]>("/problems") });
 
   const createChange = useMutation({ mutationFn: (d: any) => apiFetch("/changes", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["changes"] }); queryClient.invalidateQueries({ queryKey: ["changes-stats"] }); } });
@@ -329,6 +331,7 @@ export default function ItsmChanges() {
                 </div>
               )}
               <TicketWorkflow kind="change" id={viewModal.id} ticketNo={viewModal.changeNo} />
+              <RelatedRecords kind="change" id={viewModal.id} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Change Request" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Change Request" ticketId={viewModal.id} readonly />

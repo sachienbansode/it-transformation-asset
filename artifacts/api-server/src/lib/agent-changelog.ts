@@ -2,6 +2,8 @@
  *  Add a new entry at the top whenever $AgentVersion in agent/ITHubAgent.ps1 changes. */
 export type AgentChange = { version: string; date: string; title: string; items: string[]; upgrade?: string };
 export const AGENT_CHANGES: AgentChange[] = [
+  { version: "1.2.1", date: "2026-11-18", title: "Reports its own resource use",
+    items: ["CPU time, peak memory and duration of each health report", "Memory and average CPU of the tray / usage monitor that stays running", "Shown under NIYTRI Agent on the device page"], upgrade: "Automatic" },
   { version: "1.2.0", date: "2026-11-09", title: "Signed requests and token rotation",
     items: ["Every call to IT Hub is signed (HMAC-SHA256 with the time and a one-time nonce); copied, changed or replayed requests are refused",
       "Device token replaced every 30 days and saved machine-protected (DPAPI)", "Uninstaller signs its notice to IT", "Data checked against the company device policy and software rules"],

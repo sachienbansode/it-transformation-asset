@@ -9,7 +9,7 @@
 #>
 param([switch]$Collect, [switch]$UsageMonitor, [switch]$Pulse, [switch]$Once)
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.2.0'
+$AgentVersion = '1.2.1'
 $Root = Join-Path $env:ProgramData 'ITHubAgent'
 $UsageDir = Join-Path $Root 'usage'
 $ConfigFile = Join-Path $Root 'config.json'      # readable by users (URL, settings)
@@ -176,6 +176,7 @@ $appKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ITHubAgent'
 if (Test-Path $appKey) { Set-ItemProperty -Path $appKey -Name DisplayVersion -Value $AgentVersion -ErrorAction SilentlyContinue }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.Security
+$script:RunStart = Get-Date
 $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
 $sec = Get-Content $SecretFile -Raw | ConvertFrom-Json
 $token = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($sec.tokenProtected), $null, 'LocalMachine'))
@@ -288,7 +289,18 @@ $tasks = [ordered]@{}
 foreach ($tn in 'IT Hub Agent', 'IT Hub Agent Usage', 'IT Hub Agent Pulse') { $tasks[$tn] = Try-Get { "$((Get-ScheduledTask -TaskName $tn -ErrorAction Stop).State)" } 'Missing' }
 $monRunning = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*ITHubAgent.ps1*-UsageMonitor*' }).Count -gt 0
 $errs = @(Try-Get { Get-Content $LogFile -Tail 300 | Where-Object { $_ -match 'failed|error|rejected' -and $_ -ge (Get-Date).AddDays(-1).ToString('yyyy-MM-dd HH:mm') } } @())
-$agentInfo = [ordered]@{ version = $AgentVersion; url = $cfg.url; tasks = $tasks; trayRunning = $monRunning; errors24h = $errs.Count; lastError = if ($errs.Count) { [string]$errs[-1] } else { $null }; installedAt = $cfg.installedAt; ps = "$($PSVersionTable.PSVersion)" }
+# ---- what the agent itself uses (ITH-114): this health report run, and the tray / usage monitor that stays running
+$me = Try-Get { Get-Process -Id $PID }
+$cores = [math]::Max(1, [int](Try-Get { (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors } 1))
+$monProcs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*ITHubAgent.ps1*-UsageMonitor*' } | ForEach-Object { Try-Get { Get-Process -Id $_.ProcessId } } | Where-Object { $_ })
+$monCpu = [double](($monProcs | Measure-Object -Property CPU -Sum).Sum); $monMem = [double](($monProcs | Measure-Object -Property WorkingSet64 -Sum).Sum)
+$monUp = if ($monProcs.Count) { [math]::Max(1, ((Get-Date) - ($monProcs | Sort-Object StartTime | Select-Object -First 1).StartTime).TotalSeconds) } else { 0 }
+$self = [ordered]@{
+  runCpuSec = if ($me) { [math]::Round($me.CPU, 1) } else { $null }; runMemMb = if ($me) { [math]::Round($me.PeakWorkingSet64 / 1MB, 1) } else { $null }
+  runSec = [math]::Round(((Get-Date) - $script:RunStart).TotalSeconds, 1)
+  monitorMemMb = [math]::Round($monMem / 1MB, 1); monitorCpuPct = if ($monUp) { [math]::Round(100 * $monCpu / $monUp / $cores, 2) } else { $null }; monitorCount = $monProcs.Count
+}
+$agentInfo = [ordered]@{ version = $AgentVersion; url = $cfg.url; tasks = $tasks; trayRunning = $monRunning; errors24h = $errs.Count; lastError = if ($errs.Count) { [string]$errs[-1] } else { $null }; installedAt = $cfg.installedAt; ps = "$($PSVersionTable.PSVersion)"; self = $self }
 $health = [ordered]@{
   hostname = $env:COMPUTERNAME; serial = "$($bios.SerialNumber)".Trim(); manufacturer = $cs.Manufacturer; model = $cs.Model; user = $cs.UserName
   platform = if ($isServer) { 'Server' } else { 'Workstation' }

@@ -134,10 +134,11 @@ function NotificationsTab() {
   const modules = [...new Set(rules.map(r => r.module))];
   return (
     <div className="space-y-4">
+      <MailDelivery />
       <div className={cn("flex items-start gap-3 rounded-[12px] border px-4 py-3 text-sm", data?.mail?.configured ? "border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10" : "border-amber-400/40 bg-amber-50 dark:bg-amber-500/10")}>
         {data?.mail?.configured ? <CheckCircle2 className="w-4 h-4 mt-0.5 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-600" />}
         <div className="flex-1">
-          {data?.mail?.configured ? <>Microsoft 365 mail is set up — emails are sent from <b>{data.mail.from}</b>.</> : <>Microsoft 365 mail is <b>not yet configured on the server</b>. Recipients can be set now; emails are logged as "Skipped" until the server's MAIL_M365_* settings are added.</>}
+          {data?.mail?.configured ? <>{data.mail.provider === "smtp" ? "SMTP" : "Microsoft 365"} mail is set up — emails are sent from <b>{data.mail.from}</b>.</> : <>Email delivery is <b>not configured yet</b> (see Email delivery above). Recipients can be set now; emails are logged as "Skipped" until the server's MAIL_M365_* settings are added.</>}
           <div className="flex flex-wrap gap-2 mt-2">
             <Input className="h-8 max-w-xs bg-background" placeholder="Send a test email to…" value={testTo} onChange={e => setTestTo(e.target.value)} />
             <Button size="sm" variant="outline" className="gap-1.5" disabled={!testTo.trim() || busy === "test"} onClick={test}>{busy === "test" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}Send test</Button>
@@ -168,6 +169,54 @@ function NotificationsTab() {
         </CardContent></Card>
       ))}
     </div>
+  );
+}
+
+const L = ({ label, children, hint }: any) => <label className="block text-xs"><span className="font-medium">{label}</span><div className="mt-0.5">{children}</div>{hint && <div className="text-[10px] text-muted-foreground mt-0.5">{hint}</div>}</label>;
+/* ITH-113 — choose and configure email delivery: Microsoft 365 (Graph) or SMTP. Secrets are write-only (stored encrypted). */
+function MailDelivery() {
+  const qc = useQueryClient(); const { toast } = useToast();
+  const { data } = useQuery({ queryKey: ["mail-settings"], queryFn: () => apiFetch<any>("/mail-settings") });
+  const [f, setF] = useState<any>(null); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (data) setF({ provider: data.provider, m365: { ...data.m365, secret: "" }, smtp: { ...data.smtp, password: "" } }); }, [data]);
+  if (!f) return null;
+  const set = (k: "m365" | "smtp", p: any) => setF({ ...f, [k]: { ...f[k], ...p } });
+  async function save() {
+    setBusy(true);
+    try {
+      const body: any = { provider: f.provider, m365: { tenantId: f.m365.tenantId, clientId: f.m365.clientId, from: f.m365.from, ...(f.m365.secret ? { secret: f.m365.secret } : {}) },
+        smtp: { host: f.smtp.host, port: Number(f.smtp.port), security: f.smtp.security, user: f.smtp.user, from: f.smtp.from, fromName: f.smtp.fromName, rejectUnauthorized: f.smtp.rejectUnauthorized, ...(f.smtp.password ? { password: f.smtp.password } : {}) } };
+      const r = await apiFetch<any>("/mail-settings", { method: "PUT", body: JSON.stringify(body) });
+      toast({ title: "Email delivery saved", description: r.changes?.length ? r.changes.slice(0, 3).join("; ") : "No change" }); qc.invalidateQueries({ queryKey: ["mail-settings"] }); qc.invalidateQueries({ queryKey: ["notification-rules"] });
+    } catch (e: any) { if (!e.cancelled) toast({ title: "Not saved", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
+  }
+  return (
+    <Card data-testid="mail-delivery"><CardContent className="p-4 space-y-3">
+      <div className="flex items-center gap-2 flex-wrap"><Mail className="w-4 h-4 text-primary" /><span className="font-semibold text-sm">Email delivery</span>
+        <span className={cn("text-[11px] rounded-full px-2 py-0.5 font-semibold", data.configured ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>{data.configured ? "Ready" : "Not configured"}</span>
+        {data.fromEnvironment && <span className="text-[11px] text-muted-foreground">using the server environment settings</span>}</div>
+      <div className="flex gap-2 flex-wrap">{([["m365", "Microsoft 365 (recommended)"], ["smtp", "SMTP server"], ["off", "Off"]] as const).map(([k, l]) =>
+        <button key={k} type="button" onClick={() => setF({ ...f, provider: k })} className={cn("rounded-md border px-3 py-1.5 text-sm", f.provider === k ? "border-primary bg-primary/10 text-primary font-semibold" : "text-muted-foreground")}>{l}</button>)}</div>
+      {f.provider === "m365" && <div className="grid md:grid-cols-2 gap-3">
+        <L label="Tenant (directory) ID"><Input className="h-8" value={f.m365.tenantId || ""} onChange={e => set("m365", { tenantId: e.target.value })} /></L>
+        <L label="Application (client) ID"><Input className="h-8" value={f.m365.clientId || ""} onChange={e => set("m365", { clientId: e.target.value })} /></L>
+        <L label="Client secret" hint={data.m365.hasSecret ? "A secret is saved — leave blank to keep it." : "Stored encrypted; never shown again."}><Input className="h-8" type="password" autoComplete="new-password" value={f.m365.secret} onChange={e => set("m365", { secret: e.target.value })} placeholder={data.m365.hasSecret ? "••••••••" : ""} /></L>
+        <L label="Send as (mailbox)" hint="A licensed or shared mailbox the app may send as (Graph Mail.Send, admin consent)."><Input className="h-8" value={f.m365.from || ""} onChange={e => set("m365", { from: e.target.value })} placeholder="it-hub@ashikagroup.com" /></L>
+      </div>}
+      {f.provider === "smtp" && <div className="grid md:grid-cols-3 gap-3">
+        <L label="SMTP server"><Input className="h-8" value={f.smtp.host || ""} onChange={e => set("smtp", { host: e.target.value })} placeholder="smtp.example.com" /></L>
+        <L label="Port" hint="587 STARTTLS · 465 SSL/TLS · 25 relay"><Input className="h-8" type="number" value={f.smtp.port || ""} onChange={e => set("smtp", { port: e.target.value })} /></L>
+        <L label="Encryption"><select className="w-full h-8 rounded-md border bg-background px-2 text-sm" value={f.smtp.security} onChange={e => set("smtp", { security: e.target.value })}><option value="starttls">STARTTLS</option><option value="tls">SSL/TLS</option><option value="none">None (internal relay only)</option></select></L>
+        <L label="Username (optional)"><Input className="h-8" autoComplete="off" value={f.smtp.user || ""} onChange={e => set("smtp", { user: e.target.value })} /></L>
+        <L label="Password" hint={data.smtp.hasPassword ? "A password is saved — leave blank to keep it." : "Stored encrypted; never shown again."}><Input className="h-8" type="password" autoComplete="new-password" value={f.smtp.password} onChange={e => set("smtp", { password: e.target.value })} placeholder={data.smtp.hasPassword ? "••••••••" : ""} /></L>
+        <L label="From address"><Input className="h-8" value={f.smtp.from || ""} onChange={e => set("smtp", { from: e.target.value })} placeholder="it-hub@ashikagroup.com" /></L>
+        <L label="From name"><Input className="h-8" value={f.smtp.fromName || ""} onChange={e => set("smtp", { fromName: e.target.value })} placeholder="IT Hub" /></L>
+        <label className="flex items-center gap-2 text-xs md:col-span-2"><input type="checkbox" checked={f.smtp.rejectUnauthorized !== false} onChange={e => set("smtp", { rejectUnauthorized: e.target.checked })} />Check the server's TLS certificate (untick only for an internal relay with a self-signed certificate)</label>
+      </div>}
+      {f.provider === "off" && <div className="text-xs text-muted-foreground">No emails are sent; every notification is still recorded in the email log as Skipped.</div>}
+      <div className="flex justify-end"><Button size="sm" disabled={busy} onClick={save}>{busy ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}Save email delivery</Button></div>
+      <div className="text-[11px] text-muted-foreground">Save, then use “Send test” below. Changes are recorded in the audit log (secrets are never logged).</div>
+    </CardContent></Card>
   );
 }
 

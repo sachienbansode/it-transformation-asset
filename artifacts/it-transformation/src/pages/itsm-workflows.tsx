@@ -59,7 +59,7 @@ function List({ meta, open }: { meta: any; open: (id: number) => void }) {
                 <td className="p-3 text-xs">{r.draft ? <span className="rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5">v{r.draft.version} draft</span> : "—"}</td>
                 <td className="p-3 text-xs">{r.running} running · {r.tickets} total</td>
                 <td className="p-3" onClick={e => e.stopPropagation()}><div className="flex items-center gap-2"><Switch aria-label={`Enable ${r.name}`} checked={r.isActive} disabled={!meta.canEdit || (!r.isActive && !r.published)} onCheckedChange={v => toggle(r, v)} />
-                  <span className={cn("text-xs", r.isActive ? "text-emerald-600 font-semibold" : "text-muted-foreground")}>{r.isActive ? "On" : r.published ? "Off" : "Publish first"}</span></div></td>
+                  <span className={cn("text-xs", r.isActive && !r.published ? "text-red-600 font-semibold" : r.isActive ? "text-emerald-600 font-semibold" : "text-muted-foreground")}>{r.isActive && !r.published ? "On — not published, not in use" : r.isActive ? "On" : r.published ? "Off" : "Not published — not in use"}</span></div></td>
                 <td className="p-3 text-right"><Button size="sm" variant="outline">Open</Button></td>
               </tr>))}</tbody></table>}
       </CardContent></Card>

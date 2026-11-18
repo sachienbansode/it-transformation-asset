@@ -322,6 +322,10 @@ function DeviceDetails({ h, a, thresholds, latest, minDisk }: { h: any; a: any; 
         {tasks.map(([k, v]) => <Row key={k} k={({ "IT Hub Agent": "Health report task", "IT Hub Agent Usage": "Tray & usage task", "IT Hub Agent Pulse": "Online signal task" } as Record<string, string>)[k] || k} v={v} tone={/Ready|Running/i.test(v) ? "good" : "bad"} />)}
         {ag.trayRunning != null && <Row k="Tray icon / usage monitor" v={ag.trayRunning ? "Running" : "Not running (restarts by itself)"} tone={ag.trayRunning ? "good" : "warn"} />}
         {ag.errors24h != null && <Row k="Errors in the last 24 h" v={ag.errors24h} tone={ag.errors24h ? "warn" : "good"} title={ag.lastError || ""} />}
+        {ag.self && <>
+          <Row k="Health report uses" v={`${ag.self.runCpuSec ?? "—"} s CPU · ${ag.self.runMemMb ?? "—"} MB · runs ${ag.self.runSec ?? "—"} s every 15 min`} tone={ag.self.runCpuSec != null && ag.self.runCpuSec > 60 ? "warn" : "good"} />
+          <Row k="Tray & usage monitor uses" v={ag.self.monitorCount ? `${ag.self.monitorCpuPct ?? "—"}% CPU (average) · ${ag.self.monitorMemMb ?? "—"} MB` : "not running"} tone={ag.self.monitorCpuPct != null && ag.self.monitorCpuPct > 2 ? "warn" : "good"} />
+        </>}
         <Row k="Enrolled" v={fmtDate(a.enrolledAt)} />
         {!ag.version && <div className="text-[11px] text-muted-foreground mt-1">Detailed agent status arrives with agent 1.1.9 (installed automatically).</div>}
       </Group>

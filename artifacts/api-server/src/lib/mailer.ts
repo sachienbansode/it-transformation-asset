@@ -1,5 +1,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { smtpSend, type SmtpConfig } from "./smtp";
+import { openText } from "./secure-text";
 
 /*
  * Email notifications through Microsoft 365 (Microsoft Graph sendMail, app-only / client-credentials).
@@ -17,15 +19,44 @@ import { sql } from "drizzle-orm";
  */
 
 const env = (k: string) => (process.env[k] || "").trim();
-export const mailConfigured = () => !!(env("MAIL_M365_TENANT_ID") && env("MAIL_M365_CLIENT_ID") && env("MAIL_M365_CLIENT_SECRET") && env("MAIL_FROM"));
-export const mailFrom = () => env("MAIL_FROM");
+
+/* ITH-113 — delivery is chosen by the admin (Admin › Notifications › Email delivery): Microsoft 365 or SMTP.
+   Settings live in settings key "mail.config"; passwords / client secrets are stored encrypted (AES-256-GCM, key from
+   the server environment) and never returned to the browser. With no saved settings the MAIL_M365_* environment
+   values are used as before. */
+export type MailConfig = { provider: "m365" | "smtp" | "off"; m365: { tenantId: string; clientId: string; secret: string; from: string }; smtp: SmtpConfig };
+let cfgCache: { at: number; cfg: MailConfig } | null = null;
+export function clearMailCache() { cfgCache = null; cached = null; }
+export async function loadMailConfig(): Promise<MailConfig> {
+  if (cfgCache && Date.now() - cfgCache.at < 30_000) return cfgCache.cfg;
+  let saved: any = null;
+  try { const r: any = await db.execute(sql`SELECT value FROM settings WHERE key = 'mail.config'`); const v = (r.rows ?? r)[0]?.value; saved = typeof v === "string" ? JSON.parse(v) : v; } catch { /* no table / value */ }
+  const cfg: MailConfig = saved?.provider ? {
+    provider: saved.provider,
+    m365: { tenantId: saved.m365?.tenantId || env("MAIL_M365_TENANT_ID"), clientId: saved.m365?.clientId || env("MAIL_M365_CLIENT_ID"), secret: saved.m365?.secretSealed ? openText(saved.m365.secretSealed) : env("MAIL_M365_CLIENT_SECRET"), from: saved.m365?.from || env("MAIL_FROM") },
+    smtp: { host: saved.smtp?.host || "", port: Number(saved.smtp?.port) || 587, security: saved.smtp?.security || "starttls", user: saved.smtp?.user || "", pass: saved.smtp?.passSealed ? openText(saved.smtp.passSealed) : "", from: saved.smtp?.from || "", fromName: saved.smtp?.fromName || "IT Hub", rejectUnauthorized: saved.smtp?.rejectUnauthorized !== false },
+  } : { provider: "m365", m365: { tenantId: env("MAIL_M365_TENANT_ID"), clientId: env("MAIL_M365_CLIENT_ID"), secret: env("MAIL_M365_CLIENT_SECRET"), from: env("MAIL_FROM") }, smtp: { host: "", port: 587, security: "starttls", from: "", fromName: "IT Hub" } };
+  cfgCache = { at: Date.now(), cfg }; return cfg;
+}
+const ready = (c: MailConfig) => c.provider === "m365" ? !!(c.m365.tenantId && c.m365.clientId && c.m365.secret && c.m365.from) : c.provider === "smtp" ? !!(c.smtp.host && c.smtp.port && c.smtp.from) : false;
+/** Sync check from the last loaded settings (call loadMailConfig first when it matters). */
+export const mailConfigured = () => !!cfgCache && ready(cfgCache.cfg) || (!cfgCache && !!(env("MAIL_M365_TENANT_ID") && env("MAIL_M365_CLIENT_ID") && env("MAIL_M365_CLIENT_SECRET") && env("MAIL_FROM")));
+export const mailFrom = () => cfgCache ? (cfgCache.cfg.provider === "smtp" ? cfgCache.cfg.smtp.from : cfgCache.cfg.m365.from) : env("MAIL_FROM");
+const notReady = (c: MailConfig) => c.provider === "off" ? "Email is switched off (Admin › Notifications › Email delivery)" : c.provider === "smtp" ? "SMTP is not fully configured (Admin › Notifications › Email delivery)" : "Microsoft 365 mail is not configured (Admin › Notifications › Email delivery)";
+async function deliver(to: string[], subject: string, html: string, attachments: Attachment[]) {
+  const c = await loadMailConfig();
+  if (!ready(c)) throw Object.assign(new Error(notReady(c)), { skip: true });
+  if (c.provider === "smtp") return smtpSend(c.smtp, to, subject, html, attachments);
+  return sendGraph(to, subject, html, attachments);
+}
 
 let cached: { token: string; exp: number } | null = null;
 async function graphToken() {
   if (cached && cached.exp > Date.now() + 60_000) return cached.token;
-  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(env("MAIL_M365_TENANT_ID"))}/oauth2/v2.0/token`, {
+  const m = (await loadMailConfig()).m365;
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(m.tenantId)}/oauth2/v2.0/token`, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: env("MAIL_M365_CLIENT_ID"), client_secret: env("MAIL_M365_CLIENT_SECRET"), scope: "https://graph.microsoft.com/.default", grant_type: "client_credentials" }),
+    body: new URLSearchParams({ client_id: m.clientId, client_secret: m.secret, scope: "https://graph.microsoft.com/.default", grant_type: "client_credentials" }),
   });
   const j: any = await r.json().catch(() => ({}));
   if (!r.ok || !j.access_token) throw new Error(`Microsoft 365 sign-in failed: ${j.error_description || j.error || r.status}`);
@@ -39,7 +70,7 @@ export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 async function sendGraph(to: string[], subject: string, html: string, attachments: Attachment[]) {
   const token = await graphToken();
-  const r = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailFrom())}/sendMail`, {
+  const r = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent((await loadMailConfig()).m365.from)}/sendMail`, {
     method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       saveToSentItems: true,
@@ -75,8 +106,8 @@ export async function notify(eventKey: string, msg: { subject: string; html: str
     const html = wrapHtml(msg.html);
     if (!rule || !rule.enabled) return outbox(eventKey, to.join(", "), subject, html, att?.name ?? null, msg.batchId ?? null, "Skipped", "Notification switched off");
     if (!to.length) return outbox(eventKey, "", subject, html, att?.name ?? null, msg.batchId ?? null, "Skipped", "No recipients configured");
-    if (!mailConfigured()) return outbox(eventKey, to.join(", "), subject, html, att?.name ?? null, msg.batchId ?? null, "Skipped", "Microsoft 365 mail is not configured on the server (MAIL_M365_*)");
-    await sendGraph(to, subject, html, att ? [att] : []);
+    const mc = await loadMailConfig(); if (!ready(mc)) return outbox(eventKey, to.join(", "), subject, html, att?.name ?? null, msg.batchId ?? null, "Skipped", notReady(mc));
+    await deliver(to, subject, html, att ? [att] : []);
     return outbox(eventKey, to.join(", "), subject, html, att?.name ?? null, msg.batchId ?? null, "Sent", null);
   } catch (e: any) {
     console.error(`notify(${eventKey}) failed:`, e?.message || e);
@@ -89,16 +120,16 @@ export async function sendDirect(eventKey: string, to: string[], subject: string
   const list = to.map(x => x.trim().toLowerCase()).filter(a => EMAIL_RE.test(a));
   const subj = `[IT Hub] ${subject}`, body = wrapHtml(html);
   if (!list.length) return outbox(eventKey, "", subj, body, null, null, "Skipped", "No valid recipient");
-  if (!mailConfigured()) return outbox(eventKey, list.join(", "), subj, body, null, null, "Skipped", "Microsoft 365 mail is not configured on the server (MAIL_M365_*)");
-  try { await sendGraph(list, subj, body, []); return outbox(eventKey, list.join(", "), subj, body, null, null, "Sent", null); }
+  const mc = await loadMailConfig(); if (!ready(mc)) return outbox(eventKey, list.join(", "), subj, body, null, null, "Skipped", notReady(mc));
+  try { await deliver(list, subj, body, []); return outbox(eventKey, list.join(", "), subj, body, null, null, "Sent", null); }
   catch (e: any) { return outbox(eventKey, list.join(", "), subj, body, null, null, "Failed", String(e?.message || e).slice(0, 500)); }
 }
 
 export async function sendTest(to: string[]) {
-  if (!mailConfigured()) throw new Error("Microsoft 365 mail is not configured on the server (MAIL_M365_TENANT_ID, MAIL_M365_CLIENT_ID, MAIL_M365_CLIENT_SECRET, MAIL_FROM).");
+  const mc = await loadMailConfig(); if (!ready(mc)) throw new Error(notReady(mc));
   const subject = "[IT Hub] Test email";
-  const html = wrapHtml(`<p>This is a test email from IT Transformation Hub. Notifications are working.</p>`);
-  try { await sendGraph(to, subject, html, []); await outbox("test", to.join(", "), subject, html, null, null, "Sent", null); }
+  const html = wrapHtml(`<p>This is a test email from IT Transformation Hub, sent through <b>${mc.provider === "smtp" ? `SMTP (${esc(mc.smtp.host)}:${mc.smtp.port})` : "Microsoft 365"}</b>. Notifications are working.</p>`);
+  try { await deliver(to, subject, html, []); await outbox("test", to.join(", "), subject, html, null, null, "Sent", null); }
   catch (e: any) { await outbox("test", to.join(", "), subject, html, null, null, "Failed", String(e?.message || e).slice(0, 500)); throw e; }
 }
 

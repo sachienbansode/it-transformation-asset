@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
+import { MajorIncidentBanner } from "@/components/itsm-extras";
 import { useCurrency } from "@/contexts/currency-context";
 import { useTheme } from "@/contexts/theme-context";
 import { PolicyGate } from "@/components/policy-gate";
@@ -590,6 +591,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 overflow-auto bg-background flex flex-col">
           <div className="flex-1 px-3 sm:px-6 pt-4 sm:pt-[22px] pb-10">
             <PushPrompt />
+            <MajorIncidentBanner />
             {children}
             <PolicyGate />
             <ChatPopup />
