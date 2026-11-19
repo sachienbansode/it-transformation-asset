@@ -65,7 +65,11 @@ if ! psql "$ADMIN_URL" -X -Atc "SELECT 1 FROM pg_database WHERE datname = '$DBNA
   psql "$ADMIN_URL" -X -q -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$DBNAME\""
 fi
 if ! psql "$DB_URL" -X -Atc "SELECT to_regclass('public.users')" | grep -q users; then
-  psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f "$DIR/db/01_schema.sql" >/dev/null
+  if [[ -f "$DIR/db/new_client_database.sql" ]]; then   # one file: all tables + default system configuration (ITH-121)
+    psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f "$DIR/db/new_client_database.sql" >/dev/null
+  else
+    psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f "$DIR/db/01_schema.sql" >/dev/null
+  fi
 fi
 psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -c "INSERT INTO settings (key, value, description) VALUES
   ('tenant.profile', '\"blank\"', 'Client instance: nothing pre-loaded (set by new-tenant.sh)'),
@@ -140,7 +144,12 @@ echo " Client '$CODE' is ready:  https://$DOMAIN"
 echo " Folder $DIR · service $SVC · port $PORT · database $DBNAME"
 if [[ -n "${ADMIN_PW:-}" ]]; then
 echo " Super Admin: $ADMIN"
+if [[ -n "${ADMIN_PW_FILE:-}" ]]; then
+  ( umask 077; printf 'IT Hub %s — first Super Admin %s\nOne-time password: %s\nDelete this file after signing in.\n' "$CODE" "$ADMIN" "$ADMIN_PW" > "$ADMIN_PW_FILE" )
+  echo " One-time password saved to $ADMIN_PW_FILE (root only) — read it with: sudo cat $ADMIN_PW_FILE  then delete the file"
+else
 echo " One-time password (shown ONCE, not stored anywhere): $ADMIN_PW"
+fi
 echo " Sign in, create the client's own admin users, then disable this account."
 fi
 echo " Update later:  cd $DIR && sudo bash deploy.sh"

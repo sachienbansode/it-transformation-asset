@@ -4,6 +4,11 @@
 #   Ashika (main instance):   cd /opt/it-hub && sudo bash deploy.sh
 #   Another client:           cd /opt/it-hub-<client> && sudo bash deploy.sh
 #   A specific release:       sudo REF=v1.86.0 bash deploy.sh        (git tag / branch / commit; default = latest main)
+#   Without client approval:  sudo REF=v1.88.0 EMERGENCY="reason (shown to the client)" bash deploy.sh
+#
+# Client consent (ITH-120): when the client's database has updates.consent_required = true (all client instances), a NEW
+# version is deployed only if the client approved it in Admin › Updates, or with an EMERGENCY reason. Otherwise the code
+# is put back to the previous commit and nothing changes.
 #
 # Each client folder holds a .tenant file (written by scripts/tenant/new-tenant.sh) naming its config:
 #   /etc/it-hub-<client>.env and service it-hub-<client>. No .tenant file = the original instance (/etc/it-hub.env, it-hub).
@@ -20,6 +25,7 @@ echo "== Client: ${TENANT:-main}  (config $ENV_FILE, service $SERVICE)"
 command -v psql >/dev/null || { echo "Installing psql client"; apt-get install -y postgresql-client >/dev/null; }
 
 git checkout -- pnpm-workspace.yaml 2>/dev/null || true
+PREV="$(git rev-parse HEAD)"
 if [[ -n "${REF:-}" ]]; then
   git fetch origin --tags --prune
   git checkout -f "$REF"
@@ -35,6 +41,28 @@ DB_URL="${DATABASE_URL/sslmode=no-verify/sslmode=require}"
 q() { psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 "$@"; }
 
 DEP_ID=""
+# ── client consent gate ──
+CONSENT=$(q -Atc "SELECT value::text FROM settings WHERE key = 'updates.consent_required'" 2>/dev/null || true)
+if [[ "$CONSENT" == "true" ]]; then
+  LAST=$(q -Atc "SELECT version FROM app_deployments WHERE status = 'Done' ORDER BY started_at DESC LIMIT 1" 2>/dev/null || true)
+  if [[ -n "$LAST" && "$LAST" != "$VERSION" ]]; then   # first install needs no approval
+    REQ=$(q -Atc "SELECT id || '|' || status || '|' || (emergency_reason IS NOT NULL)::text FROM app_update_requests WHERE version = '$VERSION' ORDER BY id DESC LIMIT 1" 2>/dev/null || true)
+    RID="${REQ%%|*}"; RST="$(echo "$REQ" | cut -d'|' -f2)"; REM="${REQ##*|}"
+    if [[ -n "${EMERGENCY:-}" ]]; then
+      EMV="$(printf %s "$EMERGENCY" | tr -d "'" | cut -c1-500)"
+      if [[ -n "$RID" ]]; then q -c "UPDATE app_update_requests SET emergency_reason = '$EMV' WHERE id = $RID" >/dev/null
+      else q -c "INSERT INTO app_update_requests (version, git_ref, title, status, requested_by, emergency_reason) VALUES ('$VERSION', '$GITREF', 'Emergency update', 'Pending', 'NIYTRI (${SUDO_USER:-$(whoami)})', '$EMV')" >/dev/null; fi
+      echo "== EMERGENCY deploy of $VERSION without approval: $EMV (recorded in the client's Admin › Updates)"
+    elif [[ "$RST" == "Approved" || "$REM" == "true" ]]; then
+      echo "== Client consent: version $VERSION ${RST:-} ${REM/true/(emergency)}"
+    else
+      git checkout -q -f "$PREV"
+      echo "!! Not deployed: the client has not approved version $VERSION (status: ${RST:-not requested})."
+      echo "   Send it for approval from the NIYTRI console (or Admin › Updates request), or run with EMERGENCY=\"reason\"."
+      exit 3
+    fi
+  fi
+fi
 fail() { [[ -n "$DEP_ID" ]] && q -c "UPDATE app_deployments SET status='Failed', finished_at=now() WHERE id=$DEP_ID" >/dev/null 2>&1 || true; echo "!! Deploy FAILED"; }
 trap fail ERR
 
@@ -86,4 +114,5 @@ systemctl restart "$SERVICE"
 sleep 2
 systemctl status "$SERVICE" --no-pager | head -5
 q -c "UPDATE app_deployments SET status='Done', finished_at=now() WHERE id=$DEP_ID" >/dev/null
+q -c "UPDATE app_update_requests SET status = 'Deployed', deployed_at = now() WHERE version = '$VERSION' AND status IN ('Approved', 'Pending', 'Deferred')" >/dev/null 2>&1 || true
 echo "== Done: ${TENANT:-main} is on $VERSION ($COMMIT)"
