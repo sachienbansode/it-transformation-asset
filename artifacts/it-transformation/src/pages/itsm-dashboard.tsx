@@ -169,7 +169,8 @@ export default function ItsmDashboard() {
   }, [criticalIncidents, resolutionRate, itsmMetrics?.slaCompliance]);
 
   const healthColor = serviceHealth >= 80 ? "#059669" : serviceHealth >= 60 ? "#2D7FF9" : "#dc2626";
-  const healthLabel = serviceHealth >= 80 ? "Healthy" : serviceHealth >= 60 ? "Degraded" : "Critical";
+  const noTickets = incidents.length + serviceRequests.length === 0;
+  const healthLabel = noTickets ? "No tickets yet" : serviceHealth >= 80 ? "Healthy" : serviceHealth >= 60 ? "Degraded" : "Critical";
 
   return (
     <div className="space-y-6">

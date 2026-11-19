@@ -321,8 +321,10 @@ router.get("/config", async (_req, res): Promise<void> => {
   const appTagline = await getSetting("app_tagline");
   const logoUrl = await getSetting("logo_url");
   res.json({
-    appName: appName || "Ashika Drishti Transform",
-    appTagline: appTagline || "IT Transformation Planning Suite — Ashika Group",
+    appName: appName || "IT Hub",
+    appTagline: appTagline || "IT Service & Asset Management",
+    companyName: (await getSetting("company_name")) || (String(appTagline || "").includes("—") ? String(appTagline).split("—").pop()!.trim() : ""),
+    emailDomain: (await getSetting("email_domain")) || "company.com",
     logoUrl: logoUrl || "",
     confirmChanges: (await getSetting("ui.confirmChanges")) !== false,   // ask before every change (Admin › Settings)
   });

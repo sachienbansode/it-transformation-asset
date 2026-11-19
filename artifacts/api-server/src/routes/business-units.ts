@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { isBlankTenant } from "../lib/tenant";
 import { eq, asc } from "drizzle-orm";
 import { db, businessUnitsTable } from "@workspace/db";
 import { z } from "zod";
@@ -16,6 +17,7 @@ const BU_SEEDS = [
 ];
 
 export async function seedBusinessUnits() {
+  if (isBlankTenant()) return;   // a client adds its own business units
   for (const bu of BU_SEEDS) {
     const existing = await db.select().from(businessUnitsTable).where(eq(businessUnitsTable.code, bu.code));
     if (existing.length === 0) {

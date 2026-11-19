@@ -34,6 +34,7 @@ interface AppConfig {
   appName: string;
   appTagline: string;
   logoUrl: string;
+  companyName?: string;
 }
 
 type SidebarState = "expanded" | "collapsed" | "hidden";
@@ -180,7 +181,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       return saved ? JSON.parse(saved) : { drishti: true, kpi: true, admin: true };
     } catch { return { drishti: true, kpi: true, admin: true }; }
   });
-  const [appConfig, setAppConfig] = useState<AppConfig>({ appName: "Ashika Drishti Transform", appTagline: "", logoUrl: "" });
+  const [appConfig, setAppConfig] = useState<AppConfig>({ appName: "IT Hub", appTagline: "", logoUrl: "" });
   const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
@@ -522,7 +523,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <Menu className="h-4 w-4" />
               </button>
             ) : null}
-            <span className="text-xs text-muted-foreground hidden sm:block font-medium">Ashika Group</span>
+            {appConfig.companyName && <span className="text-xs text-muted-foreground hidden sm:block font-medium">{appConfig.companyName}</span>}
             {currentPage && (
               <>
                 <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 hidden sm:block" />

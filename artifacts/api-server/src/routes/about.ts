@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { getAccess } from "../lib/rbac";
 import { AGENT_CHANGES } from "../lib/agent-changelog";
+import { appVersion, tenantCode, isBlankTenant } from "../lib/tenant";
 
 const router = Router();
 const rowsOf = (r: any) => (r.rows ?? r) as any[];
@@ -16,7 +17,9 @@ router.get("/about", requireAuth, async (req: Request, res: Response) => {
     const [c] = rowsOf(await db.execute(sql`SELECT (SELECT count(*)::int FROM users WHERE is_active) AS users, (SELECT count(*)::int FROM asset_agents WHERE status = 'Active') AS devices,
       (SELECT count(*)::int FROM assets) AS assets, (SELECT count(*)::int FROM itsm_incidents) AS incidents`));
     const versions = rowsOf(await db.execute(sql`SELECT coalesce(agent_version, '?') AS version, count(*)::int AS devices FROM asset_agents WHERE status = 'Active' GROUP BY 1 ORDER BY 1 DESC`));
-    res.json({ app: { name: "IT Hub", build: process.env.APP_BUILD || null, started: new Date(Date.now() - process.uptime() * 1000).toISOString(), node: process.version },
+    const deployments = rowsOf(await db.execute(sql`SELECT version, git_commit AS "commit", git_ref AS ref, status, migrations_changed AS "migrationsChanged", deployed_by AS "by", started_at AS "at", finished_at AS "finishedAt"
+      FROM app_deployments ORDER BY started_at DESC LIMIT 10`).catch(() => ({ rows: [] })));
+    res.json({ app: { name: "IT Hub", version: appVersion(), client: tenantCode(), blankProfile: isBlankTenant(), deployments, build: process.env.APP_BUILD || null, started: new Date(Date.now() - process.uptime() * 1000).toISOString(), node: process.version },
       agent: { latest: agentRelease()?.version || null, versions, history: AGENT_CHANGES.map(h => ({ ...h, devices: versions.find(v => v.version === h.version)?.devices || 0 })),
         older: versions.filter(v => !AGENT_CHANGES.some(h => h.version === v.version)) }, counts: c });
   } catch (e: any) { res.status(500).json({ error: e.message }); }

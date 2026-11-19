@@ -27,9 +27,15 @@ const env = (k: string) => (process.env[k] || "").trim();
 export type MailConfig = { provider: "m365" | "smtp" | "off"; m365: { tenantId: string; clientId: string; secret: string; from: string }; smtp: SmtpConfig };
 let cfgCache: { at: number; cfg: MailConfig } | null = null;
 export function clearMailCache() { cfgCache = null; cached = null; }
+let MAIL_BRAND = "IT Hub";
 export async function loadMailConfig(): Promise<MailConfig> {
   if (cfgCache && Date.now() - cfgCache.at < 30_000) return cfgCache.cfg;
   let saved: any = null;
+  try {   // email header = this client's app name and company (Admin › Settings › Branding)
+    const b: any = await db.execute(sql`SELECT key, value FROM settings WHERE key IN ('app_name', 'company_name', 'app_tagline')`); const m: any = Object.fromEntries(((b.rows ?? b) as any[]).map(x => [x.key, x.value]));
+    const co = m.company_name || (String(m.app_tagline || "").includes("—") ? String(m.app_tagline).split("—").pop()!.trim() : "");
+    MAIL_BRAND = [m.app_name || "IT Hub", co].filter(Boolean).join(" — ");
+  } catch { /* keep last */ }
   try { const r: any = await db.execute(sql`SELECT value FROM settings WHERE key = 'mail.config'`); const v = (r.rows ?? r)[0]?.value; saved = typeof v === "string" ? JSON.parse(v) : v; } catch { /* no table / value */ }
   const cfg: MailConfig = saved?.provider ? {
     provider: saved.provider,
@@ -102,6 +108,7 @@ export async function notify(eventKey: string, msg: { subject: string; html: str
     const rule = (r.rows ?? r)[0];
     to = parseRecipients(rule?.recipients).filter(a => EMAIL_RE.test(a));
     const att = rule?.attach_excel === false ? null : msg.attachment || null;
+    await loadMailConfig().catch(() => null);   // also refreshes the email header (brand)
     const subject = `[IT Hub] ${msg.subject}`;
     const html = wrapHtml(msg.html);
     if (!rule || !rule.enabled) return outbox(eventKey, to.join(", "), subject, html, att?.name ?? null, msg.batchId ?? null, "Skipped", "Notification switched off");
@@ -118,6 +125,7 @@ export async function notify(eventKey: string, msg: { subject: string; html: str
 /** Email specific people (e.g. the employee on a handover). Never throws — logged in email_outbox. */
 export async function sendDirect(eventKey: string, to: string[], subject: string, html: string) {
   const list = to.map(x => x.trim().toLowerCase()).filter(a => EMAIL_RE.test(a));
+  await loadMailConfig().catch(() => null);
   const subj = `[IT Hub] ${subject}`, body = wrapHtml(html);
   if (!list.length) return outbox(eventKey, "", subj, body, null, null, "Skipped", "No valid recipient");
   const mc = await loadMailConfig(); if (!ready(mc)) return outbox(eventKey, list.join(", "), subj, body, null, null, "Skipped", notReady(mc));
@@ -128,7 +136,7 @@ export async function sendDirect(eventKey: string, to: string[], subject: string
 export async function sendTest(to: string[]) {
   const mc = await loadMailConfig(); if (!ready(mc)) throw new Error(notReady(mc));
   const subject = "[IT Hub] Test email";
-  const html = wrapHtml(`<p>This is a test email from IT Transformation Hub, sent through <b>${mc.provider === "smtp" ? `SMTP (${esc(mc.smtp.host)}:${mc.smtp.port})` : "Microsoft 365"}</b>. Notifications are working.</p>`);
+  const html = wrapHtml(`<p>This is a test email from ${esc(MAIL_BRAND)}, sent through <b>${mc.provider === "smtp" ? `SMTP (${esc(mc.smtp.host)}:${mc.smtp.port})` : "Microsoft 365"}</b>. Notifications are working.</p>`);
   try { await deliver(to, subject, html, []); await outbox("test", to.join(", "), subject, html, null, null, "Sent", null); }
   catch (e: any) { await outbox("test", to.join(", "), subject, html, null, null, "Failed", String(e?.message || e).slice(0, 500)); throw e; }
 }
@@ -136,7 +144,7 @@ export async function sendTest(to: string[]) {
 export const esc = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 function wrapHtml(inner: string) {
   return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:680px">
-    <div style="border-bottom:3px solid #2D7FF9;padding-bottom:8px;margin-bottom:14px;font-weight:600;color:#1F4E9E">IT Transformation Hub — Ashika Group</div>
+    <div style="border-bottom:3px solid #2D7FF9;padding-bottom:8px;margin-bottom:14px;font-weight:600;color:#1F4E9E">${esc(MAIL_BRAND)}</div>
     ${inner}
     <p style="color:#6b7280;font-size:12px;margin-top:20px">Automated message. Recipients are set in IT Hub › Admin › Notifications.</p></div>`;
 }

@@ -279,7 +279,7 @@ function SettingsTab() {
             <Input
               value={(settings["app_name"] as string) || ""}
               onChange={e => { if (e.target.value.length <= 50) set("app_name", e.target.value); }}
-              placeholder="Ashika Drishti Transform"
+              placeholder="IT Hub"
               maxLength={50}
             />
           </div>
@@ -288,8 +288,20 @@ function SettingsTab() {
             <Input
               value={(settings["app_tagline"] as string) || ""}
               onChange={e => set("app_tagline", e.target.value)}
-              placeholder="IT Transformation Planning Suite — Ashika Group"
+              placeholder="IT Service & Asset Management"
             />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Company name</Label>
+              <Input value={(settings["company_name"] as string) || ""} onChange={e => set("company_name", e.target.value.slice(0, 80))} placeholder="e.g. Your Company Ltd" />
+              <p className="text-[11px] text-muted-foreground">Shown in the header, on the sign-in page and in emails.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Company email domain</Label>
+              <Input value={(settings["email_domain"] as string) || ""} onChange={e => set("email_domain", e.target.value.trim().replace(/^@/, "").slice(0, 80))} placeholder="company.com" />
+              <p className="text-[11px] text-muted-foreground">Used as the example on sign-in and user forms.</p>
+            </div>
           </div>
           <LogoUpload
             value={(settings["logo_url"] as string) || ""}

@@ -362,9 +362,9 @@ export default function AdminUsers() {
             </div>
             <div className="space-y-1.5">
               <Label>Login Email <span className="text-red-500">*</span></Label>
-              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="name@ashikagroup.com" className={form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()) ? "border-red-500" : undefined} />
+              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="name@company.com" className={form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()) ? "border-red-500" : undefined} />
               {form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()) && <p className="text-[11px] text-red-600 mt-0.5">Enter the full email address, e.g. {form.email.includes("@") ? "name@ashikagroup.com" : `${form.email.trim()}@ashikagroup.com`}</p>}
-              <p className="text-[11px] text-muted-foreground">Must match the Ashika Portal / M365 email.</p>
+              <p className="text-[11px] text-muted-foreground">Must match the sign-in (portal / Microsoft 365) email.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Employee Code <span className="text-red-500">*</span></Label>

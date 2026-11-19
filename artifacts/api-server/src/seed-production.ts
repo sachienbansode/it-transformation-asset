@@ -1,4 +1,5 @@
 import { pool } from "@workspace/db";
+import { isBlankTenant } from "./lib/tenant";
 
 const SEED_SQL = `
 BEGIN;
@@ -757,6 +758,7 @@ COMMIT;
 `;
 
 export async function forceSeedProductionDatabase(): Promise<void> {
+  if (isBlankTenant()) throw new Error("Not available on a client instance (blank profile): this would load another organisation's data");
   try {
     console.log("[seed] FORCE MODE — truncating all tables and re-seeding...");
 
@@ -811,6 +813,7 @@ export async function forceSeedProductionDatabase(): Promise<void> {
 }
 
 export async function seedProductionDatabase(): Promise<void> {
+  if (isBlankTenant()) { console.log("[seed] Client instance (blank profile) — nothing is pre-loaded."); return; }
   try {
     // Check if the database is already populated (users table)
     const check = await pool.query("SELECT COUNT(*)::int AS cnt FROM users");

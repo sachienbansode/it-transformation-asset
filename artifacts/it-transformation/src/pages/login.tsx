@@ -25,6 +25,8 @@ interface AppConfig {
   appName: string;
   appTagline: string;
   logoUrl: string;
+  companyName?: string;
+  emailDomain?: string;
 }
 
 export default function Login() {
@@ -43,8 +45,8 @@ export default function Login() {
   const [central, setCentral] = useState<{ enabled: boolean; buttonLabel: string; localLogin: "admin" | "all" | "off" } | null>(null);
   const [showLocal, setShowLocal] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig>({
-    appName: "Ashika Drishti Transform",
-    appTagline: "IT Transformation Planning Suite — Ashika Group",
+    appName: "IT Hub",
+    appTagline: "IT Service & Asset Management",
     logoUrl: "",
   });
 
@@ -181,9 +183,9 @@ export default function Login() {
               {step === "mfa"
                 ? "Enter the 6-digit code from your authenticator app"
                 : centralOn
-                ? "Single sign-on through the Ashika Portal"
+                ? `Single sign-on through ${(central?.buttonLabel || "").replace(/^Sign in (with|through) /i, "") || "the company portal"}`
                 : userType === "internal"
-                ? "Ashika Group internal users"
+                ? `${appConfig.companyName || "Company"} internal users`
                 : "External partner / consultant access"}
             </CardDescription>
           </CardHeader>
@@ -193,7 +195,7 @@ export default function Login() {
                 {centralOn && (
                   <div className="space-y-2">
                     <Button className="w-full h-11 gap-2 text-[14px]" onClick={startCentral}>
-                      <Shield className="h-4 w-4" />{central!.buttonLabel || "Sign in with Ashika Portal"}
+                      <Shield className="h-4 w-4" />{central!.buttonLabel || "Sign in with company portal"}
                     </Button>
                     <p className="text-[11.5px] text-muted-foreground text-center">Staff: Microsoft 365. Partners: Portal password with OTP. Your IT Hub access is set by the IT Hub administrator.</p>
                     {central!.localLogin === "admin" && !showLocal && (
@@ -238,7 +240,7 @@ export default function Login() {
                     <Input
                       id="email"
                       type="email"
-                      placeholder={userType === "internal" ? "name@ashikagroup.com" : "partner@company.com"}
+                      placeholder={userType === "internal" ? `name@${appConfig.emailDomain || "company.com"}` : "partner@company.com"}
                       value={email}
                       onChange={e => setEmail(e.target.value)}
                       required
@@ -299,7 +301,7 @@ export default function Login() {
 
 
         <p className="text-center text-xs text-muted-foreground">
-          Protected under Ashika Group IT Security Policy &mdash; Unauthorized access is prohibited.
+          Protected under {appConfig.companyName ? `${appConfig.companyName} ` : ""}IT Security Policy &mdash; Unauthorized access is prohibited.
         </p>
         <p className="text-center text-[10px] text-muted-foreground/70 mt-2">
           &copy; 2026 NIYTRI Technologies. All rights reserved.

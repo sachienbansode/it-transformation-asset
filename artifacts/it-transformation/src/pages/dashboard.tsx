@@ -752,7 +752,7 @@ export default function Dashboard() {
 
   const handleExportPDF = useCallback(() => {
     const title = document.title;
-    document.title = `Ashika Drishti Transform - Executive Dashboard`;
+    document.title = "Executive Dashboard";
     window.print();
     document.title = title;
   }, []);

@@ -64,6 +64,7 @@ router.put("/admin/settings", requireAdmin, async (req, res): Promise<void> => {
   const body = z.record(z.string(), z.unknown()).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
   for (const [key, value] of Object.entries(body.data)) {
+    if (key.startsWith("tenant.")) continue;   // client-instance facts are set by the server scripts only
     await db
       .insert(settingsTable)
       .values({ key, value })

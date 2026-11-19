@@ -100,7 +100,14 @@ export default function About() {
           </div>))}</div>
         {data.agent.older?.length > 0 && <div className="text-xs text-muted-foreground mt-2">Older or not reported: {data.agent.older.map((v: any) => `${v.version === "?" ? "not reported yet" : v.version} (${v.devices})`).join(", ")}</div>}
       </CardContent></Card>}
-      {data?.app && <div className="text-[11px] text-muted-foreground">Server running since {fmtDateTime(data.app.started)} · Node {data.app.node}{data.app.build ? ` · build ${data.app.build}` : ""} · © NIYTRI Technologies</div>}
+      {data?.app?.deployments?.length > 0 && (
+        <div className="rounded-lg border p-3 text-xs space-y-1" data-testid="app-deployments">
+          <div className="text-sm font-semibold">App version {data.app.version || "—"} <span className="font-normal text-muted-foreground">· client {data.app.client}</span></div>
+          <div className="text-muted-foreground">Deployments (latest 10)</div>
+          {data.app.deployments.map((d: any, i: number) => <div key={i} className="flex gap-3 flex-wrap"><span className="w-32">{fmtDateTime(d.at)}</span><span className="font-mono">{d.version}</span><span className="font-mono text-muted-foreground">{d.commit}{d.ref && d.ref !== "main" ? ` (${d.ref})` : ""}</span>
+            <span className={d.status === "Done" ? "text-emerald-600" : d.status === "Failed" ? "text-red-600" : "text-amber-600"}>{d.status}</span><span className="text-muted-foreground">{d.migrationsChanged} DB change{d.migrationsChanged === 1 ? "" : "s"} · by {d.by}</span></div>)}
+        </div>)}
+      {data?.app && <div className="text-[11px] text-muted-foreground">{data.app.version ? `Version ${data.app.version} · ` : ""}Server running since {fmtDateTime(data.app.started)} · Node {data.app.node}{data.app.build ? ` · build ${data.app.build}` : ""} · © NIYTRI Technologies</div>}
     </div>
   );
 }
