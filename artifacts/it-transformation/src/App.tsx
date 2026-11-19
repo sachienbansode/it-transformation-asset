@@ -23,6 +23,9 @@ import Login from "@/pages/login";
 import Admin from "@/pages/admin";
 import AdminUsers from "@/pages/admin-users";
 import AdminArchive from "@/pages/admin-archive";
+import AdminDataImport from "@/pages/admin-data-import";
+import AdminUpdates from "@/pages/admin-updates";
+import PlatformConsole from "@/pages/platform-console";
 import AdminRoles from "@/pages/admin-roles";
 import Profile from "@/pages/profile";
 import Reports from "@/pages/reports";
@@ -227,6 +230,15 @@ function Router() {
               </Route>
               <Route path="/admin/users">
                 {user.role === "admin" ? <AdminUsers /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              </Route>
+              <Route path="/admin/updates">
+                {user.role === "admin" ? <AdminUpdates /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              </Route>
+              <Route path="/platform">
+                {user.role === "admin" ? <PlatformConsole /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              </Route>
+              <Route path="/admin/data-import">
+                {user.role === "admin" ? <AdminDataImport /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>
               <Route path="/admin/archive">
                 {user.role === "admin" ? <AdminArchive /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}

@@ -11,7 +11,7 @@ import { PolicyGate } from "@/components/policy-gate";
 import { PushPrompt } from "@/pages/my-policies";
 import { ChatPopup } from "@/components/device-chat";
 import {
-  LayoutDashboard, CheckSquare, Map, Archive, Server,
+  LayoutDashboard, CheckSquare, Map, Archive, Server, Upload, RefreshCcw,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
@@ -100,6 +100,9 @@ const ADMIN_ITEMS = [
   { href: "/admin?tab=masters", label: "Master Data", icon: Database, tab: "masters" },
   { href: "/admin?tab=business-units", label: "Business Units", icon: Building2, tab: "business-units" },
   { href: "/admin?tab=audit", label: "Audit Trail", icon: Clock, tab: "audit" },
+  { href: "/admin/data-import", label: "Data Import", icon: Upload, tab: "data-import" },
+  { href: "/admin/updates", label: "Updates", icon: RefreshCcw, tab: "updates" },
+  { href: "/platform", label: "NIYTRI Platform", icon: Server, tab: "platform" },
   { href: "/admin/archive", label: "Archive & Notifications", icon: Archive, tab: "archive" },
   { href: "/admin/policies", label: "Policies & Consent", icon: FileSignature, tab: "policies" },
 ];
@@ -183,6 +186,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   });
   const [appConfig, setAppConfig] = useState<AppConfig>({ appName: "IT Hub", appTagline: "", logoUrl: "" });
   const [searchOpen, setSearchOpen] = useState(false);
+  const [platformOn, setPlatformOn] = useState(false);   // NIYTRI console instance only
+  useEffect(() => { if (isAdmin) apiFetch<{ console: boolean }>("/platform/status").then(r => setPlatformOn(!!r.console)).catch(() => {}); }, [isAdmin]);
 
   useEffect(() => {
     apiFetch<AppConfig>("/config").then(cfg => {
@@ -425,7 +430,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 >
                   Admin
                 </SectionLabel>
-                {(isCollapsed || (sectionsOpen.admin ?? true)) && (isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter(i => i.tab === "users")).map(item => (
+                {(isCollapsed || (sectionsOpen.admin ?? true)) && (isAdmin ? ADMIN_ITEMS.filter(i => i.tab !== "platform" || platformOn) : ADMIN_ITEMS.filter(i => i.tab === "users")).map(item => (
                   <NavItem
                     key={item.href + item.label}
                     href={item.href}

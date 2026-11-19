@@ -43,6 +43,9 @@ import itsmRouter from "./itsm";
 import itsmSetupRouter from "./itsm-setup";
 import itsmWorkflowsRouter from "./itsm-workflows";
 import itsmEnterpriseRouter from "./itsm-enterprise";
+import dataImportRouter from "./data-import";
+import updatesRouter from "./updates";
+import platformRouter from "./platform";
 import complianceRouter from "./compliance";
 import { authRouter as auditorAuthRouter, router as auditorRouter, auditorFence } from "./auditor";
 import { seedAssetAndItsmModules, seedExtendedItsmData } from "./seed-modules";
@@ -154,6 +157,9 @@ router.use(assetsRouter);
 router.use(itsmSetupRouter);
 router.use(itsmWorkflowsRouter);
 router.use(itsmEnterpriseRouter);
+router.use(dataImportRouter);   // ITH-119 Admin › Data import (Super Admin)
+router.use(updatesRouter);      // ITH-120 Admin › Updates (client consent)
+router.use(platformRouter);     // ITH-120 NIYTRI platform console (PLATFORM_CONSOLE=1 only)
 router.use(complianceRouter);
 router.use(auditorRouter);
 router.use(itsmRouter);
