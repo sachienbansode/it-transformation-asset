@@ -70,6 +70,14 @@ newdep() { q -Atc "INSERT INTO app_deployments (tenant, version, git_commit, git
   VALUES ('${TENANT:-main}', '$VERSION', '$COMMIT', '$GITREF', 'Running', '${SUDO_USER:-$(whoami)}') RETURNING id" | head -1; }
 q -Atc "SELECT to_regclass('public.app_deployments')" | grep -q app_deployments && DEP_ID=$(newdep)
 
+# First install on an EMPTY database (e.g. a client on its own server, ITH-143): load the base schema + default
+# system configuration once, so the migrations below have their tables. Never runs on a database that has tables.
+if ! q -Atc "SELECT to_regclass('public.users')" | grep -q users; then
+  echo "== Empty database: loading base schema (db/new_client_database.sql)"
+  q -f db/new_client_database.sql >/dev/null
+  q -c "INSERT INTO settings (key, value, description) VALUES ('tenant.profile', '\"blank\"', 'Client instance: nothing pre-loaded'), ('tenant.code', to_jsonb('${TENANT:-main}'::text), 'Client code') ON CONFLICT (key) DO NOTHING" >/dev/null
+  DEP_ID=$(newdep)
+fi
 echo "== DB migrations"
 RAN=()
 for f in $(ls db/[0-9][0-9]_*.sql | sort); do
