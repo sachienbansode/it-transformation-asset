@@ -69,14 +69,14 @@ export default function Login() {
     const err = new URLSearchParams(window.location.search).get("sso_error");
     if (err) {
       const msg: Record<string, string> = {
-        access_denied: "The Ashika Portal did not allow sign-in to IT Hub for your account. Please contact the IT administrator.",
+        access_denied: "The sign-in portal did not allow sign-in to IT Hub for your account. Please contact the IT administrator.",
         account_disabled: "Your account is disabled in this application. Please contact the IT administrator.",
-        not_registered: "You signed in to the Ashika Portal, but you are not registered in IT Hub. Please ask the IT administrator to add you.",
+        not_registered: "You signed in to the company portal, but you are not registered in IT Hub. Please ask the IT administrator to add you.",
         no_role: "You are registered in IT Hub but no role has been assigned to you yet. Please ask the IT administrator to assign one.",
         invalid_state: "The sign-in link expired or was opened in another browser. Please try again.",
-        not_configured: "Ashika Portal sign-in is not configured on this server.",
+        not_configured: "Portal sign-in is not configured on this server.",
         session_ended: "Your session has ended (account or role changed, or it expired). Please sign in again.",
-        portal_error: "The Ashika Portal could not complete the sign-in. Please try again.",
+        portal_error: "The sign-in portal could not complete the sign-in. Please try again.",
       };
       toast({ title: "Sign-in failed", description: msg[err] || "Sign-in could not be completed. Please try again.", variant: "destructive" });
       window.history.replaceState(null, "", "/login");

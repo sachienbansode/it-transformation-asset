@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { getBrand } from "../lib/brand";
 import { eq, inArray, sql } from "drizzle-orm";
 const rowsOfAny = (r: any) => (r?.rows ?? r ?? []) as any[];
 import { db, usersTable, settingsTable, userRolesTable, rolePermissionsTable, rolesTable } from "@workspace/db";
@@ -121,11 +122,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   // With Central Identity on, passwords here are only for break-glass local administrators (CENTRAL_SSO_LOCAL_LOGIN)
   const cc = centralConfig();
   if (cc.enabled && (cc.localLogin === "off" || (cc.localLogin === "admin" && user.role !== "admin"))) {
-    res.status(403).json({ error: "Please use 'Sign in with Ashika Portal'. Password sign-in here is reserved for IT administrators." });
+    res.status(403).json({ error: "Please use the company portal sign-in button. Password sign-in here is reserved for IT administrators." });
     return;
   }
   if (!user.passwordHash) {
-    res.status(401).json({ error: cc.enabled ? "This account signs in through the Ashika Portal." : "This account uses SSO. Please sign in with Microsoft." });
+    res.status(401).json({ error: cc.enabled ? "This account signs in through the company portal." : "This account uses SSO. Please sign in with Microsoft." });
     return;
   }
   // External auditors sign in through the auditor portal (password + emailed code), never here
@@ -273,7 +274,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 router.get("/auth/mfa/setup", requireAuth, async (req, res): Promise<void> => {
   const [user] = await db.select({ email: usersTable.email, name: usersTable.name }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
   const secret = speakeasy.generateSecret({
-    name: `Ashika IT Suite (${user.email})`,
+    name: `${(await getBrand()).appName} (${user.email})`,
     length: 32,
   });
   // Store secret temporarily in session

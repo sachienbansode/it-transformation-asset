@@ -101,7 +101,7 @@ function guard(module: string, Component: React.ComponentType) {
     if (!module.split("|").some(m => canAccess(m))) return (
       <div className="max-w-md mx-auto mt-20 text-center space-y-2">
         <div className="text-lg font-semibold">You don't have access to this page</div>
-        <p className="text-sm text-muted-foreground">Your role does not include this module. If you need it, ask your administrator to add it to your role in the Ashika Portal / role settings.</p>
+        <p className="text-sm text-muted-foreground">Your role does not include this module. If you need it, ask your administrator to add it to your role in Roles & Permissionstings.</p>
       </div>
     );
     return <Component {...props} />;

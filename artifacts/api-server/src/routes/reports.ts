@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { getBrand } from "../lib/brand";
+const REPORT_BRAND = { appName: "IT Hub", company: "", tagline: "" };   // set per report from Admin › Settings › Branding
 import { db, checklistItemsTable, roadmapItemsTable, applicationsTable, retirementsTable, aibomEntriesTable, sbomEntriesTable, settingsTable } from "@workspace/db";
 import { requireAuth } from "./auth";
 import PptxGenJS from "pptxgenjs";
@@ -47,7 +49,7 @@ function addBrandedSlide(pptx: PptxGenJS, config: { logo?: string }) {
     x: 0, y: H - 0.3, w: W, h: 0.3, fill: { color: BRAND.primary }, line: { color: BRAND.primary }
   });
   // Brand name in top bar
-  slide.addText("ASHIKA GROUP", {
+  slide.addText((REPORT_BRAND.company || REPORT_BRAND.appName).toUpperCase(), {
     x: 0.2, y: 0.05, w: 4, h: 0.35,
     fontSize: 10, bold: true, color: BRAND.primaryLight, fontFace: "Calibri",
   });
@@ -57,7 +59,7 @@ function addBrandedSlide(pptx: PptxGenJS, config: { logo?: string }) {
     fontSize: 9, color: BRAND.muted, fontFace: "Calibri",
   });
   // Confidential footer
-  slide.addText("CONFIDENTIAL – Ashika Group Internal Use Only", {
+  slide.addText(`CONFIDENTIAL – ${REPORT_BRAND.company || REPORT_BRAND.appName} Internal Use Only`, {
     x: 0, y: H - 0.28, w: W, h: 0.26, align: "center",
     fontSize: 8, color: BRAND.white, fontFace: "Calibri",
   });
@@ -121,7 +123,7 @@ router.get("/reports/ppt", requireAuth, async (req, res): Promise<void> => {
 
   // Apply filters
   const settingsMap = Object.fromEntries(settings.map(s => [s.key, s.value]));
-  const appName = settingsMap["app_name"] || "Ashika Group";
+  const appName = settingsMap["app_name"] || "IT Hub"; Object.assign(REPORT_BRAND, await getBrand());
   const logoUrl = settingsMap["logo_url"] || "";
 
   const checklist = business
@@ -684,7 +686,7 @@ router.get("/reports/ppt", requireAuth, async (req, res): Promise<void> => {
   // ── Write to buffer & send ─────────────────────────────────────────────────
   const buffer = await pptx.write({ outputType: "nodebuffer" });
 
-  const filename = `Ashika_IT_Transformation_${new Date().toISOString().split("T")[0]}.pptx`;
+  const filename = `${(REPORT_BRAND.company || REPORT_BRAND.appName).replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "") || "IT_Hub"}_IT_Transformation_${new Date().toISOString().split("T")[0]}.pptx`;
   res.set({
     "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "Content-Disposition": `attachment; filename="${filename}"`,

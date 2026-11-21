@@ -7,7 +7,8 @@ import { buttonVariants } from "@/components/ui/button";
 
 // In-app replacement for window.confirm().
 // Usage: if (!(await confirmDialog("Delete this item?"))) return;
-type Opts = { title?: string; confirmText?: string; cancelText?: string; destructive?: boolean };
+export type ChangeRow = { field: string; old?: string; new: string };
+type Opts = { title?: string; confirmText?: string; cancelText?: string; destructive?: boolean; rows?: ChangeRow[]; rowsNote?: string };
 type Req = Opts & { message: string; resolve: (ok: boolean) => void; input?: { label: string; min: number; onValue: (v: string) => void } };
 
 let push: ((r: Req) => void) | null = null;
@@ -53,11 +54,19 @@ export function ConfirmDialogHost() {
 
   return (
     <AlertDialog open={!!cur} onOpenChange={(open) => { if (!open) done(false); }}>
-      <AlertDialogContent>
+      <AlertDialogContent className={cur?.rows?.length ? "max-w-2xl" : undefined}>
         <AlertDialogHeader>
           <AlertDialogTitle>{cur?.title ?? (destructive ? "Confirm delete" : "Please confirm")}</AlertDialogTitle>
           <AlertDialogDescription className="whitespace-pre-line">{cur?.message}</AlertDialogDescription>
         </AlertDialogHeader>
+        {!!cur?.rows?.length && (() => { const hasOld = cur.rows.some(x => x.old !== undefined); return (
+          <div className="max-h-[50vh] overflow-y-auto rounded-md border" data-testid="change-table">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/60 text-[11px] uppercase tracking-wide text-muted-foreground sticky top-0"><tr><th className="text-left px-3 py-1.5 font-semibold">Data</th>{hasOld && <th className="text-left px-3 py-1.5 font-semibold">Old value</th>}<th className="text-left px-3 py-1.5 font-semibold">{hasOld ? "New value" : "Value"}</th></tr></thead>
+              <tbody>{cur.rows.map((x, i) => <tr key={i} className="border-t align-top"><td className="px-3 py-1.5 font-medium">{x.field}</td>{hasOld && <td className="px-3 py-1.5 text-muted-foreground break-words">{x.old ?? "—"}</td>}<td className="px-3 py-1.5 break-words font-medium text-foreground">{x.new}</td></tr>)}</tbody>
+            </table>
+          </div>); })()}
+        {cur?.rowsNote && <p className="text-[11px] text-muted-foreground">{cur.rowsNote}</p>}
         {cur?.input && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium">{cur.input.label} *</label>
@@ -98,14 +107,28 @@ let guardOn = true;
 export function setConfirmChanges(on: boolean) { guardOn = on; }
 /** ITH-078: a plain-words confirmation for a request, e.g. confirmHeader(`Start a chat with Asha Rao with the message “Hi…”?`). */
 export function confirmHeader(text: string): Record<string, string> { return { "X-Confirm-Text": encodeURIComponent(text) }; }
-const words = (k: string) => FIELD[k] || k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]/g, " ").replace(/^./, c => c.toUpperCase());
+/* ITH-128 — settings keys in plain words (others: "itsm.slaWarnPercent" → "ITSM › SLA warn percent") */
+const SETTING: Record<string, string> = { app_name: "Application name", app_tagline: "Tagline", logo_url: "Logo", company_name: "Company name", email_domain: "Company email domain",
+  "auth.selfRegistration": "Sign-in › Self registration", "auth.sessionTimeoutHours": "Sign-in › Session timeout (hours)", "auth.mfaDefault": "Sign-in › MFA by default", "auth.mfaRequired.internal": "Sign-in › MFA for internal users", "auth.mfaRequired.external": "Sign-in › MFA for external users", "auth.defaultEmployeeRole": "Sign-in › Default role for employees",
+  "sso.msEnabled": "Microsoft single sign-on", "sso.clientId": "Single sign-on › Client ID", "sso.tenantId": "Single sign-on › Tenant ID", "sso.redirectUri": "Single sign-on › Redirect URL",
+  "itsm.slaWarnPercent": "ITSM › SLA warning at (% of time used)", "itsm.slaPauseStatuses": "ITSM › SLA paused in status", "itsm.approvalReminderHours": "ITSM › Approval reminder after (hours)", "itsm.approvalEscalateAfter": "ITSM › Escalate approval after", "itsm.autoApprove": "ITSM › Auto-approve",
+  "uploads.allowedFileTypes": "Uploads › Allowed file types", "uploads.maxSizeMB": "Uploads › Maximum size (MB)", "ui.confirmChanges": "Ask before every change" };
+const ACR: Record<string, string> = { sla: "SLA", sso: "SSO", mfa: "MFA", url: "URL", id: "ID", itsm: "ITSM", kpi: "KPI", ms: "Microsoft", api: "API", ip: "IP", otp: "OTP", pdf: "PDF", it: "IT", hr: "HR" };
+const words = (k: string) => FIELD[k] || SETTING[k] || k.split(".").map((part, i, all) => {
+  const w = part.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]/g, " ").toLowerCase().split(" ").map(x => ACR[x] || x).join(" ");
+  return i === 0 && all.length > 1 ? (ACR[part.toLowerCase()] || w.replace(/^./, c => c.toUpperCase())) : w.replace(/^./, c => c.toUpperCase());
+}).join(" › ");
 const short = (v: string) => (v.length > 90 ? v.slice(0, 87) + "…" : v);
 const SECRET_K = /pass|token|secret|^code$|base64|otp|mfa/i;
 const SKIP_K = /^(id|createdAt|updatedAt|createdBy|updatedBy|version|_.*)$/;
 
 /* What the screens loaded: objects with an id, remembered by the list / field they came in (bounded, newest wins). */
 const seen = new Map<string, { o: any; hints: string[]; parent?: any }[]>(); let seenN = 0;
+/* last loaded value of each screen's data by API path — used to show old → new for records without an id (settings) */
+const snap = new Map<string, any>();
+const pathOf = (url: string) => url.replace(/^.*\/api/, "").split("?")[0];
 function remember(url: string, data: any) {
+  if (data && typeof data === "object" && !Array.isArray(data)) { snap.set(pathOf(url), data); if (snap.size > 200) snap.delete(snap.keys().next().value as string); }
   const top = url.replace(/^.*\/api\//, "").split(/[/?]/)[0];
   const isRec = (v: any) => v && typeof v === "object" && !Array.isArray(v) && (typeof v.id === "number" || /^\d+$/.test(String(v.id ?? ""))) && NAME_KEYS.some(k => v[k]);
   const walk = (v: any, hint: string, depth: number, parent?: any) => {
@@ -149,6 +172,7 @@ function nameOf(o: any): string {
 function fmtVal(k: string, v: any): string {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "string" && /^data:image\//.test(v)) return "(new image)";
   if (/Id$/.test(k) && /^\d+$/.test(String(v))) { const o = lookup(v, k.replace(/Id$/, "")) || lookup(v, k.replace(/Id$/, "") + "s"); const n = nameOf(o).replace(/^“|”$/g, ""); return n || `#${v}`; }
   if (Array.isArray(v)) return v.length > 6 ? `${v.length} items` : v.map(x => typeof x === "object" ? (nameOf(x) || "item") : String(x)).join(", ");
   if (typeof v === "object") return "(details)";
@@ -175,16 +199,21 @@ function describeChange(method: string, url: string, body: unknown) {
   const verb = method === "DELETE" ? "Delete" : action && VERB[action] ? VERB[action] : method === "POST" && !id ? "Add" : "Change";
   const recName = nameOf(rec);
   const target = `${what}${recName ? ` ${recName}` : id ? ` #${id}` : ""}${parent && nameOf(parent) ? ` on ${nameOf(parent)}` : ""}`;
-  const lines: string[] = [];
+  const lines: string[] = []; const rows: { field: string; old?: string; new: string }[] = [];
+  const before = rec || ((method === "PATCH" || method === "PUT") ? snap.get(path) || snap.get("/admin" + path) : null);
   if (b && typeof b === "object" && !Array.isArray(b)) {
     const entries = Object.entries(b).filter(([k]) => !SECRET_K.test(k) && !SKIP_K.test(k));
-    if ((method === "PATCH" || method === "PUT") && rec) {
-      for (const [k, v] of entries) { if (typeof v === "object" && v !== null && !Array.isArray(v)) continue; const o = rec[k]; if (String(o ?? "") === String(v ?? "")) continue; lines.push(`${words(k)}: ${fmtVal(k, o)} → ${fmtVal(k, v)}`); }
-      if (!lines.length) lines.push("No field values change.");
-    } else for (const [k, v] of entries.slice(0, 8)) { if (v === null || v === undefined || v === "") continue; if (typeof v === "object" && !Array.isArray(v)) continue; lines.push(`${words(k)}: ${fmtVal(k, v)}`); }
+    const clean = (k: string, v: any) => fmtVal(k, v).replace(/^“|”$/g, "");
+    if ((method === "PATCH" || method === "PUT") && before) {
+      for (const [k, v] of entries) { if (typeof v === "object" && v !== null && !Array.isArray(v)) continue; const o = before[k];
+        if (JSON.stringify(o ?? "") === JSON.stringify(v ?? "") || String(o ?? "") === String(v ?? "")) continue; rows.push({ field: words(k), old: clean(k, o), new: clean(k, v) }); }
+      if (!rows.length) lines.push("Nothing has changed — the same values will be saved again.");
+    } else for (const [k, v] of entries.slice(0, 12)) { if (v === null || v === undefined || v === "") continue; if (typeof v === "object" && !Array.isArray(v)) continue; rows.push({ field: words(k), new: clean(k, v) }); }
+    const secret = Object.keys(b).filter(k => SECRET_K.test(k) && b[k] && (!before || JSON.stringify(before[k] ?? "") !== JSON.stringify(b[k]))); if (secret.length) lines.push(`${secret.map(words).join(", ")}: will be changed (not shown).`);
   }
   const head = method === "POST" && !id ? `${verb} ${what}?` : `${verb} ${target}?`;
-  return { title: method === "DELETE" ? "Confirm delete" : "Confirm change", message: `${head}${lines.length ? `\n${lines.slice(0, 10).join("\n")}` : ""}`, destructive: method === "DELETE" };
+  return { title: method === "DELETE" ? "Confirm delete" : "Confirm change", message: `${head}${lines.length ? `\n${lines.slice(0, 10).join("\n")}` : ""}`, destructive: method === "DELETE", rows,
+    rowsNote: rows.length && before ? `${rows.length} change${rows.length > 1 ? "s" : ""} — only the values that differ are shown.` : undefined };
 }
 export const __describeChange = describeChange;   // for tests
 export const __remember = remember;
@@ -199,10 +228,12 @@ export function installChangeGuard() {
     if (guardOn && /\/api\//.test(url) && !["GET", "HEAD", "OPTIONS"].includes(method) && !h.get("X-No-Confirm")
         && !NO_CONFIRM.some(r => r.test(url.split("?")[0])) && !/"dryRun"\s*:\s*true/.test(String(init?.body || "")) && Date.now() - lastConfirmedAt > 8000) {
       const d = said ? { title: method === "DELETE" ? "Confirm delete" : "Confirm", message: decodeURIComponent(said), destructive: method === "DELETE" } : describeChange(method, url, init?.body);
-      const ok = await confirmDialog(d.message, { title: d.title, confirmText: method === "DELETE" ? "Delete" : "Confirm", destructive: d.destructive });
+      const ok = await confirmDialog(d.message, { title: d.title, confirmText: method === "DELETE" ? "Delete" : "Confirm", destructive: d.destructive, rows: (d as any).rows, rowsNote: (d as any).rowsNote });
       if (!ok) { const e: any = new Error("Cancelled — nothing was changed"); e.cancelled = true; throw e; }
     }
     const res = await orig(input as any, init);
+    // after a successful save, the saved values become the new "old values" for the next confirmation
+    if ((method === "PUT" || method === "PATCH") && res.ok) { try { const p = pathOf(url); const bb = JSON.parse(String(init?.body || "null")); if (bb && typeof bb === "object" && !Array.isArray(bb) && snap.has(p)) snap.set(p, { ...snap.get(p), ...bb }); } catch { /* not JSON */ } }
     // remember records the screens load (to name them in later confirmations); skipped for large or non-JSON answers
     if (method === "GET" && /\/api\//.test(url) && res.ok && /json/.test(res.headers.get("content-type") || "") && Number(res.headers.get("content-length") || 0) < 3_000_000)
       res.clone().json().then(j => remember(url, j)).catch(() => {});

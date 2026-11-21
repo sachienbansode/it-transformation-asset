@@ -2,7 +2,7 @@ import { Info, PackageSearch, Workflow } from "lucide-react";
 import { usePresenceHeartbeat, useMyPresence, PresenceDot, PRESENCE_LABEL, setMyPresence } from "@/lib/presence";
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
 import { MajorIncidentBanner } from "@/components/itsm-extras";
 import { useCurrency } from "@/contexts/currency-context";
@@ -189,6 +189,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [platformOn, setPlatformOn] = useState(false);   // NIYTRI console instance only
   useEffect(() => { if (isAdmin) apiFetch<{ console: boolean }>("/platform/status").then(r => setPlatformOn(!!r.console)).catch(() => {}); }, [isAdmin]);
 
+  const qcl = useQueryClient(); const [cfgTick, setCfgTick] = useState(0);
+  useEffect(() => { const f = () => { setCfgTick(t => t + 1); qcl.invalidateQueries({ queryKey: ["config"] }); }; window.addEventListener("ithub:config-changed", f); return () => window.removeEventListener("ithub:config-changed", f); }, []);
   useEffect(() => {
     apiFetch<AppConfig>("/config").then(cfg => {
       setAppConfig(cfg);
@@ -197,7 +199,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         if (link) link.href = cfg.logoUrl;
       }
     }).catch(() => {});
-  }, []);
+  }, [cfgTick]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -510,6 +512,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 overflow-auto bg-background flex flex-col">
           <div className="flex-1 px-3 sm:px-6 pt-4 sm:pt-[22px] pb-10">
             <PushPrompt />
+            {isAdmin && appConfig.appName && !appConfig.companyName && !location.startsWith("/admin") && (
+              <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 px-3 py-2 text-sm flex items-center gap-2 flex-wrap" data-testid="company-name-banner">
+                <Building2 className="w-4 h-4 text-blue-600" /><span className="flex-1">Add your company name — it is printed on policy watermarks, reports, asset labels and emails.</span>
+                <Link href="/admin" className="text-primary font-medium hover:underline">Admin › Settings › Branding</Link>
+              </div>)}
             <MajorIncidentBanner />
             {children}
             <PolicyGate />

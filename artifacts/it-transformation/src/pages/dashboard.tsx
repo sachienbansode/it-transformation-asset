@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
+import { useBrand } from "@/lib/brand";
 import { useGetDashboardSummary } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -735,6 +736,7 @@ const WIDGET_LABELS: Record<keyof WidgetConfig, string> = {
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const brand = useBrand();
   const { data: summary, isLoading } = useGetDashboardSummary();
   const { format, unit } = useCurrency();
 
@@ -781,7 +783,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-foreground tracking-tight">Executive Dashboard</h1>
-            <p className="text-[10px] text-muted-foreground">Ashika Group IT Transformation · Live Programme Overview</p>
+            <p className="text-[10px] text-muted-foreground">{brand.company ? `${brand.company} · ` : ""}IT Transformation · Live Programme Overview</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Widget Customization */}

@@ -2,13 +2,14 @@ import React, { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { fmtDate, fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { useMyPolicies, PolicyReader } from "@/components/policy-gate";
 import { ensurePush, enablePush } from "@/lib/push";
-import { Bell, BellOff, FileCheck2, FileClock, ScrollText, ShieldCheck, AlertOctagon } from "lucide-react";
+import { Bell, BellOff, FileCheck2, FileClock, ScrollText, ShieldCheck, AlertOctagon, Eye } from "lucide-react";
 import { PageHero, WorkspaceStrip, StatTile } from "@/components/workspace-ui";
 
 /* My Policies — policies, notices and consents that apply to me, my decisions, and push notifications on this device. */
@@ -58,24 +59,17 @@ export function PushPrompt() {
 
 export default function MyPolicies() {
   const { data, isLoading } = useMyPolicies(); const qc = useQueryClient();
-  const [open, setOpen] = useState<number | null>(null);
+  const [view, setView] = useState<any>(null); const [tab, setTab] = useState<"pending" | "done" | "all">("pending"); const [q, setQ] = useState("");
   const list: any[] = data?.policies || [];
   const pending = list.filter(p => p.pending), done = list.filter(p => !p.pending);
-  const refresh = () => qc.invalidateQueries();
-  const Row = ({ p }: { p: any }) => (
-    <div className="border rounded-lg">
-      <button className="w-full text-left px-3 py-2.5 flex items-center gap-2 flex-wrap" onClick={() => setOpen(open === p.id ? null : p.id)}>
-        {p.pending ? <FileClock className={cn("w-4 h-4", p.overdue ? "text-red-600" : "text-amber-600")} /> : <FileCheck2 className="w-4 h-4 text-emerald-600" />}
-        <span className="font-medium">{p.title}</span>
-        <span className="text-xs text-muted-foreground">{p.category} · v{p.version}</span>
-        <span className={cn("ml-auto text-[11px] px-2 py-0.5 rounded-full font-semibold", p.overdue ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300" : p.pending ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300" : p.decision === "Accepted" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
-          {p.halts ? "Access halted — accept to continue" : p.overdue ? "Overdue" : p.pending ? (p.dueAt ? `Accept by ${fmtDate(p.dueAt)}` : p.requirement === "Optional" ? "Your choice" : "To read") : p.decision === "Accepted" ? `Accepted ${fmtDate(p.decidedAt)}` : `${p.decision} ${fmtDate(p.decidedAt)}`}</span>
-      </button>
-      {open === p.id && <div className="px-3 pb-3"><PolicyReader p={p} onDone={refresh} /></div>}
-    </div>
-  );
+  useEffect(() => { if (data && !pending.length && tab === "pending") setTab("all"); }, [!!data]);
+  const refresh = () => { qc.invalidateQueries(); setView(null); };
+  const shown = (tab === "pending" ? pending : tab === "done" ? done : list).filter(p => !q.trim() || [p.title, p.code, p.category].some((v: string) => v?.toLowerCase().includes(q.trim().toLowerCase())));
+  const status = (p: any) => p.halts ? ["Access halted — accept", "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"] : p.overdue ? ["Overdue", "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"]
+    : p.pending ? [p.requirement === "Optional" ? "Your choice" : p.requirement === "Information" ? "To read" : "To accept", "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"]
+    : p.decision === "Accepted" ? [p.requirement === "Information" ? "Acknowledged" : "Accepted", "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"] : [p.decision, "bg-muted text-muted-foreground"];
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div className="space-y-4 max-w-6xl">
       <PageHero icon={ShieldCheck} tone="green" title="My Policies" subtitle="Company policies, notices and consents that apply to you. Mandatory ones must be accepted; optional consents are your choice and can be withdrawn." />
       <WorkspaceStrip />
       <div className="grid grid-cols-3 gap-2">
@@ -84,12 +78,41 @@ export default function MyPolicies() {
         <StatTile label="Done" value={done.length} icon={FileCheck2} tone="good" />
       </div>
       <PushCard />
-      {isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
-      <Card><CardContent className="p-4 space-y-2"><h2 className="text-sm font-semibold flex items-center gap-1.5"><FileClock className="w-4 h-4 text-amber-600" />Waiting for you ({pending.length})</h2>
-        {pending.map(p => <Row key={p.id} p={p} />)}{!isLoading && !pending.length && <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground text-center">You are all caught up — nothing to act on.</div>}</CardContent></Card>
-      {done.length > 0 && <Card><CardContent className="p-4 space-y-2"><h2 className="text-sm font-semibold flex items-center gap-1.5"><FileCheck2 className="w-4 h-4 text-emerald-600" />Done ({done.length})</h2>{done.map(p => <Row key={p.id} p={p} />)}</CardContent></Card>}
-      {(data?.history || []).length > 0 && <Card><CardContent className="p-4 space-y-2"><h2 className="text-sm font-semibold flex items-center gap-1.5"><ScrollText className="w-4 h-4" />My decision history</h2>
-        <div className="border rounded-lg divide-y text-xs">{data.history.map((h: any) => <div key={h.id} className="px-3 py-1.5 flex gap-2 flex-wrap"><span className="font-medium">{h.title}</span><span className="text-muted-foreground">v{h.version}</span><span className="ml-auto">{h.decision}</span><span className="text-muted-foreground">{fmtDateTime(h.at)} · {h.method === "agent-link" ? "installer link" : "IT Hub"}</span></div>)}</div></CardContent></Card>}
+      <Card><CardContent className="p-0" data-testid="my-policy-list">
+        <div className="flex items-center gap-2 flex-wrap px-4 pt-4 pb-3">
+          {([["pending", `Waiting for you (${pending.length})`], ["done", `Done (${done.length})`], ["all", `All (${list.length})`]] as const).map(([k, l]) =>
+            <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-md text-sm border", tab === k ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground hover:bg-muted")}>{l}</button>)}
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search policies…" className="ml-auto h-9 w-56 rounded-md border bg-background px-3 text-sm" />
+        </div>
+        <div className="overflow-x-auto"><table className="w-full text-sm">
+          <thead><tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-y bg-muted/30"><th className="px-4 py-2 font-semibold">Policy</th><th className="px-3 py-2 font-semibold">Type</th><th className="px-3 py-2 font-semibold">Version</th><th className="px-3 py-2 font-semibold">Published</th><th className="px-3 py-2 font-semibold">Status</th><th className="px-3 py-2 font-semibold">Accept by / Decided</th><th className="px-4 py-2 font-semibold text-right">Action</th></tr></thead>
+          <tbody>
+            {isLoading && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Loading…</td></tr>}
+            {shown.map(p => { const [st, cls] = status(p); return (
+              <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30 cursor-pointer" onClick={() => setView(p)}>
+                <td className="px-4 py-2.5"><div className="font-medium flex items-center gap-1.5">{p.pending ? <FileClock className={cn("w-4 h-4 shrink-0", p.overdue ? "text-red-600" : "text-amber-600")} /> : <FileCheck2 className="w-4 h-4 shrink-0 text-emerald-600" />}{p.title}</div>
+                  <div className="text-xs text-muted-foreground pl-5">{p.code}{p.documentId ? " · PDF" : ""}</div></td>
+                <td className="px-3 py-2.5 text-xs"><span className={cn("px-2 py-0.5 rounded-full font-semibold", p.requirement === "Mandatory" ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300" : p.requirement === "Optional" ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300" : "bg-muted")}>{p.requirement}</span><div className="text-muted-foreground mt-0.5">{p.category}</div></td>
+                <td className="px-3 py-2.5 text-xs">v{p.version}</td>
+                <td className="px-3 py-2.5 text-xs whitespace-nowrap">{fmtDate(p.publishedAt)}</td>
+                <td className="px-3 py-2.5 text-xs"><span className={cn("px-2 py-0.5 rounded-full font-semibold whitespace-nowrap", cls)}>{st}</span></td>
+                <td className="px-3 py-2.5 text-xs whitespace-nowrap">{p.pending ? (p.dueAt ? fmtDate(p.dueAt) : "—") : fmtDate(p.decidedAt)}</td>
+                <td className="px-4 py-2.5 text-right"><Button size="sm" variant={p.pending ? "default" : "outline"} className="gap-1.5" onClick={e => { e.stopPropagation(); setView(p); }}><Eye className="w-3.5 h-3.5" />{p.pending ? (p.requirement === "Optional" ? "Read & decide" : "Read & accept") : "View"}</Button></td>
+              </tr>); })}
+            {!isLoading && !shown.length && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">{tab === "pending" ? "You are all caught up — nothing to act on." : "No policies here."}</td></tr>}
+          </tbody>
+        </table></div>
+      </CardContent></Card>
+      {(data?.history || []).length > 0 && <Card><CardContent className="p-0"><h2 className="text-sm font-semibold flex items-center gap-1.5 px-4 pt-4 pb-3"><ScrollText className="w-4 h-4" />My decision history</h2>
+        <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-y bg-muted/30"><th className="px-4 py-2">Policy</th><th className="px-3 py-2">Version</th><th className="px-3 py-2">Decision</th><th className="px-3 py-2">Date &amp; time</th><th className="px-3 py-2">How</th></tr></thead>
+          <tbody>{data.history.map((h: any) => <tr key={h.id} className="border-b last:border-0"><td className="px-4 py-1.5 font-medium">{h.title}</td><td className="px-3 py-1.5">v{h.version}</td><td className="px-3 py-1.5">{h.decision}</td><td className="px-3 py-1.5 whitespace-nowrap">{fmtDateTime(h.at)}</td><td className="px-3 py-1.5 text-muted-foreground">{h.method === "agent-link" ? "Installer link" : "IT Hub"}</td></tr>)}</tbody></table></div>
+      </CardContent></Card>}
+      <Dialog open={!!view} onOpenChange={o => !o && setView(null)}>
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto" data-testid="policy-view">
+          <DialogHeader><DialogTitle>{view?.title}</DialogTitle></DialogHeader>
+          {view && <PolicyReader p={view} onDone={refresh} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

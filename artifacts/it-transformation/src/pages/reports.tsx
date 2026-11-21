@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useBrand } from "@/lib/brand";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ const MODULES = [
 ];
 
 const SLIDE_PREVIEWS = [
-  { slide: "01", title: "Title Slide", desc: "Ashika Group branded cover with date and filter details", color: "bg-slate-800" },
+  { slide: "01", title: "Title Slide", desc: "Company-branded cover with date and filter details", color: "bg-slate-800" },
   { slide: "02", title: "Agenda", desc: "Table of contents listing all included sections", color: "bg-amber-700" },
   { slide: "03", title: "Executive Summary", desc: "KPI dashboard — applications, budget, readiness, CVEs", color: "bg-blue-700" },
   { slide: "04–05", title: "Current IT Landscape", desc: "Application inventory table + hosting/criticality breakdown charts", color: "bg-indigo-700" },
@@ -54,6 +55,7 @@ const SLIDE_PREVIEWS = [
 ];
 
 export default function Reports() {
+  const brand = useBrand();
   const { toast } = useToast();
   const [business, setBusiness] = useState("all");
   const [phase, setPhase] = useState("all");
@@ -98,7 +100,7 @@ export default function Reports() {
       const a = document.createElement("a");
       a.href = url;
       const today = new Date().toISOString().split("T")[0];
-      a.download = `Ashika_IT_Transformation_${today}.pptx`;
+      a.download = `${brand.companyOrApp.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "") || "IT_Hub"}_IT_Transformation_${today}.pptx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -128,7 +130,7 @@ export default function Reports() {
             <Presentation className="h-5 w-5 text-primary" />
             PowerPoint Report Generator
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Generate an Ashika Group branded IT Transformation presentation with live data</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Generate a company-branded IT Transformation presentation with live data</p>
         </div>
         <Button
           onClick={handleDownload}
@@ -271,7 +273,7 @@ export default function Reports() {
                   <Badge variant="secondary" className="text-[10px]">{slidesIncluded} slides</Badge>
                 </CardTitle>
               </div>
-              <p className="text-xs text-muted-foreground">Ashika Group branded dark template with gold accent</p>
+              <p className="text-xs text-muted-foreground">Company-branded dark template with gold accent</p>
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -318,7 +320,7 @@ export default function Reports() {
                   <Presentation className="h-5 w-5 text-amber-400" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold">Ashika Group Standard Template</p>
+                  <p className="text-sm font-semibold">Standard Template</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Dark slate header/footer · Gold accent bars · White content area · Calibri font · A4 widescreen (16:9)
                   </p>

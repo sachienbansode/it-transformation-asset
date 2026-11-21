@@ -67,7 +67,7 @@ router.get("/auth/central/callback", async (req, res) => {
     if (!email) return fail(res, "no_email");
     const portalRole = toPerms(t).role;
     const [user] = await db.select().from(usersTable).where(sql`lower(${usersTable.email}) = ${email}`);
-    if (!user) { await audit("login_denied", `${email}: authenticated by Ashika Portal but not registered in IT Hub`, email); return fail(res, "not_registered"); }
+    if (!user) { await audit("login_denied", `${email}: authenticated by the sign-in portal but not registered in IT Hub`, email); return fail(res, "not_registered"); }
     if (!user.isActive || user.status === "inactive") { await audit("login_denied", `${email}: disabled in IT Hub`, email, user.id); return fail(res, "account_disabled"); }
     if (!(await hasMappedRole(user.id, user.role))) { await audit("login_denied", `${email}: no IT Hub role mapped`, email, user.id); return fail(res, "no_role"); }
     await db.update(usersTable).set({ identitySource: "central", centralSub: String(t.sub ?? ""), centralRole: portalRole, status: "active", lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
@@ -79,7 +79,7 @@ router.get("/auth/central/callback", async (req, res) => {
     req.session.mfaVerified = true;           // MFA is enforced by the Portal / Entra
     (req.session as any).central = central;
     await new Promise<void>((ok, ko) => req.session.save(e => e ? ko(e) : ok()));
-    await audit("login", `${email} signed in via Ashika Portal (IT Hub role mapping applied; Portal role ${portalRole || "—"})`, email, user.id);
+    await audit("login", `${email} signed in via the sign-in portal (IT Hub role mapping applied; Portal role ${portalRole || "—"})`, email, user.id);
     res.redirect(next);
   } catch (e: any) {
     console.error("Central SSO callback error:", e?.message || e);
@@ -97,13 +97,13 @@ export async function centralSessionGuard(req: Request, res: Response, next: Nex
   if (!s || !req.session.userId) return next();
   const now = Date.now();
   const end = (msg: string, code: string) => req.session.destroy(() => res.status(401).json({ error: msg, code }));
-  if (now > s.expiresAt) return end("Your Ashika Portal session has expired. Please sign in again.", "central_expired");
+  if (now > s.expiresAt) return end("Your portal session has expired. Please sign in again.", "central_expired");
   const isWrite = !["GET", "HEAD", "OPTIONS"].includes(req.method);
   const age = now - s.checkedAt;
   if (age < centralConfig().introspectSeconds * 1000 && !(isWrite && age > WRITE_RECHECK_MS)) return next();
   try {
     const j = await introspect(s.token);
-    if (!j?.active) { await audit("session_revoked", `${s.email}: Portal reports the session inactive`, s.email, req.session.userId); return end("Your access was ended by the Ashika Portal. Please sign in again.", "central_inactive"); }
+    if (!j?.active) { await audit("session_revoked", `${s.email}: Portal reports the session inactive`, s.email, req.session.userId); return end("Your access was ended by the sign-in portal. Please sign in again.", "central_inactive"); }
     const [u] = await db.select({ isActive: usersTable.isActive, status: usersTable.status, role: usersTable.role }).from(usersTable).where(eq(usersTable.id, req.session.userId));
     if (!u || !u.isActive || u.status === "inactive") return end("Your IT Hub account has been disabled. Please contact the IT administrator.", "central_disabled");
     if (!(await hasMappedRole(req.session.userId, u.role))) return end("You no longer have a role in IT Hub. Please contact the IT administrator.", "central_no_role");
@@ -112,7 +112,7 @@ export async function centralSessionGuard(req: Request, res: Response, next: Nex
     return next();
   } catch (e: any) {
     if (now - s.okAt < OUTAGE_GRACE_MS) { s.checkedAt = now; console.warn("Central SSO introspection failed, within grace:", e?.message); return next(); }
-    res.status(503).json({ error: "Cannot reach the Ashika Portal to verify your session. Please try again shortly.", code: "central_unreachable" });
+    res.status(503).json({ error: "Cannot reach the sign-in portal to verify your session. Please try again shortly.", code: "central_unreachable" });
   }
 }
 

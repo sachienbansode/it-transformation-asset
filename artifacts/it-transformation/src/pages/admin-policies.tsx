@@ -38,7 +38,7 @@ export default function AdminPolicies() {
   const [show, setShow] = useState<"active" | "draft" | "inactive" | "retired" | "all">("active");
   const { canAccess } = useAuth(); const canWrite = canAccess("policies", "write");
   const { data: depts = [] } = useDepartments(); const deptLabel = (k: string) => depts.find((d: any) => d.key === k)?.label || k;
-  const [viewDoc, setViewDoc] = useState<any>(null);
+  const [viewDoc, setViewDoc] = useState<any>(null); const [viewPol, setViewPol] = useState<any>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ["policies"] });
   async function act(p: any, path: string, body: any, ok: string) {
     try { await apiFetch(`/policies/${p.id}/${path}`, { method: "POST", body: JSON.stringify(body || {}) }); toast({ title: ok }); refresh(); }
@@ -77,7 +77,7 @@ export default function AdminPolicies() {
             {isLoading && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Loading…</td></tr>}
             {visible.map((p: any) => { const st = p.stats; const pct = st?.audience ? Math.round(st.accepted / st.audience * 100) : 0; return (
               <tr key={p.id} className="border-b last:border-0">
-                <td className="p-3"><div className="font-medium flex items-center gap-1.5">{p.title}{p.document && <button title={`View ${p.document.name}`} className="text-primary" onClick={() => setViewDoc({ p, draft: !p.publishedDocumentId || p.unpublishedChanges })}><FileText className="w-3.5 h-3.5" /></button>}</div>
+                <td className="p-3"><div className="font-medium flex items-center gap-1.5"><button className="text-left hover:underline" onClick={() => setViewPol(p)}>{p.title}</button>{p.document && <button title={`View ${p.document.name}`} className="text-primary" onClick={() => setViewDoc({ p, draft: !p.publishedDocumentId || p.unpublishedChanges })}><FileText className="w-3.5 h-3.5" /></button>}</div>
                   <div className="text-xs text-muted-foreground">{p.code}{p.version ? ` · latest v${p.version} · published ${fmtDate(p.publishedAt)}` : " · draft"}{p.systemKey ? " · built-in" : ""} · updated {fmtDateTime(p.updatedAt)}</div>
                   {p.unpublishedChanges && <div className="text-[11px] text-amber-700 dark:text-amber-300">Edited — publish a new version for users to accept</div>}</td>
                 <td className="p-3 text-xs"><span className={cn("px-2 py-0.5 rounded-full font-semibold", p.requirement === "Mandatory" ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300" : p.requirement === "Optional" ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300" : "bg-muted")}>{p.requirement}</span><div className="text-muted-foreground mt-0.5">{p.category}{p.requirement === "Mandatory" ? (p.blockAccess ? ` · access halted ${p.dueDays ? `after ${p.dueDays} days` : "immediately"}` : ` · ${p.dueDays} days, reminders only`) : ""}</div></td>
@@ -87,7 +87,7 @@ export default function AdminPolicies() {
                   <div className="text-muted-foreground mt-0.5">{st.pending} pending{st.declined ? ` · ${st.declined} declined` : ""}{st.overdue ? <span className="text-red-600"> · {st.overdue} access halted</span> : ""}</div></> : <span className="text-muted-foreground">—</span>}</td>
                 <td className="p-3 text-xs"><StatusBadge p={p} />{p.statusNote && <div className="text-muted-foreground mt-0.5 max-w-[180px] truncate" title={p.statusNote}>{p.statusNote}</div>}
                   {p.status === "Published" && p.requirement === "Mandatory" && p.dueAt && <div className="text-muted-foreground mt-0.5">accept by {fmtDate(p.dueAt)}</div>}</td>
-                <td className="p-3 text-right whitespace-nowrap">{!canWrite ? <>{p.version > 0 && <Button size="sm" variant="ghost" title="Who accepted" onClick={() => setReport(p)}><Users className="w-4 h-4" /></Button>}{p.version > 0 && <Button size="sm" variant="ghost" title="Version history" onClick={() => setHistory(p)}><History className="w-4 h-4" /></Button>}</> : <>
+                <td className="p-3 text-right whitespace-nowrap"><Button size="sm" variant="ghost" title="View policy" aria-label="View policy" onClick={() => setViewPol(p)}><Eye className="w-4 h-4" /></Button>{!canWrite ? <>{p.version > 0 && <Button size="sm" variant="ghost" title="Who accepted" onClick={() => setReport(p)}><Users className="w-4 h-4" /></Button>}{p.version > 0 && <Button size="sm" variant="ghost" title="Version history" onClick={() => setHistory(p)}><History className="w-4 h-4" /></Button>}</> : <>
                   {p.status !== "Retired" && <Button size="sm" variant="ghost" title="Edit" onClick={() => setEdit(p)}><Edit className="w-4 h-4" /></Button>}
                   {p.status !== "Retired" && (p.version === 0 || p.unpublishedChanges) && <Button size="sm" variant="outline" className="gap-1" onClick={() => setPublish(p)}><Send className="w-3.5 h-3.5" />Publish</Button>}
                   {p.version > 0 && <Button size="sm" variant="ghost" title="Who accepted" onClick={() => setReport(p)}><Users className="w-4 h-4" /></Button>}
@@ -116,6 +116,20 @@ export default function AdminPolicies() {
       {resend && <ResendDialog p={resend} onClose={() => setResend(null)} onDone={refresh} />}
       {activate && <ActivateDialog p={activate} onClose={() => setActivate(null)} onDone={refresh} />}
       {history && <HistorySheet p={history} onClose={() => setHistory(null)} onDone={refresh} />}
+      {viewPol && <Dialog open onOpenChange={o => !o && setViewPol(null)}><DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto" data-testid="register-view">
+        <DialogHeader><DialogTitle>{viewPol.title}</DialogTitle><DialogDescription>{viewPol.code} · {viewPol.category} · {viewPol.requirement} · {viewPol.version ? `version ${viewPol.version}, published ${fmtDate(viewPol.publishedAt)}` : "draft — not published"}{viewPol.unpublishedChanges ? " · has unpublished changes (shown below)" : ""}</DialogDescription></DialogHeader>
+        <div className="grid sm:grid-cols-3 gap-2 text-xs">
+          <div className="rounded-md border p-2"><div className="text-muted-foreground">Status</div><div className="font-semibold mt-0.5"><StatusBadge p={viewPol} /></div></div>
+          <div className="rounded-md border p-2"><div className="text-muted-foreground">Who must accept</div><div className="font-medium mt-0.5">{audText(viewPol.audience, deptLabel)}</div></div>
+          <div className="rounded-md border p-2"><div className="text-muted-foreground">Acceptance</div><div className="font-medium mt-0.5">{viewPol.stats ? `${viewPol.stats.accepted} of ${viewPol.stats.audience} accepted · ${viewPol.stats.pending} pending` : "—"}</div></div>
+        </div>
+        {viewPol.body && <div className="whitespace-pre-wrap text-sm leading-relaxed border rounded-lg p-3 bg-muted/30 max-h-[35vh] overflow-y-auto">{viewPol.body}</div>}
+        {viewPol.document && <PolicyPdfViewer src={!viewPol.publishedDocumentId || viewPol.unpublishedChanges ? `/api/policies/${viewPol.id}/document?draft=1` : `/api/policies/${viewPol.id}/document?version=${viewPol.version}`} height="60vh" />}
+        {!viewPol.body && !viewPol.document && <div className="text-sm text-muted-foreground">No text or PDF yet.</div>}
+        <div className="flex gap-2 justify-end flex-wrap">{viewPol.version > 0 && <Button variant="outline" size="sm" className="gap-1" onClick={() => { setHistory(viewPol); setViewPol(null); }}><History className="w-4 h-4" />Version history</Button>}
+          {viewPol.version > 0 && <Button variant="outline" size="sm" className="gap-1" onClick={() => { setReport(viewPol); setViewPol(null); }}><Users className="w-4 h-4" />Who accepted</Button>}
+          {canWrite && viewPol.status !== "Retired" && <Button size="sm" className="gap-1" onClick={() => { setEdit(viewPol); setViewPol(null); }}><Edit className="w-4 h-4" />Edit</Button>}</div>
+      </DialogContent></Dialog>}
       {viewDoc && <Dialog open onOpenChange={o => !o && setViewDoc(null)}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>{viewDoc.p.title}</DialogTitle><DialogDescription>{viewDoc.draft ? "Working copy (not yet published)" : `Version ${viewDoc.p.version}`} · {viewDoc.p.document?.name}</DialogDescription></DialogHeader>
         <PolicyPdfViewer src={viewDoc.draft ? `/api/policies/${viewDoc.p.id}/document?draft=1` : `/api/policies/${viewDoc.p.id}/document?version=${viewDoc.version || viewDoc.p.version}`} /></DialogContent></Dialog>}
     </div>

@@ -175,6 +175,7 @@ function SettingsTab() {
     try {
       await apiFetch("/admin/settings", { method: "PUT", body: JSON.stringify(settings) });
       toast({ title: "Settings saved", description: "Configuration updated successfully." });
+      window.dispatchEvent(new Event("ithub:config-changed"));   // header, banner, watermark and labels pick up the new names
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally { setSaving(false); }
@@ -1001,7 +1002,7 @@ function BusinessUnitsTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold">Business Units</h2>
-          <p className="text-xs text-muted-foreground">Manage the Ashika Group business unit structure</p>
+          <p className="text-xs text-muted-foreground">Manage the business unit / company structure</p>
         </div>
         <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4 mr-1.5" /> Add Unit</Button>
       </div>

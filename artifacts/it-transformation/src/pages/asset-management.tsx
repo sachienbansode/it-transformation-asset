@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from "react";
+import { useBrand } from "@/lib/brand";
 import { useCurrency } from "@/contexts/currency-context";
 import { inrShort } from "@/components/asset-finance";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -37,6 +38,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 /* ─── Asset Sticker Print ─────────────────────────────────────────────────── */
 function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => void }) {
+  const brand = useBrand();
   const printRef = useRef<HTMLDivElement>(null);
 
   function handlePrint() {
@@ -81,7 +83,7 @@ function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => voi
             <div className="sticker" style={{ border: "1.5px solid #1a1a1a", padding: "12px 16px", display: "flex", flexDirection: "column", gap: "6px", backgroundColor: "white", borderRadius: "4px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "1px solid #ddd", paddingBottom: "6px" }}>
                 <div>
-                  <div style={{ fontSize: "8px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.8px", color: "#1a1a1a" }}>ASHIKA GROUP</div>
+                  <div style={{ fontSize: "8px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.8px", color: "#1a1a1a" }}>{brand.companyOrApp}</div>
                   <div style={{ fontSize: "7px", color: "#666" }}>IT Asset Management</div>
                 </div>
                 <div style={{ fontSize: "6px", color: "#999", textAlign: "right" }}>NIYTRI</div>
@@ -113,7 +115,7 @@ function StickerPrintDialog({ asset, onClose }: { asset: any; onClose: () => voi
                 </div>
               </div>
               <div style={{ borderTop: "0.5px solid #eee", paddingTop: "4px", fontSize: "7px", color: "#bbb", textAlign: "center" }}>
-                Ashika Group · IT Department · {new Date().getFullYear()}
+                {brand.companyOrApp} · IT Department · {new Date().getFullYear()}
               </div>
             </div>
           </div>

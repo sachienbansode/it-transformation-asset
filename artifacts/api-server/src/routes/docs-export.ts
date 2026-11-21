@@ -162,7 +162,7 @@ router.get("/export/asset-management-doc", async (req: Request, res: Response) =
           new Paragraph({ children: [new PageBreak()] }),
 
           sectionHeading("1. Executive Summary"),
-          bodyText(`This document provides a comprehensive overview of the IT Asset Management module deployed as part of the ${BRAND.company} Ashika Drishti Transform platform. The module covers full lifecycle management of hardware and software assets including procurement, allocation, maintenance, and disposal tracking.`),
+          bodyText(`This document provides a comprehensive overview of the IT Asset Management module deployed as part of the ${BRAND.company} IT Hub platform. The module covers full lifecycle management of hardware and software assets including procurement, allocation, maintenance, and disposal tracking.`),
           bodyText(`Total assets registered: ${assets.rows.length}. Active vendors: ${vendors.rows.length}. Software licenses tracked: ${licenses.rows.length}.`),
 
           sectionHeading("2. Scope & Objectives"),
@@ -219,7 +219,7 @@ router.get("/export/asset-management-doc", async (req: Request, res: Response) =
               ["Author", "NIYTRI Technologies"],
               ["Classification", "Confidential"],
               ["Date", fmtDate()],
-              ["Approved By", "CTO, Ashika Group"],
+              ["Approved By", "Chief Technology Officer"],
               ["Review Cycle", "Quarterly"],
             ]
           ),
@@ -261,7 +261,7 @@ router.get("/export/itsm-doc", async (req: Request, res: Response) => {
           new Paragraph({ children: [new PageBreak()] }),
 
           sectionHeading("1. Executive Summary"),
-          bodyText(`This document covers the IT Service Management (ITSM) module of the ${BRAND.company} Ashika Drishti Transform platform. The module implements ITIL v4 best practices for Incident Management, Problem Management, Change Management, Knowledge Management, and Service Request fulfillment.`),
+          bodyText(`This document covers the IT Service Management (ITSM) module of the ${BRAND.company} IT Hub platform. The module implements ITIL v4 best practices for Incident Management, Problem Management, Change Management, Knowledge Management, and Service Request fulfillment.`),
           bodyText(`Current statistics: ${incidents.rows.length} incidents tracked, ${problems.rows.length} problems under investigation, ${changes.rows.length} change requests processed, ${kbArticles.rows.length} knowledge base articles published.`),
 
           sectionHeading("2. ITIL Process Framework"),
@@ -343,7 +343,7 @@ router.get("/export/itsm-doc", async (req: Request, res: Response) => {
               ["Author", "NIYTRI Technologies"],
               ["Classification", "Confidential"],
               ["Date", fmtDate()],
-              ["Approved By", "CTO, Ashika Group"],
+              ["Approved By", "Chief Technology Officer"],
               ["Review Cycle", "Quarterly"],
               ["ITIL Alignment", "ITIL v4 Foundation"],
             ]

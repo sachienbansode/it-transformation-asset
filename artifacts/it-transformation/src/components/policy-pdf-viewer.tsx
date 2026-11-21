@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/auth-context";
+import { useBrand } from "@/lib/brand";
 import { Loader2, ShieldAlert, ZoomIn, ZoomOut, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -20,7 +21,7 @@ function pdfjs() {
 }
 
 export function PolicyPdfViewer({ src, height = "65vh" }: { src: string; height?: string }) {
-  const { user } = useAuth();
+  const { user } = useAuth(); const brand = useBrand();
   const box = useRef<HTMLDivElement>(null); const [err, setErr] = useState<string | null>(null); const [loading, setLoading] = useState(true);
   const [pages, setPages] = useState(0); const [scale, setScale] = useState(1.2); const [hidden, setHidden] = useState(false); const docRef = useRef<any>(null);
 
@@ -44,7 +45,7 @@ export function PolicyPdfViewer({ src, height = "65vh" }: { src: string; height?
   useEffect(() => {
     const doc = docRef.current; const el = box.current; if (!doc || !el || !pages) return;
     let cancelled = false; el.innerHTML = "";
-    const mark = `${user?.name || ""} · ${user?.email || ""} · ${new Date().toLocaleString("en-GB", { timeZone: "Asia/Kolkata" })} · CONFIDENTIAL`;
+    const mark = `${brand.companyOrApp} · CONFIDENTIAL · ${user?.name || ""} · ${user?.email || ""} · ${new Date().toLocaleString("en-GB", { timeZone: "Asia/Kolkata" })}`;
     (async () => {
       for (let n = 1; n <= pages && !cancelled; n++) {
         const page = await doc.getPage(n); const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -66,7 +67,7 @@ export function PolicyPdfViewer({ src, height = "65vh" }: { src: string; height?
       }
     })().catch(e => !cancelled && setErr(String(e?.message || e)));
     return () => { cancelled = true; };
-  }, [pages, scale, user?.email]);
+  }, [pages, scale, user?.email, brand.companyOrApp]);
 
   // screenshot / copy deterrents
   useEffect(() => {
@@ -87,7 +88,7 @@ export function PolicyPdfViewer({ src, height = "65vh" }: { src: string; height?
       onContextMenu={e => e.preventDefault()} onDragStart={e => e.preventDefault()} onCopy={e => e.preventDefault()} data-testid="policy-pdf">
       <style>{"@media print { .policy-pdf { display: none !important; } }"}</style>
       <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-background/80 text-xs">
-        <ShieldAlert className="w-3.5 h-3.5 text-amber-600" /><span className="text-muted-foreground">Read-only · watermarked with your name · download, print and screenshots are not allowed{pages ? ` · ${pages} page${pages > 1 ? "s" : ""}` : ""}</span>
+        <ShieldAlert className="w-3.5 h-3.5 text-amber-600" /><span className="text-muted-foreground">Read-only · watermarked with {brand.companyOrApp} and your name · download, print and screenshots are not allowed{pages ? ` · ${pages} page${pages > 1 ? "s" : ""}` : ""}</span>
         <div className="ml-auto flex gap-1"><Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setScale(s => Math.max(0.6, +(s - 0.2).toFixed(1)))} aria-label="Zoom out"><ZoomOut className="w-3.5 h-3.5" /></Button>
           <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setScale(s => Math.min(2.4, +(s + 0.2).toFixed(1)))} aria-label="Zoom in"><ZoomIn className="w-3.5 h-3.5" /></Button></div>
       </div>
