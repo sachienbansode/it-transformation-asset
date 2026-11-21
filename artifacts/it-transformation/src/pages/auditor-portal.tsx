@@ -208,7 +208,7 @@ function Items({ audit, items, kind }: { audit: any; items: any[]; kind: string 
       </div>
       {sel.size > 0 && <div className="rounded-[10px] border-2 border-primary/30 bg-accent/30 p-2.5 space-y-2">
         <div className="flex items-center gap-2 text-sm"><b>{sel.size} selected</b><button type="button" className="text-xs text-primary hover:underline" onClick={() => setSel(new Set())}>clear</button></div>
-        <Input className="h-9" value={bulkNote} onChange={e => setBulkNote(e.target.value)} placeholder="Comment for the audit team (required for a query or an observation)" />
+        <Input minChars={5} className="h-9" value={bulkNote} onChange={e => setBulkNote(e.target.value)} placeholder="Comment for the audit team (required for a query or an observation)" />
         <div className="flex flex-wrap gap-2">
           {["Closed", "In Progress", "Closed-Obs", "Under Review"].filter(x => x === "In Progress" || AUDITOR_STATUSES.includes(x)).map(x => <Button key={x} size="sm" variant="outline" disabled={bulkBusy} onClick={() => bulk(x)} className={cn("gap-1.5", ACTION[x]?.cls)}>{bulkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : ACTION[x]?.icon}{ACTION[x]?.label || x}</Button>)}
         </div>

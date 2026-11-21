@@ -78,7 +78,7 @@ const linkHref = (l: { auditId: number; type?: string; itemId?: number | null; g
 function MetaFields({ f, set, companies }: { f: any; set: (k: string, v: any) => void; companies: any[] }) {
   return (
     <div className="grid grid-cols-2 gap-3">
-      <div className="col-span-2"><Label>Title *</Label><Input value={f.title} onChange={e => set("title", e.target.value)} /></div>
+      <div className="col-span-2"><Label>Title *</Label><Input minChars={2} value={f.title} onChange={e => set("title", e.target.value)} /></div>
       <div><Label>Category</Label><Select value={f.category} onValueChange={v => set("category", v)}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{DOC_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>Company</Label><Select value={f.companyId ? String(f.companyId) : "group"} onValueChange={v => set("companyId", v === "group" ? null : Number(v))}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
         <SelectContent><SelectItem value="group">Group-wide (all companies)</SelectItem>{companies.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}</SelectContent></Select></div>

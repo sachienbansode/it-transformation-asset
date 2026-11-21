@@ -23,7 +23,7 @@ const Textarea = React.forwardRef<
     <div className="w-full space-y-1">
       {box}
       <div data-testid="min-chars-hint" className={cn("text-[11px]", len >= minChars ? "text-emerald-600" : "text-amber-600")}>
-        {len >= minChars ? `${len} characters ✓` : `At least ${minChars} characters needed — ${minChars - len} more`}
+        {len >= minChars ? `${len} characters ✓` : len ? `At least ${minChars} characters needed — ${minChars - len} more` : `Minimum ${minChars} characters`}
       </div>
     </div>
   )

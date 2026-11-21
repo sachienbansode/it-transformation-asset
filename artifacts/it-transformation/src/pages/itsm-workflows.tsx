@@ -81,7 +81,7 @@ function CreateDialog({ meta, kind, onClose, onDone }: { meta: any; kind: string
   return <Dialog open onOpenChange={o => !o && onClose()}><DialogContent><DialogHeader><DialogTitle>New workflow</DialogTitle><DialogDescription>It starts as a draft; nothing changes for tickets until you publish it.</DialogDescription></DialogHeader>
     <div className="space-y-3 text-sm">
       <label className="block">Ticket type<select value={f.ticketType} onChange={e => setF({ ...f, ticketType: e.target.value })} className="w-full h-9 rounded-md border bg-background px-2">{meta.kinds.map((k: any) => <option key={k.key} value={k.key}>{k.name}</option>)}</select></label>
-      <label className="block">Name<Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. Critical incident escalation" /></label>
+      <label className="block">Name<Input minChars={3} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. Critical incident escalation" /></label>
       <label className="block">Description<Input value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></label>
       <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={f.managerApproval} onChange={e => setF({ ...f, managerApproval: e.target.checked })} />Reporting manager approves first (skipped and recorded when no manager is assigned)</label>
       <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={f.blank} onChange={e => setF({ ...f, blank: e.target.checked })} />Start from an empty canvas (otherwise the standard stages are drawn for you)</label>
@@ -247,7 +247,7 @@ function SettingsPanel({ w, meta, kind, onSaved }: any) {
   }
   const dis = !w.canEdit;
   return <div className="space-y-3">
-    <Field label="Name"><Input disabled={dis} className="h-8 text-xs" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></Field>
+    <Field label="Name"><Input minChars={3} disabled={dis} className="h-8 text-xs" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></Field>
     <div className="rounded-md border border-violet-300 bg-violet-50 dark:bg-violet-950/30 p-2 text-xs space-y-1.5">
       <label className="flex items-center gap-2 font-semibold"><input type="checkbox" data-testid="mgr-approval" disabled={dis} checked={f.managerApproval} onChange={e => setF({ ...f, managerApproval: e.target.checked })} />Reporting manager approves first</label>
       <p className="text-muted-foreground">When ticked, the requester's manager must approve before the first step. If no manager is assigned, the step is skipped and the ticket history, the requester and the audit log record that.</p>

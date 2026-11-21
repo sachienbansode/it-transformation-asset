@@ -281,7 +281,7 @@ function ResendDialog({ p, onClose, onDone }: { p: any; onClose: () => void; onD
         {opt("pending", `Remind people who have not accepted (${st.pending ?? 0})`, "In-app, email and push to everyone still pending.")}
         {opt("all", `Send to everyone (${st.audience ?? 0})`, "Everyone in the audience, including those who already accepted, is asked to read it again. Their acceptance stays valid.")}
         {opt("reaccept", "Ask everyone to accept again", `Publishes the same text as version ${p.version + 1}. Every acceptance must be given again${halts ? `; access is halted ${p.dueDays ? `after ${p.dueDays} days` : "immediately"} for anyone who has not` : ""}.`)}
-        {mode === "reaccept" && <div className="space-y-1"><div className="text-xs font-medium">Reason (shown to users as “What changed”)</div><Input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Annual re-acceptance 2026" /></div>}
+        {mode === "reaccept" && <div className="space-y-1"><div className="text-xs font-medium">Reason (shown to users as “What changed”)</div><Input minChars={3} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Annual re-acceptance 2026" /></div>}
         <div className="space-y-1"><div className="text-xs font-medium">Message to add (optional)</div><Input value={msg} onChange={e => setMsg(e.target.value)} placeholder="e.g. Please complete this by Friday." /></div>
         {mode !== "reaccept" && halts && <label className="flex items-center gap-2 text-sm"><Switch checked={restart} onCheckedChange={setRestart} />Restart the {p.dueDays}-day deadline from today{p.dueAt ? ` (now ${fmtDate(p.dueAt)})` : ""}</label>}
       </div>

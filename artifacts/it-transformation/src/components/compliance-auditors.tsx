@@ -112,7 +112,7 @@ function InviteDialog({ audit, init, onClose, onDone }: { audit: any; init: any;
             {people.map((p, i) => (
               <div key={i} className="grid grid-cols-[1.2fr_1fr_auto] gap-2">
                 <Input type="email" className={cn("h-9", p.email && (!/^\S+@\S+\.\S+$/.test(p.email.trim()) || dupes.has(p.email.trim().toLowerCase())) && "border-red-500")} value={p.email} placeholder="auditor@firm.com" onChange={e => setP(i, "email", e.target.value)} onPaste={e => { if (paste(e.clipboardData.getData("text"))) e.preventDefault(); }} />
-                <Input className="h-9" value={p.name} placeholder="Full name" onChange={e => setP(i, "name", e.target.value)} />
+                <Input minChars={2} className="h-9" value={p.name} placeholder="Full name" onChange={e => setP(i, "name", e.target.value)} />
                 <Button type="button" size="icon" variant="ghost" className="h-9 w-9" disabled={people.length === 1} onClick={() => set("people", people.filter((_, j) => j !== i))}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
               </div>))}
             <div className="text-[11px] text-muted-foreground">Tip: paste a list of addresses (one per line, "Name &lt;email&gt;" or "email, Name") into an email box to add them all.{dupes.size ? <span className="text-red-600"> Duplicate email in the list.</span> : null}</div>

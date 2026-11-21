@@ -117,7 +117,7 @@ function TeamDialog({ team, onClose, onDone }: { team: any; onClose: () => void;
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>{team.id ? `Edit ${team.name}` : "New team"}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
-          <div className="space-y-1.5"><Label>Name *</Label><Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. Desktop Support" /></div>
+          <div className="space-y-1.5"><Label>Name *</Label><Input minChars={2} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. Desktop Support" /></div>
           <div className="space-y-1.5"><Label>Description</Label><Input value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
           <div className="space-y-1.5"><Label>Team mailbox (optional)</Label><Input value={f.email} onChange={e => setF({ ...f, email: e.target.value })} placeholder="desktop.support@company.com" /></div>
           <div className="space-y-1.5"><Label>Team lead</Label>

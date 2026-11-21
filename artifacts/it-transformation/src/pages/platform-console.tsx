@@ -70,7 +70,7 @@ function ClientRow({ c, releases }: { c: any; releases: any[] }) {
         <Button size="sm" variant="outline" className="gap-1.5" disabled={!tag} onClick={ask}><Send className="w-3.5 h-3.5" />Ask for approval</Button>
         <Button size="sm" className="gap-1.5" disabled={!tag || (showE && emerg.trim().length < 10)} onClick={deploy}><Rocket className="w-3.5 h-3.5" />Deploy</Button>
         <button className="text-xs text-red-600 hover:underline" onClick={() => setShowE(!showE)}>{showE ? "Cancel emergency" : "Emergency…"}</button>
-        {showE && <Input className="h-8 flex-1 min-w-[260px] text-xs" value={emerg} onChange={e => setEmerg(e.target.value)} placeholder="Emergency reason (shown to the client), at least 10 characters" />}
+        {showE && <Input minChars={10} className="h-8 flex-1 min-w-[260px] text-xs" value={emerg} onChange={e => setEmerg(e.target.value)} placeholder="Emergency reason (shown to the client), at least 10 characters" />}
       </div>}
     </div>
   );

@@ -411,7 +411,7 @@ function ItemDialog({ itemId, audit, canEdit, order, onNav, onClose }: { itemId:
           </div>
           {record && <div className="rounded-[10px] border border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 p-3 space-y-1.5">
             <div className="text-xs font-semibold text-amber-800 dark:text-amber-300">Recording on the auditor's behalf — auditor statuses and remarks are normally set by the auditor in the portal. The reason is kept in the history.</div>
-            <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason, e.g. confirmed by auditor email on 12-Nov" />
+            <Input minChars={5} value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason, e.g. confirmed by auditor email on 12-Nov" />
           </div>}
           <div className="grid md:grid-cols-2 gap-3">
             <div><Label>Management reply</Label><Textarea disabled={!canEdit} rows={5} value={f.managementReply} onChange={e => set("managementReply", e.target.value)} placeholder="How the control works, where the evidence is, and any gap with its fix date" /></div>

@@ -35,7 +35,7 @@ function NoteDialog({ open, title, description, label, confirmText, required, de
     <Dialog open={open} onOpenChange={o => { if (!o && !busy) onClose(); }}>
       <DialogContent className="max-w-md">
         <DialogHeader><DialogTitle>{title}</DialogTitle>{description && <DialogDescription>{description}</DialogDescription>}</DialogHeader>
-        <div className="space-y-1.5"><Label>{label}{required && " *"}</Label><Textarea rows={3} value={note} onChange={e => setNote(e.target.value)} autoFocus />{required && <p className="text-[11px] text-muted-foreground">At least 5 characters.</p>}</div>
+        <div className="space-y-1.5"><Label>{label}{required && " *"}</Label><Textarea minChars={5} rows={3} value={note} onChange={e => setNote(e.target.value)} autoFocus />{required && <p className="text-[11px] text-muted-foreground">At least 5 characters.</p>}</div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button disabled={!ok || busy} className={cn("gap-2", destructive && "bg-red-600 hover:bg-red-700")} onClick={async () => { setBusy(true); try { await onSubmit(note.trim()); onClose(); } finally { setBusy(false); } }}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}{confirmText}</Button>

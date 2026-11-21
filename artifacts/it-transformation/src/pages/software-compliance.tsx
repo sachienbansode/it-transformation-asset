@@ -153,7 +153,7 @@ function Rules({ cat, prefill, clearPrefill }: { cat: any; prefill: any; clearPr
       <Dialog open={!!edit} onOpenChange={o => { if (!o) { setEdit(null); clearPrefill(); } }}>
         <DialogContent><DialogHeader><DialogTitle>{edit?.id ? "Edit software rule" : "Add software rule"}</DialogTitle><DialogDescription>Applications whose name contains this text get the status below.</DialogDescription></DialogHeader>
           {edit && <div className="space-y-3 text-sm">
-            <label className="block">Name contains<Input disabled={!!edit.id} value={edit.match} onChange={e => setEdit({ ...edit, match: e.target.value })} placeholder="e.g. Adobe Acrobat" /></label>
+            <label className="block">Name contains<Input minChars={3} disabled={!!edit.id} value={edit.match} onChange={e => setEdit({ ...edit, match: e.target.value })} placeholder="e.g. Adobe Acrobat" /></label>
             <label className="block">Publisher (optional)<Input value={edit.publisher || ""} onChange={e => setEdit({ ...edit, publisher: e.target.value })} /></label>
             <label className="block">Status<select value={edit.status} onChange={e => setEdit({ ...edit, status: e.target.value })} className="w-full h-9 rounded-md border bg-background px-2">{STATUSES.map(s => <option key={s}>{s}</option>)}</select></label>
             {edit.status === "Licensed" && <label className="block">Licence that covers it<select value={edit.licenseId} onChange={e => setEdit({ ...edit, licenseId: e.target.value })} className="w-full h-9 rounded-md border bg-background px-2"><option value="">Choose…</option>{cat.licenses.map((l: any) => <option key={l.id} value={l.id}>{l.name} ({l.seats} seats)</option>)}</select>

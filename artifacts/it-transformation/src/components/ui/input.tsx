@@ -35,16 +35,26 @@ const DateInput = React.forwardRef<HTMLInputElement, React.ComponentProps<"input
 })
 DateInput.displayName = "DateInput"
 
-const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
-  ({ className, type, ...props }, ref) => {
+const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input"> & { minChars?: number }>(
+  ({ className, type, minChars, ...props }, ref) => {
     if (type === "date") return <DateInput ref={ref} className={className} {...props} />
-    return (
+    const box = (
       <input
         type={type}
         className={cn(BASE, className)}
         ref={ref}
         {...props}
       />
+    )
+    if (!minChars) return box
+    // r93: say the minimum length on screen, so a disabled Save button is never a mystery
+    const len = String(props.value ?? "").trim().length
+    return (
+      <div className="w-full space-y-0.5">
+        {box}
+        {len < minChars && <div data-testid="min-chars-hint" className={cn("text-[11px]", len ? "text-amber-600" : "text-muted-foreground")}>
+          {len ? `At least ${minChars} characters needed — ${minChars - len} more` : `Minimum ${minChars} characters`}</div>}
+      </div>
     )
   }
 )

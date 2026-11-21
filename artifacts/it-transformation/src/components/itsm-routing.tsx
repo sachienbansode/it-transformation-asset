@@ -184,7 +184,7 @@ export function TransferFields({ currentTeamId, teamId, reason, onChange }: { cu
           <SelectContent><SelectItem value="__keep__">— Keep with current team —</SelectItem>{teams.filter(t => t.id !== currentTeamId).map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}</SelectContent>
         </Select>
       </div>
-      <div className="space-y-1.5"><Label>Reason {teamId && teamId !== currentTeamId ? "*" : ""}</Label><Input disabled={!teamId || teamId === currentTeamId} value={reason || ""} onChange={e => onChange(teamId ?? null, e.target.value)} placeholder="Why it goes to that team" /></div>
+      <div className="space-y-1.5"><Label>Reason {teamId && teamId !== currentTeamId ? "*" : ""}</Label><Input minChars={5} disabled={!teamId || teamId === currentTeamId} value={reason || ""} onChange={e => onChange(teamId ?? null, e.target.value)} placeholder="Why it goes to that team" /></div>
       {!!teamId && teamId !== currentTeamId && (reason || "").trim().length < 5 && <p className="col-span-2 text-[11px] text-red-600" data-testid="transfer-reason-hint">Enter a reason (at least 5 characters) to pass this ticket to another team — or choose “Keep with current team” to save without passing it on.</p>}
     </div>
   );

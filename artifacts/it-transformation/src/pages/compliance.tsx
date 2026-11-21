@@ -163,7 +163,7 @@ export function AuditDialog({ audit, onClose }: { audit?: any; onClose: () => vo
             <div><Label>Checklist template *</Label>
               <Select disabled={!!audit} value={f.templateId ? String(f.templateId) : ""} onValueChange={v => set("templateId", Number(v))}><SelectTrigger className="h-9"><SelectValue placeholder="Choose template" /></SelectTrigger>
                 <SelectContent>{templates.filter(t => t.isActive || t.id === f.templateId).map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}{t.version ? ` (${t.version})` : ""} — {t.checkpoints} checkpoints</SelectItem>)}</SelectContent></Select></div>
-            <div className="md:col-span-2"><Label>Title *</Label><Input value={f.title} onChange={e => set("title", e.target.value)} placeholder="e.g. SEBI System Audit — MF licence (pre-inspection)" /></div>
+            <div className="md:col-span-2"><Label>Title *</Label><Input minChars={3} value={f.title} onChange={e => set("title", e.target.value)} placeholder="e.g. SEBI System Audit — MF licence (pre-inspection)" /></div>
             <div><Label>Audit type</Label><Input value={f.auditType ?? ""} onChange={e => set("auditType", e.target.value)} placeholder="e.g. SEBI System Audit" /></div>
             <div><Label>Status</Label><Select value={f.status} onValueChange={v => set("status", v)}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{AUDIT_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Audit start date</Label><Input type="date" value={f.startDate ?? ""} onChange={e => set("startDate", e.target.value)} /><div className="text-[11px] text-muted-foreground mt-0.5">When fieldwork / the engagement starts</div></div>
@@ -260,7 +260,7 @@ function CompanyDialog({ c, onClose }: { c: any; onClose: () => void }) {
       <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader><DialogTitle>{c.id ? "Edit company" : "New company"}</DialogTitle></DialogHeader>
         <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-2 gap-3">
-          <div className="col-span-2"><Label>Legal name *</Label><Input value={f.name} onChange={e => set("name", e.target.value)} /></div>
+          <div className="col-span-2"><Label>Legal name *</Label><Input minChars={2} value={f.name} onChange={e => set("name", e.target.value)} /></div>
           <div><Label>Short name</Label><Input value={f.shortName ?? ""} onChange={e => set("shortName", e.target.value)} /></div>
           <div><Label>Registration no.</Label><Input value={f.registrationNo ?? ""} onChange={e => set("registrationNo", e.target.value)} placeholder="e.g. SEBI / CIN number" /></div>
           <div className="col-span-2"><Label>Business lines</Label><Chips options={BUSINESS_LINES} value={f.businessLine} onChange={v => set("businessLine", v)} /></div>
@@ -342,7 +342,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
               <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /><span>{res.checkpoints} checkpoints in {res.areas.length} areas · {res.policies} policy / procedure lines · {res.grids.length} schedules ({res.grids.join(", ")}){res.skipped.length ? ` · skipped: ${res.skipped.join(", ")}` : ""}</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2"><Label>Template name *</Label><Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. SEBI MF System Audit" />{f.name.trim().length < 3 && <div className="text-[11px] text-amber-600 mt-0.5">At least 3 characters</div>}</div>
+              <div className="col-span-2"><Label>Template name *</Label><Input minChars={3} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. SEBI MF System Audit" />{f.name.trim().length < 3 && <div className="text-[11px] text-amber-600 mt-0.5">At least 3 characters</div>}</div>
               <div><Label>Framework</Label><Input value={f.framework} onChange={e => setF({ ...f, framework: e.target.value })} placeholder="e.g. SEBI MF System Audit" /></div>
               <div><Label>Version</Label><Input value={f.version} onChange={e => setF({ ...f, version: e.target.value })} placeholder="e.g. 2026" /></div>
               <div className="col-span-2"><Label>Description</Label><Textarea rows={2} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
