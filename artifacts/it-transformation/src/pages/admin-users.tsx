@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { PasswordInput } from "@/components/ui/password-input";
 import { SearchSelect } from "@/components/search-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch, API } from "@/lib/api";
@@ -420,7 +421,7 @@ export default function AdminUsers() {
             </div>
             <div className="space-y-1.5">
               <Label>Password {editUser && <span className="text-muted-foreground text-xs">(blank = keep current)</span>}</Label>
-              <Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={editUser ? "••••••••" : "Set password"} />
+              <PasswordInput value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={editUser ? "••••••••" : "Set password"} />
             </div>
             <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="space-y-1.5">

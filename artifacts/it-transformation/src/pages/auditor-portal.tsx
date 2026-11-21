@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Route, Switch, useLocation, useParams } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,7 +52,7 @@ export function AuditorLogin() {
     <Shell title={step === "otp" ? "Check your email" : "Sign in with the email your invitation was sent to"}>
       {step === "pw" ? <form onSubmit={login} className="space-y-3">
         <div><Label>Email</Label><Input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} /></div>
-        <div><Label>Password</Label><Input type="password" autoComplete="current-password" value={pw} onChange={e => setPw(e.target.value)} /></div>
+        <div><Label>Password</Label><PasswordInput autoComplete="current-password" value={pw} onChange={e => setPw(e.target.value)} /></div>
         <Button type="submit" className="w-full gap-2" disabled={busy || !email || !pw}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}Continue</Button>
         <p className="text-[11px] text-muted-foreground text-center">Forgot your password? Ask the audit team to resend your invitation.</p>
       </form> : <form onSubmit={verify} className="space-y-3">
@@ -82,8 +83,8 @@ export function AuditorSetup() {
         : done ? <div className="space-y-3"><div className="text-sm">Password set. Sign in with {data.email}; a code is emailed each time.</div><Button className="w-full" onClick={() => nav("/auditor/login")}>Go to sign-in</Button></div>
         : <form onSubmit={save} className="space-y-3">
           <div className="text-sm">Welcome {data.name}. Set a password for <b>{data.email}</b>.</div>
-          <div><Label>New password</Label><Input type="password" autoComplete="new-password" value={pw} onChange={e => setPw(e.target.value)} /><div className={cn("text-[11px] mt-0.5", strong ? "text-emerald-600" : "text-muted-foreground")}>{data.rule}</div></div>
-          <div><Label>Repeat password</Label><Input type="password" autoComplete="new-password" value={pw2} onChange={e => setPw2(e.target.value)} />{pw2 && pw2 !== pw && <div className="text-[11px] text-red-600 mt-0.5">Passwords do not match</div>}</div>
+          <div><Label>New password</Label><PasswordInput autoComplete="new-password" value={pw} onChange={e => setPw(e.target.value)} /><div className={cn("text-[11px] mt-0.5", strong ? "text-emerald-600" : "text-muted-foreground")}>{data.rule}</div></div>
+          <div><Label>Repeat password</Label><PasswordInput autoComplete="new-password" value={pw2} onChange={e => setPw2(e.target.value)} />{pw2 && pw2 !== pw && <div className="text-[11px] text-red-600 mt-0.5">Passwords do not match</div>}</div>
           <Button type="submit" className="w-full" disabled={busy || !strong || pw !== pw2}>{busy && <Loader2 className="w-4 h-4 animate-spin mr-2" />}Set password</Button>
         </form>}
     </Shell>

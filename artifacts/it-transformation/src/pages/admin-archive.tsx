@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -200,7 +201,7 @@ function MailDelivery() {
       {f.provider === "m365" && <div className="grid md:grid-cols-2 gap-3">
         <L label="Tenant (directory) ID"><Input className="h-8" value={f.m365.tenantId || ""} onChange={e => set("m365", { tenantId: e.target.value })} /></L>
         <L label="Application (client) ID"><Input className="h-8" value={f.m365.clientId || ""} onChange={e => set("m365", { clientId: e.target.value })} /></L>
-        <L label="Client secret" hint={data.m365.hasSecret ? "A secret is saved — leave blank to keep it." : "Stored encrypted; never shown again."}><Input className="h-8" type="password" autoComplete="new-password" value={f.m365.secret} onChange={e => set("m365", { secret: e.target.value })} placeholder={data.m365.hasSecret ? "••••••••" : ""} /></L>
+        <L label="Client secret" hint={data.m365.hasSecret ? "A secret is saved — leave blank to keep it." : "Stored encrypted; never shown again."}><PasswordInput className="h-8" autoComplete="new-password" value={f.m365.secret} onChange={e => set("m365", { secret: e.target.value })} placeholder={data.m365.hasSecret ? "••••••••" : ""} /></L>
         <L label="Send as (mailbox)" hint="A licensed or shared mailbox the app may send as (Graph Mail.Send, admin consent)."><Input className="h-8" value={f.m365.from || ""} onChange={e => set("m365", { from: e.target.value })} placeholder="it-hub@ashikagroup.com" /></L>
       </div>}
       {f.provider === "smtp" && <div className="grid md:grid-cols-3 gap-3">
@@ -208,7 +209,7 @@ function MailDelivery() {
         <L label="Port" hint="587 STARTTLS · 465 SSL/TLS · 25 relay"><Input className="h-8" type="number" value={f.smtp.port || ""} onChange={e => set("smtp", { port: e.target.value })} /></L>
         <L label="Encryption"><select className="w-full h-8 rounded-md border bg-background px-2 text-sm" value={f.smtp.security} onChange={e => set("smtp", { security: e.target.value })}><option value="starttls">STARTTLS</option><option value="tls">SSL/TLS</option><option value="none">None (internal relay only)</option></select></L>
         <L label="Username (optional)"><Input className="h-8" autoComplete="off" value={f.smtp.user || ""} onChange={e => set("smtp", { user: e.target.value })} /></L>
-        <L label="Password" hint={data.smtp.hasPassword ? "A password is saved — leave blank to keep it." : "Stored encrypted; never shown again."}><Input className="h-8" type="password" autoComplete="new-password" value={f.smtp.password} onChange={e => set("smtp", { password: e.target.value })} placeholder={data.smtp.hasPassword ? "••••••••" : ""} /></L>
+        <L label="Password" hint={data.smtp.hasPassword ? "A password is saved — leave blank to keep it." : "Stored encrypted; never shown again."}><PasswordInput className="h-8" autoComplete="new-password" value={f.smtp.password} onChange={e => set("smtp", { password: e.target.value })} placeholder={data.smtp.hasPassword ? "••••••••" : ""} /></L>
         <L label="From address"><Input className="h-8" value={f.smtp.from || ""} onChange={e => set("smtp", { from: e.target.value })} placeholder="it-hub@ashikagroup.com" /></L>
         <L label="From name"><Input className="h-8" value={f.smtp.fromName || ""} onChange={e => set("smtp", { fromName: e.target.value })} placeholder="IT Hub" /></L>
         <label className="flex items-center gap-2 text-xs md:col-span-2"><input type="checkbox" checked={f.smtp.rejectUnauthorized !== false} onChange={e => set("smtp", { rejectUnauthorized: e.target.checked })} />Check the server's TLS certificate (untick only for an internal relay with a self-signed certificate)</label>

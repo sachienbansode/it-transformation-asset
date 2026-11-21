@@ -1,4 +1,5 @@
 import { PushAdmin } from "@/components/push-admin";
+import { PasswordInput } from "@/components/ui/password-input";
 import { SearchSelect } from "@/components/search-select";
 import { ConfirmChangesSetting, ChatSettings, RecordingStorageSettings } from "@/components/confirm-setting";
 import React, { useState, useEffect } from "react";
@@ -246,8 +247,7 @@ function SettingsTab() {
             </div>
             <div className="space-y-1.5">
               <Label>Client Secret</Label>
-              <Input
-                type="password"
+              <PasswordInput
                 placeholder="Azure AD client secret"
                 value={(settings["sso.clientSecret"] as string) || ""}
                 onChange={e => set("sso.clientSecret", e.target.value)}
@@ -744,7 +744,7 @@ function UsersTab() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 col-span-2"><Label>Password {editUser && "(leave blank to keep)"}</Label><Input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} /></div>
+            <div className="space-y-1.5 col-span-2"><Label>Password {editUser && "(leave blank to keep)"}</Label><PasswordInput value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>

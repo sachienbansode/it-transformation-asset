@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -249,9 +250,8 @@ export default function Login() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="password">Password</Label>
-                    <Input
+                    <PasswordInput
                       id="password"
-                      type="password"
                       placeholder="Enter your password"
                       value={password}
                       onChange={e => setPassword(e.target.value)}
