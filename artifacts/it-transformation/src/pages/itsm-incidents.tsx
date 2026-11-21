@@ -15,6 +15,7 @@ import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
@@ -29,6 +30,13 @@ const PAGE_SIZE = 10;
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const SEVERITIES = ["S1", "S2", "S3", "S4"];
 const STATUSES = ["Open", "In Progress", "On Hold", "Escalated", "Pending Approval", "Resolved", "Closed"];
+// r93: the cards add up to the total — every status belongs to exactly one card
+const GROUPS: Record<string, { label: string; statuses: string[] }> = {
+  __open: { label: "Open", statuses: ["Open"] },
+  __working: { label: "In progress / on hold", statuses: ["In Progress", "On Hold", "Escalated", "Pending Approval"] },
+  __done: { label: "Resolved / closed", statuses: ["Resolved", "Closed", "Cancelled"] },
+};
+const inGroup = (g: string, s: string) => GROUPS[g] ? GROUPS[g].statuses.includes(s) : s === g;
 const CREATE_STATUSES = ["Open"];
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
@@ -188,7 +196,7 @@ export default function ItsmIncidents() {
     let list = incidents;
     if (search) list = list.filter((i: any) => [i.ticketNo, i.title, i.assignedTo, i.reportedBy, i.affectedSystem].some(v => v?.toLowerCase().includes(search.toLowerCase())));
     if (filterPriority) list = list.filter((i: any) => i.priority === filterPriority);
-    if (filterStatus) list = list.filter((i: any) => i.status === filterStatus);
+    if (filterStatus) list = list.filter((i: any) => inGroup(filterStatus, i.status));
     if (filterCategory) list = list.filter((i: any) => i.category === filterCategory);
     return list;
   }, [incidents, search, filterPriority, filterStatus, filterCategory]);
@@ -196,9 +204,9 @@ export default function ItsmIncidents() {
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const openCount = incidents.filter((i: any) => i.status === "Open").length;
-  const inProgressCount = incidents.filter((i: any) => i.status === "In Progress").length;
-  const resolvedCount = incidents.filter((i: any) => i.status === "Resolved").length;
+  const openCount = incidents.filter((i: any) => inGroup("__open", i.status)).length;
+  const inProgressCount = incidents.filter((i: any) => inGroup("__working", i.status)).length;
+  const resolvedCount = incidents.filter((i: any) => inGroup("__done", i.status)).length;
   const criticalOpen = incidents.filter((i: any) => i.priority === "Critical" && (i.status === "Open" || i.status === "In Progress")).length;
 
   const categoryBreakdown = useMemo(() => {
@@ -275,10 +283,10 @@ export default function ItsmIncidents() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard icon={AlertTriangle} label="Open" value={openCount} iconBg="bg-red-100 dark:bg-red-900/30" iconColor="text-red-600" borderColor="border-l-red-500" sub={criticalOpen > 0 ? `${criticalOpen} critical` : undefined} />
-        <StatCard icon={Timer} label="In Progress" value={inProgressCount} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
-        <StatCard icon={CheckCircle2} label="Resolved" value={resolvedCount} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600" borderColor="border-l-emerald-500" />
-        <StatCard icon={XCircle} label="Total Incidents" value={incidents.length} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
+        <button type="button" className={cn("text-left rounded-xl transition", filterStatus === "__open" && "ring-2 ring-[#2D7FF9]")} title="Show these incidents" data-testid="card__open" onClick={() => { setFilterStatus(filterStatus === "__open" ? "" : "__open"); setPage(1); }}><StatCard icon={AlertTriangle} label="Open" value={openCount} iconBg="bg-red-100 dark:bg-red-900/30" iconColor="text-red-600" borderColor="border-l-red-500" sub={criticalOpen > 0 ? `${criticalOpen} critical` : undefined} /></button>
+        <button type="button" className={cn("text-left rounded-xl transition", filterStatus === "__working" && "ring-2 ring-[#2D7FF9]")} title="Show these incidents" data-testid="card__working" onClick={() => { setFilterStatus(filterStatus === "__working" ? "" : "__working"); setPage(1); }}><StatCard icon={Timer} label="In progress / on hold" value={inProgressCount} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" /></button>
+        <button type="button" className={cn("text-left rounded-xl transition", filterStatus === "__done" && "ring-2 ring-[#2D7FF9]")} title="Show these incidents" data-testid="card__done" onClick={() => { setFilterStatus(filterStatus === "__done" ? "" : "__done"); setPage(1); }}><StatCard icon={CheckCircle2} label="Resolved / closed" value={resolvedCount} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600" borderColor="border-l-emerald-500" /></button>
+        <button type="button" className={cn("text-left rounded-xl transition", filterStatus === "" && "ring-2 ring-[#2D7FF9]")} title="Show these incidents" data-testid="card__all" onClick={() => { setFilterStatus(filterStatus === "" ? "" : ""); setPage(1); }}><StatCard icon={XCircle} label="Total Incidents" value={incidents.length} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" /></button>
       </div>
 
       {categoryBreakdown.length > 0 && (
@@ -315,7 +323,7 @@ export default function ItsmIncidents() {
             </Select>
             <Select value={filterStatus} onValueChange={v => { setFilterStatus(v === "all" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Statuses</SelectItem>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              <SelectContent><SelectItem value="all">All Statuses</SelectItem>{Object.entries(GROUPS).map(([k, g]) => <SelectItem key={k} value={k}>All {g.label.toLowerCase()}</SelectItem>)}{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
             {(search || filterPriority || filterStatus || filterCategory) && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-xs text-muted-foreground">Clear filters</Button>
@@ -339,6 +347,9 @@ export default function ItsmIncidents() {
 
           <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
             Showing <span className="font-semibold text-foreground">{filtered.length}</span> of <span className="font-semibold text-foreground">{incidents.length}</span> incidents
+            {(search || filterPriority || filterStatus || filterCategory) && <span className="ml-2 inline-flex flex-wrap gap-1 align-middle" data-testid="active-filters">filtered by
+              {[search && ["Search", `“${search}”`, () => setSearch("")], filterCategory && ["Category", filterCategory, () => setFilterCategory("")], filterStatus && ["Status", GROUPS[filterStatus]?.label || filterStatus, () => setFilterStatus("")], filterPriority && ["Priority", filterPriority, () => setFilterPriority("")]].filter(Boolean).map((x: any) =>
+                <button key={x[0]} type="button" onClick={() => { x[2](); setPage(1); }} className="inline-flex items-center gap-1 rounded-md border bg-[#2D7FF9]/10 border-[#2D7FF9]/40 text-[#2D7FF9] px-1.5 py-0.5 text-[11px]" title="Remove this filter">{x[0]}: {x[1]} ✕</button>)}</span>}
           </div>
 
           <Table>

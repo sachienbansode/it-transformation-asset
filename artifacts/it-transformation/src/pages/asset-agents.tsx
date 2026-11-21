@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,7 +80,7 @@ export default function AssetAgents() {
         <div className="mt-4"><AssetHealthPanel full={full} agentId={v.id} canAct={canEdit} onChat={empOf(v)?.id === user?.id ? undefined : (al: any) => { const m = empOf(v); if (m && m.id === user?.id) { toast({ title: "You cannot open an IT chat about your own computer", description: "Ask another IT team member.", variant: "destructive" }); return; } if (!m) { toast({ title: "Assign an employee to this device first", variant: "destructive" }); return; } setChatFor({ agent: v, alert: al, employee: m.name }); }} /></div>
         {canEdit && <DeviceHistory agentId={v.id} defaultOpen={full} />}
   </>);
-  const fullId = Number(new URLSearchParams(window.location.search).get("device")) || 0;
+  const search = useSearch(); const fullId = Number(new URLSearchParams(search).get("device")) || 0;
   const fullView = fullId ? agents.find(a => a.id === fullId) : null;
   const pdfRef = useRef<HTMLDivElement>(null); const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPdf(v: any) {
@@ -92,13 +92,13 @@ export default function AssetAgents() {
     } catch (e: any) { toast({ title: "PDF failed", description: e.message, variant: "destructive" }); } finally { setPdfBusy(false); }
   }
   const autoPdf = useRef(false);
-  useEffect(() => { if (fullView && !autoPdf.current && new URLSearchParams(window.location.search).get("pdf") === "1") { autoPdf.current = true; setTimeout(() => downloadPdf(fullView), 1500); } }, [fullView?.id]);
+  useEffect(() => { if (fullView && !autoPdf.current && new URLSearchParams(search).get("pdf") === "1") { autoPdf.current = true; setTimeout(() => downloadPdf(fullView), 1500); } }, [fullView?.id]);
   const openFull = (v: any, pdf = false) => window.open(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/asset-agents?device=${v.id}&full=1${pdf ? "&pdf=1" : ""}`, "_blank");
 
   if (fullId) return (
     <div className="space-y-4 max-w-6xl mx-auto" data-testid="device-full">
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents")}><ArrowLeft className="w-4 h-4" />Device Health</Button>
+        <Button variant="outline" className="gap-2 h-10 px-4 font-semibold border-primary/40 text-primary hover:bg-primary/10" data-testid="device-back" onClick={() => { if (window.opener && window.history.length <= 1) { window.close(); } navigate("/asset-agents"); }}><ArrowLeft className="w-5 h-5" />Back to Device Health</Button>
         <div className="ml-auto flex gap-2"><Button size="sm" className="gap-1.5" disabled={!fullView || pdfBusy} onClick={() => fullView && downloadPdf(fullView)} data-testid="device-pdf-full">{pdfBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}{pdfBusy ? "Preparing PDF…" : "Download PDF"}</Button></div>
       </div>
       {isLoading ? <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div> : !fullView ? <div className="py-10 text-center text-sm text-muted-foreground">Device not found.</div> :
