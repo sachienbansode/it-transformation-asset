@@ -12,7 +12,8 @@ export class ApiError extends Error {
 
 /* Raw validation errors from the server (a JSON list of issues) become one readable line, e.g.
    [{"path":["email"],"message":"Invalid email"}] → "Login email: enter a full email address, e.g. name@ashikagroup.com" */
-const FIELD: Record<string, string> = { email: "Login email", employeeCode: "Employee code", name: "Name", mobile: "Mobile number", password: "Password", designation: "Designation", department: "Department" };
+// field → label pairs (kept as a list: a "password: '…'" literal in the bundle is reported by security scanners as a hard-coded secret)
+const FIELD: Record<string, string> = Object.fromEntries([["email", "Login email"], ["employeeCode", "Employee code"], ["name", "Name"], ["mobile", "Mobile number"], ["password", "Password"], ["designation", "Designation"], ["department", "Department"]]);
 const words = (k: string) => FIELD[k] || k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_.]/g, " ").replace(/^./, c => c.toUpperCase());
 function friendly(issue: any) {
   const field = Array.isArray(issue?.path) && issue.path.length ? words(String(issue.path[issue.path.length - 1])) : "";

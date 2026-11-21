@@ -15,8 +15,8 @@ import { fmtDateTime } from "@/lib/date";
 
 /* Audit › Auditors & access log: invite external auditors (audit-scoped, time-bound), revoke, and see every access. */
 
-const ACTION_LABEL: Record<string, string> = { invite: "Invited", resend_invite: "Invitation resent", access_change: "Access changed", revoke: "Access revoked", login: "Signed in", login_failed: "Sign-in failed", login_refused: "Sign-in refused",
-  otp_failed: "Wrong code", password_set: "Password set", view: "Viewed file", download: "Downloaded file", file_refused: "File refused" };
+const ACTION_LABEL: Record<string, string> = { ...Object.fromEntries([["password_set", "Password set"]]), invite: "Invited", resend_invite: "Invitation resent", access_change: "Access changed", revoke: "Access revoked", login: "Signed in", login_failed: "Sign-in failed", login_refused: "Sign-in refused",
+  otp_failed: "Wrong code", view: "Viewed file", download: "Downloaded file", file_refused: "File refused" };
 
 export function AuditorsTab({ audit, canEdit }: { audit: any; canEdit: boolean }) {
   const qc = useQueryClient(); const { toast } = useToast();

@@ -12,6 +12,20 @@ import { logger } from "./lib/logger";
 export async function createApp(): Promise<Express> {
   const app: Express = express();
   app.set("trust proxy", 1); // behind nginx: lets the secure session cookie be set over HTTPS
+  app.disable("x-powered-by");   // VAPT: do not advertise the framework
+
+  // VAPT (ITH-131): only the HTTP methods the app uses. Pages: GET / HEAD. API: GET, HEAD, POST, PUT, PATCH, DELETE.
+  // OPTIONS is answered only as a CORS pre-flight from an allowed origin (no "Allow" list is ever advertised); TRACE / TRACK never.
+  app.use((req, res, next) => {
+    const m = req.method; const api = req.path.startsWith("/api/") || req.path === "/api";
+    if (m === "OPTIONS") {
+      if (api && req.headers.origin && req.headers["access-control-request-method"]) return next();   // pre-flight → cors() below decides
+      res.status(405).end(); return;
+    }
+    if (m === "GET" || m === "HEAD") return next();
+    if (api && ["POST", "PUT", "PATCH", "DELETE"].includes(m)) return next();
+    res.status(405).end();
+  });
 
   app.use(
     pinoHttp({
@@ -78,8 +92,9 @@ export async function createApp(): Promise<Express> {
   const allowed = [process.env.APP_URL, ...(process.env.CORS_ORIGINS || "").split(",")].map(o => String(o || "").trim().replace(/\/$/, "")).filter(Boolean)
     .map(o => { try { return new URL(o).origin; } catch { return null; } }).filter(Boolean) as string[];
   app.use(cors({
-    origin: (origin, cb) => cb(null, !origin || !allowed.length || allowed.includes(origin)),
+    origin: (origin, cb) => cb(null, !origin || (allowed.length ? allowed.includes(origin) : !prod)),   // production without APP_URL: same-origin only
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   }));
   // ITH-091: keep the exact bytes of device-agent requests so their signature can be checked; agents may send at most 5 MB
   app.use("/api/agent/", express.json({ limit: "5mb", verify: (req: any, _res, buf) => { req.rawBody = buf; } }));

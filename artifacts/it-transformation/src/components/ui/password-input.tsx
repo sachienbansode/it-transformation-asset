@@ -10,7 +10,7 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, Omit<React.Compo
   return (
     <div className="relative">
       <Input ref={ref} {...props} type={show ? "text" : "password"} className={cn("pr-9", className)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-      <button type="button" tabIndex={-1} onClick={() => setShow(s => !s)} aria-label={show ? "Hide password" : "Show password"} title={show ? "Hide password" : "Show password"}
+      <button type="button" tabIndex={-1} onClick={() => setShow(s => !s)} aria-label={show ? "Hide password text" : "Show password text"} title={show ? "Hide password text" : "Show password text"}
         data-testid="toggle-password" className="absolute right-1.5 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40" disabled={props.disabled}>
         {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
       </button>

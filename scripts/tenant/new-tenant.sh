@@ -134,6 +134,7 @@ server {
 NGX
   ln -sf "$SITE" "/etc/nginx/sites-enabled/$SVC"
   nginx -t && systemctl reload nginx
+  bash "$BASE/scripts/server/harden-nginx.sh" || echo "!! nginx hardening skipped — run scripts/server/harden-nginx.sh"   # ITH-131 VAPT
   if command -v certbot >/dev/null; then certbot --nginx -d "$DOMAIN" --redirect --non-interactive --agree-tos --keep-until-expiring -q || echo "!! certbot failed — check DNS for $DOMAIN, then: sudo certbot --nginx -d $DOMAIN --redirect"
   else echo "!! certbot not installed — add HTTPS for $DOMAIN the same way as the main site"; fi
 fi
