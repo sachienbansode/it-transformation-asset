@@ -110,7 +110,7 @@ export default function AdminPolicies() {
           </tbody>
         </table>
       </CardContent></Card>
-      {edit && <EditDialog p={edit} onClose={() => setEdit(null)} onDone={refresh} />}
+      {edit && <EditDialog p={edit} onClose={() => setEdit(null)} onDone={() => { refresh(); if (!edit.id) setShow("draft"); }} />}   {/* a new policy is a draft: show the Drafts view */}
       {publish && <PublishDialog p={publish} onClose={() => setPublish(null)} onDone={refresh} />}
       {report && <ReportSheet p={report} onClose={() => setReport(null)} />}
       {resend && <ResendDialog p={resend} onClose={() => setResend(null)} onDone={refresh} />}

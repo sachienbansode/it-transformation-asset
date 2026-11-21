@@ -115,9 +115,10 @@ async function attachDocument(policyId: number, objectPath: string, by: string) 
   let f: { buffer: Buffer; name: string | null };
   try { f = await readObject(String(objectPath)); } catch { throw Object.assign(new Error("The uploaded file was not found — upload it again"), { status: 400 }); }
   const buf = f.buffer; const name = String(f.name || "policy.pdf").slice(0, 200);
-  if (!/\.pdf$/i.test(name) || buf.subarray(0, 5).toString("latin1") !== "%PDF-") throw Object.assign(new Error("Only PDF documents can be attached"), { status: 400 });
-  if (buf.length > MAX_PDF) throw Object.assign(new Error("The PDF is larger than 20 MB"), { status: 400 });
-  if (/\/Encrypt\b/.test(buf.subarray(0, Math.min(buf.length, 4_000_000)).toString("latin1"))) throw Object.assign(new Error("The PDF is password-protected — upload an unprotected copy"), { status: 400 });
+  const reject = async (msg: string) => { await deleteObject(String(objectPath)).catch(() => false); return Object.assign(new Error(msg), { status: 400 }); };   // never keep a refused file
+  if (!/\.pdf$/i.test(name) || buf.subarray(0, 5).toString("latin1") !== "%PDF-") throw await reject("Only PDF documents can be attached");
+  if (buf.length > MAX_PDF) throw await reject("The PDF is larger than 20 MB");
+  if (/\/Encrypt\b/.test(buf.subarray(0, Math.min(buf.length, 4_000_000)).toString("latin1"))) throw await reject("The PDF is password-protected — upload an unprotected copy");
   const pages = (buf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length || null;
   const [d] = rowsOf(await db.execute(sql`INSERT INTO policy_documents (policy_id, file_name, size_bytes, pages, sha256, data, uploaded_by)
     VALUES (${policyId}, ${name}, ${buf.length}, ${pages}, ${crypto.createHash("sha256").update(buf).digest("hex")}, ${buf}, ${by}) RETURNING id, file_name, size_bytes, pages, sha256`));
