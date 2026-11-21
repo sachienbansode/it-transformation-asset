@@ -33,6 +33,10 @@ else
   git checkout -q main 2>/dev/null || true
   git pull origin main
 fi
+# the pull may have changed this script itself: run the NEW copy once (bash reads scripts while running)
+if [[ -z "${DEPLOY_REEXEC:-}" ]] && ! git diff --quiet "$PREV" HEAD -- deploy.sh 2>/dev/null; then
+  echo "== deploy.sh was updated — restarting with the new version"; export DEPLOY_REEXEC=1; exec bash "$0" "$@"
+fi
 VERSION="$(cat VERSION 2>/dev/null || echo unknown)"; COMMIT="$(git rev-parse --short HEAD)"; GITREF="${REF:-main}"
 echo "== Version $VERSION ($COMMIT, $GITREF)"
 
