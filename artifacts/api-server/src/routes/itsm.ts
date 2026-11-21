@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, usersTable, itsmIncidentsTable, itsmProblemsTable, itsmChangesTable, itsmSlaPoliciesTable, itsmTicketHistoryTable, itsmKnowledgeBaseTable, itsmServiceRequestsTable, itsmApprovalMatrixTable, itsmApprovalsTable, itsmAttachmentsTable, itsmApprovalDelegatesTable, settingsTable } from "@workspace/db";
+import { db, usersTable, itsmTeamMembersTable, itsmIncidentsTable, itsmProblemsTable, itsmChangesTable, itsmSlaPoliciesTable, itsmTicketHistoryTable, itsmKnowledgeBaseTable, itsmServiceRequestsTable, itsmApprovalMatrixTable, itsmApprovalsTable, itsmAttachmentsTable, itsmApprovalDelegatesTable, settingsTable } from "@workspace/db";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
@@ -378,7 +378,13 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     if (body.assignedTo !== undefined && (body.assignedTo || null) !== (old.assignedTo || null)) {
       if (body.assignedTo) {
         const u = await userByName(String(body.assignedTo));
-        if (!u || !await isMember(u.id, teamId)) throw new Bad(`${body.assignedTo} is not a member of ${extra.assignedGroup || old.assignedGroup || "the team"}`);
+        if (!u) throw new Bad(`${body.assignedTo} is not an active user`);
+        if (!await isMember(u.id, teamId)) {
+          // r92: an ITSM admin may assign someone outside the team — that person is added to the team (logged)
+          if (!isItsmAdmin(a) || !teamId) throw new Bad(`${body.assignedTo} is not a member of ${extra.assignedGroup || old.assignedGroup || "the team"}`);
+          await db.insert(itsmTeamMembersTable).values({ teamId, userId: u.id });
+          await audit({ entityType: "itsm_team", entityId: teamId, action: "member_added", performedBy: who.label, summary: `${u.name} added to ${extra.assignedGroup || old.assignedGroup || "the team"} while assigning ${old.ticketNo}` });
+        }
         body.assignedTo = u.name; events.push("assigned");
       } else body.assignedTo = null;
     }
@@ -593,7 +599,7 @@ router.patch("/sla-policies/:id", wrap(async (req, res) => {
 router.delete("/sla-policies/:id", wrap(async (req, res) => {
   const who = await actor(req);
   const [row] = await db.update(itsmSlaPoliciesTable).set({ isActive: false }).where(eq(itsmSlaPoliciesTable.id, parseInt(String(req.params.id)))).returning(); clearSlaCache();
-  if (row) await audit({ entityType: "itsm_sla_policy", entityId: row.id, action: "delete", performedBy: who.label, summary: `SLA ${row.name} removed` });
+  if (row) await audit({ entityType: "itsm_sla_policy", entityId: row.id, action: "deactivate", performedBy: who.label, summary: `SLA ${row.name} deactivated` });
   res.status(204).end();
 }));
 
@@ -641,7 +647,7 @@ router.post("/knowledge-base/:id/view", wrap(async (req, res) => {
 router.delete("/knowledge-base/:id", wrap(async (req, res) => {
   const who = await actor(req);
   const [row] = await db.update(itsmKnowledgeBaseTable).set({ isActive: false, updatedBy: who.label }).where(eq(itsmKnowledgeBaseTable.id, parseInt(String(req.params.id)))).returning();
-  if (row) await audit({ entityType: "itsm_kb", entityId: row.id, action: "delete", performedBy: who.label, summary: `KB article removed: ${row.title}` });
+  if (row) await audit({ entityType: "itsm_kb", entityId: row.id, action: "deactivate", performedBy: who.label, summary: `KB article deactivated: ${row.title}` });
   res.status(204).end();
 }));
 
@@ -755,7 +761,7 @@ router.patch("/approval-matrix/:id", wrap(async (req, res) => {
 router.delete("/approval-matrix/:id", wrap(async (req, res) => {
   const who = await actor(req);
   const [row] = await db.update(itsmApprovalMatrixTable).set({ isActive: false }).where(eq(itsmApprovalMatrixTable.id, parseInt(String(req.params.id)))).returning();
-  if (row) await audit({ entityType: "itsm_approval_rule", entityId: row.id, action: "delete", performedBy: who.label, summary: `Approval rule removed: ${row.ticketType} ${row.approverLevel} ${row.approverRole}` });
+  if (row) await audit({ entityType: "itsm_approval_rule", entityId: row.id, action: "deactivate", performedBy: who.label, summary: `Approval rule deactivated: ${row.ticketType} ${row.approverLevel} ${row.approverRole}` });
   res.status(204).end();
 }));
 

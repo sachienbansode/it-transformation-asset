@@ -288,7 +288,7 @@ export default function ItsmServiceRequests() {
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(r)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
                       {canEdit && (canWork(r) || isMine(r)) && <button onClick={() => openEdit(r)} title={DONE.includes(r.status) ? "Closed — view only" : canWork(r) ? "Work on request" : "Edit my request"} disabled={DONE.includes(r.status) && !canWork(r)} className={`p-2 rounded-md transition-colors ${DONE.includes(r.status) && !canWork(r) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
-                      {canDelete && <button onClick={() => handleDelete(r.id, r.requestNo)} title="Delete" className="p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600 transition-colors"><Trash2 className="w-4 h-4" /></button>}
+                      
                     </div>
                   </TableCell>
                 </TableRow>
@@ -349,7 +349,7 @@ export default function ItsmServiceRequests() {
             {!editingItem && route.data?.ok && !route.data.canAssign && <div className="text-[11px] text-muted-foreground self-end pb-2">{route.data.team} will pick it up and assign it.</div>}
             {workMode && <>
               <div><Label>Status</Label><Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-              <div><Label>Assign to (team member)</Label><TeamMemberSelect teamId={editingItem.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
+              <div><Label>Assign to (team member)</Label><TeamMemberSelect others={isAdmin} teamId={editingItem.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
               <TransferFields currentTeamId={editingItem.teamId} teamId={formData._teamId} reason={formData._reason} onChange={(t, r) => setFormData({ ...formData, _teamId: t, _reason: r })} />
               {DONE.includes(editingItem.status) && formData.status !== editingItem.status && !DONE.includes(formData.status) && <div className="sm:col-span-2"><Label>Reason to reopen *</Label><Input value={formData.reopenReason || ""} onChange={e => setFormData({ ...formData, reopenReason: e.target.value })} /></div>}
               <div className="sm:col-span-2"><Label>Fulfilment notes {formData.status === "Completed" && "*"}</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} placeholder="What was done (required to complete)" /></div>

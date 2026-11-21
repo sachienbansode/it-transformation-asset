@@ -300,7 +300,7 @@ function Review({ itemId, audit, order, onNav, onClose }: { itemId: number; audi
               {!it.comments.length && <div className="text-xs text-muted-foreground">No comments yet.</div>}</div></div>
           <div className="rounded-[12px] border-2 border-primary/30 bg-accent/20 p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-2"><div className="text-sm font-semibold">Your decision</div><span className="text-[11px] text-muted-foreground">Current: <StatusBadge s={it.status} /></span></div>
-            <Textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder="Comment for the audit team — required for a query or an observation, optional otherwise" className="text-sm" />
+            <Textarea minChars={5} rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder="Comment for the audit team — required for a query or an observation, optional otherwise" className="text-sm" />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 keep-cols">
               {opts.filter(o => o !== it.status || o === "In Progress").sort((x, y) => { const O = ["Closed", "In Progress", "Closed-Obs", "Partially Closed", "Under Review", "Not Applicable"]; const r = (v: string) => (O.indexOf(v) < 0 ? 99 : O.indexOf(v)); return r(x) - r(y); }).map(o => { const a = ACTION[o] || { label: o, cls: "" }; return (
                 <Button key={o} type="button" disabled={busy} onClick={() => decide(o)} variant="outline" className={cn("h-auto min-h-11 py-2 flex-col gap-0.5 items-start text-left whitespace-normal", a.cls)}>

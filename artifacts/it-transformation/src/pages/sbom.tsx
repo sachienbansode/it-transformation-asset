@@ -234,7 +234,7 @@ export default function Sbom() {
                     {isAdmin && (
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                        
                       </TableCell>
                     )}
                   </TableRow>

@@ -229,7 +229,7 @@ export default function MaintenanceRecords() {
                   <TableCell>
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => openEdit(r)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>
-                      {isAdmin && <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded hover:bg-muted" title="Delete"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
+                      
                     </div>
                   </TableCell>
                 </TableRow>

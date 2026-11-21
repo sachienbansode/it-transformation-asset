@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +16,9 @@ import { cn } from "@/lib/utils";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { AssetHealthPanel, HealthBadge, ago, hm } from "@/components/asset-health";
 import { StartChatDialog, ChatThread, ChatStatus } from "@/components/device-chat";
-import { MessageSquare, Activity, AlertTriangle, CheckCircle2, WifiOff, Link2, Search, KeyRound, Download, Copy, Trash2, Server, Laptop, Loader2, RefreshCw } from "lucide-react";
+import { MessageSquare, Activity, AlertTriangle, CheckCircle2, WifiOff, Link2, Search, KeyRound, Download, Copy, Trash2, Server, Laptop, Loader2, RefreshCw, Maximize2, FileDown, ArrowLeft } from "lucide-react";
+import { exportElementPdf } from "@/lib/export-pdf";
+import { useBrand } from "@/lib/brand";
 
 /* IT Assets › Device Agents — devices running the IT Hub agent: health, last report, usage; enrolment codes and installers. */
 
@@ -37,7 +39,7 @@ async function download(file: string) {
 
 export default function AssetAgents() {
   const qc = useQueryClient(); const { toast } = useToast(); const [, navigate] = useLocation();
-  const { canAccess, user } = useAuth(); const canEdit = canAccess("asset_registry", "write");
+  const { canAccess, user } = useAuth(); const brand = useBrand(); const canEdit = canAccess("asset_registry", "write");
   const { data, isLoading } = useQuery({ queryKey: ["asset-agents"], queryFn: () => apiFetch<any>("/asset-agents"), refetchInterval: 60_000 });
   const agents: any[] = data?.agents || []; const sum = data?.summary || {};
   const [tab, setTab] = useState<typeof TABS[number]>("All"); const [q, setQ] = useState(""); const [kind, setKind] = useState(""); const [page, setPage] = useState(1);
@@ -65,6 +67,52 @@ export default function AssetAgents() {
     const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: `device_health_${new Date().toISOString().slice(0, 10)}.csv` }); a.click(); URL.revokeObjectURL(a.href);
   }
 
+  // ITH-135: one device view, used in the side panel and as a full page (?device=<id>&full=1), with PDF download
+  const deviceBody = (v: any, full = false) => (<>
+        {(() => { const m = empOf(v); return <div className="mt-3 rounded-lg border p-3 flex flex-wrap items-center gap-3 text-sm">
+          <div className="flex-1 min-w-[200px]"><div className="text-[11px] text-muted-foreground">Employee</div>{m ? <button className="font-medium text-primary hover:underline text-left" onClick={() => m.id && setPerson(m.id)}>{m.code} · {m.name}</button> : <span className="text-amber-700">Not assigned</span>}
+            <div className="text-[11px] text-muted-foreground">{m?.src}{v.lastUser ? ` · signed in as ${v.lastUser}` : ""}</div></div>
+          <div className="flex-1 min-w-[160px]"><div className="text-[11px] text-muted-foreground">Register asset</div>{v.assetTag ? <><div className="font-medium">{v.assetTag}</div><div className="text-[11px] text-muted-foreground">{v.assetStatus}{v.ownerName ? ` · ${v.ownerName}` : ""}</div></> : <span className="text-amber-700">Not linked</span>}</div>
+          {canEdit && v.status !== "Revoked" && <div className="flex flex-col gap-1"><Button size="sm" variant="outline" className="gap-1" onClick={() => setLink(v)}><Link2 className="w-3.5 h-3.5" />Assign / change</Button>
+            {m && m.id !== user?.id && <Button size="sm" variant="outline" className="gap-1" onClick={() => setChatFor({ agent: v, employee: m.name })}><MessageSquare className="w-3.5 h-3.5" />Chat with employee</Button>}</div>}
+        </div>; })()}
+        {canEdit && <DeviceChats agentId={v.id} onOpen={setOpenChat} />}
+        <div className="mt-4"><AssetHealthPanel full={full} agentId={v.id} canAct={canEdit} onChat={empOf(v)?.id === user?.id ? undefined : (al: any) => { const m = empOf(v); if (m && m.id === user?.id) { toast({ title: "You cannot open an IT chat about your own computer", description: "Ask another IT team member.", variant: "destructive" }); return; } if (!m) { toast({ title: "Assign an employee to this device first", variant: "destructive" }); return; } setChatFor({ agent: v, alert: al, employee: m.name }); }} /></div>
+        {canEdit && <DeviceHistory agentId={v.id} defaultOpen={full} />}
+  </>);
+  const fullId = Number(new URLSearchParams(window.location.search).get("device")) || 0;
+  const fullView = fullId ? agents.find(a => a.id === fullId) : null;
+  const pdfRef = useRef<HTMLDivElement>(null); const [pdfBusy, setPdfBusy] = useState(false);
+  async function downloadPdf(v: any) {
+    if (!pdfRef.current) return; setPdfBusy(true);
+    try {
+      await new Promise(r => setTimeout(r, 1200));   // let the expanded lists and history load
+      await exportElementPdf(pdfRef.current, { fileName: `${v.hostname}${v.assetTag ? "_" + v.assetTag : ""}_device_report.pdf`, title: `${v.hostname}${v.assetTag ? " · " + v.assetTag : ""}`,
+        subtitle: [v.model, v.serialNumber && `SN ${v.serialNumber}`].filter(Boolean).join(" · "), footer: `${brand.companyOrApp} · ${user?.name || ""}` });
+    } catch (e: any) { toast({ title: "PDF failed", description: e.message, variant: "destructive" }); } finally { setPdfBusy(false); }
+  }
+  const autoPdf = useRef(false);
+  useEffect(() => { if (fullView && !autoPdf.current && new URLSearchParams(window.location.search).get("pdf") === "1") { autoPdf.current = true; setTimeout(() => downloadPdf(fullView), 1500); } }, [fullView?.id]);
+  const openFull = (v: any, pdf = false) => window.open(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/asset-agents?device=${v.id}&full=1${pdf ? "&pdf=1" : ""}`, "_blank");
+
+  if (fullId) return (
+    <div className="space-y-4 max-w-6xl mx-auto" data-testid="device-full">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents")}><ArrowLeft className="w-4 h-4" />Device Health</Button>
+        <div className="ml-auto flex gap-2"><Button size="sm" className="gap-1.5" disabled={!fullView || pdfBusy} onClick={() => fullView && downloadPdf(fullView)} data-testid="device-pdf-full">{pdfBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}{pdfBusy ? "Preparing PDF…" : "Download PDF"}</Button></div>
+      </div>
+      {isLoading ? <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div> : !fullView ? <div className="py-10 text-center text-sm text-muted-foreground">Device not found.</div> :
+        <div ref={pdfRef} className="bg-background p-1">
+          <h1 className="text-xl font-bold">{fullView.hostname}{fullView.assetTag ? ` · ${fullView.assetTag}` : ""}</h1>
+          <p className="text-sm text-muted-foreground">{[fullView.model, fullView.serialNumber && `SN ${fullView.serialNumber}`].filter(Boolean).join(" · ")}</p>
+          {deviceBody(fullView, true)}
+        </div>}
+      {chatFor && <StartChatDialog agent={chatFor.agent} alert={chatFor.alert} employee={chatFor.employee} onClose={() => setChatFor(null)} onStarted={(id: number) => { setChatFor(null); setOpenChat(id); }} />}
+      {openChat && <Dialog open onOpenChange={o => !o && setOpenChat(null)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>IT chat</DialogTitle></DialogHeader><ChatThread chatId={openChat} onChanged={refresh} /></DialogContent></Dialog>}
+      {link && <AssignDialog agent={link} onClose={() => setLink(null)} onDone={() => refresh()} />}
+      {person && <EmployeeSheet userId={person} onClose={() => setPerson(null)} onDevice={() => setPerson(null)} />}
+    </div>
+  );
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -131,19 +179,12 @@ export default function AssetAgents() {
         <Pagination page={page} totalPages={Math.ceil(list.length / PAGE) || 1} totalItems={list.length} pageSize={PAGE} onPageChange={setPage} />
       </CardContent></Card>
 
-      {view && <Sheet open onOpenChange={o => !o && setView(null)}><SheetContent className="w-full sm:max-w-[640px] overflow-y-auto">
+      {view && !fullId && <Sheet open onOpenChange={o => !o && setView(null)}><SheetContent className="w-full sm:max-w-[640px] overflow-y-auto">
         <SheetHeader><SheetTitle>{view.hostname}{view.assetTag ? ` · ${view.assetTag}` : ""}</SheetTitle>
-          <SheetDescription>{[view.model, view.serialNumber && `SN ${view.serialNumber}`].filter(Boolean).join(" · ")}</SheetDescription></SheetHeader>
-        {(() => { const m = empOf(view); return <div className="mt-3 rounded-lg border p-3 flex flex-wrap items-center gap-3 text-sm">
-          <div className="flex-1 min-w-[200px]"><div className="text-[11px] text-muted-foreground">Employee</div>{m ? <button className="font-medium text-primary hover:underline text-left" onClick={() => m.id && setPerson(m.id)}>{m.code} · {m.name}</button> : <span className="text-amber-700">Not assigned</span>}
-            <div className="text-[11px] text-muted-foreground">{m?.src}{view.lastUser ? ` · signed in as ${view.lastUser}` : ""}</div></div>
-          <div className="flex-1 min-w-[160px]"><div className="text-[11px] text-muted-foreground">Register asset</div>{view.assetTag ? <><div className="font-medium">{view.assetTag}</div><div className="text-[11px] text-muted-foreground">{view.assetStatus}{view.ownerName ? ` · ${view.ownerName}` : ""}</div></> : <span className="text-amber-700">Not linked</span>}</div>
-          {canEdit && view.status !== "Revoked" && <div className="flex flex-col gap-1"><Button size="sm" variant="outline" className="gap-1" onClick={() => setLink(view)}><Link2 className="w-3.5 h-3.5" />Assign / change</Button>
-            {m && m.id !== user?.id && <Button size="sm" variant="outline" className="gap-1" onClick={() => setChatFor({ agent: view, employee: m.name })}><MessageSquare className="w-3.5 h-3.5" />Chat with employee</Button>}</div>}
-        </div>; })()}
-        {canEdit && <DeviceChats agentId={view.id} onOpen={setOpenChat} />}
-        <div className="mt-4"><AssetHealthPanel agentId={view.id} canAct={canEdit} onChat={empOf(view)?.id === user?.id ? undefined : (al: any) => { const m = empOf(view); if (m && m.id === user?.id) { toast({ title: "You cannot open an IT chat about your own computer", description: "Ask another IT team member.", variant: "destructive" }); return; } if (!m) { toast({ title: "Assign an employee to this device first", variant: "destructive" }); return; } setChatFor({ agent: view, alert: al, employee: m.name }); }} /></div>
-        {canEdit && <DeviceHistory agentId={view.id} />}</SheetContent></Sheet>}
+          <SheetDescription>{[view.model, view.serialNumber && `SN ${view.serialNumber}`].filter(Boolean).join(" · ")}</SheetDescription>
+          <div className="flex gap-2 pt-1"><Button size="sm" variant="outline" className="gap-1.5" data-testid="device-full-page" onClick={() => openFull(view)}><Maximize2 className="w-3.5 h-3.5" />Full page</Button>
+            <Button size="sm" variant="outline" className="gap-1.5" data-testid="device-pdf" onClick={() => openFull(view, true)}><FileDown className="w-3.5 h-3.5" />Download PDF</Button></div></SheetHeader>
+        {deviceBody(view)}</SheetContent></Sheet>}
       {chatFor && <StartChatDialog agent={chatFor.agent} alert={chatFor.alert} employee={chatFor.employee} onClose={() => setChatFor(null)} onStarted={(id: number) => { setChatFor(null); refresh(); qc.invalidateQueries({ queryKey: ["device-chats"] }); setOpenChat(id); }} />}
       {openChat && <Dialog open onOpenChange={o => !o && setOpenChat(null)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>IT chat</DialogTitle></DialogHeader><ChatThread chatId={openChat} onChanged={refresh} /></DialogContent></Dialog>}
       {link && <AssignDialog agent={link} onClose={() => setLink(null)} onDone={() => { refresh(); setView(null); }} />}
@@ -387,8 +428,8 @@ function DeviceChats({ agentId, onOpen }: { agentId: number; onOpen: (id: number
 }
 
 /** Device history: link / unlink / assignment / transfer, register moves, health actions, chats, key — from the audit log. */
-function DeviceHistory({ agentId }: { agentId: number }) {
-  const [open, setOpen] = useState(false);
+export function DeviceHistory({ agentId, defaultOpen = false }: { agentId: number; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const { data } = useQuery({ queryKey: ["device-history", agentId], queryFn: () => apiFetch<any>(`/asset-agents/${agentId}/history`), enabled: open });
   const rows = useMemo(() => [...(data?.audit || []).map((a: any) => ({ at: a.at, by: a.by, what: `${String(a.entityType).replace(/_/g, " ")} · ${String(a.action).replace(/_/g, " ")}`, text: a.summary, id: `a${a.id}` })),
     ...(data?.moves || []).map((m: any, i: number) => ({ at: m.at, by: m.by, what: `register · ${m.action}`, text: [m.from && m.to ? `${m.from} → ${m.to}` : null, m.notes].filter(Boolean).join(" · "), id: `m${i}` }))]
@@ -396,7 +437,7 @@ function DeviceHistory({ agentId }: { agentId: number }) {
   return (
     <section className="mt-5 border-t pt-3">
       <button className="text-sm font-semibold flex items-center gap-1.5" onClick={() => setOpen(!open)}>{open ? "▾" : "▸"} History &amp; audit trail</button>
-      {open && <div className="mt-2 border rounded-lg divide-y text-xs max-h-[50vh] overflow-y-auto">
+      {open && <div className={cn("mt-2 border rounded-lg divide-y text-xs", !defaultOpen && "max-h-[50vh] overflow-y-auto")}>
         {!data && <div className="px-3 py-2 text-muted-foreground">Loading…</div>}
         {rows.map(r => <div key={r.id} className="px-3 py-1.5"><div className="flex gap-2 flex-wrap"><span className="font-medium capitalize">{r.what}</span><span className="text-muted-foreground ml-auto">{fmtDateTime(r.at)} · {String(r.by || "").replace(/ <.*>$/, "")}</span></div><div className="text-muted-foreground">{r.text}</div></div>)}
         {data && !rows.length && <div className="px-3 py-2 text-muted-foreground">Nothing recorded yet.</div>}

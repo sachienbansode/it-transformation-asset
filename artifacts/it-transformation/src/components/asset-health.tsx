@@ -111,18 +111,18 @@ function Suggestions({ list, onDone }: { list: any[]; onDone: () => void }) {
         </div>))}
       {keep && <Dialog open onOpenChange={o => !o && setKeep(null)}><DialogContent className="max-w-md">
         <DialogHeader><DialogTitle>Keep {keep.ticketNo} open</DialogTitle><DialogDescription>The device report looked fixed ({keep.evidence}). Say why the ticket stays open — it is added to the ticket history.</DialogDescription></DialogHeader>
-        <Textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. User still reports the problem after restart" />
+        <Textarea minChars={5} rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. User still reports the problem after restart" />
         <DialogFooter><Button variant="outline" onClick={() => setKeep(null)}>Cancel</Button><Button disabled={reason.trim().length < 5 || busy === keep.id} onClick={() => go(keep, "dismiss", reason.trim())}>Keep open</Button></DialogFooter>
       </DialogContent></Dialog>}
     </div>
   );
 }
 
-export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src, hideHeader = false }: { assetId?: number | null; agentId?: number | null; canAct?: boolean; onChat?: (alert: any) => void; src?: string; hideHeader?: boolean }) {
+export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src, hideHeader = false, full = false }: { assetId?: number | null; agentId?: number | null; canAct?: boolean; onChat?: (alert: any) => void; src?: string; hideHeader?: boolean; full?: boolean }) {
   const employee = !!src?.startsWith("/my-devices");
   const qc = useQueryClient(); const { toast } = useToast(); const [ign, setIgn] = useState<any>(null); const [busyA, setBusyA] = useState<number | null>(null);
   const { data, isLoading, error } = useQuery({ queryKey: ["asset-health", src || (agentId ? `g${agentId}` : assetId)], queryFn: () => apiFetch<any>(src || (agentId ? `/asset-agents/${agentId}/health` : `/assets/${assetId}/health`)), refetchInterval: 60_000 });
-  const [showSw, setShowSw] = useState(false); const [swQ, setSwQ] = useState("");
+  const [showSw, setShowSw] = useState(full); const [swQ, setSwQ] = useState("");
   if (isLoading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>;
   if (error) return <div className="py-6 text-sm text-red-600">{(error as Error).message}</div>;
   if (!data?.agent) return (
@@ -135,6 +135,11 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
   const a = data.agent, h = a.latest || {};
   const minDisk = (h.disks || []).reduce((m: number | null, d: any) => d.freePct == null ? m : m === null ? d.freePct : Math.min(m, d.freePct), null);
   const open = (data.alerts || []).filter((x: any) => !x.closedAt);
+  // r93: items with an open ticket (or covered by a ticket on the same topic, e.g. both "restart pending" items) leave the action list
+  const liveTicket = (x: any) => x.ticketNo && !["Resolved", "Closed", "Cancelled"].includes(x.ticketStatus);
+  const topic = (x: any) => /restart/i.test(`${x.kind} ${x.message}`) ? "restart" : /bitlocker|encrypt/i.test(`${x.kind} ${x.message}`) ? "encryption" : /usb/i.test(`${x.kind} ${x.message}`) ? "usb" : `k:${x.kind}`;
+  const coverOf = (x: any) => liveTicket(x) ? x : open.find((y: any) => y.id !== x.id && liveTicket(y) && topic(y) === topic(x));
+  const withIt = open.filter((x: any) => !x.ignored && coverOf(x)); const todo = open.filter((x: any) => !withIt.includes(x));
   const reload = () => { qc.invalidateQueries({ queryKey: ["asset-health"] }); qc.invalidateQueries({ queryKey: ["asset-agents"] }); };
   async function act(x: any, path: string, body: any = {}, ok?: (r: any) => string) {
     setBusyA(x.id);
@@ -157,7 +162,12 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
       {a.status === "Active" && <LiveBar agentId={a.id} staff={!employee && canAct} onFresh={reload} />}
       <PolicyCompliance c={a.compliance} state={a.complianceState} employee={!!employee} />
       <DeviceDetails h={h} a={a} thresholds={data.settings?.thresholds} latest={data.agentLatest} minDisk={minDisk} />
-      {open.length > 0 && <div className="space-y-1">{open.map((x: any) => (
+      {withIt.length > 0 && <details open={full || undefined} className="rounded-md border px-2.5 py-1.5 text-xs bg-blue-50/60 dark:bg-blue-500/10" data-testid="with-it">
+        <summary className="cursor-pointer font-medium text-blue-700 dark:text-blue-300">With IT — ticket raised ({withIt.length})</summary>
+        <div className="mt-1 space-y-1">{withIt.map((x: any) => { const c = coverOf(x); return <div key={x.id} className="flex items-start gap-1.5"><Ticket className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
+          <span>{x.message} · <Link href={`/itsm-incidents?q=${c.ticketNo}`} className="underline font-semibold">{c.ticketNo}</Link>{c.ticketStatus ? ` (${c.ticketStatus})` : ""}{c.id !== x.id ? " — same issue" : ""}</span></div>; })}</div>
+      </details>}
+      {todo.length > 0 && <div className="space-y-1">{todo.map((x: any) => (
         <div key={x.id} className={cn("rounded-md border px-2.5 py-1.5 text-xs", x.ignored ? "bg-muted/40 text-muted-foreground" : x.severity === "Critical" ? STATE_TONE.Critical : STATE_TONE.Warning)}>
           <div className="flex items-start gap-1.5">{x.ignored ? <EyeOff className="w-3.5 h-3.5 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
             <span className="flex-1">{x.message}<span className="opacity-70"> · since {fmtDateTime(x.openedAt)}</span>
@@ -171,7 +181,7 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
               : <Button size="sm" variant="outline" className="h-6 px-2 text-[11px] gap-1 bg-background" onClick={() => setIgn(x)}><EyeOff className="w-3 h-3" />Ignore</Button>}
           </div>}
         </div>))}</div>}
-      {(() => { const fixed = (data.alerts || []).filter((x: any) => x.closedAt && x.closedNote && Date.now() - +new Date(x.closedAt) < 30 * 86400e3); return fixed.length > 0 && <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">Fixed in the last 30 days ({fixed.length})</summary>
+      {(() => { const fixed = (data.alerts || []).filter((x: any) => x.closedAt && x.closedNote && Date.now() - +new Date(x.closedAt) < 30 * 86400e3); return fixed.length > 0 && <details open={full || undefined} className="text-xs"><summary className="cursor-pointer text-muted-foreground">Fixed in the last 30 days ({fixed.length})</summary>
         <div className="mt-1 space-y-1">{fixed.map((x: any) => <div key={x.id} className="rounded-md border px-2.5 py-1.5 flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-emerald-600 shrink-0" /><span>{x.closedNote}{x.ticketNo ? ` · ${x.ticketNo} resolved` : ""}</span></div>)}</div></details>; })()}
       {ign && <IgnoreDialog alert={ign} host={a.hostname} onClose={() => setIgn(null)} onDone={reload} />}
       {!open.length && <div className={cn("rounded-md border px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5", STATE_TONE.Healthy)}><ShieldCheck className="w-3.5 h-3.5" />No open health issues</div>}
@@ -203,7 +213,7 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
         <button className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1" onClick={() => setShowSw(v => !v)}><Package className="w-3 h-3" />Installed software ({(data.software || []).length}) {showSw ? "▲" : "▼"}</button>
         {showSw && <div className="mt-1.5 space-y-1.5">
           <input className="w-full h-8 rounded-md border bg-background px-2 text-xs" placeholder="Search software…" value={swQ} onChange={e => setSwQ(e.target.value)} />
-          <div className="max-h-56 overflow-y-auto divide-y border rounded-lg">{sw.map((x: any) => <div key={x.name + x.version} className="px-2.5 py-1 text-xs flex justify-between gap-2"><span className="truncate">{x.name}</span><span className="text-muted-foreground whitespace-nowrap">{x.version}{x.publisher ? ` · ${x.publisher}` : ""}</span></div>)}
+          <div className={cn("divide-y border rounded-lg", !full && "max-h-56 overflow-y-auto")}>{sw.map((x: any) => <div key={x.name + x.version} className="px-2.5 py-1 text-xs flex justify-between gap-2"><span className="truncate">{x.name}</span><span className="text-muted-foreground whitespace-nowrap">{x.version}{x.publisher ? ` · ${x.publisher}` : ""}</span></div>)}
             {!sw.length && <div className="px-2.5 py-2 text-xs text-muted-foreground">Nothing listed yet (sent once a day).</div>}</div>
         </div>}
       </section>
@@ -296,7 +306,7 @@ function DeviceDetails({ h, a, thresholds, latest, minDisk }: { h: any; a: any; 
         <Row k="Restart pending" v={pt.pendingReboot ? "Yes — restart to finish updates" : "No"} tone={pt.pendingReboot ? "warn" : "good"} />
         {pt.lastSearch && <Row k="Last check for updates" v={fmtDateTime(pt.lastSearch)} />}
         {pt.service && <Row k="Windows Update service" v={pt.service} tone={/Disabled/i.test(pt.service) ? "bad" : undefined} />}
-        {(pt.history || []).length > 0 && <details className="mt-1"><summary className="cursor-pointer text-muted-foreground">Recent updates ({pt.history.length})</summary>
+        {(pt.history || []).length > 0 && <details open={full || undefined} className="mt-1"><summary className="cursor-pointer text-muted-foreground">Recent updates ({pt.history.length})</summary>
           <div className="mt-1 border rounded divide-y">{pt.history.map((u: any, i: number) => <div key={i} className="px-2 py-1 flex gap-2"><span className="flex-1">{u.title}</span><span className={cn("whitespace-nowrap", /Failed|Aborted/.test(u.result) && "text-red-600")}>{u.result}</span><span className="text-muted-foreground whitespace-nowrap">{fmtDate(u.date)}</span></div>)}</div></details>}
       </Group>
       <Group title="Ports & access" icon={EyeOff}>
@@ -346,7 +356,7 @@ function IgnoreDialog({ alert, host, onClose, onDone }: { alert: any; host?: str
     <Dialog open onOpenChange={o => !o && !busy && onClose()}><DialogContent className="max-w-md">
       <DialogHeader><DialogTitle>Ignore health item</DialogTitle><DialogDescription>{alert.message}. It stays on record, is shown as ignored and does not make the device Critical or Warning.{alert.ticketNo ? ` The reason is added to ${alert.ticketNo}.` : ""}</DialogDescription></DialogHeader>
       <div className="space-y-2">
-        <div className="space-y-1"><div className="text-xs font-medium">Reason *</div><Textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. G: is the card reader — not a real drive" /></div>
+        <div className="space-y-1"><div className="text-xs font-medium">Reason *</div><Textarea minChars={10} rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. G: is the card reader — not a real drive" /></div>
         <div className="space-y-1"><div className="text-xs font-medium">Ignore until (optional — blank = until it is fixed)</div><Input type="date" value={until} onChange={e => setUntil(e.target.value)} /></div>
       </div>
       <DialogFooter><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={go} disabled={busy || reason.trim().length < 10}>Ignore</Button></DialogFooter>

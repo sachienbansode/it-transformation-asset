@@ -314,11 +314,7 @@ function LicenseDetail({ id, onClose, onEdit }: { id: number; onClose: () => voi
           <Button size="sm" className="gap-1.5" onClick={() => setMode("user")}><Users className="w-3.5 h-3.5" />Assign to users</Button>
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setMode("device")}><Laptop className="w-3.5 h-3.5" />Assign to devices</Button>
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => onEdit(l)}><Edit className="w-3.5 h-3.5" />Edit</Button>
-          <Button size="sm" variant="ghost" className="gap-1.5 text-red-600 ml-auto" onClick={async () => {
-            if (active.length) { toast({ title: "Revoke the assigned seats first", description: `${active.length} seat(s) are still assigned.`, variant: "destructive" }); return; }
-            if (!await confirmDialog(`Delete license "${l.productName}"?`, { title: "Delete license", confirmText: "Delete", destructive: true })) return;
-            try { await apiFetch(`/asset-licenses/${id}`, { method: "DELETE" }); refresh(); toast({ title: "License deleted" }); onClose(); } catch (x: any) { toast({ title: "Could not delete", description: x.message, variant: "destructive" }); }
-          }}><Trash2 className="w-3.5 h-3.5" />Delete</Button>
+          
         </div>}
         {mode && <AssignPanel lic={l} mode={mode} assignedAssetIds={active.filter(a => a.assetId).map(a => a.assetId)} onClose={() => setMode(null)} onDone={() => { refresh(); setMode(null); }} />}
         <div>

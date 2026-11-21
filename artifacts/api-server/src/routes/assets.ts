@@ -521,7 +521,7 @@ router.delete("/asset-vendors/:id", requireAuth, async (req, res) => {
     if (u.assets || u.licenses || u.contracts) { res.status(409).json({ error: `${old?.name || "This vendor"} is used by ${[u.assets && `${u.assets} asset(s)`, u.licenses && `${u.licenses} licence(s)`, u.contracts && `${u.contracts} contract(s)`].filter(Boolean).join(", ")} — it cannot be deleted. Set its status to Inactive instead.`, usage: u }); return; }
     const performedBy = await getPerformedBy((req.session as any)?.userId).catch(() => "System");
     await db.update(assetVendorsTable).set({ isActive: false }).where(eq(assetVendorsTable.id, id));
-    await safeLog({ entityType: "asset_vendor", entityId: id, action: "delete", performedBy, summary: `Deleted vendor: ${old?.name || id}`, context: buildContext(req, "Vendors") });
+    await safeLog({ entityType: "asset_vendor", entityId: id, action: "deactivate", performedBy, summary: `Deactivated vendor: ${old?.name || id}`, context: buildContext(req, "Vendors") });
     res.status(204).end();
   } catch (e) { handleError(res, e); }
 });

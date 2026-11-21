@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Package, Star, CheckCircle2, Clock, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Package, Star, CheckCircle2, Clock, Download, Power } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -43,7 +43,7 @@ export default function AssetVendors() {
 
   const createVendor = useMutation({ mutationFn: (data: any) => apiFetch("/asset-vendors", { method: "POST", body: JSON.stringify(data) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["asset-vendors"] }) });
   const updateVendor = useMutation({ mutationFn: ({ id, ...data }: any) => apiFetch(`/asset-vendors/${id}`, { method: "PATCH", body: JSON.stringify(data) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["asset-vendors"] }) });
-  const deleteVendor = useMutation({ mutationFn: (id: number) => apiFetch(`/asset-vendors/${id}`, { method: "DELETE" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["asset-vendors"] }) });
+  const deleteVendor = useMutation({ mutationFn: (id: number) => apiFetch(`/asset-vendors/${id}/deactivate`, { method: "POST" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["asset-vendors"] }) });
 
   const filtered = useMemo(() => {
     let list = vendors;
@@ -94,8 +94,8 @@ export default function AssetVendors() {
   async function handleDelete(id: number, name: string) {
     const u: any = await apiFetch(`/asset-vendors/${id}/usage`).catch(() => null);
     if (u && (u.assets || u.licenses || u.contracts)) { await confirmDialog(`"${name}" is used by ${[u.assets && `${u.assets} asset(s)`, u.licenses && `${u.licenses} licence(s)`, u.contracts && `${u.contracts} contract(s)`].filter(Boolean).join(", ")}, so it cannot be deleted.\n\nSet its status to Inactive instead — it then stops appearing for new assets but its history is kept.`, { title: "Vendor in use", confirmText: "OK", cancelText: "" }); return; }
-    if (!await confirmDialog(`Delete vendor "${name}"? It is not linked to any asset, licence or contract.`, { title: "Delete vendor", confirmText: "Delete", destructive: true })) return;
-    try { await deleteVendor.mutateAsync(id); toast({ title: "Vendor deleted" }); }
+    if (!await confirmDialog(`Deactivate vendor "${name}"? It is not linked to any asset, licence or contract. History is kept.`, { title: "Deactivate vendor", confirmText: "Deactivate", destructive: true })) return;
+    try { await deleteVendor.mutateAsync(id); toast({ title: "Vendor deactivated" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }
 
@@ -152,7 +152,7 @@ export default function AssetVendors() {
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(v)} className="p-1.5 rounded hover:bg-muted" title="View"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
                       {isAdmin && <button onClick={() => openEdit(v)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>}
-                      {isAdmin && <button onClick={() => handleDelete(v.id, v.name)} className="p-1.5 rounded hover:bg-muted" title="Delete"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
+                      {isAdmin && <button onClick={() => handleDelete(v.id, v.name)} className="p-1.5 rounded hover:bg-muted" title="Deactivate"><Power className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>

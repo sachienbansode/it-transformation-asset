@@ -218,7 +218,7 @@ function PublishDialog({ p, onClose, onDone }: { p: any; onClose: () => void; on
   return (
     <Dialog open onOpenChange={o => !o && !busy && onClose()}><DialogContent className="max-w-md">
       <DialogHeader><DialogTitle>Publish {p.title}</DialogTitle><DialogDescription>{p.version ? `Version ${p.version + 1} replaces version ${p.version}; everyone in the audience must accept again.` : "Users in the audience will be asked to accept it."}{p.requirement === "Mandatory" && p.blockAccess ? ` IT Hub access is halted for anyone who has not accepted ${p.dueDays ? `after ${p.dueDays} days` : "— immediately"}.` : ""}</DialogDescription></DialogHeader>
-      <div className="space-y-1"><div className="text-xs font-medium">{p.version ? "What changed (shown to users) *" : "Note (optional)"}</div><Textarea rows={3} value={note} onChange={e => setNote(e.target.value)} /></div>
+      <div className="space-y-1"><div className="text-xs font-medium">{p.version ? "What changed (shown to users) *" : "Note (optional)"}</div><Textarea minChars={3} rows={3} value={note} onChange={e => setNote(e.target.value)} /></div>
       <DialogFooter><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={go} disabled={busy || (p.version > 0 && note.trim().length < 3)}>{busy && <Loader2 className="w-4 h-4 animate-spin mr-1" />}Publish</Button></DialogFooter>
     </DialogContent></Dialog>
   );

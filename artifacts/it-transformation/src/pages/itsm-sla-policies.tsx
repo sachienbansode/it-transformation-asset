@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Shield, Clock, Timer, Target, AlertTriangle, Bug, GitBranch, Headphones, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Shield, Clock, Timer, Target, AlertTriangle, Bug, GitBranch, Headphones, Download, Power } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -55,7 +55,7 @@ export default function ItsmSlaPolicies() {
 
   const createSla = useMutation({ mutationFn: (d: any) => apiFetch("/sla-policies", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sla-policies"] }) });
   const updateSla = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/sla-policies/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sla-policies"] }) });
-  const deleteSla = useMutation({ mutationFn: (id: number) => apiFetch(`/sla-policies/${id}`, { method: "DELETE" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sla-policies"] }) });
+  const deleteSla = useMutation({ mutationFn: (id: number) => apiFetch(`/sla-policies/${id}/deactivate`, { method: "POST" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sla-policies"] }) });
 
   const typeSlas = useMemo(() => slas.filter((s: any) => s.ticketType === activeType), [slas, activeType]);
 
@@ -91,8 +91,8 @@ export default function ItsmSlaPolicies() {
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!await confirmDialog(`Delete SLA policy "${name}"?`)) return;
-    try { await deleteSla.mutateAsync(id); toast({ title: "SLA policy deleted" }); }
+    if (!await confirmDialog(`Deactivate SLA policy "${name}"? History is kept.`, { title: "Deactivate SLA policy", confirmText: "Deactivate", destructive: true })) return;
+    try { await deleteSla.mutateAsync(id); toast({ title: "SLA policy deactivated" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }
 
@@ -167,7 +167,7 @@ export default function ItsmSlaPolicies() {
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(s)} className="p-1.5 rounded hover:bg-muted"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
                       {canEdit && <button onClick={() => openEdit(s)} className="p-1.5 rounded hover:bg-muted"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>}
-                      {canDelete && <button onClick={() => handleDelete(s.id, s.name)} className="p-1.5 rounded hover:bg-muted"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
+                      {canDelete && <button onClick={() => handleDelete(s.id, s.name)} className="p-1.5 rounded hover:bg-muted" title="Deactivate"><Power className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>

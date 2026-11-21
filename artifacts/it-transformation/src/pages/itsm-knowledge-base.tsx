@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, BookOpen, CheckCircle2, Clock, FileText, ThumbsUp, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, BookOpen, CheckCircle2, Clock, FileText, ThumbsUp, Download, Power } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -47,7 +47,7 @@ export default function ItsmKnowledgeBase() {
 
   const createArticle = useMutation({ mutationFn: (d: any) => apiFetch("/knowledge-base", { method: "POST", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }) });
   const updateArticle = useMutation({ mutationFn: ({ id, ...d }: any) => apiFetch(`/knowledge-base/${id}`, { method: "PATCH", body: JSON.stringify(d) }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }) });
-  const deleteArticle = useMutation({ mutationFn: (id: number) => apiFetch(`/knowledge-base/${id}`, { method: "DELETE" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }) });
+  const deleteArticle = useMutation({ mutationFn: (id: number) => apiFetch(`/knowledge-base/${id}/deactivate`, { method: "POST" }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }) });
 
   const filtered = useMemo(() => {
     let list = articles;
@@ -75,8 +75,8 @@ export default function ItsmKnowledgeBase() {
   }
 
   async function handleDelete(id: number, title: string) {
-    if (!await confirmDialog(`Delete article "${title}"?`)) return;
-    try { await deleteArticle.mutateAsync(id); toast({ title: "Article deleted" }); }
+    if (!await confirmDialog(`Deactivate article "${title}"? It is hidden from the knowledge base; history is kept.`, { title: "Deactivate article", confirmText: "Deactivate", destructive: true })) return;
+    try { await deleteArticle.mutateAsync(id); toast({ title: "Article deactivated" }); }
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }
 
@@ -126,7 +126,7 @@ export default function ItsmKnowledgeBase() {
                     <div className="flex gap-1 justify-center">
                       <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
                       {canEdit && <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>}
-                      {canDelete && <button onClick={() => handleDelete(a.id, a.title)} className="p-1.5 rounded hover:bg-muted"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
+                      {canDelete && <button onClick={() => handleDelete(a.id, a.title)} className="p-1.5 rounded hover:bg-muted" title="Deactivate"><Power className="w-3.5 h-3.5 text-red-500" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>

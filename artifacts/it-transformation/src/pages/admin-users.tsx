@@ -312,7 +312,7 @@ export default function AdminUsers() {
                       <td className="px-3 py-2.5 text-right">
                         <div className="flex gap-0.5 justify-end">
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(u)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          
                         </div>
                       </td>
                     </tr>

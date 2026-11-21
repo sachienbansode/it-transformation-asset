@@ -53,7 +53,7 @@ export function ComplianceStatusMaster() {
                 <td className="px-3 py-2"><div className="flex gap-1 justify-end">
                   {!(r.isSystem && ["Pending", "Submitted", "Under Review", "Closed"].includes(r.name)) && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => call(`/compliance-statuses/${encodeURIComponent(r.name)}`, "PATCH", { isActive: !r.isActive }, r.isActive ? "Deactivated" : "Reactivated")}>{r.isActive ? "Deactivate" : "Reactivate"}</Button>}
                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEdit({ ...r, description: r.description ?? "" })}><Pencil className="h-3 w-3" /></Button>
-                  {!r.isSystem && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={async () => { if (await confirmDialog(`Remove status "${r.name}"? Only possible if nothing uses it.`, { title: "Remove status", confirmText: "Remove", destructive: true })) call(`/compliance-statuses/${encodeURIComponent(r.name)}`, "DELETE", undefined, "Removed"); }}><Trash2 className="h-3 w-3" /></Button>}
+                  
                 </div></td>
               </tr>))}
           </tbody>

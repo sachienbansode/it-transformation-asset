@@ -49,8 +49,7 @@ export function GridTable({ grid, templateGrid, merges, editable, onChange }: { 
                   </td>);
               })}
               {editable && <td className="pl-1 align-middle w-8">
-                {added ? <button type="button" title="Delete this row" onClick={() => delRow(r)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>
-                  : hasValues ? <button type="button" title="Clear the values in this row" onClick={() => clearRow(r)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-accent"><Eraser className="w-3.5 h-3.5 text-muted-foreground" /></button> : null}
+                {hasValues ? <button type="button" title="Clear the values in this row" onClick={() => clearRow(r)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-accent"><Eraser className="w-3.5 h-3.5 text-muted-foreground" /></button> : null}
               </td>}
             </tr>
           );

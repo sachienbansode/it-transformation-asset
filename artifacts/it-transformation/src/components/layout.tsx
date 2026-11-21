@@ -116,7 +116,7 @@ function NavItem({
       <div
         title={collapsed ? label : undefined}
         className={cn(
-          "group relative flex items-center gap-3 rounded-[9px] text-[13px] font-medium transition-colors duration-150 cursor-pointer my-0.5",
+          "group relative flex items-center gap-3 rounded-[9px] text-[10.5px] font-normal transition-colors duration-150 cursor-pointer my-0.5",
           collapsed ? "px-2.5 py-2 justify-center" : "px-3 py-[7px]",
           active
             ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold before:content-[''] before:absolute before:-left-1.5 before:top-2 before:bottom-2 before:w-[3px] before:rounded-r before:bg-sidebar-primary"
@@ -146,7 +146,7 @@ function SectionLabel({
       onClick={onToggle}
       className="w-full flex items-center justify-between px-3 pt-4 pb-1.5 group/sec"
     >
-      <span className="text-[10px] font-semibold uppercase tracking-[1.2px] text-muted-foreground/80 select-none group-hover/sec:text-foreground transition-colors">
+      <span className="text-[12.5px] font-bold uppercase tracking-[0.6px] text-foreground/85 select-none group-hover/sec:text-foreground transition-colors">
         {children}
       </span>
       <ChevronDown className={cn(

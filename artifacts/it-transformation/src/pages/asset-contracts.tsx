@@ -232,10 +232,7 @@ function ContractDetail({ id, onClose, onEdit }: { id: number; onClose: () => vo
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => onEdit(c)}><Edit className="w-3.5 h-3.5" />Edit</Button>
           {canRenew && <Button size="sm" className="gap-1.5" onClick={() => setRenew({ startDate: nextDay(c.endDate), endDate: addYears(nextDay(c.endDate), 1), value: c.value ?? "" })}><RefreshCw className="w-3.5 h-3.5" />Renew</Button>}
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAdding([])}><Plus className="w-3.5 h-3.5" />Add assets</Button>
-          <Button size="sm" variant="ghost" className="gap-1.5 text-red-600 ml-auto" disabled={busy} onClick={async () => {
-            if (!await confirmDialog(`Delete contract ${c.contractNo}? Its ${c.assets.length} asset(s) will lose this coverage. Each asset's history keeps a record.`, { title: "Delete contract", confirmText: "Delete", destructive: true })) return;
-            await run(() => apiFetch(`/asset-contracts/${id}`, { method: "DELETE" }), "Contract deleted"); onClose();
-          }}><Trash2 className="w-3.5 h-3.5" />Delete</Button>
+          
         </div>}
 
         {renew && <div className="rounded-[12px] border border-primary/40 bg-accent/40 p-3 space-y-3">

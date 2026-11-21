@@ -63,7 +63,7 @@ export function EvidencePanel({ target, companyId, docs, canEdit, defaultCategor
             {d.fileId && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => view({ url: fileUrl(d.fileId), downloadUrl: fileUrl(d.fileId, true), name: d.fileName, title: d.title, contentType: d.contentType })}><Eye className="w-3.5 h-3.5" /></Button>}
             {d.fileId && <a href={fileUrl(d.fileId, true)} title="Download"><Button type="button" size="icon" variant="ghost" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button></a>}
             {canEdit && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Unlink (keeps it in the library)" onClick={() => unlink(d)}><Unlink className="w-3.5 h-3.5 text-amber-600" /></Button>}
-            {canDelete && <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Delete permanently (admin)" onClick={() => { setReason(""); setDelDoc(d); }}><Trash2 className="w-3.5 h-3.5 text-red-600" /></Button>}
+            
           </div>
         ))}
       </div>

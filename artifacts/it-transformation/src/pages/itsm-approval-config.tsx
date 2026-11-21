@@ -11,8 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import {
   Plus, Pencil, Trash2, Shield, ChevronRight, RefreshCw,
-  AlertTriangle, Database, GitBranch, Clock, Info,
-} from "lucide-react";
+  AlertTriangle, Database, GitBranch, Clock, Info, Power } from "lucide-react";
 
 interface MatrixRule {
   id: number;
@@ -111,8 +110,8 @@ export default function ItsmApprovalConfig() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: number) => apiFetch(`/approval-matrix/${id}`, { method: "DELETE" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["approval-matrix"] }); toast({ title: "Rule deleted" }); setDeleteConfirm(null); },
+    mutationFn: (id: number) => apiFetch(`/approval-matrix/${id}/deactivate`, { method: "POST" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["approval-matrix"] }); toast({ title: "Rule deactivated" }); setDeleteConfirm(null); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
@@ -263,8 +262,8 @@ export default function ItsmApprovalConfig() {
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => openEdit(rule)}>
                                   <Pencil className="h-3 w-3" />
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => setDeleteConfirm(rule)}>
-                                  <Trash2 className="h-3 w-3" />
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" title="Deactivate" onClick={() => setDeleteConfirm(rule)}>
+                                  <Power className="h-3 w-3" />
                                 </Button>
                               </div>
                             </div>
@@ -412,16 +411,16 @@ export default function ItsmApprovalConfig() {
       <Dialog open={!!deleteConfirm} onOpenChange={open => !open && setDeleteConfirm(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete Approval Rule?</DialogTitle>
+            <DialogTitle>Deactivate approval rule?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This will remove the <strong>{deleteConfirm?.approverLevel}</strong> ({deleteConfirm?.approverRole}) rule for <strong>{deleteConfirm?.ticketType}</strong>.
+            This will deactivate the <strong>{deleteConfirm?.approverLevel}</strong> ({deleteConfirm?.approverRole}) rule for <strong>{deleteConfirm?.ticketType}</strong>.
             Existing tickets will not be affected.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteConfirm && deleteMut.mutate(deleteConfirm.id)} disabled={deleteMut.isPending}>
-              Delete Rule
+              Deactivate rule
             </Button>
           </DialogFooter>
         </DialogContent>

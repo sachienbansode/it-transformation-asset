@@ -308,7 +308,7 @@ export default function AssetRegistry() {
                       <button onClick={() => setViewModal(a)} className="p-1.5 rounded hover:bg-muted" title="View details"><Eye className="w-3.5 h-3.5 text-muted-foreground" /></button>
                       <button onClick={() => setStickerAssets([a])} className="p-1.5 rounded hover:bg-muted" title="QR sticker"><Tag className="w-3.5 h-3.5 text-[#2D7FF9]" /></button>
                       {isAdmin && <button onClick={() => openEdit(a)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Edit className="w-3.5 h-3.5 text-blue-600" /></button>}
-                      {isAdmin && <button onClick={() => handleDelete(a.id, a.name)} className="p-1.5 rounded hover:bg-muted" title="Delete"><Trash2 className="w-3.5 h-3.5 text-red-500" /></button>}
+                      
                     </div>
                   </TableCell>
                 </TableRow>
@@ -641,7 +641,7 @@ export default function AssetRegistry() {
 
           <div className="mt-3">
             <Label className="text-xs font-medium">{editingItem ? "Comment — reason for this change *" : "Comment"}</Label>
-            <Textarea rows={2} value={formData.comment || ""} onChange={e => setField("comment", e.target.value)}
+            <Textarea minChars={3} rows={2} value={formData.comment || ""} onChange={e => setField("comment", e.target.value)}
               placeholder={editingItem ? "e.g. RAM upgraded to 32GB per SR-0042; moved to 5th floor" : "Optional note recorded in the asset's history"} />
             {formErrors.comment && <p className="text-xs text-red-500 mt-1">{formErrors.comment}</p>}
           </div>

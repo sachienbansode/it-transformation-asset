@@ -178,17 +178,7 @@ export function TicketAttachments({ ticketType, ticketId, readonly = false }: Pr
               <Button size="icon" variant="ghost" className="h-5 w-5 shrink-0" onClick={() => handleDownload(att)} title="Download">
                 <Download className="h-3 w-3" />
               </Button>
-              {!readonly && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-5 w-5 shrink-0 text-destructive hover:text-destructive"
-                  onClick={() => deleteMut.mutate(att.id)}
-                  title="Delete"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              )}
+              
             </li>
           ))}
         </ul>

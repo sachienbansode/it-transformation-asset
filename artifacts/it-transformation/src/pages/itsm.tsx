@@ -228,7 +228,7 @@ export default function ITSM() {
                     <TableCell><Badge variant="outline" className={STATUS_BADGE[inc.status] || ""}>{inc.status}</Badge></TableCell>
                     <TableCell className="text-sm">{inc.assignedTo || "Unassigned"}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{timeSince(inc.createdAt)}</TableCell>
-                    {isAdmin && <TableCell><div className="flex gap-1"><button onClick={() => openModal("incident", inc)} className="p-1 hover:text-blue-600"><Edit className="w-4 h-4" /></button><button onClick={() => { deleteIncident.mutate(inc.id); toast({ title: "Incident deleted" }); }} className="p-1 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></div></TableCell>}
+                    {isAdmin && <TableCell><div className="flex gap-1"><button onClick={() => openModal("incident", inc)} className="p-1 hover:text-blue-600"><Edit className="w-4 h-4" /></button></div></TableCell>}
                   </TableRow>
                 ))}
               </TableBody>

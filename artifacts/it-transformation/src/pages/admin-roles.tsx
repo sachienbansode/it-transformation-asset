@@ -272,11 +272,7 @@ export default function AdminRoles() {
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                       {role.isSystem && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-400/20 text-blue-600 dark:text-blue-400 font-medium">system</span>}
-                      {!role.isSystem && selectedRole?.id === role.id && (
-                        <button onClick={e => { e.stopPropagation(); deleteRole(role); }} className="text-muted-foreground hover:text-destructive transition-colors">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      
                     </div>
                   </div>
                 </button>

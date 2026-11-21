@@ -140,7 +140,7 @@ function DecideDialog({ d, onClose, onDone, toast }: { d: { rows: any[]; action:
       <DialogContent className="max-w-md">
         <DialogHeader><DialogTitle>{reject ? "Reject" : "Approve"} {one ? one.ticketNo : `${d.rows.length} tickets`}</DialogTitle>
           <DialogDescription>{one ? `${one.title} — ${one.level} (${one.role})` : d.rows.map(r => r.ticketNo).join(", ")}</DialogDescription></DialogHeader>
-        <div className="space-y-1.5"><label className="text-xs font-medium">{reject ? "Reason (sent to the requester) *" : "Comment (optional)"}</label><Textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} autoFocus /></div>
+        <div className="space-y-1.5"><label className="text-xs font-medium">{reject ? "Reason (sent to the requester) *" : "Comment (optional)"}</label><Textarea minChars={5} rows={3} value={notes} onChange={e => setNotes(e.target.value)} autoFocus /></div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button disabled={busy || (reject && notes.trim().length < 5)} className={cn("gap-1.5", reject ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700")} onClick={go}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}{reject ? "Reject" : "Approve"}{one ? "" : ` ${d.rows.length}`}</Button>

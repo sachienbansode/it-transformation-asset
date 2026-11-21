@@ -121,6 +121,16 @@ export async function createApp(): Promise<Express> {
     },
   }));
 
+  // r92: records are never deleted in any module — masters and set-up lists are deactivated instead.
+  // Only links and personal items can be removed (unlink, end a delegation, dismiss a notification, archive a KPI set, revoke a key).
+  const DELETE_OK = [/^\/notifications\//, /^\/push\//, /^\/roles\/\d+\/users\//, /^\/asset-contracts\/\d+\/assets\//, /^\/itsm-links\//,
+    /^\/approval-delegates\//, /^\/compliance-references\//, /^\/kpi-sets\//, /^\/asset-agent-codes\//, /^\/auth\//];
+  app.use("/api", (req, res, next) => {
+    const deact = req.method === "POST" && /^\/(asset-vendors|sla-policies|knowledge-base|approval-matrix)\/\d+\/deactivate$/.test(req.path);
+    if (deact) { req.method = "DELETE"; req.url = req.url.replace("/deactivate", ""); return next(); }   // these "delete" handlers only switch the record off
+    if (req.method !== "DELETE" || DELETE_OK.some(r => r.test(req.path))) return next();
+    res.status(405).json({ error: "Deleting is not allowed — deactivate, cancel or close the record instead" });
+  });
   app.use("/api", friendlyErrors, router);
 
   if (process.env.NODE_ENV === "production") {

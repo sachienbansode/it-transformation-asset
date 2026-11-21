@@ -1,3 +1,4 @@
+import { SearchSelect } from "@/components/search-select";
 import React, { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Label } from "@/components/ui/label";
@@ -79,16 +80,18 @@ export function RoutingPreview({ route, loading }: { route: any; loading?: boole
 }
 
 /** Assignee picker limited to members of one team. */
-export function TeamMemberSelect({ teamId, value, onChange, disabled }: { teamId?: number | null; value?: string | null; onChange: (v: string | null) => void; disabled?: boolean }) {
+export function TeamMemberSelect({ teamId, value, onChange, disabled, others }: { teamId?: number | null; value?: string | null; onChange: (v: string | null) => void; disabled?: boolean; others?: boolean }) {
   const { data: members = [], isLoading } = useTeamMembers(teamId);
+  // r92: ITSM admins can also pick someone outside the team; that person is added to the team on save
+  const { data: people = [] } = useQuery<any[]>({ queryKey: ["users-for-combobox"], queryFn: () => apiFetch("/itsm-people"), enabled: !!others });
+  const opts = [...members.map((m: any) => ({ value: m.name, label: `${m.name}${m.employeeCode ? ` (${m.employeeCode})` : ""}`, hint: "team" })),
+    ...(others ? people.filter((p: any) => p.userType !== "external" && !members.some((m: any) => m.id === p.id)).map((p: any) => ({ value: p.name, label: `${p.name}${p.employeeCode ? ` (${p.employeeCode})` : ""}`, hint: "adds to team" })) : [])];
   return (
-    <Select disabled={disabled || !teamId} value={value || "__none__"} onValueChange={v => onChange(v === "__none__" ? null : v)}>
-      <SelectTrigger><SelectValue placeholder={isLoading ? "Loading…" : "Select team member"} /></SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__none__">— Unassigned (team queue) —</SelectItem>
-        {members.map(m => <SelectItem key={m.id} value={m.name}>{m.name}{m.employeeCode ? ` · ${m.employeeCode}` : ""}</SelectItem>)}
-      </SelectContent>
-    </Select>
+    <div className="space-y-1" data-testid="team-member-select">
+      {disabled || !teamId ? <div className="h-9 rounded-md border px-3 text-sm flex items-center text-muted-foreground">{value || "— Unassigned (team queue) —"}</div>
+        : <SearchSelect options={[{ value: "__none__", label: "— Unassigned (team queue) —" }, ...opts]} value={value || "__none__"} onChange={v => onChange(v === "__none__" ? null : v)} placeholder={isLoading ? "Loading…" : "Select team member"} />}
+      {!isLoading && teamId && !members.length && <p className="text-[11px] text-amber-600">This team has no members yet{others ? " — pick anyone below; they are added to the team when you save" : " — ask an ITSM admin to add members in ITSM › Teams"}.</p>}
+    </div>
   );
 }
 
@@ -182,6 +185,7 @@ export function TransferFields({ currentTeamId, teamId, reason, onChange }: { cu
         </Select>
       </div>
       <div className="space-y-1.5"><Label>Reason {teamId && teamId !== currentTeamId ? "*" : ""}</Label><Input disabled={!teamId || teamId === currentTeamId} value={reason || ""} onChange={e => onChange(teamId ?? null, e.target.value)} placeholder="Why it goes to that team" /></div>
+      {!!teamId && teamId !== currentTeamId && (reason || "").trim().length < 5 && <p className="col-span-2 text-[11px] text-red-600" data-testid="transfer-reason-hint">Enter a reason (at least 5 characters) to pass this ticket to another team — or choose “Keep with current team” to save without passing it on.</p>}
     </div>
   );
 }

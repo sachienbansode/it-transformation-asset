@@ -463,7 +463,7 @@ export function ReviewHandoverDialog({ h, onClose, onDone }: { h: any; onClose: 
               <div className={cn("flex flex-wrap gap-1.5 rounded-md", tried && !reason && "ring-2 ring-red-400 ring-offset-2 p-1")}>{reasons.map(r => <button key={r} type="button" onClick={() => setReason(r)} className={cn("px-2.5 py-1 rounded-full border text-xs", reason === r ? "bg-red-600 text-white border-red-600" : "bg-card hover:bg-accent")}>{r}</button>)}</div>
               <p className={cn("text-[11px]", tried && !reason ? "text-red-600 font-medium" : "text-muted-foreground")}>{tried && !reason ? "Choose one of the options above" : "Tap the option that fits best"}</p>
             </div>
-            <div className="space-y-1.5"><Label className={field}>Details for IT *</Label><Textarea rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Serial on the laptop is 5CD1234, not H25CJP3; screen has a crack on the left corner" className={cn(tried && note.trim().length < 5 && "border-red-500")} />
+            <div className="space-y-1.5"><Label className={field}>Details for IT *</Label><Textarea minChars={5} rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Serial on the laptop is 5CD1234, not H25CJP3; screen has a crack on the left corner" className={cn(tried && note.trim().length < 5 && "border-red-500")} />
               {tried && note.trim().length < 5 && <p className="text-[11px] text-red-600 font-medium">Describe the problem (at least 5 characters)</p>}</div>
           </div>
         )}
@@ -499,7 +499,7 @@ export function ResolveIssueDialog({ h, onClose, onDone, onReturn }: { h: any; o
           <div className="text-[11px] font-semibold text-red-700 dark:text-red-300">{h.disputeReason}{h.disputeCount > 1 ? ` · reported ${h.disputeCount} times` : ""}</div>{h.disputeNote}
         </div>
         <p className="text-xs text-muted-foreground">Wrong asset? Use <b>Return</b> and issue the correct one instead. Otherwise fix the record or the asset, explain below, and the employee is asked to review and acknowledge again (and emailed).</p>
-        <div className="space-y-1.5"><Label className={field}>What was done *</Label><Textarea rows={3} value={text} onChange={e => setText(e.target.value)} placeholder="e.g. Serial corrected in the register; charger delivered to your desk" /></div>
+        <div className="space-y-1.5"><Label className={field}>What was done *</Label><Textarea minChars={5} rows={3} value={text} onChange={e => setText(e.target.value)} placeholder="e.g. Serial corrected in the register; charger delivered to your desk" /></div>
         <DialogFooter className="sm:justify-between gap-2">
           {onReturn ? <Button variant="outline" disabled={busy} onClick={() => { onClose(); onReturn(); }}>Return asset instead</Button> : <span />}
           <div className="flex gap-2"><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
@@ -706,7 +706,7 @@ export function AssetTrail({ assetId, assetTag }: { assetId: number; assetTag: s
         ))}
       </div>
       <div className="rounded-[10px] border p-2.5 space-y-2">
-        <Textarea rows={2} value={text} onChange={e => setText(e.target.value)} placeholder={`Add a comment to ${assetTag}'s history — e.g. physical check done, user reported an issue, PO reference…`} />
+        <Textarea minChars={5} rows={2} value={text} onChange={e => setText(e.target.value)} placeholder={`Add a comment to ${assetTag}'s history — e.g. physical check done, user reported an issue, PO reference…`} />
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-muted-foreground">Comments become part of the history and can't be edited later.</span>
           <Button size="sm" onClick={add} disabled={busy || !text.trim()}>{busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Add comment</Button>

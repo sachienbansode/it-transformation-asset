@@ -388,9 +388,7 @@ export default function Retirements() {
                     <Button variant="ghost" size="icon" onClick={() => handleOpenModal(item)}>
                       <Edit className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    
                   </TableCell>
                 )}
               </TableRow>
@@ -547,11 +545,7 @@ export default function Retirements() {
                       >
                         <Download className="h-3.5 w-3.5" />
                       </a>
-                      {isAdmin && (
-                        <button onClick={() => handleDeleteDoc(doc.id)} className="text-destructive hover:text-destructive/80">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      
                     </div>
                   ))}
                 </div>

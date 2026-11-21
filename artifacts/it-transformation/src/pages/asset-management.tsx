@@ -358,7 +358,7 @@ export default function AssetManagement() {
                         <div className="flex gap-1">
                           <button onClick={() => setStickerAsset(a)} className="p-1 hover:text-[#2D7FF9]" title="Print sticker"><Tag className="w-3.5 h-3.5" /></button>
                           <button onClick={() => openEdit(a)} className="p-1 hover:text-blue-600" title="Edit"><Edit className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => { deleteAsset.mutate(a.id); toast({ title: "Asset deleted" }); }} className="p-1 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                          
                         </div>
                       </TableCell>
                     )}
