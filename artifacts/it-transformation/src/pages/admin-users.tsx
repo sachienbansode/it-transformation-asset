@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { SearchSelect } from "@/components/search-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch, API } from "@/lib/api";
 import { getRoleLabel } from "@/lib/utils";
@@ -380,12 +381,7 @@ export default function AdminUsers() {
             </div>
             <div className="space-y-1.5">
               <Label>Department <span className="text-red-500">*</span></Label>
-              <Select value={form.department} onValueChange={v => setForm(f => ({ ...f, department: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
-                <SelectContent>
-                  {deptMasters.map(d => <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchSelect testId="user-dept" options={deptMasters.map(d => ({ value: d.key, label: d.label }))} value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))} placeholder="Select department" />
             </div>
             <div className="space-y-1.5">
               <Label>Mobile Number</Label>

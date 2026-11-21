@@ -13,23 +13,32 @@ import { fmtDate, fmtDateTime, fmtCell } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { SearchMulti, EmployeePicker } from "@/components/search-select";
+import { PolicyPdfViewer } from "@/components/policy-pdf-viewer";
+import { uploadFile } from "@/components/compliance-shared";
+import { useAuth } from "@/contexts/auth-context";
+import { FileText, Eye } from "lucide-react";
 import { Plus, Send, BellRing, Users, Download, History, Archive, Edit, Loader2, MoreHorizontal, PauseCircle, PlayCircle, Undo2, Copy, Trash2, ArchiveRestore, RotateCcw } from "lucide-react";
 
-/* Admin › Policies & Consent — write, publish (versioned) and track acceptance of policies, notices and consents. */
+/* Policies & Consent › Policy Register (ITH-124: own menu, role permission "policies") — — write, publish (versioned) and track acceptance of policies, notices and consents. */
 
 const csv = (rows: any[], cols: [string, string][], name: string) => {
   const e = (v: any) => { const x = String(fmtCell(v) ?? "").replace(/"/g, '""'); return /[,"\n]/.test(x) ? `"${x}"` : x; };
   const t = [cols.map(c => c[0]).join(","), ...rows.map(r => cols.map(c => e(r[c[1]])).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([t], { type: "text/csv" })), download: name }); a.click(); URL.revokeObjectURL(a.href);
 };
-const audText = (a: any) => a?.all ? "Everyone" : [a?.agentUsers && "Employees with the device agent", a?.roles?.length && `${a.roles.length} role(s)`, a?.departments?.length && a.departments.join(", "), a?.userTypes?.length && a.userTypes.join(" / ")].filter(Boolean).join(" · ") || "—";
+const audText = (a: any, deptLabel: (k: string) => string = k => k) => a?.all ? "Everyone" : [a?.agentUsers && "Employees with the device agent", a?.roles?.length && `${a.roles.length} role(s)`, a?.departments?.length && a.departments.map(deptLabel).join(", "), a?.userTypes?.length && a.userTypes.join(" / "), a?.users?.length && `${a.users.length} selected employee${a.users.length > 1 ? "s" : ""}`].filter(Boolean).join(" · ") || "—";
+const useDepartments = () => useQuery({ queryKey: ["masters-department"], queryFn: () => apiFetch<any[]>("/masters?category=department&active=true"), staleTime: 300_000 });
 
 export default function AdminPolicies() {
   const qc = useQueryClient(); const { toast } = useToast();
   const { data: list = [], isLoading } = useQuery({ queryKey: ["policies"], queryFn: () => apiFetch<any[]>("/policies") });
   const [edit, setEdit] = useState<any>(null); const [report, setReport] = useState<any>(null); const [publish, setPublish] = useState<any>(null);
   const [resend, setResend] = useState<any>(null); const [history, setHistory] = useState<any>(null); const [activate, setActivate] = useState<any>(null);
-  const [show, setShow] = useState<"current" | "all">("current");
+  const [show, setShow] = useState<"active" | "draft" | "inactive" | "retired" | "all">("active");
+  const { canAccess } = useAuth(); const canWrite = canAccess("policies", "write");
+  const { data: depts = [] } = useDepartments(); const deptLabel = (k: string) => depts.find((d: any) => d.key === k)?.label || k;
+  const [viewDoc, setViewDoc] = useState<any>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ["policies"] });
   async function act(p: any, path: string, body: any, ok: string) {
     try { await apiFetch(`/policies/${p.id}/${path}`, { method: "POST", body: JSON.stringify(body || {}) }); toast({ title: ok }); refresh(); }
@@ -48,15 +57,18 @@ export default function AdminPolicies() {
     if (!await confirmDialog(draft ? `Cancel the draft "${p.title}"? It has never been published and will be deleted.` : `Discard unpublished changes to "${p.title}"? The text goes back to version ${p.version}.`, { title: draft ? "Cancel draft" : "Discard changes", confirmText: draft ? "Delete draft" : "Discard", destructive: true })) return;
     act(p, "discard", {}, draft ? "Draft cancelled" : "Changes discarded");
   }
-  const visible = show === "all" ? list : list.filter((p: any) => p.status !== "Retired");
-  const retiredCount = list.filter((p: any) => p.status === "Retired").length;
+  // ITH-124: active policies first view (latest version), newest change on top (server sorts by last update)
+  const stOf: Record<string, (p: any) => boolean> = { active: p => p.status === "Published", draft: p => p.status === "Draft", inactive: p => p.status === "Inactive", retired: p => p.status === "Retired", all: () => true };
+  const visible = list.filter(stOf[show]);
+  const count = (k: string) => list.filter(stOf[k]).length;
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div><h1 className="text-2xl font-bold tracking-tight">Policies &amp; Consent</h1>
+        <div><h1 className="text-2xl font-bold tracking-tight">Policy Register</h1>
           <p className="text-sm text-muted-foreground">Publish policies, notices and consents; every acceptance is recorded with the version, text fingerprint, time, IP and browser. Mandatory items lock IT Hub for a person once the days to accept have passed.</p></div>
-        <div className="flex gap-2 items-center">{retiredCount > 0 && <select className="h-9 rounded-md border bg-background px-2 text-sm" value={show} onChange={e => setShow(e.target.value as any)}><option value="current">Hide retired ({retiredCount})</option><option value="all">Show retired</option></select>}
-        <Button className="gap-2" onClick={() => setEdit({ requirement: "Mandatory", category: "Policy", dueDays: 7, audience: { all: true }, allowWithdraw: true, push: true, blockAccess: true })}><Plus className="w-4 h-4" />New policy / notice</Button></div>
+        <div className="flex gap-2 items-center"><select data-testid="policy-filter" className="h-9 rounded-md border bg-background px-2 text-sm" value={show} onChange={e => setShow(e.target.value as any)}>
+          {([["active", "Active"], ["draft", "Drafts"], ["inactive", "Inactive"], ["retired", "Retired"], ["all", "All"]] as const).map(([k, l]) => <option key={k} value={k}>{l} ({count(k)})</option>)}</select>
+        {canWrite && <Button className="gap-2" onClick={() => setEdit({ requirement: "Mandatory", category: "Policy", dueDays: 7, audience: { all: true }, allowWithdraw: true, push: true, blockAccess: true })}><Plus className="w-4 h-4" />New policy / notice</Button>}</div>
       </div>
       <Card><CardContent className="p-0 overflow-x-auto">
         <table className="w-full text-sm">
@@ -65,16 +77,17 @@ export default function AdminPolicies() {
             {isLoading && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Loading…</td></tr>}
             {visible.map((p: any) => { const st = p.stats; const pct = st?.audience ? Math.round(st.accepted / st.audience * 100) : 0; return (
               <tr key={p.id} className="border-b last:border-0">
-                <td className="p-3"><div className="font-medium">{p.title}</div><div className="text-xs text-muted-foreground">{p.code}{p.version ? ` · v${p.version} · ${fmtDate(p.publishedAt)}` : " · draft"}{p.systemKey ? " · built-in" : ""}</div>
+                <td className="p-3"><div className="font-medium flex items-center gap-1.5">{p.title}{p.document && <button title={`View ${p.document.name}`} className="text-primary" onClick={() => setViewDoc({ p, draft: !p.publishedDocumentId || p.unpublishedChanges })}><FileText className="w-3.5 h-3.5" /></button>}</div>
+                  <div className="text-xs text-muted-foreground">{p.code}{p.version ? ` · latest v${p.version} · published ${fmtDate(p.publishedAt)}` : " · draft"}{p.systemKey ? " · built-in" : ""} · updated {fmtDateTime(p.updatedAt)}</div>
                   {p.unpublishedChanges && <div className="text-[11px] text-amber-700 dark:text-amber-300">Edited — publish a new version for users to accept</div>}</td>
                 <td className="p-3 text-xs"><span className={cn("px-2 py-0.5 rounded-full font-semibold", p.requirement === "Mandatory" ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300" : p.requirement === "Optional" ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300" : "bg-muted")}>{p.requirement}</span><div className="text-muted-foreground mt-0.5">{p.category}{p.requirement === "Mandatory" ? (p.blockAccess ? ` · access halted ${p.dueDays ? `after ${p.dueDays} days` : "immediately"}` : ` · ${p.dueDays} days, reminders only`) : ""}</div></td>
-                <td className="p-3 text-xs">{audText(p.audience)}</td>
+                <td className="p-3 text-xs">{audText(p.audience, deptLabel)}</td>
                 <td className="p-3 text-xs min-w-[180px]">{st ? <><div className="flex justify-between"><span>{st.accepted} of {st.audience} accepted</span><span className="font-semibold">{pct}%</span></div>
                   <div className="h-1.5 rounded-full bg-muted overflow-hidden mt-1"><div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
                   <div className="text-muted-foreground mt-0.5">{st.pending} pending{st.declined ? ` · ${st.declined} declined` : ""}{st.overdue ? <span className="text-red-600"> · {st.overdue} access halted</span> : ""}</div></> : <span className="text-muted-foreground">—</span>}</td>
                 <td className="p-3 text-xs"><StatusBadge p={p} />{p.statusNote && <div className="text-muted-foreground mt-0.5 max-w-[180px] truncate" title={p.statusNote}>{p.statusNote}</div>}
                   {p.status === "Published" && p.requirement === "Mandatory" && p.dueAt && <div className="text-muted-foreground mt-0.5">accept by {fmtDate(p.dueAt)}</div>}</td>
-                <td className="p-3 text-right whitespace-nowrap">
+                <td className="p-3 text-right whitespace-nowrap">{!canWrite ? <>{p.version > 0 && <Button size="sm" variant="ghost" title="Who accepted" onClick={() => setReport(p)}><Users className="w-4 h-4" /></Button>}{p.version > 0 && <Button size="sm" variant="ghost" title="Version history" onClick={() => setHistory(p)}><History className="w-4 h-4" /></Button>}</> : <>
                   {p.status !== "Retired" && <Button size="sm" variant="ghost" title="Edit" onClick={() => setEdit(p)}><Edit className="w-4 h-4" /></Button>}
                   {p.status !== "Retired" && (p.version === 0 || p.unpublishedChanges) && <Button size="sm" variant="outline" className="gap-1" onClick={() => setPublish(p)}><Send className="w-3.5 h-3.5" />Publish</Button>}
                   {p.version > 0 && <Button size="sm" variant="ghost" title="Who accepted" onClick={() => setReport(p)}><Users className="w-4 h-4" /></Button>}
@@ -90,10 +103,10 @@ export default function AdminPolicies() {
                       <DropdownMenuItem onClick={() => act(p, "duplicate", {}, "Copied as a new draft")}><Copy className="w-4 h-4 mr-2" />Duplicate as new draft</DropdownMenuItem>
                       {p.status === "Retired" && <DropdownMenuItem onClick={() => act(p, "unretire", {}, "Restored")}><ArchiveRestore className="w-4 h-4 mr-2" />Restore from retired</DropdownMenuItem>}
                       {p.status !== "Retired" && !p.systemKey && p.version > 0 && <><DropdownMenuSeparator /><DropdownMenuItem className="text-red-600" onClick={() => retire(p)}><Archive className="w-4 h-4 mr-2" />Retire</DropdownMenuItem></>}
-                    </DropdownMenuContent></DropdownMenu>
+                    </DropdownMenuContent></DropdownMenu></>}
                 </td>
               </tr>); })}
-            {!isLoading && !visible.length && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No policies yet.</td></tr>}
+            {!isLoading && !visible.length && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">{list.length ? "Nothing in this view — change the filter." : "No policies yet."}</td></tr>}
           </tbody>
         </table>
       </CardContent></Card>
@@ -103,20 +116,30 @@ export default function AdminPolicies() {
       {resend && <ResendDialog p={resend} onClose={() => setResend(null)} onDone={refresh} />}
       {activate && <ActivateDialog p={activate} onClose={() => setActivate(null)} onDone={refresh} />}
       {history && <HistorySheet p={history} onClose={() => setHistory(null)} onDone={refresh} />}
+      {viewDoc && <Dialog open onOpenChange={o => !o && setViewDoc(null)}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>{viewDoc.p.title}</DialogTitle><DialogDescription>{viewDoc.draft ? "Working copy (not yet published)" : `Version ${viewDoc.p.version}`} · {viewDoc.p.document?.name}</DialogDescription></DialogHeader>
+        <PolicyPdfViewer src={viewDoc.draft ? `/api/policies/${viewDoc.p.id}/document?draft=1` : `/api/policies/${viewDoc.p.id}/document?version=${viewDoc.version || viewDoc.p.version}`} /></DialogContent></Dialog>}
     </div>
   );
 }
 
 function EditDialog({ p, onClose, onDone }: { p: any; onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
-  const { data: roles = [] } = useQuery({ queryKey: ["roles"], queryFn: () => apiFetch<any[]>("/roles") });
+  const { data: roles = [] } = useQuery({ queryKey: ["roles"], queryFn: () => apiFetch<any>("/roles").then((r: any) => Array.isArray(r) ? r : r.roles || []) });
+  const { data: depts = [] } = useDepartments();
+  const [pdf, setPdf] = useState<File | null>(null); const [removeDoc, setRemoveDoc] = useState(false); const [preview, setPreview] = useState(false);
   const [f, setF] = useState<any>({ ...p, audience: p.audience || { all: true } }); const [busy, setBusy] = useState(false);
   const set = (k: string, v: any) => setF((x: any) => ({ ...x, [k]: v })); const setA = (k: string, v: any) => setF((x: any) => ({ ...x, audience: { ...x.audience, [k]: v } }));
   const a = f.audience;
   async function save() {
     setBusy(true);
     try {
-      const body = { title: f.title, body: f.body, category: f.category, requirement: f.requirement, dueDays: Number(f.dueDays), audience: a, allowWithdraw: f.allowWithdraw, push: f.push, blockAccess: f.blockAccess !== false };
+      let documentPath: string | undefined;
+      if (pdf) {
+        if (!/\.pdf$/i.test(pdf.name) || (pdf.type && pdf.type !== "application/pdf")) throw new Error("Only PDF files can be attached");
+        if (pdf.size > 20 * 1024 * 1024) throw new Error("The PDF is larger than 20 MB");
+        documentPath = (await uploadFile(pdf)).objectPath;
+      }
+      const body = { title: f.title, body: f.body, category: f.category, requirement: f.requirement, dueDays: Number(f.dueDays), audience: a, allowWithdraw: f.allowWithdraw, push: f.push, blockAccess: f.blockAccess !== false, documentPath, removeDocument: removeDoc && !pdf ? true : undefined };
       if (p.id) { const r = await apiFetch<any>(`/policies/${p.id}`, { method: "PATCH", body: JSON.stringify(body) }); toast({ title: "Saved", description: r.note }); }
       else { await apiFetch("/policies", { method: "POST", body: JSON.stringify(body) }); toast({ title: "Draft saved — publish it when ready" }); }
       onDone(); onClose();
@@ -139,14 +162,24 @@ function EditDialog({ p, onClose, onDone }: { p: any; onClose: () => void; onDon
             <span className="text-muted-foreground">{f.blockAccess !== false ? (Number(f.dueDays) === 0 ? "days after publishing — i.e. immediately: nobody can use IT Hub until they accept" : "days after publishing for anyone who has not accepted (only My Policies stays open)") : "days (reminders only — access is never halted)"}</span>
           </div>
         </div>}
-        <div className="space-y-1"><div className="text-xs font-medium">Text *</div><Textarea rows={10} value={f.body || ""} onChange={e => set("body", e.target.value)} placeholder="The full text users read before accepting." /></div>
+        <div className="space-y-1"><div className="text-xs font-medium">Text {pdf || (p.document && !removeDoc) ? "(summary — the PDF is the policy)" : "*"}</div><Textarea rows={8} value={f.body || ""} onChange={e => set("body", e.target.value)} placeholder="The full text users read before accepting, or a short summary when you attach the PDF." /></div>
+        <div className="space-y-1.5 rounded-lg border p-3" data-testid="policy-pdf-field">
+          <div className="text-xs font-medium flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />Policy document (PDF only, up to 20 MB)</div>
+          {p.document && !removeDoc && !pdf && <div className="flex items-center gap-2 text-xs flex-wrap"><span className="font-medium">{p.document.name}</span><span className="text-muted-foreground">{Math.round(p.document.size / 1024)} KB{p.document.pages ? ` · ${p.document.pages} pages` : ""} · #{String(p.document.sha256).slice(0, 10)}</span>
+            <Button size="sm" variant="ghost" className="h-7 gap-1" onClick={() => setPreview(!preview)}><Eye className="w-3.5 h-3.5" />{preview ? "Hide" : "Preview"}</Button><Button size="sm" variant="ghost" className="h-7 text-red-600" onClick={() => setRemoveDoc(true)}>Remove</Button></div>}
+          {preview && p.document && !removeDoc && !pdf && <PolicyPdfViewer src={`/api/policies/${p.id}/document?draft=1`} height="45vh" />}
+          {removeDoc && !pdf && <div className="text-xs text-amber-700">The PDF will be removed when you save. <button className="underline" onClick={() => setRemoveDoc(false)}>Undo</button></div>}
+          <input type="file" accept="application/pdf,.pdf" className="text-xs" onChange={e => { const x = e.target.files?.[0] || null; if (x && !/\.pdf$/i.test(x.name)) { toast({ title: "Only PDF files can be attached", variant: "destructive" }); e.target.value = ""; return; } setPdf(x); }} />
+          <div className="text-[11px] text-muted-foreground">Users read it inside IT Hub only: read-only, watermarked with their name, no download or print. Each published version keeps its own PDF.</div>
+        </div>
         <div className="space-y-2 rounded-lg border p-3">
           <div className="text-xs font-medium">Who must accept</div>
           <label className="flex items-center gap-2 text-sm"><input type="radio" checked={!!a.all} onChange={() => set("audience", { all: true })} />Everyone using IT Hub</label>
-          <label className="flex items-center gap-2 text-sm"><input type="radio" checked={!a.all} onChange={() => set("audience", { all: false, roles: [], departments: [], userTypes: [], ...(p.systemKey === "device_agent" ? { agentUsers: true } : {}) })} />Selected groups</label>
+          <label className="flex items-center gap-2 text-sm"><input type="radio" checked={!a.all} onChange={() => set("audience", { all: false, roles: [], departments: [], userTypes: [], users: [], ...(p.systemKey === "device_agent" ? { agentUsers: true } : {}) })} />Selected groups</label>
           {!a.all && <div className="pl-6 space-y-2">
             <div className="flex flex-wrap gap-1">{roles.map((r: any) => { const on = (a.roles || []).includes(r.id); return <button key={r.id} type="button" onClick={() => setA("roles", on ? a.roles.filter((x: number) => x !== r.id) : [...(a.roles || []), r.id])} className={cn("px-2 py-1 rounded border text-xs", on ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground")}>{r.name}</button>; })}</div>
-            <Input placeholder="Departments (comma separated), e.g. IT, Finance" value={(a.departments || []).join(", ")} onChange={e => setA("departments", e.target.value.split(",").map(x => x.trim()).filter(Boolean))} />
+            <div className="space-y-1"><div className="text-[11px] text-muted-foreground">Departments</div><SearchMulti testId="dept-multi" options={depts.map((d: any) => ({ value: d.key, label: d.label }))} value={a.departments || []} onChange={v => setA("departments", v)} placeholder="Add department…" /></div>
+            <div className="space-y-1"><div className="text-[11px] text-muted-foreground">Selected employees (added one by one)</div><EmployeePicker value={a.users || []} onChange={v => setA("users", v)} /></div>
             <div className="flex gap-3 text-sm">{["internal", "external"].map(t => <label key={t} className="flex items-center gap-1.5"><input type="checkbox" checked={(a.userTypes || []).includes(t)} onChange={e => setA("userTypes", e.target.checked ? [...(a.userTypes || []), t] : a.userTypes.filter((x: string) => x !== t))} />{t === "internal" ? "All internal staff" : "All external users"}</label>)}</div>
             {p.systemKey === "device_agent" && <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={!!a.agentUsers} onChange={e => setA("agentUsers", e.target.checked)} />Employees given a device agent key</label>}
           </div>}

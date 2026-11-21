@@ -1,4 +1,5 @@
 import { PushAdmin } from "@/components/push-admin";
+import { SearchSelect } from "@/components/search-select";
 import { ConfirmChangesSetting, ChatSettings, RecordingStorageSettings } from "@/components/confirm-setting";
 import React, { useState, useEffect } from "react";
 import { getRoleLabel, cn } from "@/lib/utils";
@@ -46,6 +47,8 @@ interface AdminUser {
   lastLoginAt?: string; createdAt: string;
 }
 interface AdminSettings {
+  company_name?: string;
+  email_domain?: string;
   "uploads.allowedFileTypes"?: string[] | string;
   "uploads.maxSizeMB"?: number | string;
   "auth.selfRegistration"?: boolean;
@@ -701,12 +704,7 @@ function UsersTab() {
             <div className="space-y-1.5"><Label>Employee Code *</Label><Input value={form.employeeCode} onChange={e => setForm(f => ({...f, employeeCode: e.target.value}))} placeholder="e.g. EMP001" /></div>
             <div className="space-y-1.5">
               <Label>Department *</Label>
-              <Select value={form.department} onValueChange={v => setForm(f => ({...f, department: v}))}>
-                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
-                <SelectContent>
-                  {deptMasters.map(d => <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchSelect options={deptMasters.map(d => ({ value: d.key, label: d.label }))} value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))} placeholder="Select department" />
             </div>
             <div className="space-y-1.5">
               <Label>Role</Label>

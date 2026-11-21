@@ -135,7 +135,7 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
 }
 
 function Router() {
-  const { user, loading, defaultDashboard } = useAuth();
+  const { user, loading, defaultDashboard, canAccess } = useAuth();
 
   if (loading) {
     return (
@@ -225,8 +225,9 @@ function Router() {
               <Route path="/my-device" component={MyDevice} />
               <Route path="/about" component={About} />
               <Route path="/chats" component={Chats} />
-              <Route path="/admin/policies">
-                {user.role === "admin" ? <AdminPolicies /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              <Route path="/admin/policies"><Redirect to="/policies" /></Route>
+              <Route path="/policies">
+                {canAccess("policies") ? <AdminPolicies /> : <Redirect to="/my-policies" />}
               </Route>
               <Route path="/admin/users">
                 {user.role === "admin" ? <AdminUsers /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}

@@ -1,3 +1,4 @@
+import { titleCase } from "../lib/title-case";
 import { Router, type Request, type Response } from "express";
 import { eq, and, sql } from "drizzle-orm";
 import { db, mastersTable, usersTable } from "@workspace/db";
@@ -115,7 +116,7 @@ router.get("/masters-admin/itsm-lists", requireAuth, wrap(async (req, res) => {
   res.json(ITSM_LISTS.map(l => ({ ...l, ...(cnt.find(c => c.category === l.key) || { active: 0, inactive: 0 }) })));
 }));
 
-const Body = z.object({ category: z.string().min(1).max(60).optional(), key: z.string().max(80).optional(), label: z.string().trim().min(1, "Enter a value").max(120),
+const Body = z.object({ category: z.string().min(1).max(60).optional(), key: z.string().max(80).optional(), label: z.string().trim().min(1, "Enter a value").max(120).transform(titleCase),
   parent: z.string().trim().max(120).nullable().optional(), color: z.string().max(40).nullable().optional(), sortOrder: z.number().int().min(0).max(9999).optional(), isActive: z.boolean().optional() });
 async function duplicate(category: string, label: string, parent: string | null, notId = 0) {
   const [d] = rowsOf(await db.execute(sql`SELECT id, is_active FROM masters WHERE category = ${category} AND lower(label) = ${label.toLowerCase()} AND coalesce(parent, '') = ${parent || ""} AND id <> ${notId} LIMIT 1`));

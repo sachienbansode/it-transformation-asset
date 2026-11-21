@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { SearchSelect } from "@/components/search-select";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -252,10 +253,7 @@ export function IssueDialog({ assets, onClose, onDone }: { assets: any[]; onClos
           <div className="col-span-2"><Label className={field}>Employee *</Label><EmployeePicker value={person} onChange={setPerson} /></div>
           <div>
             <Label className={field}>Department</Label>
-            <Select value={f.department || deptLabel(person?.department)} onValueChange={v => set("department", v)}>
-              <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-              <SelectContent>{depts.map((d: any) => <SelectItem key={d.key} value={d.label}>{d.label}</SelectItem>)}</SelectContent>
-            </Select>
+            <SearchSelect options={depts.map((d: any) => ({ value: d.label, label: d.label }))} value={f.department || deptLabel(person?.department)} onChange={v => set("department", v)} placeholder="Select" />
           </div>
           <div><Label className={field}>Location</Label><MasterField category="asset_location" value={f.location ?? assets[0]?.location} onChange={v => set("location", v)} placeholder="Select location" /></div>
           <div>

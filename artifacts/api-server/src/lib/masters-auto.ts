@@ -1,5 +1,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { titleCase } from "./title-case";
 
 /*
  * Department and Location are master-driven drop-downs. Uploads may bring values that are not in the masters yet:
@@ -22,7 +23,7 @@ export async function missingMasters(category: string, values: (string | null | 
 export async function ensureMasters(tx: any, category: string, values: (string | null | undefined)[]) {
   const have = await existingMasters(category, tx);
   const added: string[] = [];
-  for (const v of new Set(values.filter((x): x is string => !!x && !!x.trim()).map(x => x.trim()))) {
+  for (const v of new Set(values.filter((x): x is string => !!x && !!x.trim()).map(x => titleCase(x)))) {
     if (have.has(v.toLowerCase())) continue;
     let key = slug(v), n = 1;
     while (have.has(key)) key = `${slug(v)}_${++n}`;

@@ -31,6 +31,7 @@ export const MODULES = [
   { key: "itsm_approval", label: "Approval Workflow", group: "IT Service Management" },
   { key: "itsm_setup", label: "ITSM Setup (teams & categories)", group: "IT Service Management" },
   { key: "compliance", label: "Audit & Compliance", group: "Audit & Compliance" },
+  { key: "policies", label: "Policy Register (publish policies, track consent)", group: "Policies & Consent" },
   { key: "kpis", label: "KPI Management", group: "KPI & Reporting" },
   { key: "kpi_dashboard", label: "KPI Dashboard", group: "KPI & Reporting" },
   { key: "reports", label: "PPT Reports", group: "KPI & Reporting" },

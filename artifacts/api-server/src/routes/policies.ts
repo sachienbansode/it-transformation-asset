@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { logAudit, getPerformedBy } from "./audit-logs";
-import { getAccess } from "../lib/rbac";
+import { getAccess, can } from "../lib/rbac";
 
 /*
  * Policies & notices with recorded acceptance.
@@ -25,15 +25,20 @@ const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: 
   try { await fn(req, res); } catch (e: any) { if (!res.headersSent) fail(res, e?.status || 500, e?.message || String(e)); }
 };
 const uid = (req: Request) => (req.session as any)?.userId as number | undefined;
-async function admin(req: Request) { const a = await getAccess(req); return !!a?.isAdmin; }
+/** ITH-124 — Policy Register is its own module: role permission "policies" (read = see register / reports, write = create, edit, publish). Super Admin always. */
+async function admin(req: Request, level: "read" | "write" = "write") { const a = await getAccess(req); return !!a && can(a, "policies", level); }
+async function superAdmin(req: Request) { const a = await getAccess(req); return !!a?.isAdmin; }
+const NO_ACCESS = "Your role does not include the Policy Register (ask an administrator: Roles & Permissions › Policy Register)";
 
 /* ── who a policy applies to ───────────────────────────────────────────── */
-type Aud = { all?: boolean; roles?: number[]; departments?: string[]; userTypes?: string[]; agentUsers?: boolean };
+type Aud = { all?: boolean; roles?: number[]; departments?: string[]; userTypes?: string[]; agentUsers?: boolean; users?: number[] };
 function audSql(a: Aud) {
   if (a.all) return sql`u.is_active`;
   const parts = [];
   if (a.roles?.length) parts.push(sql`u.id IN (SELECT user_id FROM user_roles WHERE role_id IN (${sql.join(a.roles.map(Number).filter(Boolean).map(x => sql`${x}`), sql`, `)}))`);
-  if (a.departments?.length) parts.push(sql`lower(coalesce(u.department, '')) IN (${sql.join(a.departments.map(d => sql`${String(d).toLowerCase()}`), sql`, `)})`);
+  if (a.departments?.length) { const ds = () => sql.join(a.departments!.map(d => sql`${String(d).toLowerCase()}`), sql`, `);   // department key or its label
+    parts.push(sql`(lower(coalesce(u.department, '')) IN (${ds()}) OR lower(coalesce(u.department, '')) IN (SELECT lower(key) FROM masters WHERE category = 'department' AND lower(label) IN (${ds()})))`); }
+  if (a.users?.length) parts.push(sql`u.id IN (${sql.join(a.users.map(Number).filter(Boolean).map(x => sql`${x}`), sql`, `)})`);
   if (a.userTypes?.length) parts.push(sql`coalesce(u.user_type, 'internal') IN (${sql.join(a.userTypes.map(t => sql`${t}`), sql`, `)})`);
   if (a.agentUsers) parts.push(sql`(u.id IN (SELECT user_id FROM asset_agent_codes WHERE user_id IS NOT NULL) OR u.id IN (SELECT user_id FROM asset_agents WHERE user_id IS NOT NULL))`);
   if (!parts.length) return sql`false`;
@@ -64,11 +69,11 @@ export async function policiesFor(userId: number) {
     const [hit] = rowsOf(await db.execute(sql`SELECT 1 AS ok FROM users u WHERE u.id = ${userId} AND ${audSql(p.audience || {})}`));
     if (!hit) continue;
     const [d] = rowsOf(await db.execute(sql`SELECT decision, at, version FROM policy_acceptances WHERE policy_id = ${p.id} AND user_id = ${userId} AND version = ${p.version} ORDER BY at DESC, id DESC LIMIT 1`));
-    const [v] = rowsOf(await db.execute(sql`SELECT title, body, body_sha256, change_note, published_at FROM policy_versions WHERE policy_id = ${p.id} AND version = ${p.version}`));
+    const [v] = rowsOf(await db.execute(sql`SELECT title, body, body_sha256, change_note, published_at, document_id, (SELECT file_name FROM policy_documents d WHERE d.id = policy_versions.document_id) AS document_name, (SELECT pages FROM policy_documents d WHERE d.id = policy_versions.document_id) AS document_pages FROM policy_versions WHERE policy_id = ${p.id} AND version = ${p.version}`));
     const accepted = d?.decision === "Accepted";
     const decided = !!d && d.decision !== "Withdrawn";
     const due = overdueAt(p);
-    out.push({ id: p.id, code: p.code, title: v?.title || p.title, category: p.category, requirement: p.requirement, version: p.version, body: v?.body || p.body, changeNote: v?.change_note,
+    out.push({ documentId: v?.document_id || null, documentName: v?.document_name || null, documentPages: v?.document_pages || null, id: p.id, code: p.code, title: v?.title || p.title, category: p.category, requirement: p.requirement, version: p.version, body: v?.body || p.body, changeNote: v?.change_note,
       publishedAt: p.published_at, dueAt: p.requirement === "Mandatory" ? due : null, allowWithdraw: p.allow_withdraw && p.requirement === "Optional",
       decision: d?.decision || null, decidedAt: d?.at || null, pending: p.requirement === "Mandatory" || p.requirement === "Information" ? !accepted : !decided,
       blockAccess: p.requirement === "Mandatory" && p.block_access !== false,
@@ -89,7 +94,7 @@ export async function recordDecision(p: any, userId: number, decision: string, m
 
 /* ── lock the app while a mandatory policy is overdue ─────────────────── */
 const gateCache = new Map<number, { at: number; blocked: string | null }>();
-const OPEN = [/^\/auth(\/|$)/, /^\/my-policies(\/|$)/, /^\/policies(\/|$)/, /^\/notifications(\/|$)/, /^\/push(\/|$)/, /^\/config$/, /^\/masters$/, /^\/healthz$/, /^\/agent\//, /^\/central(\/|$)/, /^\/auditor(\/|$)/];
+const OPEN = [/^\/auth(\/|$)/, /^\/my-policies(\/|$)/, /^\/policies(\/|$)/, /^\/policies-people$/, /^\/notifications(\/|$)/, /^\/push(\/|$)/, /^\/config$/, /^\/masters$/, /^\/healthz$/, /^\/agent\//, /^\/central(\/|$)/, /^\/auditor(\/|$)/];
 export async function policyGate(req: Request, res: Response, next: NextFunction) {
   const id = uid(req); if (!id || OPEN.some(r => r.test(req.path))) return next();
   let c = gateCache.get(id);
@@ -100,6 +105,26 @@ export async function policyGate(req: Request, res: Response, next: NextFunction
   if (c.blocked) { res.status(428).json({ error: `Please read and accept "${c.blocked}" to continue (My Policies).`, policyRequired: true }); return; }
   next();
 }
+
+
+/* ── ITH-124 policy PDF: uploaded through the normal storage step, then moved into the database (immutable, per version,
+   access-controlled — there is no public file URL). Only real PDFs are accepted. ── */
+const MAX_PDF = 20 * 1024 * 1024;
+async function attachDocument(policyId: number, objectPath: string, by: string) {
+  const { readObject, deleteObject } = await import("./storage");
+  let f: { buffer: Buffer; name: string | null };
+  try { f = await readObject(String(objectPath)); } catch { throw Object.assign(new Error("The uploaded file was not found — upload it again"), { status: 400 }); }
+  const buf = f.buffer; const name = String(f.name || "policy.pdf").slice(0, 200);
+  if (!/\.pdf$/i.test(name) || buf.subarray(0, 5).toString("latin1") !== "%PDF-") throw Object.assign(new Error("Only PDF documents can be attached"), { status: 400 });
+  if (buf.length > MAX_PDF) throw Object.assign(new Error("The PDF is larger than 20 MB"), { status: 400 });
+  if (/\/Encrypt\b/.test(buf.subarray(0, Math.min(buf.length, 4_000_000)).toString("latin1"))) throw Object.assign(new Error("The PDF is password-protected — upload an unprotected copy"), { status: 400 });
+  const pages = (buf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length || null;
+  const [d] = rowsOf(await db.execute(sql`INSERT INTO policy_documents (policy_id, file_name, size_bytes, pages, sha256, data, uploaded_by)
+    VALUES (${policyId}, ${name}, ${buf.length}, ${pages}, ${crypto.createHash("sha256").update(buf).digest("hex")}, ${buf}, ${by}) RETURNING id, file_name, size_bytes, pages, sha256`));
+  await deleteObject(String(objectPath)).catch(() => false);
+  return d;
+}
+const docInfo = async (id: number | null) => id ? rowsOf(await db.execute(sql`SELECT id, file_name AS "name", size_bytes AS "size", pages, sha256, uploaded_by AS "by", uploaded_at AS "at" FROM policy_documents WHERE id = ${id}`))[0] || null : null;
 
 /* ═══ user ═══════════════════════════════════════════════════════════════ */
 router.get("/my-policies", requireAuth, wrap(async (req, res) => {
@@ -132,10 +157,11 @@ router.post("/my-policies/:id/decision", requireAuth, wrap(async (req, res) => {
 
 /* ═══ admin ══════════════════════════════════════════════════════════════ */
 router.get("/policies", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage policies");
+  if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
   const pol = rowsOf(await db.execute(sql`SELECT p.*, (SELECT body FROM policy_versions v WHERE v.policy_id = p.id AND v.version = p.version) AS published_body,
       (SELECT title FROM policy_versions v WHERE v.policy_id = p.id AND v.version = p.version) AS published_title,
-      (SELECT requirement FROM policy_versions v WHERE v.policy_id = p.id AND v.version = p.version) AS published_requirement FROM policies p ORDER BY p.status = 'Retired', p.status = 'Inactive', p.updated_at DESC`));
+      (SELECT requirement FROM policy_versions v WHERE v.policy_id = p.id AND v.version = p.version) AS published_requirement,
+      (SELECT document_id FROM policy_versions v WHERE v.policy_id = p.id AND v.version = p.version) AS published_document_id FROM policies p ORDER BY p.updated_at DESC, p.id DESC`));
   const out = [];
   for (const p of pol) {
     let stats = null;
@@ -147,62 +173,73 @@ router.get("/policies", requireAuth, wrap(async (req, res) => {
     }
     out.push({ id: p.id, code: p.code, title: p.title, category: p.category, body: p.body, requirement: p.requirement, audience: p.audience, dueDays: p.due_days, allowWithdraw: p.allow_withdraw,
       push: p.push, blockAccess: p.block_access !== false, status: p.status, version: p.version, publishedAt: p.published_at, publishedBy: p.published_by, systemKey: p.system_key, updatedAt: p.updated_at, statusNote: p.status_note, dueAt: p.version > 0 ? overdueAt(p) : null,
-      unpublishedChanges: p.version > 0 && (p.body !== p.published_body || p.title !== p.published_title || p.requirement !== p.published_requirement), stats });
+      unpublishedChanges: p.version > 0 && (p.body !== p.published_body || p.title !== p.published_title || p.requirement !== p.published_requirement || (p.document_id ?? null) !== (p.published_document_id ?? null)),
+      document: await docInfo(p.document_id), publishedDocumentId: p.published_document_id ?? null, stats });
   }
   res.json(out);
 }));
 
 function readPolicy(b: any) {
   const title = s(b.title, 200); if (!title || title.length < 3) throw Object.assign(new Error("Title is required"), { status: 400 });
-  const body = s(b.body); if (!body || body.length < 20) throw Object.assign(new Error("Write the policy text (at least 20 characters)"), { status: 400 });
+  const body = s(b.body) || ""; if (body.length < 20 && !b.__hasDocument) throw Object.assign(new Error("Write the policy text (at least 20 characters) or upload the policy PDF"), { status: 400 });
   const category = ["Policy", "Notice", "Consent"].includes(b.category) ? b.category : "Policy";
   const requirement = ["Mandatory", "Optional", "Information"].includes(b.requirement) ? b.requirement : "Mandatory";
   const due = Math.round(Number(b.dueDays ?? 7)); if (!(due >= 0 && due <= 90)) throw Object.assign(new Error("Days to accept must be 0–90"), { status: 400 });
   const a = b.audience || { all: true };
-  const audience: Aud = a.all ? { all: true } : { roles: (a.roles || []).map(Number).filter(Boolean), departments: (a.departments || []).map(String).filter(Boolean), userTypes: (a.userTypes || []).filter((t: string) => ["internal", "external"].includes(t)), ...(a.agentUsers ? { agentUsers: true } : {}) };
-  if (!audience.all && !audience.roles?.length && !audience.departments?.length && !audience.userTypes?.length && !audience.agentUsers) throw Object.assign(new Error("Choose who must accept it (everyone, or roles / departments / user type)"), { status: 400 });
+  const audience: Aud = a.all ? { all: true } : { roles: (a.roles || []).map(Number).filter(Boolean), departments: (a.departments || []).map(String).filter(Boolean), userTypes: (a.userTypes || []).filter((t: string) => ["internal", "external"].includes(t)), users: [...new Set<number>((a.users || []).map(Number).filter(Boolean))].slice(0, 2000), ...(a.agentUsers ? { agentUsers: true } : {}) };
+  if (!audience.all && !audience.roles?.length && !audience.departments?.length && !audience.userTypes?.length && !audience.users?.length && !audience.agentUsers) throw Object.assign(new Error("Choose who must accept it (everyone, or roles / departments / user type / selected employees)"), { status: 400 });
   return { title, body, category, requirement, dueDays: due, audience, allowWithdraw: b.allowWithdraw !== false, push: b.push !== false, blockAccess: requirement === "Mandatory" && b.blockAccess !== false };
 }
 
 router.post("/policies", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage policies");
-  const v = readPolicy(req.body || {});
+  if (!await admin(req)) return fail(res, 403, NO_ACCESS);
+  const v = readPolicy({ ...(req.body || {}), __hasDocument: !!req.body?.documentPath });
   const by = await getPerformedBy(uid(req)).catch(() => "Admin");
   const [n] = rowsOf(await db.execute(sql`SELECT coalesce(max(substring(code from 5)::int), 0) + 1 AS n FROM policies WHERE code ~ '^POL-[0-9]+$'`));
   const code = `POL-${String(n.n).padStart(4, "0")}`;
   const [r] = rowsOf(await db.execute(sql`INSERT INTO policies (code, title, category, body, requirement, audience, due_days, allow_withdraw, push, block_access, created_by)
     VALUES (${code}, ${v.title}, ${v.category}, ${v.body}, ${v.requirement}, ${JSON.stringify(v.audience)}::jsonb, ${v.dueDays}, ${v.allowWithdraw}, ${v.push}, ${v.blockAccess}, ${by}) RETURNING id, code`));
-  void logAudit({ entityType: "policy", entityId: r.id, action: "create", performedBy: by, summary: `Policy draft ${r.code}: ${v.title}` }).catch(() => {});
+  let doc: any = null;
+  if (req.body?.documentPath) {
+    try { doc = await attachDocument(r.id, req.body.documentPath, by); await db.execute(sql`UPDATE policies SET document_id = ${doc.id} WHERE id = ${r.id}`); }
+    catch (e) { await db.execute(sql`DELETE FROM policies WHERE id = ${r.id}`); throw e; }
+  }
+  void logAudit({ entityType: "policy", entityId: r.id, action: "create", performedBy: by, summary: `Policy draft ${r.code}: ${v.title}${doc ? ` — PDF ${doc.file_name} (${Math.round(doc.size_bytes / 1024)} KB, #${String(doc.sha256).slice(0, 10)})` : ""}`, newValues: { title: v.title, requirement: v.requirement, audience: v.audience, document: doc?.file_name } }).catch(() => {});
   res.status(201).json(r);
 }));
 
 router.patch("/policies/:id", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage policies");
+  if (!await admin(req)) return fail(res, 403, NO_ACCESS);
   const id = Number(req.params.id);
   const [p] = rowsOf(await db.execute(sql`SELECT * FROM policies WHERE id = ${id}`)); if (!p) return fail(res, 404, "Policy not found");
   if (p.status === "Retired") return fail(res, 400, "A retired policy cannot be edited — restore it first");
-  const v = readPolicy({ ...{ title: p.title, body: p.body, category: p.category, requirement: p.requirement, dueDays: p.due_days, audience: p.audience, allowWithdraw: p.allow_withdraw, push: p.push, blockAccess: p.block_access }, ...req.body });
-  await db.execute(sql`UPDATE policies SET title = ${v.title}, body = ${v.body}, category = ${v.category}, requirement = ${v.requirement}, audience = ${JSON.stringify(v.audience)}::jsonb, due_days = ${v.dueDays},
-    allow_withdraw = ${v.allowWithdraw}, push = ${v.push}, block_access = ${v.blockAccess}, updated_at = now() WHERE id = ${id}`);
-  gateCache.clear();
+  const removeDoc = req.body?.removeDocument === true;
+  const v = readPolicy({ ...{ title: p.title, body: p.body, category: p.category, requirement: p.requirement, dueDays: p.due_days, audience: p.audience, allowWithdraw: p.allow_withdraw, push: p.push, blockAccess: p.block_access }, ...req.body,
+    __hasDocument: !!req.body?.documentPath || (!!p.document_id && !removeDoc) });
   const by = await getPerformedBy(uid(req)).catch(() => "Admin");
-  const ch = [v.title !== p.title && "title", v.body !== p.body && "text", v.requirement !== p.requirement && "acceptance type", JSON.stringify(v.audience) !== JSON.stringify(p.audience) && "audience", v.dueDays !== p.due_days && "days", v.blockAccess !== (p.block_access !== false) && "halt access"].filter(Boolean);
+  let docId: number | null = removeDoc ? null : p.document_id; let doc: any = null;
+  if (req.body?.documentPath) { doc = await attachDocument(id, req.body.documentPath, by); docId = doc.id; }
+  await db.execute(sql`UPDATE policies SET title = ${v.title}, body = ${v.body}, category = ${v.category}, requirement = ${v.requirement}, audience = ${JSON.stringify(v.audience)}::jsonb, due_days = ${v.dueDays},
+    allow_withdraw = ${v.allowWithdraw}, push = ${v.push}, block_access = ${v.blockAccess}, document_id = ${docId}, updated_at = now() WHERE id = ${id}`);
+  gateCache.clear();
+  const ch = [v.title !== p.title && "title", v.body !== p.body && "text", doc && `PDF ${doc.file_name} (#${String(doc.sha256).slice(0, 10)})`, removeDoc && p.document_id && "PDF removed", v.requirement !== p.requirement && "acceptance type", JSON.stringify(v.audience) !== JSON.stringify(p.audience) && "audience", v.dueDays !== p.due_days && "days", v.blockAccess !== (p.block_access !== false) && "halt access"].filter(Boolean);
   audit(id, "edit", by, `Edited ${p.code}${ch.length ? `: ${ch.join(", ")}` : ""}${p.version > 0 ? " (unpublished)" : ""}`);
   res.json({ ok: true, note: p.version > 0 ? "Saved as changes — publish a new version for users to accept" : undefined });
 }));
 
 /** Publish: new immutable version; users in the audience are notified (in-app + email; push follows in-app). */
 router.post("/policies/:id/publish", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage policies");
+  if (!await admin(req)) return fail(res, 403, NO_ACCESS);
   const id = Number(req.params.id);
   const [p] = rowsOf(await db.execute(sql`SELECT * FROM policies WHERE id = ${id}`)); if (!p) return fail(res, 404, "Policy not found");
   if (p.status === "Retired") return fail(res, 400, "A retired policy cannot be published");
   const note = s(req.body?.changeNote, 500);
   if (p.version > 0 && !note) return fail(res, 400, "Say what changed in this version (shown to users)");
+  if (String(p.body || "").length < 20 && !p.document_id) return fail(res, 400, "Add the policy text or a PDF before publishing");
   const by = await getPerformedBy(uid(req)).catch(() => "Admin");
   const ver = p.version + 1;
   await db.transaction(async tx => {
-    await tx.execute(sql`INSERT INTO policy_versions (policy_id, version, title, body, body_sha256, requirement, change_note, published_by, category, settings) VALUES (${id}, ${ver}, ${p.title}, ${p.body}, ${sha(p.body)}, ${p.requirement}, ${note || "First version"}, ${by}, ${p.category}, ${JSON.stringify(settingsOf(p))}::jsonb)`);
+    await tx.execute(sql`INSERT INTO policy_versions (policy_id, version, title, body, body_sha256, requirement, change_note, published_by, category, settings, document_id) VALUES (${id}, ${ver}, ${p.title}, ${p.body}, ${sha(p.body)}, ${p.requirement}, ${note || "First version"}, ${by}, ${p.category}, ${JSON.stringify(settingsOf(p))}::jsonb, ${p.document_id})`);
     await tx.execute(sql`UPDATE policies SET version = ${ver}, status = 'Published', published_at = now(), published_by = ${by}, due_from = NULL, status_note = NULL, updated_at = now() WHERE id = ${id}`);
   });
   gateCache.clear();
@@ -231,13 +268,13 @@ async function notifyAudience(p: any, what: "New" | "Updated" | "Reminder" | "Re
 }
 
 router.post("/policies/:id/remind", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage policies");
+  if (!await admin(req)) return fail(res, 403, NO_ACCESS);
   const [p] = rowsOf(await db.execute(sql`SELECT * FROM policies WHERE id = ${Number(req.params.id)} AND status = 'Published'`)); if (!p) return fail(res, 404, "Published policy not found");
   res.json({ notified: await notifyAudience(p, "Reminder") });
 }));
 
 router.post("/policies/:id/retire", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage policies");
+  if (!await admin(req)) return fail(res, 403, NO_ACCESS);
   const [p] = rowsOf(await db.execute(sql`SELECT * FROM policies WHERE id = ${Number(req.params.id)}`)); if (!p) return fail(res, 404, "Policy not found");
   if (p.system_key) return fail(res, 400, "Built-in notices cannot be retired — edit and publish a new version instead");
   await db.execute(sql`UPDATE policies SET status = 'Retired', status_note = ${s(req.body?.reason, 300) || null}, updated_at = now() WHERE id = ${p.id}`); gateCache.clear();
@@ -248,7 +285,7 @@ router.post("/policies/:id/retire", requireAuth, wrap(async (req, res) => {
 
 const settingsOf = (p: any) => ({ audience: p.audience, dueDays: p.due_days, blockAccess: p.block_access !== false, allowWithdraw: p.allow_withdraw, push: p.push });
 async function getPolicy(id: any) { const [p] = rowsOf(await db.execute(sql`SELECT * FROM policies WHERE id = ${Number(id)}`)); return p; }
-async function adminGuard(req: Request, res: Response) { if (!await admin(req)) { fail(res, 403, "Only administrators manage policies"); return null; } return getPerformedBy(uid(req)).catch(() => "Admin"); }
+async function adminGuard(req: Request, res: Response) { if (!await admin(req)) { fail(res, 403, NO_ACCESS); return null; } return getPerformedBy(uid(req)).catch(() => "Admin"); }
 const audit = (id: number, action: string, by: string, summary: string, newValues?: unknown) => void logAudit({ entityType: "policy", entityId: id, action, performedBy: by, summary, newValues }).catch(() => {});
 
 /** Deactivate: pause a published policy — nobody is asked to accept it, nobody is halted. Records and versions are kept; activate any time. */
@@ -287,7 +324,7 @@ router.post("/policies/:id/discard", requireAuth, wrap(async (req, res) => {
   }
   const [v] = rowsOf(await db.execute(sql`SELECT * FROM policy_versions WHERE policy_id = ${p.id} AND version = ${p.version}`));
   // settings (audience, days, halt) apply as soon as they are saved, so only the versioned text is put back
-  await db.execute(sql`UPDATE policies SET title = ${v.title}, body = ${v.body}, requirement = ${v.requirement}, category = ${v.category || p.category},
+  await db.execute(sql`UPDATE policies SET title = ${v.title}, body = ${v.body}, requirement = ${v.requirement}, category = ${v.category || p.category}, document_id = ${v.document_id},
       block_access = ${v.requirement === "Mandatory" && p.block_access !== false}, updated_at = now() WHERE id = ${p.id}`);
   gateCache.clear();
   audit(p.id, "discard", by, `Discarded unpublished changes to ${p.code} (back to v${p.version})`);
@@ -296,13 +333,14 @@ router.post("/policies/:id/discard", requireAuth, wrap(async (req, res) => {
 
 /** Version history: every published version with its full text, plus the admin action log. */
 router.get("/policies/:id/history", requireAuth, wrap(async (req, res) => {
-  const by = await adminGuard(req, res); if (!by) return;
+  if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
   const p = await getPolicy(req.params.id); if (!p) return fail(res, 404, "Policy not found");
   const versions = rowsOf(await db.execute(sql`SELECT version, title, body, body_sha256 AS "sha256", requirement, category, settings, change_note AS "changeNote", published_at AS "publishedAt", published_by AS "publishedBy",
+      document_id AS "documentId", (SELECT file_name FROM policy_documents d WHERE d.id = v.document_id) AS "documentName", (SELECT sha256 FROM policy_documents d WHERE d.id = v.document_id) AS "documentSha",
       (SELECT count(DISTINCT user_id)::int FROM policy_acceptances a WHERE a.policy_id = v.policy_id AND a.version = v.version AND a.decision = 'Accepted') AS accepted
     FROM policy_versions v WHERE policy_id = ${p.id} ORDER BY version DESC`));
   const events = rowsOf(await db.execute(sql`SELECT action, performed_by AS "by", performed_at AS "at", summary FROM audit_logs WHERE entity_type = 'policy' AND entity_id = ${p.id} AND action NOT IN ('accepted', 'declined', 'withdrawn') ORDER BY performed_at DESC LIMIT 200`));
-  res.json({ policy: { id: p.id, code: p.code, title: p.title, body: p.body, requirement: p.requirement, version: p.version, status: p.status }, versions, events });
+  res.json({ policy: { id: p.id, code: p.code, title: p.title, body: p.body, requirement: p.requirement, version: p.version, status: p.status, documentId: p.document_id, documentName: (await docInfo(p.document_id))?.name || null }, versions, events });
 }));
 
 /** Restore an old version's text into the working copy (then publish it as a new version). */
@@ -311,7 +349,7 @@ router.post("/policies/:id/restore/:version", requireAuth, wrap(async (req, res)
   const p = await getPolicy(req.params.id); if (!p) return fail(res, 404, "Policy not found");
   if (p.status === "Retired") return fail(res, 400, "Restore the policy from Retired first");
   const [v] = rowsOf(await db.execute(sql`SELECT * FROM policy_versions WHERE policy_id = ${p.id} AND version = ${Number(req.params.version)}`)); if (!v) return fail(res, 404, "Version not found");
-  await db.execute(sql`UPDATE policies SET title = ${v.title}, body = ${v.body}, requirement = ${v.requirement}, block_access = ${v.requirement === "Mandatory" && p.block_access !== false}, updated_at = now() WHERE id = ${p.id}`);
+  await db.execute(sql`UPDATE policies SET title = ${v.title}, body = ${v.body}, requirement = ${v.requirement}, document_id = ${v.document_id}, block_access = ${v.requirement === "Mandatory" && p.block_access !== false}, updated_at = now() WHERE id = ${p.id}`);
   audit(p.id, "restore", by, `Copied v${v.version} text into ${p.code} as unpublished changes`);
   res.json({ ok: true, note: `Version ${v.version} copied as changes — publish to make it version ${p.version + 1}` });
 }));
@@ -329,6 +367,7 @@ router.post("/policies/:id/resend", requireAuth, wrap(async (req, res) => {
     const ver = p.version + 1;
     await db.transaction(async tx => {
       await tx.execute(sql`INSERT INTO policy_versions (policy_id, version, title, body, body_sha256, requirement, change_note, published_by, category, settings) VALUES (${p.id}, ${ver}, ${v.title}, ${v.body}, ${v.body_sha256}, ${v.requirement}, ${note}, ${by}, ${v.category || p.category}, ${JSON.stringify(settingsOf(p))}::jsonb)`);
+      await tx.execute(sql`UPDATE policy_versions SET document_id = ${v.document_id} WHERE policy_id = ${p.id} AND version = ${ver}`);
       await tx.execute(sql`UPDATE policies SET version = ${ver}, published_at = now(), published_by = ${by}, due_from = NULL, updated_at = now() WHERE id = ${p.id}`);
     });
     gateCache.clear();
@@ -350,8 +389,8 @@ router.post("/policies/:id/duplicate", requireAuth, wrap(async (req, res) => {
   const p = await getPolicy(req.params.id); if (!p) return fail(res, 404, "Policy not found");
   const [n] = rowsOf(await db.execute(sql`SELECT coalesce(max(substring(code from 5)::int), 0) + 1 AS n FROM policies WHERE code ~ '^POL-[0-9]+$'`));
   const code = `POL-${String(n.n).padStart(4, "0")}`;
-  const [r] = rowsOf(await db.execute(sql`INSERT INTO policies (code, title, category, body, requirement, audience, due_days, allow_withdraw, push, block_access, created_by)
-    VALUES (${code}, ${`Copy of ${p.title}`.slice(0, 200)}, ${p.category}, ${p.body}, ${p.requirement}, ${JSON.stringify(p.audience)}::jsonb, ${p.due_days}, ${p.allow_withdraw}, ${p.push}, ${p.block_access}, ${by}) RETURNING id, code`));
+  const [r] = rowsOf(await db.execute(sql`INSERT INTO policies (code, title, category, body, requirement, audience, due_days, allow_withdraw, push, block_access, created_by, document_id)
+    VALUES (${code}, ${`Copy of ${p.title}`.slice(0, 200)}, ${p.category}, ${p.body}, ${p.requirement}, ${JSON.stringify(p.audience)}::jsonb, ${p.due_days}, ${p.allow_withdraw}, ${p.push}, ${p.block_access}, ${by}, ${p.document_id}) RETURNING id, code`));
   audit(r.id, "create", by, `Draft ${r.code} copied from ${p.code}`);
   res.status(201).json(r);
 }));
@@ -369,7 +408,7 @@ router.post("/policies/:id/unretire", requireAuth, wrap(async (req, res) => {
 
 /** Acceptance register for one policy: everyone in the audience with their decision on the current version. */
 router.get("/policies/:id/report", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage policies");
+  if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
   const [p] = rowsOf(await db.execute(sql`SELECT * FROM policies WHERE id = ${Number(req.params.id)}`)); if (!p) return fail(res, 404, "Policy not found");
   const versions = rowsOf(await db.execute(sql`SELECT version, title, body_sha256 AS "sha256", change_note AS "changeNote", published_at AS "publishedAt", published_by AS "publishedBy",
       (SELECT count(DISTINCT user_id)::int FROM policy_acceptances a WHERE a.policy_id = v.policy_id AND a.version = v.version AND a.decision = 'Accepted') AS accepted
@@ -378,9 +417,49 @@ router.get("/policies/:id/report", requireAuth, wrap(async (req, res) => {
 }));
 /** Full decision log (all versions, append-only) — for audit / DPDP requests. */
 router.get("/policies/:id/log", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage policies");
+  if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
   res.json(rowsOf(await db.execute(sql`SELECT a.id, a.version, a.decision, a.method, a.ip, a.user_agent AS "userAgent", a.body_sha256 AS "sha256", a.note, a.at, u.name, u.email, u.employee_code AS "employeeCode"
     FROM policy_acceptances a JOIN users u ON u.id = a.user_id WHERE a.policy_id = ${Number(req.params.id)} ORDER BY a.at DESC LIMIT 5000`)));
+}));
+
+/* ── ITH-124 read-only PDF for the in-app viewer (no download link anywhere; every opening is logged) ── */
+router.get("/policies/:id/document", requireAuth, wrap(async (req, res) => {
+  const me = uid(req)!; const p = await getPolicy(req.params.id); if (!p) return fail(res, 404, "Policy not found");
+  const manager = await admin(req, "read"); let docId: number | null = null; let version: number | null = null;
+  if (req.query.draft === "1") { if (!manager) return fail(res, 403, NO_ACCESS); docId = p.document_id; }
+  else {
+    version = Number(req.query.version || p.version);
+    const [v] = rowsOf(await db.execute(sql`SELECT document_id FROM policy_versions WHERE policy_id = ${p.id} AND version = ${version}`)); docId = v?.document_id ?? null;
+    if (!manager) {
+      const mine = p.status === "Published" && version === p.version && (await policiesFor(me)).some(x => x.id === p.id);
+      const [had] = rowsOf(await db.execute(sql`SELECT 1 AS ok FROM policy_acceptances WHERE policy_id = ${p.id} AND version = ${version} AND user_id = ${me} LIMIT 1`));
+      if (!mine && !had) return fail(res, 403, "This document is not available to you");
+    }
+  }
+  if (!docId) return fail(res, 404, "No PDF is attached to this policy");
+  const [d] = rowsOf(await db.execute(sql`SELECT id, file_name, data FROM policy_documents WHERE id = ${docId}`)); if (!d) return fail(res, 404, "Document not found");
+  await db.execute(sql`INSERT INTO policy_document_views (policy_id, version, document_id, user_id, ip) VALUES (${p.id}, ${version}, ${d.id}, ${me}, ${req.ip || null})`).catch(() => {});
+  res.setHeader("Content-Type", "application/pdf"); res.setHeader("Cache-Control", "no-store, private"); res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Disposition", `inline; filename="${String(d.file_name).replace(/[^\w. -]/g, "_")}"`);
+  res.send(Buffer.isBuffer(d.data) ? d.data : Buffer.from(d.data));
+}));
+
+/** People picker for "Selected employees" (searchable, one by one). */
+router.get("/policies-people", requireAuth, wrap(async (req, res) => {
+  if (!await admin(req)) return fail(res, 403, NO_ACCESS);
+  const ids = String(req.query.ids || "").split(",").map(Number).filter(Boolean).slice(0, 2000);
+  const q = String(req.query.q || "").trim().toLowerCase().slice(0, 60);
+  const rows = rowsOf(await db.execute(ids.length
+    ? sql`SELECT u.id, u.name, u.email, u.employee_code AS "employeeCode", coalesce(m.label, u.department) AS department, u.is_active AS "active" FROM users u LEFT JOIN masters m ON m.category = 'department' AND m.key = u.department WHERE u.id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)}) ORDER BY u.name`
+    : sql`SELECT u.id, u.name, u.email, u.employee_code AS "employeeCode", coalesce(m.label, u.department) AS department, u.is_active AS "active" FROM users u LEFT JOIN masters m ON m.category = 'department' AND m.key = u.department
+        WHERE u.is_active AND (${q} = '' OR lower(u.name) LIKE ${"%" + q + "%"} OR lower(u.email) LIKE ${"%" + q + "%"} OR lower(coalesce(u.employee_code, '')) LIKE ${"%" + q + "%"}) ORDER BY u.name LIMIT 30`));
+  res.json(rows);
+}));
+
+/** Who opened the PDF (for audits). */
+router.get("/policies/:id/views", requireAuth, wrap(async (req, res) => {
+  if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
+  res.json(rowsOf(await db.execute(sql`SELECT v.version, v.viewed_at AS "at", v.ip, u.name, u.email FROM policy_document_views v JOIN users u ON u.id = v.user_id WHERE v.policy_id = ${Number(req.params.id)} ORDER BY v.viewed_at DESC LIMIT 2000`)));
 }));
 
 /* ═══ push subscriptions ═════════════════════════════════════════════════ */
@@ -400,7 +479,7 @@ router.post("/push/subscribe", requireAuth, wrap(async (req, res) => {
 }));
 /** Only IT can switch push off for someone (users cannot unsubscribe themselves). */
 router.delete("/push/subscribe", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Push notifications are managed by IT and cannot be switched off here");
+  if (!await superAdmin(req)) return fail(res, 403, "Push notifications are managed by IT and cannot be switched off here");
   const endpoint = s(req.body?.endpoint, 1000);
   if (endpoint) await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${endpoint}`);
   res.status(204).end();
@@ -408,14 +487,14 @@ router.delete("/push/subscribe", requireAuth, wrap(async (req, res) => {
 
 /* ── admin: push on/off for everyone, per-person devices ───────────────── */
 router.get("/push/admin", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage push notifications");
+  if (!await superAdmin(req)) return fail(res, 403, "Only administrators manage push notifications");
   const [en] = rowsOf(await db.execute(sql`SELECT value FROM settings WHERE key = 'push.enabled'`));
   const users = rowsOf(await db.execute(sql`SELECT u.id AS "userId", u.name, u.email, coalesce(u.user_type, 'internal') AS "userType", count(p.id)::int AS devices, max(p.last_ok_at) AS "lastDelivered", max(p.created_at) AS "since"
     FROM users u LEFT JOIN push_subscriptions p ON p.user_id = u.id WHERE u.is_active GROUP BY u.id ORDER BY count(p.id) DESC, u.name`));
   res.json({ enabled: !(en && (en.value === false || en.value === "false")), users, withPush: users.filter(u => u.devices > 0).length, total: users.length });
 }));
 router.put("/push/admin", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage push notifications");
+  if (!await superAdmin(req)) return fail(res, 403, "Only administrators manage push notifications");
   const on = req.body?.enabled !== false;
   await db.execute(sql`INSERT INTO settings (key, value) VALUES ('push.enabled', ${JSON.stringify(on)}::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
   const by = await getPerformedBy(uid(req)).catch(() => "Admin");
@@ -423,7 +502,7 @@ router.put("/push/admin", requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, enabled: on });
 }));
 router.delete("/push/admin/users/:userId", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage push notifications");
+  if (!await superAdmin(req)) return fail(res, 403, "Only administrators manage push notifications");
   const id = Number(req.params.userId);
   const r = rowsOf(await db.execute(sql`DELETE FROM push_subscriptions WHERE user_id = ${id} RETURNING id`));
   const by = await getPerformedBy(uid(req)).catch(() => "Admin");
@@ -431,7 +510,7 @@ router.delete("/push/admin/users/:userId", requireAuth, wrap(async (req, res) =>
   res.json({ removed: r.length });
 }));
 router.post("/push/admin/test/:userId", requireAuth, wrap(async (req, res) => {
-  if (!await admin(req)) return fail(res, 403, "Only administrators manage push notifications");
+  if (!await superAdmin(req)) return fail(res, 403, "Only administrators manage push notifications");
   const { pushToUser } = await import("../lib/webpush");
   res.json({ sent: await pushToUser(Number(req.params.userId), { title: "Test from IT", body: "Push notifications are working on this device.", url: "/" }) });
 }));

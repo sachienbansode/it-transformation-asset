@@ -107,9 +107,11 @@ const usersObj: Obj = {
     return { errors, plan };
   },
   async save(tx, plan, ctx) {
-    const dm = (await ensureMasters(tx, "department", plan.map(p => p.data.department))).map;
+    await ensureMasters(tx, "department", plan.map(p => p.data.department));
+    // users keep the department KEY (as the user form does); match by label or key, any case
+    const keyOf = new Map<string, string>(); for (const m of await q(tx, sql`SELECT key, label FROM masters WHERE category = 'department'`)) { keyOf.set(String(m.label).toLowerCase(), m.key); keyOf.set(String(m.key).toLowerCase(), m.key); }
     for (const p of plan) {
-      const d = p.data; const dep = dm.get(d.department.toLowerCase()) || d.department; const hash = d.password ? await bcrypt.hash(d.password, 10) : null;
+      const d = p.data; const dep = keyOf.get(d.department.toLowerCase()) || d.department; const hash = d.password ? await bcrypt.hash(d.password, 10) : null;
       const status = d.isActive ? "active" : "inactive";
       if (d.id) {
         await tx.execute(sql`UPDATE users SET name = ${d.name}, employee_code = ${d.employeeCode}, user_type = ${d.userType}, department = ${dep}, designation = ${d.designation},

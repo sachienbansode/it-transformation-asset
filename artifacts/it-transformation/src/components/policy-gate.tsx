@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { PolicyPdfViewer } from "@/components/policy-pdf-viewer";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -32,7 +33,8 @@ export function PolicyReader({ p, onDone, compact = false }: { p: any; onDone: (
         <span className="text-muted-foreground">{p.category} · {p.code} · version {p.version} · published {fmtDate(p.publishedAt)}{p.dueAt ? ` · accept by ${fmtDate(p.dueAt)}` : ""}</span>
       </div>
       {p.changeNote && p.version > 1 && <div className="text-xs rounded-md bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 px-2.5 py-1.5">What changed: {p.changeNote}</div>}
-      <div className={cn("whitespace-pre-wrap text-sm leading-relaxed border rounded-lg p-3 bg-muted/30 overflow-y-auto", compact ? "max-h-[45vh]" : "max-h-[55vh]")}>{p.body}</div>
+      {p.body && <div className={cn("whitespace-pre-wrap text-sm leading-relaxed border rounded-lg p-3 bg-muted/30 overflow-y-auto", compact ? "max-h-[30vh]" : "max-h-[45vh]")}>{p.body}</div>}
+      {p.documentId && <PolicyPdfViewer src={`/api/policies/${p.id}/document?version=${p.version}`} height={compact ? "45vh" : "65vh"} />}
       {accepted ? <div className="text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-2"><FileCheck2 className="w-4 h-4" />You accepted this on {fmtDate(p.decidedAt)}.
           {p.allowWithdraw && <Button size="sm" variant="outline" className="ml-auto" disabled={busy} onClick={() => decide("Withdrawn")}>Withdraw consent</Button>}</div>
         : <>

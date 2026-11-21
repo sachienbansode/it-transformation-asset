@@ -16,7 +16,7 @@ import {
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
   Monitor, AlertTriangle, GitBranch, BookOpen, HardDrive, GitMerge, Wrench, UserCheck, Laptop, ScanLine, FileSignature, TrendingDown, MessageSquare,
-  ClipboardCheck, FolderOpen,
+  ClipboardCheck, FolderOpen, FileCheck2,
   Activity,
 } from "lucide-react";
 import {
@@ -39,7 +39,7 @@ interface AppConfig {
 
 type SidebarState = "expanded" | "collapsed" | "hidden";
 const SIDEBAR_KEY = "ashika-sidebar";
-const SECTIONS_KEY = "ashika-sidebar-sections";
+const SECTIONS_KEY = "ithub-sidebar-sections-v2";   // ITH-122: new key so every section starts collapsed
 
 const DRISHTI_ITEMS = [
   { href: "/", label: "Executive Dashboard", icon: LayoutDashboard, module: "dashboard", adminOnly: true },
@@ -104,7 +104,6 @@ const ADMIN_ITEMS = [
   { href: "/admin/updates", label: "Updates", icon: RefreshCcw, tab: "updates" },
   { href: "/platform", label: "NIYTRI Platform", icon: Server, tab: "platform" },
   { href: "/admin/archive", label: "Archive & Notifications", icon: Archive, tab: "archive" },
-  { href: "/admin/policies", label: "Policies & Consent", icon: FileSignature, tab: "policies" },
 ];
 
 function NavItem({
@@ -181,11 +180,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [sectionsOpen, setSectionsOpen] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem(SECTIONS_KEY);
-      return saved ? JSON.parse(saved) : { drishti: true, kpi: true, admin: true };
-    } catch { return { drishti: true, kpi: true, admin: true }; }
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
   });
   const [appConfig, setAppConfig] = useState<AppConfig>({ appName: "IT Hub", appTagline: "", logoUrl: "" });
   const [searchOpen, setSearchOpen] = useState(false);
+  const [menuQ, setMenuQ] = useState("");
   const [platformOn, setPlatformOn] = useState(false);   // NIYTRI console instance only
   useEffect(() => { if (isAdmin) apiFetch<{ console: boolean }>("/platform/status").then(r => setPlatformOn(!!r.console)).catch(() => {}); }, [isAdmin]);
 
@@ -215,9 +215,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (!mobile) { try { localStorage.setItem(SIDEBAR_KEY, s); } catch {} }
   }, [mobile]);
 
-  const toggleSection = useCallback((key: string) => {
+  const toggleSection = useCallback((key: string, isOpen?: boolean) => {
     setSectionsOpen(prev => {
-      const next = { ...prev, [key]: !prev[key] };
+      const next = { ...prev, [key]: !(isOpen ?? prev[key]) };
       try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(next)); } catch {}
       return next;
     });
@@ -242,6 +242,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const visibleComplianceItems = COMPLIANCE_ITEMS.filter(item => canAccess(item.module));
   const visibleItsmItems = ITSM_ITEMS.filter(item => item.module === "itsm_my_approvals" ? (anyItsm || (myApprovals?.count || 0) > 0) : canAccess(item.module));
 
+  // ITH-122 — one list of menu sections (used for the sidebar and the menu search)
+  const isOn = (href: string) => href === "/" ? location === "/" : (location === href.split("?")[0] && (!href.includes("?") || window.location.search === href.slice(href.indexOf("?")))) || location.startsWith(href.split("?")[0] + "/");
+  type NavIt = { href: string; label: string; icon: React.ElementType; active: boolean; badge?: number };
+  const mk = (items: any[], extra?: (i: any) => Partial<NavIt>): NavIt[] => items.map(i => ({ href: i.href, label: i.label, icon: i.icon, active: isOn(i.href), ...(extra ? extra(i) : {}) }));
+  const navSections: { key: string; label: string; items: NavIt[] }[] = [
+    { key: "me", label: "My Workspace", items: mk([{ href: "/my-assets", label: "My Assets", icon: Laptop }, { href: "/my-device", label: "My Device", icon: Activity }, { href: "/chats", label: "Chats", icon: MessageSquare }]) },
+    { key: "policies", label: "Policies & Consent", items: mk([{ href: "/my-policies", label: "My Policies", icon: FileSignature }, ...(canAccess("policies") ? [{ href: "/policies", label: "Policy Register", icon: FileCheck2 }] : [])]) },
+    { key: "drishti", label: "IT – Drishti", items: mk(visibleDrishtiItems) },
+    { key: "kpi", label: "Performance", items: mk(visibleKpiItems) },
+    { key: "assets", label: "IT Assets", items: mk(visibleAssetItems) },
+    { key: "itsm", label: "ITSM", items: mk(visibleItsmItems, i => ({ badge: i.module === "itsm_my_approvals" ? myApprovals?.count : undefined })) },
+    { key: "compliance", label: "Audit & Compliance", items: mk(visibleComplianceItems) },
+    ...(isAdmin || isHR ? [{ key: "admin", label: "Admin", items: mk(isAdmin ? ADMIN_ITEMS.filter(i => i.tab !== "platform" || platformOn) : ADMIN_ITEMS.filter(i => i.tab === "users")) }] : []),
+  ].filter(x => x.items.length > 0);
+  // exact admin item highlight (all admin pages share /admin)
+  for (const it of navSections.find(x => x.key === "admin")?.items || []) it.active = it.href.includes("?") ? location === "/admin" && window.location.search === it.href.slice(it.href.indexOf("?")) : it.href === "/admin" ? location === "/admin" && !window.location.search : location === it.href || location.startsWith(it.href + "/");
+  const q = menuQ.trim().toLowerCase();
+  const menuHits = q ? navSections.flatMap(sec => sec.items.map(i => ({ ...i, section: sec.key, sectionLabel: sec.label }))).filter(i => (i.label + " " + i.sectionLabel).toLowerCase().includes(q)) : [];
+
   // Longest matching href wins (so "/itsm-incidents" is not shown as "/itsm" ITSM Dashboard)
   const best = (items: { href: string; label: string }[]) => items.filter(i => i.href === "/" ? location === "/" : (location === i.href || location.startsWith(i.href + "/") || location.startsWith(i.href + "?"))).sort((a, b) => b.href.length - a.href.length)[0]?.label;
   const currentPage =
@@ -250,7 +269,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     ?? KPI_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ASSET_ITEMS.find(i => location.startsWith(i.href))?.label
     ?? ITSM_ITEMS.find(i => location.startsWith(i.href))?.label
-    ?? (location.startsWith("/admin/policies") ? "Policies & Consent" : location.startsWith("/my-policies") ? "My Policies" : location.startsWith("/chats") ? "Chats" : location.startsWith("/my-device") ? "My Device" : location.startsWith("/about") ? "About IT Hub" : location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
+    ?? (location.startsWith("/policies") || location.startsWith("/admin/policies") ? "Policy Register" : location.startsWith("/my-policies") ? "My Policies" : location.startsWith("/chats") ? "Chats" : location.startsWith("/my-device") ? "My Device" : location.startsWith("/about") ? "About IT Hub" : location.startsWith("/admin") ? "Admin Controls" : location.startsWith("/profile") ? "Profile & Security" : location.startsWith("/my-assets") ? "My Assets" : "");
 
   const unitLabels: Record<string, string> = { lakhs: "₹ Lakh", crores: "₹ Crore", millions: "₹ Million" };
   const isCollapsed = sidebar === "collapsed";
@@ -308,141 +327,35 @@ export function Layout({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {/* Nav */}
+          {/* Nav — ITH-122: sections start collapsed (the one with the open page opens itself); type to find any menu item */}
+          {!isCollapsed && (
+            <div className="px-3 pt-1 pb-1 shrink-0">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <input value={menuQ} onChange={e => setMenuQ(e.target.value)} onKeyDown={e => { if (e.key === "Escape") setMenuQ(""); if (e.key === "Enter" && menuHits[0]) { navigate(menuHits[0].href); setMenuQ(""); } }}
+                  placeholder="Search menu…" aria-label="Search menu" data-testid="menu-search"
+                  className="w-full h-8 rounded-md border border-sidebar-border bg-background/60 pl-7 pr-6 text-[12px] outline-none focus:ring-1 focus:ring-primary/40" />
+                {menuQ && <button className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setMenuQ("")} aria-label="Clear"><X className="h-3 w-3" /></button>}
+              </div>
+            </div>
+          )}
           <nav className="flex-1 px-3 py-1 overflow-y-auto min-h-0">
-            {/* Self-service for every signed-in person */}
-            <SectionLabel collapsed={isCollapsed} open={sectionsOpen.me ?? true} onToggle={() => toggleSection("me")}>My Workspace</SectionLabel>
-            {(isCollapsed || (sectionsOpen.me ?? true)) && [{ href: "/my-assets", label: "My Assets", icon: Laptop }, { href: "/my-device", label: "My Device", icon: Activity }, { href: "/my-policies", label: "My Policies", icon: FileSignature }, { href: "/chats", label: "Chats", icon: MessageSquare }].map(item => (
-              <NavItem key={item.href} href={item.href} label={item.label} icon={item.icon} active={location === item.href} collapsed={isCollapsed} />
-            ))}
-            {visibleDrishtiItems.length > 0 && (
-              <>
-                <SectionLabel
-                  collapsed={isCollapsed}
-                  open={sectionsOpen.drishti ?? true}
-                  onToggle={() => toggleSection("drishti")}
-                >
-                  IT – Drishti
-                </SectionLabel>
-                {(isCollapsed || (sectionsOpen.drishti ?? true)) && visibleDrishtiItems.map(item => (
-                  <NavItem
-                    key={item.href}
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    active={item.href === "/" ? location === "/" : location.startsWith(item.href)}
-                    collapsed={isCollapsed}
-                  />
-                ))}
-              </>
-            )}
-            {visibleKpiItems.length > 0 && (
-              <>
-                <SectionLabel
-                  collapsed={isCollapsed}
-                  open={sectionsOpen.kpi ?? true}
-                  onToggle={() => toggleSection("kpi")}
-                >
-                  Performance
-                </SectionLabel>
-                {(isCollapsed || (sectionsOpen.kpi ?? true)) && visibleKpiItems.map(item => (
-                  <NavItem
-                    key={item.href}
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    active={location.startsWith(item.href)}
-                    collapsed={isCollapsed}
-                  />
-                ))}
-              </>
-            )}
-            {visibleAssetItems.length > 0 && (
-              <>
-                <SectionLabel
-                  collapsed={isCollapsed}
-                  open={sectionsOpen.assets ?? true}
-                  onToggle={() => toggleSection("assets")}
-                >
-                  IT Assets
-                </SectionLabel>
-                {(isCollapsed || (sectionsOpen.assets ?? true)) && visibleAssetItems.map(item => (
-                  <NavItem
-                    key={item.href}
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    active={location.startsWith(item.href)}
-                    collapsed={isCollapsed}
-                  />
-                ))}
-              </>
-            )}
-            {visibleItsmItems.length > 0 && (
-              <>
-                <SectionLabel
-                  collapsed={isCollapsed}
-                  open={sectionsOpen.itsm ?? true}
-                  onToggle={() => toggleSection("itsm")}
-                >
-                  ITSM
-                </SectionLabel>
-                {(isCollapsed || (sectionsOpen.itsm ?? true)) && visibleItsmItems.map(item => (
-                  <NavItem
-                    key={item.href}
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    active={location === item.href || location.startsWith(item.href + "/")}
-                    collapsed={isCollapsed}
-                    badge={item.module === "itsm_my_approvals" ? myApprovals?.count : undefined}
-                  />
-                ))}
-              </>
-            )}
-            {visibleComplianceItems.length > 0 && (
-              <>
-                <SectionLabel
-                  collapsed={isCollapsed}
-                  open={sectionsOpen.compliance ?? true}
-                  onToggle={() => toggleSection("compliance")}
-                >
-                  Audit & Compliance
-                </SectionLabel>
-                {(isCollapsed || (sectionsOpen.compliance ?? true)) && visibleComplianceItems.map(item => (
-                  <NavItem
-                    key={item.href}
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    active={location === item.href || location.startsWith(item.href + "/")}
-                    collapsed={isCollapsed}
-                  />
-                ))}
-              </>
-            )}
-            {(isAdmin || isHR) && (
-              <>
-                <SectionLabel
-                  collapsed={isCollapsed}
-                  open={sectionsOpen.admin ?? true}
-                  onToggle={() => toggleSection("admin")}
-                >
-                  Admin
-                </SectionLabel>
-                {(isCollapsed || (sectionsOpen.admin ?? true)) && (isAdmin ? ADMIN_ITEMS.filter(i => i.tab !== "platform" || platformOn) : ADMIN_ITEMS.filter(i => i.tab === "users")).map(item => (
-                  <NavItem
-                    key={item.href + item.label}
-                    href={item.href}
-                    label={item.label}
-                    icon={item.icon}
-                    active={location.startsWith("/admin")}
-                    collapsed={isCollapsed}
-                  />
-                ))}
-              </>
-            )}
-            {!isAdmin && !isHR && visibleDrishtiItems.length === 0 && visibleKpiItems.length === 0 && visibleAssetItems.length === 0 && visibleItsmItems.length === 0 && (
+            {menuQ.trim() && !isCollapsed ? (
+              menuHits.length ? menuHits.map(it => (
+                <div key={it.section + it.href} onClick={() => setMenuQ("")}>
+                  <NavItem href={it.href} label={it.label} icon={it.icon} active={it.active} collapsed={false} badge={it.badge} />
+                  <div className="-mt-1 mb-1 pl-9 text-[9.5px] uppercase tracking-wide text-muted-foreground/70">{it.sectionLabel}</div>
+                </div>)) : <div className="px-2 py-4 text-[11px] text-muted-foreground text-center">No menu item matches “{menuQ}”</div>
+            ) : navSections.map(sec => {
+              const open = isCollapsed || (sectionsOpen[sec.key] ?? sec.items.some(i => i.active));
+              return (
+                <React.Fragment key={sec.key}>
+                  <SectionLabel collapsed={isCollapsed} open={open} onToggle={() => toggleSection(sec.key, open)}>{sec.label}</SectionLabel>
+                  {open && sec.items.map(item => <NavItem key={item.href + item.label} href={item.href} label={item.label} icon={item.icon} active={item.active} collapsed={isCollapsed} badge={item.badge} />)}
+                </React.Fragment>
+              );
+            })}
+            {!navSections.some(x => x.key !== "me" && x.key !== "policies") && (
               <div className="px-2.5 py-4 text-center">
                 <p className="text-[10px] text-sidebar-foreground/30 leading-relaxed">
                   No access configured.<br />Contact your administrator.
