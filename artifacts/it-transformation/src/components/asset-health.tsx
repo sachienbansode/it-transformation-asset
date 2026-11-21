@@ -161,7 +161,7 @@ export function AssetHealthPanel({ assetId, agentId, canAct = false, onChat, src
       </div>}
       {a.status === "Active" && <LiveBar agentId={a.id} staff={!employee && canAct} onFresh={reload} />}
       <PolicyCompliance c={a.compliance} state={a.complianceState} employee={!!employee} />
-      <DeviceDetails h={h} a={a} thresholds={data.settings?.thresholds} latest={data.agentLatest} minDisk={minDisk} />
+      <DeviceDetails h={h} a={a} thresholds={data.settings?.thresholds} latest={data.agentLatest} minDisk={minDisk} full={full} />
       {withIt.length > 0 && <details open={full || undefined} className="rounded-md border px-2.5 py-1.5 text-xs bg-blue-50/60 dark:bg-blue-500/10" data-testid="with-it">
         <summary className="cursor-pointer font-medium text-blue-700 dark:text-blue-300">With IT — ticket raised ({withIt.length})</summary>
         <div className="mt-1 space-y-1">{withIt.map((x: any) => { const c = coverOf(x); return <div key={x.id} className="flex items-start gap-1.5"><Ticket className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
@@ -258,7 +258,7 @@ const onOff = (v: any, goodWhenOn = true): [string, Tone] => v === null || v ===
 const upt = (hrs?: number | null) => hrs == null ? "—" : `${Math.floor(hrs / 24)}d ${Math.round(hrs % 24)}h`;
 const verLt = (a?: string, b?: string) => { if (!a || !b) return false; const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
 
-function DeviceDetails({ h, a, thresholds, latest, minDisk }: { h: any; a: any; thresholds?: any; latest?: string | null; minDisk: number | null }) {
+function DeviceDetails({ h, a, thresholds, latest, minDisk, full = false }: { full?: boolean; h: any; a: any; thresholds?: any; latest?: string | null; minDisk: number | null }) {
   const t = thresholds || {}; const bat = h.battery; const sec = h.security || {}; const acc = h.access || {}; const os = h.os || {}; const pt = h.patches || {}; const ag = h.agent || {};
   const fw = sec.firewall || {}; const fwAll = [fw.domain, fw.private, fw.public];
   const patchDays = pt.lastInstalled ? Math.floor((Date.now() - +new Date(pt.lastInstalled)) / 86400e3) : null;

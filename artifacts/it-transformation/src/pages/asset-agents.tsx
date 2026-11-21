@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { AssetHealthPanel, HealthBadge, ago, hm } from "@/components/asset-health";
 import { StartChatDialog, ChatThread, ChatStatus } from "@/components/device-chat";
-import { MessageSquare, Activity, AlertTriangle, CheckCircle2, WifiOff, Link2, Search, KeyRound, Download, Copy, Trash2, Server, Laptop, Loader2, RefreshCw, Maximize2, FileDown, ArrowLeft } from "lucide-react";
+import { MessageSquare, Activity, AlertTriangle, CheckCircle2, WifiOff, Link2, Search, KeyRound, Download, Copy, Trash2, Server, Laptop, Loader2, RefreshCw, Maximize2, FileDown, ArrowLeft, Power } from "lucide-react";
 import { exportElementPdf } from "@/lib/export-pdf";
 import { useBrand } from "@/lib/brand";
 
@@ -169,7 +169,7 @@ export default function AssetAgents() {
                   <td className="py-2.5 pr-3 text-xs whitespace-nowrap"><div className="font-medium">{a.lastSeenAt ? fmtDateTime(a.lastSeenAt) : "never"}</div><div className="text-muted-foreground">{ago(a.lastSeenAt)} · v{a.agentVersion || "?"}</div></td>
                   <td className="py-2.5 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                     {canEdit && a.status !== "Revoked" && <Button size="sm" variant="ghost" className="h-8 gap-1" title="Link employee and asset (updates the register)" onClick={() => setLink(a)}><Link2 className="w-4 h-4" />{!a.assetId || a.assetStatus !== "Allocated" ? "Assign" : ""}</Button>}
-                    {canEdit && a.status !== "Revoked" && <Button size="sm" variant="ghost" className="h-8 text-red-600" title="Remove device" onClick={() => remove(a)}><Trash2 className="w-4 h-4" /></Button>}
+                    {canEdit && a.status !== "Revoked" && <Button size="sm" variant="ghost" className="h-8 text-red-600" title="Deactivate device (stops reporting, history kept)" onClick={() => remove(a)}><Power className="w-4 h-4" /></Button>}
                     {canEdit && a.status === "Revoked" && <Button size="sm" variant="ghost" className="h-8" onClick={async () => { await apiFetch(`/asset-agents/${a.id}`, { method: "PATCH", body: JSON.stringify({ status: "Active" }) }); refresh(); }}>Re-enable</Button>}
                   </td>
                 </tr>))}

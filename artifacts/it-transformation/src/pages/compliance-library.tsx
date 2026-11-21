@@ -116,18 +116,7 @@ function NewDocDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex gap-2 pt-3 border-t"><Button onClick={save} disabled={busy || !file || f.title.trim().length < 2} className="gap-1.5">{busy && <Loader2 className="w-4 h-4 animate-spin" />}Upload</Button><Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button></div>
       </DialogContent>
-      {del && d && <Dialog open onOpenChange={o => { if (!o && !busy) setDel(false); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle className="text-red-600">Delete "{d.title}" permanently?</DialogTitle>
-            <DialogDescription>All {d.files.length} version(s) and the files are removed{d.links.length ? `, and it is unlinked from ${d.links.length} checkpoint(s) / schedule(s) (each gets a history line)` : ""}. This cannot be undone. To keep it but hide it, use Archive instead.</DialogDescription></DialogHeader>
-          <div><Label>Reason *</Label><Textarea minChars={5} rows={2} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. uploaded to the wrong audit / contains personal data" /></div>
-          <div className="flex gap-2 pt-1"><Button variant="destructive" disabled={busy || reason.trim().length < 5} className="gap-1.5" onClick={async () => {
-            setBusy(true);
-            try { await apiFetch(`/compliance-documents/${id}`, { method: "DELETE", body: JSON.stringify({ reason: reason.trim() }) }); qc.invalidateQueries({ queryKey: ["compliance-documents"] }); qc.invalidateQueries({ queryKey: ["compliance-items"] }); toast({ title: "Evidence deleted" }); setDel(false); onClose(); }
-            catch (e: any) { toast({ title: "Could not delete", description: e.message, variant: "destructive" }); } finally { setBusy(false); }
-          }}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}<Trash2 className="w-4 h-4" />Delete permanently</Button><Button variant="outline" onClick={() => setDel(false)} disabled={busy}>Cancel</Button></div>
-        </DialogContent>
-      </Dialog>}
+      
     </Dialog>
   );
 }
