@@ -13,7 +13,7 @@ import { Archive, Mail, Download, RotateCcw, Loader2, Save, Send, CheckCircle2, 
 import { cn } from "@/lib/utils";
 import { fmtDateTime } from "@/lib/date";
 
-/* Admin › Archive & Notifications — upload / clear batches (download, restore) and email recipients per event. */
+/* Admin › Email, Alerts & Archive — upload / clear batches (download, restore) and email recipients per event. */
 
 const KIND: Record<string, string> = {
   asset_register_upload: "Asset register upload", asset_bulk_assign: "Bulk assignment upload", asset_finance_upload: "Purchase / cost / warranty upload",
@@ -34,7 +34,7 @@ export default function AdminArchive() {
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Archive & Notifications</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Email, Alerts &amp; Archive</h1>
           <p className="text-sm text-muted-foreground">Every upload and every "Clear all" is kept here as a batch. Choose who is emailed for important actions.</p>
         </div>
         <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">

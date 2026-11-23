@@ -1,4 +1,5 @@
 import { PushCard } from "@/pages/my-policies";
+import { AccountSecurity } from "@/components/account-security";
 import React, { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRoleLabel } from "@/lib/utils";
@@ -50,7 +51,7 @@ export default function Profile() {
     queryKey: ["masters-department"],
     queryFn: () => apiFetch<{key:string;label:string}[]>("/masters?category=department"),
   });
-  const getDeptLabel = (key: string | null | undefined) => key ? (deptMasters.find(d => d.key === key)?.label || key) : null;
+  const getDeptLabel = (key: string | null | undefined) => key ? (deptMasters.find(d => d.key === key || d.label.toLowerCase() === key.toLowerCase())?.label || (key.length <= 4 ? key.toUpperCase() : key.replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()))) : null;
 
   useEffect(() => {
     apiFetch<ProfileData>("/auth/profile").then(p => {
@@ -210,10 +211,11 @@ export default function Profile() {
               label="Account Created"
               value={profile?.createdAt ? fmtDate(profile.createdAt) : null}
             />
-            <FieldRow label="MFA Status" value={profile?.mfaEnabled ? "Enabled" : "Disabled"} />
+            <FieldRow label="MFA Status" value={profile?.mfaEnabled ? `Enabled (${(profile as any).mfaMethod === "email" ? "code by email" : "authenticator app"})` : "Disabled"} />
           </div>
         </CardContent>
       </Card>
+      <AccountSecurity />
     </div>
   );
 }

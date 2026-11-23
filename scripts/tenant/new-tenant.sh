@@ -99,8 +99,8 @@ if psql "$DB_URL" -X -Atc "SELECT count(*) FROM users" | grep -qx 0; then
   PW="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)Aa1!"
   HASH="$(cd "$DIR/artifacts/api-server" && PW="$PW" node -e 'console.log(require("bcryptjs").hashSync(process.env.PW, 12))')"
   psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -v email="$ADMIN" -v hash="$HASH" <<'SQL'
-INSERT INTO users (email, password_hash, name, user_type, role, department, designation, is_active, status, identity_source)
-VALUES (lower(:'email'), :'hash', 'Super Admin', 'internal', 'admin', 'it', 'Initial Super Admin (disable after go-live)', true, 'active', 'local');
+INSERT INTO users (email, password_hash, name, user_type, role, department, designation, is_active, status, identity_source, must_change_password)
+VALUES (lower(:'email'), :'hash', 'Super Admin', 'internal', 'admin', 'it', 'Initial Super Admin (disable after go-live)', true, 'active', 'local', true);
 INSERT INTO audit_logs (entity_type, action, performed_by, summary)
 VALUES ('User', 'CREATE', 'new-tenant.sh', 'Initial Super Admin ' || lower(:'email') || ' created for the new client instance');
 SQL

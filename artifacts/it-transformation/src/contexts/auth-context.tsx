@@ -10,7 +10,8 @@ export interface AuthUser {
   department?: string;
   mobile?: string;
   mfaEnabled: boolean;
-  mfaMethod: "totp" | "sms_otp" | "email_otp";
+  mfaMethod: "totp" | "email";
+  mustChangePassword?: boolean;
   status: "active" | "inactive" | "dormant";
   effectivePermissions?: Record<string, string>;
   defaultDashboard?: string;
@@ -30,7 +31,7 @@ interface AuthContextValue {
   effectivePermissions: Record<string, string>;
   defaultDashboard: string;
   canAccess: (module: string, level?: AccessLevel) => boolean;
-  login: (email: string, password: string) => Promise<{ requiresMfa?: boolean }>;
+  login: (email: string, password: string) => Promise<{ requiresMfa?: boolean; method?: "totp" | "email"; to?: string }>;
   loginMfa: (token: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -62,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    if (res.requiresMfa) return { requiresMfa: true };
+    if (res.requiresMfa) return { requiresMfa: true, method: res.method || "totp", to: res.to };
     // Call refresh() to get full user data including effectivePermissions and defaultDashboard
     await refresh();
     return {};

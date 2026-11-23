@@ -32,6 +32,11 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mfaToken, setMfaToken] = useState("");
+  const [mfaInfo, setMfaInfo] = useState<{ method: "totp" | "email"; to?: string }>({ method: "totp" });
+  async function resendCode() {
+    try { const r = await apiFetch<any>("/auth/login/mfa/resend", { method: "POST", headers: { "X-No-Confirm": "1" } }); toast({ title: "New code sent", description: `Check ${r.to}` }); }
+    catch (err: any) { toast({ title: "Could not send a new code", description: err.message, variant: "destructive" }); }
+  }
   const [loading, setLoading] = useState(false);
   const [ssoConfig, setSsoConfig] = useState<{ enabled: boolean; configured: boolean } | null>(null);
   const [central, setCentral] = useState<{ enabled: boolean; buttonLabel: string; localLogin: "admin" | "all" | "off" } | null>(null);
@@ -88,8 +93,8 @@ export default function Login() {
     try {
       const res = await login(email, password);
       if (res.requiresMfa) {
-        setStep("mfa");
-        toast({ title: "MFA required", description: "Enter the 6-digit code from your authenticator app." });
+        setStep("mfa"); setMfaInfo({ method: res.method || "totp", to: res.to });
+        toast({ title: "Two-step sign-in", description: res.method === "email" ? `We emailed a 6-digit code to ${res.to}` : "Enter the 6-digit code from your authenticator app." });
       }
     } catch (err: any) {
       toast({ title: "Login failed", description: err.message, variant: "destructive" });
@@ -173,7 +178,7 @@ export default function Login() {
             </CardTitle>
             <CardDescription>
               {step === "mfa"
-                ? "Enter the 6-digit code from your authenticator app"
+                ? (mfaInfo.method === "email" ? `Enter the 6-digit code we emailed to ${mfaInfo.to || "you"}` : "Enter the 6-digit code from your authenticator app")
                 : centralOn
                 ? `Single sign-on through ${(central?.buttonLabel || "").replace(/^Sign in (with|through) /i, "") || "the company portal"}`
                 : userType === "internal"
@@ -260,7 +265,8 @@ export default function Login() {
                 <div className="text-center py-4">
                   <Shield className="h-12 w-12 text-primary mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">
-                    Open your authenticator app (Google Authenticator, Authy, etc.) and enter the code.
+                    {mfaInfo.method === "email" ? <>The code is valid for 10 minutes. Not received? Check spam, or <button type="button" className="text-primary underline" onClick={resendCode} data-testid="mfa-resend">send a new code</button>.</>
+                      : "Open your authenticator app (Microsoft or Google Authenticator, etc.) and enter the code."}
                   </p>
                 </div>
                 <div className="space-y-1.5">

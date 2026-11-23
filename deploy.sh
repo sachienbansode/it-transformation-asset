@@ -16,6 +16,7 @@
 # Each run is recorded in the client's database (schema_migrations: file + checksum; app_deployments: version, commit, result).
 # Destructive scripts (names containing "clear" or "reset") are never run here — run them by hand only when asked.
 set -Eeuo pipefail
+umask 022                 # built files must be readable by the service user, whatever the shell had (ITH-145)
 cd "$(dirname "$0")"
 
 TENANT="$(cat .tenant 2>/dev/null | tr -cd 'a-z0-9-' || true)"

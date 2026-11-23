@@ -16,7 +16,9 @@ export const usersTable = pgTable("users", {
   mobile: text("mobile"),
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   mfaSecret: text("mfa_secret"),
-  mfaMethod: text("mfa_method").notNull().default("totp"),
+  mfaMethod: text("mfa_method").notNull().default("totp"),       // totp (authenticator app) | email (code by email)
+  mustChangePassword: boolean("must_change_password").notNull().default(false),   // r94: temporary password → change at next sign-in
+  passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }),
   azureId: text("azure_id"),
   isActive: boolean("is_active").notNull().default(true),
   status: text("status").notNull().default("active"),

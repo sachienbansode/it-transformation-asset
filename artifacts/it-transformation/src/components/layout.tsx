@@ -1,3 +1,4 @@
+import { ForcePasswordChange } from "@/components/account-security";
 import { Info, PackageSearch, Workflow } from "lucide-react";
 import { usePresenceHeartbeat, useMyPresence, PresenceDot, PRESENCE_LABEL, setMyPresence } from "@/lib/presence";
 import React, { useState, useEffect, useCallback } from "react";
@@ -103,7 +104,7 @@ const ADMIN_ITEMS = [
   { href: "/admin/data-import", label: "Data Import", icon: Upload, tab: "data-import" },
   { href: "/admin/updates", label: "Updates", icon: RefreshCcw, tab: "updates" },
   { href: "/platform", label: "NIYTRI Platform", icon: Server, tab: "platform" },
-  { href: "/admin/archive", label: "Archive & Notifications", icon: Archive, tab: "archive" },
+  { href: "/admin/archive", label: "Email, Alerts & Archive", icon: Archive, tab: "archive" },
 ];
 
 function NavItem({
@@ -519,6 +520,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </div>)}
             <MajorIncidentBanner />
             {children}
+            <ForcePasswordChange />
             <PolicyGate />
             <ChatPopup />
           </div>

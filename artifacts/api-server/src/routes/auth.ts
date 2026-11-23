@@ -8,11 +8,15 @@ import speakeasy from "speakeasy";
 import QRCode from "qrcode";
 import { z } from "zod";
 import { centralConfig } from "../lib/central-identity";
+import crypto from "crypto";
+import { sendDirect, loadMailConfig, esc } from "../lib/mailer";
 
 declare module "express-session" {
   interface SessionData {
     userId?: number;
     pendingMfaUserId?: number;
+    pendingMfaMethod?: "totp" | "email";
+    emailOtp?: { h: string; exp: number; tries: number; uid: number; purpose: "login" | "enable" | "disable"; sentAt: number };
     mfaVerified?: boolean;
   }
 }
@@ -48,6 +52,43 @@ async function getSetting(key: string): Promise<unknown> {
   return row?.value ?? null;
 }
 
+
+// ─── r94: password policy, emailed one-time codes, MFA policy ─────────────────
+export function passwordProblems(pw: string, email?: string): string[] {
+  const p: string[] = [];
+  if (pw.length < 12) p.push("at least 12 characters");
+  if (!/[a-z]/.test(pw)) p.push("a lower-case letter");
+  if (!/[A-Z]/.test(pw)) p.push("an upper-case letter");
+  if (!/[0-9]/.test(pw)) p.push("a number");
+  if (!/[^A-Za-z0-9]/.test(pw)) p.push("a symbol");
+  const local = String(email || "").split("@")[0].toLowerCase();
+  if (local.length >= 4 && pw.toLowerCase().includes(local)) p.push("NOEMAIL");
+  return p;
+}
+const maskEmail = (e: string) => { const [u, d] = e.split("@"); return `${u.slice(0, 2)}${"•".repeat(Math.max(2, u.length - 2))}@${d}`; };
+const hashCode = (c: string) => crypto.createHash("sha256").update(c).digest("hex");
+async function mailReady() { try { const mc: any = await loadMailConfig(); return mc.provider === "smtp" ? !!(mc.smtp?.host && mc.smtp?.from) : mc.provider === "m365" ? !!(mc.m365?.tenantId && mc.m365?.clientId && mc.m365?.secret && mc.m365?.from) : false; } catch { return false; } }
+async function sendEmailCode(req: Request, user: { id: number; email: string; name: string }, purpose: "login" | "enable" | "disable") {
+  const prev = req.session.emailOtp;
+  if (prev && prev.uid === user.id && Date.now() - prev.sentAt < 30_000) return { ok: false, error: "A code was sent less than 30 seconds ago — check your inbox" };
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  req.session.emailOtp = { h: hashCode(code), exp: Date.now() + 10 * 60_000, tries: 0, uid: user.id, purpose, sentAt: Date.now() };
+  const what = purpose === "login" ? "sign in" : purpose === "enable" ? "turn on email sign-in codes" : "turn off two-step sign-in";
+  await sendDirect(`mfa_${purpose}`, [user.email], `Your sign-in code: ${code}`,
+    `<p>Hello ${esc(user.name)},</p><p>Your code to ${what} is:</p><p style="font-size:26px;font-weight:700;letter-spacing:6px">${code}</p>
+     <p>It expires in 10 minutes. If you did not try to ${what}, change your password and tell the IT team.</p>`);
+  return { ok: true, to: maskEmail(user.email) };
+}
+function checkEmailCode(req: Request, uid: number, purpose: string, token: string): string | null {
+  const o = req.session.emailOtp;
+  if (!o || o.uid !== uid || o.purpose !== purpose) return "No code was sent — ask for a new code";
+  if (Date.now() > o.exp) { delete req.session.emailOtp; return "The code has expired — ask for a new code"; }
+  if (++o.tries > 5) { delete req.session.emailOtp; return "Too many wrong codes — ask for a new code"; }
+  if (hashCode(token) !== o.h) return "Invalid code";
+  delete req.session.emailOtp; return null;
+}
+async function mfaRequiredFor(userType: string) { return (await getSetting(`auth.mfaRequired.${userType === "external" ? "external" : "internal"}`)) === true; }
+
 // ─── AUTH ROUTES ─────────────────────────────────────────────
 
 // GET /auth/me — current session user
@@ -68,6 +109,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     mfaMethod: usersTable.mfaMethod,
     status: usersTable.status,
     photoUrl: usersTable.photoUrl,
+    mustChangePassword: usersTable.mustChangePassword,
   }).from(usersTable).where(eq(usersTable.id, req.session.userId));
   if (!user) {
     req.session.destroy(() => {});
@@ -160,12 +202,25 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  // Check if MFA is required
-  if (user.mfaEnabled && user.mfaSecret) {
-    req.session.pendingMfaUserId = user.id;
+  // Second step: authenticator app, or a code by email (chosen by the user, or forced by Admin › Settings › MFA required)
+  const useTotp = user.mfaEnabled && user.mfaMethod !== "email" && !!user.mfaSecret;
+  const useEmail = !useTotp && ((user.mfaEnabled && user.mfaMethod === "email") || await mfaRequiredFor(user.userType));
+  if (useTotp) {
+    req.session.pendingMfaUserId = user.id; req.session.pendingMfaMethod = "totp";
     await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
-    res.json({ requiresMfa: true });
+    res.json({ requiresMfa: true, method: "totp" });
     return;
+  }
+  if (useEmail) {
+    if (await mailReady()) {
+      req.session.pendingMfaUserId = user.id; req.session.pendingMfaMethod = "email";
+      const s = await sendEmailCode(req, user, "login");
+      await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+      res.json({ requiresMfa: true, method: "email", to: s.to || maskEmail(user.email) });
+      return;
+    }
+    // email not set up yet: do not lock everyone out — sign in and record it so the admin can see
+    await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'MFA_SKIPPED', ${user.email}, 'Two-step sign-in required but email delivery is not set up — signed in with password only')`).catch(() => {});
   }
 
   // Login complete — regenerate session ID to prevent session fixation
@@ -180,7 +235,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     id: user.id, email: user.email, name: user.name,
     userType: user.userType, role: user.role, department: user.department,
     mobile: user.mobile, mfaEnabled: user.mfaEnabled, mfaMethod: user.mfaMethod,
-    status: user.status,
+    status: user.status, mustChangePassword: user.mustChangePassword,
   });
 });
 
@@ -190,24 +245,18 @@ router.post("/auth/login/mfa", async (req, res): Promise<void> => {
     res.status(400).json({ error: "No pending MFA session" });
     return;
   }
-  const body = z.object({ token: z.string().min(6).max(6) }).safeParse(req.body);
-  if (!body.success) { res.status(400).json({ error: "Invalid token" }); return; }
+  const body = z.object({ token: z.string().trim().regex(/^\d{6}$/) }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Enter the 6-digit code" }); return; }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.session.pendingMfaUserId));
-  if (!user || !user.mfaSecret) {
-    res.status(400).json({ error: "MFA not configured" });
-    return;
-  }
-
-  const valid = speakeasy.totp.verify({
-    secret: user.mfaSecret,
-    encoding: "base32",
-    token: body.data.token,
-    window: 2,
-  });
-  if (!valid) {
-    res.status(401).json({ error: "Invalid MFA code" });
-    return;
+  if (!user) { res.status(400).json({ error: "Sign in again" }); return; }
+  if (req.session.pendingMfaMethod === "email") {
+    const err = checkEmailCode(req, user.id, "login", body.data.token);
+    if (err) { await new Promise<void>(r => req.session.save(() => r())); res.status(401).json({ error: err }); return; }
+  } else {
+    if (!user.mfaSecret) { res.status(400).json({ error: "MFA not configured" }); return; }
+    const valid = speakeasy.totp.verify({ secret: user.mfaSecret, encoding: "base32", token: body.data.token, window: 2 });
+    if (!valid) { res.status(401).json({ error: "Invalid MFA code" }); return; }
   }
 
   // Regenerate session ID after MFA to prevent session fixation
@@ -220,8 +269,57 @@ router.post("/auth/login/mfa", async (req, res): Promise<void> => {
   res.json({
     id: user.id, email: user.email, name: user.name,
     userType: user.userType, role: user.role, department: user.department,
-    mfaEnabled: user.mfaEnabled,
+    mfaEnabled: user.mfaEnabled, mustChangePassword: user.mustChangePassword,
   });
+});
+
+// POST /auth/login/mfa/resend — a new emailed code during sign-in
+router.post("/auth/login/mfa/resend", async (req, res): Promise<void> => {
+  const uid = req.session.pendingMfaUserId;
+  if (!uid || req.session.pendingMfaMethod !== "email") { res.status(400).json({ error: "Sign in again" }); return; }
+  const [user] = await db.select({ id: usersTable.id, email: usersTable.email, name: usersTable.name }).from(usersTable).where(eq(usersTable.id, uid));
+  if (!user) { res.status(400).json({ error: "Sign in again" }); return; }
+  const s = await sendEmailCode(req, user, "login");
+  await new Promise<void>(r => req.session.save(() => r()));
+  if (!s.ok) { res.status(429).json({ error: s.error }); return; }
+  res.json({ ok: true, to: s.to });
+});
+
+// POST /auth/change-password — signed-in user changes own password (current password needed)
+router.post("/auth/change-password", requireAuth, async (req, res): Promise<void> => {
+  const body = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(1).max(200) }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Enter your current and new password" }); return; }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!));
+  if (!user?.passwordHash) { res.status(400).json({ error: "This account signs in through the company portal — change the password there" }); return; }
+  if (!await bcrypt.compare(body.data.currentPassword, user.passwordHash)) { res.status(400).json({ error: "Current password is not correct" }); return; }
+  const probs = passwordProblems(body.data.newPassword, user.email);
+  if (probs.length) { const need = probs.filter(x => x !== "NOEMAIL"); res.status(400).json({ error: [need.length ? `The new password needs ${need.join(", ")}` : "", probs.includes("NOEMAIL") ? "It must not contain your email name" : ""].filter(Boolean).join(". ") }); return; }
+  if (await bcrypt.compare(body.data.newPassword, user.passwordHash)) { res.status(400).json({ error: "The new password must be different from the current one" }); return; }
+  await db.update(usersTable).set({ passwordHash: await bcrypt.hash(body.data.newPassword, 12), mustChangePassword: false, passwordChangedAt: new Date() }).where(eq(usersTable.id, user.id));
+  await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'PASSWORD_CHANGED', ${user.email}, 'Password changed by the user')`).catch(() => {});
+  res.json({ ok: true });
+});
+
+// POST /auth/mfa/email/start — send a code to the signed-in user (to turn email codes on, or MFA off)
+router.post("/auth/mfa/email/start", requireAuth, async (req, res): Promise<void> => {
+  const purpose = req.body?.purpose === "disable" ? "disable" : "enable";
+  if (!await mailReady()) { res.status(400).json({ error: "Email delivery is not set up yet — ask the admin (Admin › Email, alerts & archive)" }); return; }
+  const [user] = await db.select({ id: usersTable.id, email: usersTable.email, name: usersTable.name }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
+  const s = await sendEmailCode(req, user, purpose);
+  await new Promise<void>(r => req.session.save(() => r()));
+  if (!s.ok) { res.status(429).json({ error: s.error }); return; }
+  res.json({ ok: true, to: s.to });
+});
+
+// POST /auth/mfa/email/enable — confirm the emailed code → email codes on
+router.post("/auth/mfa/email/enable", requireAuth, async (req, res): Promise<void> => {
+  const token = String(req.body?.token || "").trim();
+  const err = checkEmailCode(req, req.session.userId!, "enable", token);
+  await new Promise<void>(r => req.session.save(() => r()));
+  if (err) { res.status(401).json({ error: err }); return; }
+  await db.update(usersTable).set({ mfaEnabled: true, mfaMethod: "email", mfaSecret: null }).where(eq(usersTable.id, req.session.userId!));
+  await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) SELECT 'User', id, 'MFA_ENABLED', email, 'Two-step sign-in turned on (code by email)' FROM users WHERE id = ${req.session.userId!}`).catch(() => {});
+  res.json({ ok: true });
 });
 
 // POST /auth/logout
@@ -294,7 +392,8 @@ router.post("/auth/mfa/enable", requireAuth, async (req, res): Promise<void> => 
   const valid = speakeasy.totp.verify({ secret, encoding: "base32", token: body.data.token, window: 2 });
   if (!valid) { res.status(401).json({ error: "Invalid code. Try again." }); return; }
 
-  await db.update(usersTable).set({ mfaEnabled: true, mfaSecret: secret }).where(eq(usersTable.id, req.session.userId!));
+  await db.update(usersTable).set({ mfaEnabled: true, mfaSecret: secret, mfaMethod: "totp" }).where(eq(usersTable.id, req.session.userId!));
+  await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) SELECT 'User', id, 'MFA_ENABLED', email, 'Two-step sign-in turned on (authenticator app)' FROM users WHERE id = ${req.session.userId!}`).catch(() => {});
   delete (req.session as any).mfaSetupSecret;
   res.json({ ok: true, message: "MFA enabled successfully" });
 });
@@ -304,13 +403,20 @@ router.post("/auth/mfa/disable", requireAuth, async (req, res): Promise<void> =>
   const body = z.object({ token: z.string().min(6).max(6) }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid token" }); return; }
 
-  const [user] = await db.select({ mfaSecret: usersTable.mfaSecret }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
-  if (!user?.mfaSecret) { res.status(400).json({ error: "MFA not enabled" }); return; }
+  const [user] = await db.select({ mfaSecret: usersTable.mfaSecret, mfaMethod: usersTable.mfaMethod, mfaEnabled: usersTable.mfaEnabled, userType: usersTable.userType }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
+  if (!user?.mfaEnabled) { res.status(400).json({ error: "MFA not enabled" }); return; }
+  if (await mfaRequiredFor(user.userType)) { res.status(400).json({ error: "Two-step sign-in is required by your organisation — you can switch the method, but not turn it off" }); return; }
+  if (user.mfaMethod === "email") {
+    const err = checkEmailCode(req, req.session.userId!, "disable", body.data.token);
+    await new Promise<void>(r => req.session.save(() => r()));
+    if (err) { res.status(401).json({ error: err }); return; }
+  } else {
+    const valid = speakeasy.totp.verify({ secret: user.mfaSecret || "", encoding: "base32", token: body.data.token, window: 2 });
+    if (!valid) { res.status(401).json({ error: "Invalid code" }); return; }
+  }
 
-  const valid = speakeasy.totp.verify({ secret: user.mfaSecret, encoding: "base32", token: body.data.token, window: 2 });
-  if (!valid) { res.status(401).json({ error: "Invalid code" }); return; }
-
-  await db.update(usersTable).set({ mfaEnabled: false, mfaSecret: null }).where(eq(usersTable.id, req.session.userId!));
+  await db.update(usersTable).set({ mfaEnabled: false, mfaSecret: null, mfaMethod: "totp" }).where(eq(usersTable.id, req.session.userId!));
+  await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) SELECT 'User', id, 'MFA_DISABLED', email, 'Two-step sign-in turned off by the user' FROM users WHERE id = ${req.session.userId!}`).catch(() => {});
   res.json({ ok: true, message: "MFA disabled" });
 });
 
@@ -342,89 +448,71 @@ router.get("/auth/sso/config", async (_req, res): Promise<void> => {
   });
 });
 
-// GET /auth/sso/redirect — redirect to Microsoft login
+// GET /auth/sso/redirect — Microsoft Entra ID (Azure AD) sign-in. r95: one-time state + nonce, fixed redirect URI.
+async function ssoRedirectUri(req: Request) {
+  const saved = String((await getSetting("sso.redirectUri")) || "").trim();
+  if (saved) return saved;
+  const base = String(process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  return `${base}/api/auth/sso/callback`;
+}
 router.get("/auth/sso/redirect", async (req, res): Promise<void> => {
   const enabled = await getSetting("sso.msEnabled");
-  const clientId = await getSetting("sso.clientId") as string;
-  const tenantId = await getSetting("sso.tenantId") as string;
-  const redirectUri = await getSetting("sso.redirectUri") as string || `${req.protocol}://${req.get("host")}/api/auth/sso/callback`;
-
-  if (!enabled || !clientId || !tenantId) {
-    res.status(400).json({ error: "MS SSO is not configured" });
-    return;
-  }
-
-  const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
-    `client_id=${encodeURIComponent(clientId)}` +
-    `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&scope=${encodeURIComponent("openid profile email")}` +
-    `&response_mode=query` +
-    `&state=sso`;
-
+  const clientId = String((await getSetting("sso.clientId")) || "").trim();
+  const tenantId = String((await getSetting("sso.tenantId")) || "").trim();
+  if (!enabled || !clientId || !tenantId) { res.status(400).json({ error: "Microsoft sign-in is not configured" }); return; }
+  const state = crypto.randomBytes(24).toString("base64url"); const nonce = crypto.randomBytes(16).toString("base64url");
+  (req.session as any).msSso = { state, nonce, at: Date.now() };
+  await new Promise<void>(r => req.session.save(() => r()));
+  const authUrl = `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/authorize?` + new URLSearchParams({
+    client_id: clientId, response_type: "code", redirect_uri: await ssoRedirectUri(req), response_mode: "query",
+    scope: "openid profile email User.Read", state, nonce, prompt: "select_account",
+  }).toString();
   res.json({ authUrl });
 });
 
-// GET /auth/sso/callback — handle MS SSO callback (token exchange)
+// GET /auth/sso/callback — code → tokens → Microsoft Graph /me → IT Hub user
 router.get("/auth/sso/callback", async (req, res): Promise<void> => {
-  const code = req.query.code as string;
-  if (!code) { res.status(400).send("Missing code"); return; }
-
-  const clientId = await getSetting("sso.clientId") as string;
-  const tenantId = await getSetting("sso.tenantId") as string;
-  const clientSecret = await getSetting("sso.clientSecret") as string;
-  const redirectUri = await getSetting("sso.redirectUri") as string || `${req.protocol}://${req.get("host")}/api/auth/sso/callback`;
-
+  const fail = (why: string, log?: unknown) => { if (log) console.error("Microsoft sign-in:", log); res.redirect(`/login?sso_error=${why}`); };
+  const pend = (req.session as any).msSso; delete (req.session as any).msSso;
+  if (req.query.error) return fail("access_denied", `${req.query.error}: ${req.query.error_description || ""}`);
+  const code = String(req.query.code || "");
+  if (!code || !pend || pend.state !== String(req.query.state || "") || Date.now() - pend.at > 10 * 60_000) return fail("invalid_state");
+  const clientId = String((await getSetting("sso.clientId")) || "").trim();
+  const tenantId = String((await getSetting("sso.tenantId")) || "").trim();
+  const { openText } = await import("../lib/secure-text");
+  const clientSecret = openText(String((await getSetting("sso.clientSecret")) || ""));
+  if (!clientId || !tenantId || !clientSecret) return fail("not_configured");
   try {
-    // Exchange code for tokens
-    const tokenRes = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        redirect_uri: redirectUri,
-        grant_type: "authorization_code",
-        scope: "openid profile email",
-      }),
+    const tokenRes = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`, {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: await ssoRedirectUri(req), grant_type: "authorization_code", scope: "openid profile email User.Read" }),
     });
-    const tokenData = await tokenRes.json() as any;
-    if (!tokenRes.ok) throw new Error(tokenData.error_description || "Token exchange failed");
+    const tok = await tokenRes.json() as any;
+    if (!tokenRes.ok) return fail("portal_error", tok.error_description || tok.error);
+    // the ID token came straight from Microsoft over TLS: check it is for this app, this tenant and this sign-in
+    const claims = JSON.parse(Buffer.from(String(tok.id_token || "").split(".")[1] || "", "base64url").toString() || "{}");
+    if (claims.aud !== clientId || (claims.tid && tenantId.match(/^[0-9a-f-]{36}$/i) && claims.tid.toLowerCase() !== tenantId.toLowerCase()) || claims.nonce !== pend.nonce) return fail("invalid_state", "ID token check failed");
+    const me = await (await fetch("https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName,jobTitle,department,employeeId", { headers: { Authorization: `Bearer ${tok.access_token}` } })).json() as any;
+    const email = String(me.mail || me.userPrincipalName || claims.preferred_username || "").toLowerCase();
+    if (!email) return fail("portal_error", "no email from Microsoft");
 
-    // Get user info
-    const userRes = await fetch("https://graph.microsoft.com/v1.0/me", {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-    const msUser = await userRes.json() as any;
-
-    const email = (msUser.mail || msUser.userPrincipalName || "").toLowerCase();
-    const azureId = msUser.id;
-    const name = msUser.displayName || email;
-
-    if (!email) throw new Error("Could not get email from Microsoft");
-
-    // Find or create user
     let [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
     if (!user) {
-      [user] = await db.insert(usersTable).values({
-        email, name, userType: "internal", role: "user", azureId, isActive: true,
-      }).returning();
-    } else {
-      await db.update(usersTable).set({ azureId, lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
+      // Admin › Settings › Microsoft SSO: create users on first sign-in, or only allow users already in IT Hub
+      if ((await getSetting("sso.autoCreateUsers")) === false) return fail("not_registered");
+      [user] = await db.insert(usersTable).values({ email, name: me.displayName || email, userType: "internal", role: "user", azureId: me.id, isActive: true, status: "active", identitySource: "local", designation: me.jobTitle || null, employeeCode: me.employeeId || null }).returning();
+      await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'CREATE', 'Microsoft sign-in', ${`User created at first Microsoft sign-in: ${email}`})`).catch(() => {});
     }
-
-    if (!user.isActive) {
-      res.redirect(`/?error=account_disabled`);
-      return;
-    }
-
-    req.session.userId = user.id;
+    if (!user.isActive || user.status === "inactive") return fail("account_disabled");
+    await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+    req.session.userId = user.id; req.session.mfaVerified = true;   // Microsoft did the sign-in (and its own MFA / Conditional Access)
     { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(user.id).catch(() => {}); }
+    await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    await db.update(usersTable).set({ azureId: me.id, lastLoginAt: new Date(), status: "active" }).where(eq(usersTable.id, user.id));
+    await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'LOGIN', ${email}, 'Signed in with Microsoft')`).catch(() => {});
     res.redirect("/");
   } catch (err: any) {
-    console.error("SSO callback error:", err);
-    res.redirect(`/?error=sso_failed`);
+    return fail("portal_error", err?.message || err);
   }
 });
 
@@ -437,9 +525,13 @@ router.get("/auth/profile", requireAuth, async (req, res): Promise<void> => {
     mobile: usersTable.mobile, status: usersTable.status,
     mfaEnabled: usersTable.mfaEnabled, lastLoginAt: usersTable.lastLoginAt,
     createdAt: usersTable.createdAt, photoUrl: usersTable.photoUrl,
+    mfaMethod: usersTable.mfaMethod, mustChangePassword: usersTable.mustChangePassword, passwordChangedAt: usersTable.passwordChangedAt,
+    hasPassword: sql<boolean>`${usersTable.passwordHash} IS NOT NULL`,
   }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  res.json(user);
+  // show the department NAME (users keep the master key, e.g. "it" → "IT")
+  const [dep] = rowsOfAny(await db.execute(sql`SELECT label FROM masters WHERE category = 'department' AND (key = ${user.department} OR lower(label) = lower(${user.department})) ORDER BY is_active DESC LIMIT 1`).catch(() => ({ rows: [] })));
+  res.json({ ...user, department: dep?.label || user.department, mfaRequired: await mfaRequiredFor(user.userType), emailReady: await mailReady() });
 });
 
 // PATCH /auth/profile — update display name (read-only: designation, employeeCode, department, etc.)

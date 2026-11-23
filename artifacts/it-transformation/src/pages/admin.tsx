@@ -61,6 +61,7 @@ interface AdminSettings {
   "sso.tenantId"?: string;
   "sso.clientSecret"?: string;
   "sso.redirectUri"?: string;
+  "sso.autoCreateUsers"?: boolean;
   "app_name"?: string;
   "app_tagline"?: string;
   "logo_url"?: string;
@@ -249,7 +250,7 @@ function SettingsTab() {
             <div className="space-y-1.5">
               <Label>Client Secret</Label>
               <PasswordInput
-                placeholder="Azure AD client secret"
+                placeholder="Azure AD client secret (stored encrypted)"
                 value={(settings["sso.clientSecret"] as string) || ""}
                 onChange={e => set("sso.clientSecret", e.target.value)}
               />
@@ -257,11 +258,21 @@ function SettingsTab() {
             <div className="space-y-1.5">
               <Label>Redirect URI (optional)</Label>
               <Input
-                placeholder="https://yourdomain.com/api/auth/sso/callback"
+                placeholder={`${window.location.origin}/api/auth/sso/callback`}
                 value={(settings["sso.redirectUri"] as string) || ""}
                 onChange={e => set("sso.redirectUri", e.target.value)}
               />
             </div>
+            <div className="space-y-1.5 md:col-span-2 rounded-md border bg-muted/30 p-3 text-xs">
+              <div className="font-medium">Redirect URI to register in Microsoft Entra ID (Web platform):</div>
+              <div className="font-mono mt-1 select-all" data-testid="sso-callback">{((settings["sso.redirectUri"] as string) || `${window.location.origin}/api/auth/sso/callback`)}</div>
+            </div>
+            <div className="md:col-span-2 flex items-center justify-between gap-3">
+              <div><div className="text-sm font-medium">Create users at first Microsoft sign-in</div>
+                <div className="text-xs text-muted-foreground">Off = only people already in IT Hub (e.g. loaded by Data import) can sign in with Microsoft</div></div>
+              <Switch checked={settings["sso.autoCreateUsers"] !== false} onCheckedChange={v => set("sso.autoCreateUsers", v)} />
+            </div>
+            <SsoTest settings={settings} />
           </div>
         </CardContent>
       </Card>
@@ -2080,6 +2091,34 @@ function ItsmConfigTab() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/* r95 — test Microsoft SSO: server checks tenant, app ID and secret; then an optional real sign-in in a new tab */
+function SsoTest({ settings }: { settings: any }) {
+  const [busy, setBusy] = useState(false); const [r, setR] = useState<any>(null);
+  async function run() {
+    setBusy(true); setR(null);
+    try { setR(await apiFetch("/admin/sso/test", { method: "POST", headers: { "X-No-Confirm": "1" }, body: JSON.stringify({ tenantId: settings["sso.tenantId"], clientId: settings["sso.clientId"], clientSecret: settings["sso.clientSecret"], redirectUri: settings["sso.redirectUri"] }) })); }
+    catch (e: any) { setR({ ok: false, steps: [{ step: "Test", ok: false, detail: e.message }] }); }
+    finally { setBusy(false); }
+  }
+  async function trySignIn() {
+    try { const x = await apiFetch<any>("/auth/sso/redirect"); window.open(x.authUrl, "_blank", "noopener"); }
+    catch (e: any) { setR({ ok: false, steps: [{ step: "Sign-in", ok: false, detail: `${e.message} — save the settings with SSO enabled first` }] }); }
+  }
+  return (
+    <div className="md:col-span-2 rounded-md border p-3 space-y-2" data-testid="sso-test">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={run} data-testid="sso-test-btn">{busy ? "Testing…" : "Test SSO settings"}</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={trySignIn} title="Opens Microsoft sign-in in a new tab (uses the SAVED settings)">Try a real sign-in</Button>
+        <span className="text-[11px] text-muted-foreground">The test uses the values on screen (secret: the saved one unless you typed a new one). It signs nobody in.</span>
+      </div>
+      {r && <div className="space-y-1" data-testid="sso-test-result">
+        <div className={r.ok ? "text-sm font-semibold text-emerald-600" : "text-sm font-semibold text-red-600"}>{r.ok ? "SSO settings are correct" : "SSO settings need attention"}</div>
+        {(r.steps || []).map((s: any, i: number) => <div key={i} className="text-xs flex gap-2"><span className={s.ok ? "text-emerald-600" : "text-red-600"}>{s.ok ? "✓" : "✕"}</span><span className="font-medium min-w-[220px]">{s.step}</span><span className="text-muted-foreground break-all">{s.detail}</span></div>)}
+      </div>}
     </div>
   );
 }

@@ -53,10 +53,13 @@ router.get("/admin/export/:name", requireAdmin, async (req, res): Promise<void> 
 
 // ─── SETTINGS ────────────────────────────────────────────────
 
+const SECRET_MASK = "••••••••";
 router.get("/admin/settings", requireAdmin, async (_req, res): Promise<void> => {
   const rows = await db.select().from(settingsTable);
   const settings: Record<string, unknown> = {};
   for (const row of rows) settings[row.key] = row.value;
+  // r95: secrets never go back to the browser — only whether one is saved
+  if (settings["sso.clientSecret"]) settings["sso.clientSecret"] = SECRET_MASK;
   res.json(settings);
 });
 
@@ -65,6 +68,13 @@ router.put("/admin/settings", requireAdmin, async (req, res): Promise<void> => {
   if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
   for (const [key, value] of Object.entries(body.data)) {
     if (key.startsWith("tenant.")) continue;   // client-instance facts are set by the server scripts only
+    if (key === "sso.clientSecret") {          // r95: stored encrypted; the mask (or empty) means "keep the saved one"
+      const v = String(value ?? "").trim();
+      if (!v || v === SECRET_MASK) continue;
+      const { sealText } = await import("../lib/secure-text");
+      await db.insert(settingsTable).values({ key, value: sealText(v) as any }).onConflictDoUpdate({ target: settingsTable.key, set: { value: sealText(v) as any } });
+      continue;
+    }
     await db
       .insert(settingsTable)
       .values({ key, value })
@@ -72,6 +82,42 @@ router.put("/admin/settings", requireAdmin, async (req, res): Promise<void> => {
   }
   clearUploadPolicyCache();
   res.json({ ok: true });
+});
+
+// r95: test Microsoft SSO settings from the server (tenant, app ID and client secret) without signing anyone in
+router.post("/admin/sso/test", requireAdmin, async (req, res): Promise<void> => {
+  const b = req.body || {};
+  const get = async (k: string) => { const [r] = await db.select({ value: settingsTable.value }).from(settingsTable).where(eq(settingsTable.key, k)); return r?.value as any; };
+  const tenantId = String(b.tenantId ?? await get("sso.tenantId") ?? "").trim();
+  const clientId = String(b.clientId ?? await get("sso.clientId") ?? "").trim();
+  let secret = String(b.clientSecret ?? "").trim();
+  const { openText } = await import("../lib/secure-text");
+  if (!secret || secret === SECRET_MASK) secret = openText(String(await get("sso.clientSecret") || ""));
+  const base = String(process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  const redirectUri = String(b.redirectUri || await get("sso.redirectUri") || "").trim() || `${base}/api/auth/sso/callback`;
+  const steps: { step: string; ok: boolean; detail: string }[] = [];
+  const add = (step: string, ok: boolean, detail: string) => { steps.push({ step, ok, detail }); return ok; };
+  const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  try {
+    if (!add("Values entered", !!tenantId && !!clientId && !!secret, [!tenantId && "Tenant ID", !clientId && "Client ID", !secret && "Client secret"].filter(Boolean).join(", ") ? `Missing: ${[!tenantId && "Tenant ID", !clientId && "Client ID", !secret && "Client secret"].filter(Boolean).join(", ")}` : "Tenant ID, Client ID and Client secret are filled in")) return void res.json({ ok: false, steps, redirectUri });
+    add("Client ID format", guid.test(clientId), guid.test(clientId) ? "Looks like an Application (client) ID" : "Should look like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (Overview › Application (client) ID)");
+    if (guid.test(secret)) add("Client secret", false, "This looks like the Secret ID. Use the secret VALUE (shown only once when the secret is created).");
+    const meta = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/v2.0/.well-known/openid-configuration`, { signal: AbortSignal.timeout(10_000) });
+    const mj: any = await meta.json().catch(() => ({}));
+    if (!add("Tenant found", meta.ok && !!mj.issuer, meta.ok ? `Microsoft Entra tenant reachable (${String(mj.issuer || "").split("/")[3] || tenantId})` : `Tenant not found — check the Directory (tenant) ID (${mj.error_description?.split("\r")[0] || meta.status})`)) return void res.json({ ok: false, steps, redirectUri });
+    const tr = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`, {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: AbortSignal.timeout(10_000),
+      body: new URLSearchParams({ client_id: clientId, client_secret: secret, grant_type: "client_credentials", scope: "https://graph.microsoft.com/.default" }) });
+    const tj: any = await tr.json().catch(() => ({}));
+    const code = String(tj.error_description || "").match(/AADSTS(\d+)/)?.[1];
+    const why: Record<string, string> = { "7000215": "Client secret is wrong — use the secret VALUE, not the Secret ID", "7000222": "Client secret has expired — create a new one", "700016": "App (client) ID not found in this tenant", "90002": "Tenant not found", "700023": "App is not allowed for this tenant" };
+    add("App ID and client secret accepted by Microsoft", tr.ok, tr.ok ? "Microsoft issued a token for this app — ID and secret are correct" : (code && why[code]) || String(tj.error_description || tj.error || tr.status).split("\r")[0].slice(0, 300));
+    add("Redirect URI to register (Web)", /^https:\/\//.test(redirectUri) || /localhost|127\.0\.0\.1/.test(redirectUri), redirectUri + (/^https:\/\//.test(redirectUri) ? "" : " — Microsoft needs HTTPS"));
+    res.json({ ok: steps.every(s => s.ok), steps, redirectUri });
+  } catch (e: any) {
+    add("Reach Microsoft", false, `The server could not reach login.microsoftonline.com (${e?.message || e}) — check outbound HTTPS / proxy on this server`);
+    res.json({ ok: false, steps, redirectUri });
+  }
 });
 
 // ─── USERS ────────────────────────────────────────────────────
@@ -160,7 +206,7 @@ router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
   const [emailClash] = await db.select({ id: usersTable.id }).from(usersTable).where(sql`lower(${usersTable.email}) = ${rest.email}`);
   if (emailClash) { res.status(400).json({ error: `A user with email ${rest.email} already exists` }); return; }
   const passwordHash = password ? await bcrypt.hash(password, 12) : null;
-  const [user] = await db.insert(usersTable).values({ ...rest, passwordHash }).returning({
+  const [user] = await db.insert(usersTable).values({ ...rest, passwordHash, mustChangePassword: !!password }).returning({
     id: usersTable.id, email: usersTable.email, name: usersTable.name,
     userType: usersTable.userType, role: usersTable.role, status: usersTable.status,
     mobile: usersTable.mobile,
@@ -211,7 +257,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
     update.lastLoginAt = new Date();
   }
   if (rest.status === "inactive" || rest.status === "dormant") update.isActive = false;
-  if (password) update.passwordHash = await bcrypt.hash(password, 12);
+  if (password) { update.passwordHash = await bcrypt.hash(password, 12); update.mustChangePassword = true; }   // r94: reset by admin = temporary
   const [oldUser] = await db.select({
     email: usersTable.email, name: usersTable.name, role: usersTable.role, status: usersTable.status,
     department: usersTable.department, designation: usersTable.designation, mobile: usersTable.mobile,
