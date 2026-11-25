@@ -15,7 +15,7 @@ const router = Router();
 // ─── CSV EXPORT of users and master tables (Admin) ──────────
 // Fixed list of tables and columns (no SQL from the request). Secrets are never exported.
 const EXPORTS: Record<string, { file: string; sql: ReturnType<typeof sql> }> = {
-  users: { file: "users", sql: sql`SELECT u.id, u.employee_code, u.name, u.email, u.mobile, u.user_type, u.role, u.department, u.designation, u.is_active, u.status, u.mfa_enabled, u.identity_source, u.last_login_at, u.created_at,
+  users: { file: "users", sql: sql`SELECT u.id, u.employee_code, u.name, u.email, u.mobile, u.user_type, CASE WHEN u.role = 'admin' THEN 'Super Admin' ELSE u.role END AS base_role, coalesce((SELECT m.label FROM masters m WHERE m.category = 'department' AND (lower(m.key) = lower(u.department) OR lower(m.label) = lower(u.department)) ORDER BY m.is_active DESC LIMIT 1), u.department) AS department, u.designation, u.is_active, u.status, CASE WHEN u.auth_method = 'm365' THEN 'Microsoft 365' ELSE 'IT Hub password' END AS sign_in_method, u.mfa_enabled, CASE WHEN u.mfa_enabled THEN u.mfa_method END AS mfa_method, u.must_change_password, u.password_changed_at, u.last_login_at, u.created_at,
     (SELECT string_agg(r.name, '; ') FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id) AS roles FROM users u ORDER BY u.name` },
   masters: { file: "master_data", sql: sql`SELECT id, category, key, label, color, sort_order, is_active FROM masters ORDER BY category, sort_order, label` },
   business_units: { file: "business_units", sql: sql`SELECT * FROM business_units ORDER BY 1` },
