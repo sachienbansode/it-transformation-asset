@@ -18,7 +18,7 @@ import { confirmDialog } from "@/components/confirm-dialog";
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
   role: string; department: string; designation?: string; employeeCode?: string;
-  mobile?: string; mfaEnabled: boolean; status?: string; isActive: boolean; lastLoginAt?: string;
+  mobile?: string; mfaEnabled: boolean; status?: string; isActive: boolean; lastLoginAt?: string; authMethod?: string;
 }
 interface DeptMaster { key: string; label: string; sortOrder: number; }
 
@@ -53,8 +53,10 @@ export default function AdminUsers() {
   const USER_PAGE_SIZE = 12;
   const [form, setForm] = useState({
     name: "", email: "", password: "", userType: "internal", role: "user",
-    department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true,
+    department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true, authMethod: "password",
   });
+  const [ssoOn, setSsoOn] = useState(false);
+  useEffect(() => { apiFetch<any>("/auth/sso/config").then(c => setSsoOn(!!c?.enabled)).catch(() => {}); }, []);
   const [deptMasters, setDeptMasters] = useState<DeptMaster[]>([]);
   // Access roles (Roles & Permissions) — these decide what the person can open in IT Hub, e.g. IT Asset Admin
   const [accessRoles, setAccessRoles] = useState<{ id: number; name: string; description?: string; permissions: { module: string; accessLevel: string }[] }[]>([]);
@@ -80,14 +82,14 @@ export default function AdminUsers() {
 
   const openAdd = () => {
     setEditUser(null);
-    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true });
+    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true, authMethod: ssoOn ? "m365" : "password" });
     setRoleIds([]);
     setModalOpen(true);
   };
 
   const openEdit = (u: AdminUser) => {
     setEditUser(u);
-    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", designation: u.designation || "", employeeCode: u.employeeCode || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive });
+    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", designation: u.designation || "", employeeCode: u.employeeCode || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive, authMethod: u.authMethod || "password" });
     setRoleIds([]);
     apiFetch<number[]>(`/user-roles/${u.id}`).then(setRoleIds).catch(() => {});
     setModalOpen(true);
@@ -102,6 +104,7 @@ export default function AdminUsers() {
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) { toast({ title: "Enter a valid login email", variant: "destructive" }); return; }
         const body: any = { name: form.name, email: form.email.trim().toLowerCase(), userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
+        body.authMethod = form.authMethod;
         await apiFetch(`/admin/users/${editUser.id}`, { method: "PATCH", body: JSON.stringify(body) });
         await apiFetch(`/user-roles/${editUser.id}`, { method: "PUT", body: JSON.stringify({ roleIds }) });
         toast({ title: "User updated" });
@@ -114,8 +117,10 @@ export default function AdminUsers() {
         // Client-side unique emp code check
         const empCodeExists = users.some(u => u.employeeCode?.toLowerCase() === form.employeeCode.trim().toLowerCase());
         if (empCodeExists) { toast({ title: "Employee Code already exists", description: "Employee codes must be unique.", variant: "destructive" }); return; }
+        if (form.authMethod === "password" && !form.password) { toast({ title: "Set a temporary password", description: "Or choose sign-in with Microsoft 365.", variant: "destructive" }); return; }
         const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
         if (form.password) body.password = form.password;
+        body.authMethod = form.authMethod;
         const created: any = await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
         if (roleIds.length && created?.id) await apiFetch(`/user-roles/${created.id}`, { method: "PUT", body: JSON.stringify({ roleIds }) });
         toast({ title: "User created" });
@@ -382,7 +387,7 @@ export default function AdminUsers() {
             </div>
             <div className="space-y-1.5">
               <Label>Department <span className="text-red-500">*</span></Label>
-              <SearchSelect testId="user-dept" options={deptMasters.map(d => ({ value: d.key, label: d.label }))} value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))} placeholder="Select department" />
+              <SearchSelect testId="user-dept" options={deptMasters.map(d => ({ value: d.label, label: d.label }))} value={form.department} onChange={v => setForm(f => ({ ...f, department: v }))} placeholder="Select department" />
             </div>
             <div className="space-y-1.5">
               <Label>Mobile Number</Label>
@@ -420,9 +425,21 @@ export default function AdminUsers() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Password {editUser && <span className="text-muted-foreground text-xs">(blank = keep current)</span>}</Label>
-              <PasswordInput value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={editUser ? "••••••••" : "Set password"} />
+              <Label>Sign-in method</Label>
+              <Select value={form.authMethod} onValueChange={v => setForm(f => ({ ...f, authMethod: v }))}>
+                <SelectTrigger data-testid="user-auth-method"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="m365">Microsoft 365 (company account)</SelectItem>
+                  <SelectItem value="password">IT Hub password</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">{form.role === "admin" ? "Super Admin may use both; two-step sign-in is always required." : "Only this method works for this person."}</p>
             </div>
+            {(form.authMethod === "password" || form.role === "admin") && <div className="space-y-1.5">
+              <Label>Password {editUser ? <span className="text-muted-foreground text-xs">(blank = keep current)</span> : form.authMethod === "password" ? <span className="text-red-500">*</span> : null}</Label>
+              <PasswordInput value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={editUser ? "••••••••" : "Temporary password"} />
+              <p className="text-[11px] text-muted-foreground">Temporary — they set their own at first sign-in.</p>
+            </div>}
             <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Access roles <span className="text-muted-foreground text-xs">(Portal users need one, or base role Admin)</span></Label>

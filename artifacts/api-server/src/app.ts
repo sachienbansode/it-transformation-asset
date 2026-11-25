@@ -116,7 +116,7 @@ export async function createApp(): Promise<Express> {
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      maxAge: 8 * 60 * 60 * 1000,
+      maxAge: 4 * 60 * 60 * 1000,   // r98: 4 hours by default; each sign-in applies Admin › Settings › Session timeout
       sameSite: "lax",
     },
   }));

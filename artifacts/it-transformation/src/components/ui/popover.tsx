@@ -5,7 +5,41 @@ import { cn } from "@/lib/utils"
 
 const Popover = PopoverPrimitive.Root
 
-const PopoverTrigger = PopoverPrimitive.Trigger
+/* r98: keyboard for every searchable drop-down — on the closed field, typing a letter / number opens the list with that
+   text already in its search box; Arrow-Down, Enter or Space opens it. Arrow keys + Enter then pick a value (cmdk). */
+const PopoverTrigger = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Trigger>
+>(({ onKeyDown, ...props }, ref) => (
+  <PopoverPrimitive.Trigger
+    ref={ref}
+    onKeyDown={e => {
+      onKeyDown?.(e)
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return
+      const el = e.currentTarget as HTMLElement
+      if (el.getAttribute("data-state") === "open") return
+      const printable = e.key.length === 1 && e.key !== " "
+      if (!printable && e.key !== "ArrowDown") return
+      e.preventDefault()
+      el.click()
+      if (!printable) return
+      const ch = e.key
+      let tries = 0
+      const put = () => {
+        const inputs = document.querySelectorAll<HTMLInputElement>("[data-radix-popper-content-wrapper] input[cmdk-input]")
+        const input = inputs[inputs.length - 1]
+        if (!input) { if (++tries < 10) setTimeout(put, 25); return }
+        const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        set?.call(input, (input.value || "") + ch)
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+        input.focus()
+      }
+      setTimeout(put, 20)
+    }}
+    {...props}
+  />
+))
+PopoverTrigger.displayName = PopoverPrimitive.Trigger.displayName
 
 const PopoverAnchor = PopoverPrimitive.Anchor
 

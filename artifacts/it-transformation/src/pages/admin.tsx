@@ -57,6 +57,8 @@ interface AdminSettings {
   "auth.mfaRequired.internal"?: boolean;
   "auth.mfaRequired.external"?: boolean;
   "auth.mfaRequired.roles"?: string[];
+  "sso.mfaEmailOtp"?: boolean;
+  "auth.sessionTimeoutHours"?: number;
   "sso.msEnabled"?: boolean;
   "sso.clientId"?: string;
   "sso.tenantId"?: string;
@@ -212,6 +214,12 @@ function SettingsTab() {
             checked={!!settings["auth.mfaRequired.external"]}
             onChange={v => set("auth.mfaRequired.external", v)}
           />
+          <div className="flex items-center justify-between py-3 border-t">
+            <div><div className="text-sm font-medium">Session timeout (hours)</div>
+              <div className="text-xs text-muted-foreground">People are signed out this many hours after signing in (1–24). Default 4.</div></div>
+            <Input type="number" min={1} max={24} className="w-24" data-testid="session-hours" value={String(settings["auth.sessionTimeoutHours"] ?? 4)} onChange={e => set("auth.sessionTimeoutHours", Math.min(24, Math.max(1, Number(e.target.value) || 4)))} />
+          </div>
+          <p className="text-xs text-muted-foreground">Two-step sign-in is always required for Super Admins.</p>
           <MfaRoles value={settings["auth.mfaRequired.roles"] || []} onChange={v => set("auth.mfaRequired.roles", v)} />
         </CardContent>
       </Card>
@@ -231,6 +239,12 @@ function SettingsTab() {
             description="Show 'Sign in with Microsoft' button for internal users"
             checked={!!settings["sso.msEnabled"]}
             onChange={v => set("sso.msEnabled", v)}
+          />
+          <SettingToggle
+            label="Email a one-time code after Microsoft sign-in (MFA)"
+            description="After Microsoft sign-in, IT Hub emails a 6-digit code (needs Admin › Email, Alerts & Archive). Super Admins always get a code."
+            checked={!!settings["sso.mfaEmailOtp"]}
+            onChange={v => set("sso.mfaEmailOtp", v)}
           />
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">

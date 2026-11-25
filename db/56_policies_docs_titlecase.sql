@@ -41,9 +41,7 @@ END $$;
 UPDATE public.assets a SET department = m.label FROM public.masters m WHERE m.category = 'department' AND lower(a.department) = lower(m.label) AND a.department <> m.label;
 UPDATE public.assets a SET location = m.label FROM public.masters m WHERE m.category = 'asset_location' AND lower(a.location) = lower(m.label) AND a.location <> m.label;
 UPDATE public.itsm_service_requests a SET department = m.label FROM public.masters m WHERE m.category = 'department' AND lower(a.department) = lower(m.label) AND a.department <> m.label;
--- users keep the department KEY (the user form stores keys); fix users that were saved with the label
-UPDATE public.users u SET department = m.key FROM public.masters m WHERE m.category = 'department' AND lower(u.department) = lower(m.label) AND u.department <> m.key
-  AND NOT EXISTS (SELECT 1 FROM public.masters k WHERE k.category = 'department' AND k.key = u.department);
+-- (r98: users now keep the department NAME — see 60_signin_sessions_dept.sql)
 
 -- ── Policy Register module permission: the existing admin-only screen becomes a role-based module ──
 -- Compliance Admin gets it by default (can be changed in Roles & Permissions); Super Admin always has it.

@@ -62,7 +62,13 @@ export default function Login() {
       .then(setAppConfig)
       .catch(() => {});
     apiFetch<any>("/auth/central/config").then(setCentral).catch(() => setCentral({ enabled: false, buttonLabel: "", localLogin: "all" }));
-    const err = new URLSearchParams(window.location.search).get("sso_error");
+    const qs = new URLSearchParams(window.location.search);
+    const mfaQ = qs.get("mfa");   // r98: second step after Microsoft sign-in
+    if (mfaQ === "email" || mfaQ === "totp") {
+      setStep("mfa"); setMfaInfo({ method: mfaQ, to: qs.get("to") || undefined });
+      window.history.replaceState(null, "", "/login");
+    }
+    const err = qs.get("sso_error");
     if (err) {
       const msg: Record<string, string> = {
         access_denied: "The sign-in portal did not allow sign-in to IT Hub for your account. Please contact the IT administrator.",
@@ -70,6 +76,7 @@ export default function Login() {
         not_registered: "You signed in to the company portal, but you are not registered in IT Hub. Please ask the IT administrator to add you.",
         no_role: "You are registered in IT Hub but no role has been assigned to you yet. Please ask the IT administrator to assign one.",
         invalid_state: "The sign-in link expired or was opened in another browser. Please try again.",
+        password_only: "Your account signs in with an IT Hub password, not Microsoft. Use the email and password fields below.",
         not_configured: "Portal sign-in is not configured on this server.",
         session_ended: "Your session has ended (account or role changed, or it expired). Please sign in again.",
         portal_error: "The sign-in portal could not complete the sign-in. Please try again.",

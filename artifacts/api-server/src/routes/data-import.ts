@@ -108,8 +108,9 @@ const usersObj: Obj = {
   },
   async save(tx, plan, ctx) {
     await ensureMasters(tx, "department", plan.map(p => p.data.department));
-    // users keep the department KEY (as the user form does); match by label or key, any case
-    const keyOf = new Map<string, string>(); for (const m of await q(tx, sql`SELECT key, label FROM masters WHERE category = 'department'`)) { keyOf.set(String(m.label).toLowerCase(), m.key); keyOf.set(String(m.key).toLowerCase(), m.key); }
+    // r98: users keep the department NAME as in Masters (matched by name or key, any case)
+    const keyOf = new Map<string, string>(); for (const m of await q(tx, sql`SELECT key, label FROM masters WHERE category = 'department' ORDER BY is_active, id`)) { keyOf.set(String(m.label).toLowerCase(), m.label); keyOf.set(String(m.key).toLowerCase(), m.label); }
+    const ssoOn = (await q(tx, sql`SELECT 1 FROM settings WHERE key = 'sso.msEnabled' AND value::text = 'true'`)).length > 0;
     for (const p of plan) {
       const d = p.data; const dep = keyOf.get(d.department.toLowerCase()) || d.department; const hash = d.password ? await bcrypt.hash(d.password, 10) : null;
       const status = d.isActive ? "active" : "inactive";
@@ -118,8 +119,8 @@ const usersObj: Obj = {
           mobile = coalesce(${d.mobile}, mobile), role = CASE WHEN role = 'admin' AND ${d.role} = 'user' THEN role ELSE ${d.role} END, is_active = ${d.isActive}, status = ${status},
           password_hash = coalesce(${hash}, password_hash), updated_at = now() WHERE id = ${d.id}`);
       } else {
-        const [u] = await q(tx, sql`INSERT INTO users (email, name, employee_code, user_type, department, designation, mobile, role, is_active, status, password_hash, identity_source)
-          VALUES (${d.email}, ${d.name}, ${d.employeeCode}, ${d.userType}, ${dep}, ${d.designation}, ${d.mobile}, ${d.role}, ${d.isActive}, ${status}, ${hash}, 'local') RETURNING id`);
+        const [u] = await q(tx, sql`INSERT INTO users (email, name, employee_code, user_type, department, designation, mobile, role, is_active, status, password_hash, identity_source, auth_method, must_change_password)
+          VALUES (${d.email}, ${d.name}, ${d.employeeCode}, ${d.userType}, ${dep}, ${d.designation}, ${d.mobile}, ${d.role}, ${d.isActive}, ${status}, ${hash}, 'local', ${hash || !ssoOn ? "password" : "m365"}, ${!!hash}) RETURNING id`);
         d.id = u.id;
       }
       for (const rid of d.roleIds) await tx.execute(sql`INSERT INTO user_roles (user_id, role_id, assigned_by) SELECT ${d.id}, ${rid}, ${ctx.userId} WHERE NOT EXISTS (SELECT 1 FROM user_roles WHERE user_id = ${d.id} AND role_id = ${rid})`);

@@ -19,6 +19,7 @@ export const usersTable = pgTable("users", {
   mfaMethod: text("mfa_method").notNull().default("totp"),       // totp (authenticator app) | email (code by email)
   mustChangePassword: boolean("must_change_password").notNull().default(false),   // r94: temporary password → change at next sign-in
   passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }),
+  authMethod: text("auth_method").notNull().default("password"),   // r98: password (IT Hub) | m365 (Microsoft) — Super Admin may use both
   azureId: text("azure_id"),
   isActive: boolean("is_active").notNull().default(true),
   status: text("status").notNull().default("active"),

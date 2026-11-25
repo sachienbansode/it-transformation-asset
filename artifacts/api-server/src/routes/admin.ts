@@ -145,7 +145,7 @@ router.get("/admin/users", requireAdmin, async (_req, res): Promise<void> => {
       name: usersTable.name,
       userType: usersTable.userType,
       role: usersTable.role,
-      department: usersTable.department,
+      department: usersTable.department, authMethod: usersTable.authMethod,
       designation: usersTable.designation,
       reportingManagerId: usersTable.reportingManagerId,
       employeeCode: usersTable.employeeCode,
@@ -195,10 +195,15 @@ router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
     status: z.enum(["active", "inactive", "dormant"]).default("active"),
     isActive: z.boolean().default(true),
     reportingManagerId: z.number().int().positive().nullable().optional(),
+    authMethod: z.enum(["password", "m365"]).optional(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const { password, ...rest } = body.data;
   rest.email = rest.email.trim().toLowerCase();
+  { const { deptLabel } = await import("../lib/dept"); rest.department = (await deptLabel(rest.department)) || rest.department; }   // r98: store the department NAME
+  // r98: sign-in method — Microsoft 365 when chosen (or when SSO is on and no password was given), else IT Hub password
+  if (!rest.authMethod) { const [sso] = await db.select({ value: settingsTable.value }).from(settingsTable).where(eq(settingsTable.key, "sso.msEnabled")); rest.authMethod = (sso?.value === true && !password) ? "m365" : "password"; }
+  if (rest.authMethod === "password" && !password) { res.status(400).json({ error: "Set a temporary password, or choose sign-in with Microsoft 365" }); return; }
   rest.employeeCode = rest.employeeCode.trim();
   const mp = await managerProblem(null, rest.reportingManagerId); if (mp) { res.status(400).json({ error: mp }); return; }
   const clash = await employeeCodeClash(rest.employeeCode, null);
@@ -234,9 +239,15 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
     mfaEnabled: z.boolean().optional(),
     password: z.string().min(8).optional(),
     reportingManagerId: z.number().int().positive().nullable().optional(),
+    authMethod: z.enum(["password", "m365"]).optional(),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const { password, ...rest } = body.data;
+  if (rest.department !== undefined) { const { deptLabel } = await import("../lib/dept"); rest.department = (await deptLabel(rest.department)) || rest.department; }   // r98
+  if (rest.authMethod === "password" && !password) {
+    const [cur] = await db.select({ h: usersTable.passwordHash }).from(usersTable).where(eq(usersTable.id, id));
+    if (!cur?.h) { res.status(400).json({ error: "This person has no IT Hub password yet — set a temporary password to switch them to password sign-in" }); return; }
+  }
   if (rest.email !== undefined) {
     rest.email = rest.email.trim().toLowerCase();
     const [clash] = await db.select({ id: usersTable.id }).from(usersTable).where(sql`lower(${usersTable.email}) = ${rest.email} AND ${usersTable.id} <> ${id}`);

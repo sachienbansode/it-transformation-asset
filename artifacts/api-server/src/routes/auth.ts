@@ -87,7 +87,14 @@ function checkEmailCode(req: Request, uid: number, purpose: string, token: strin
   if (hashCode(token) !== o.h) return "Invalid code";
   delete req.session.emailOtp; return null;
 }
+// r98: session length from Admin › Settings (default 4 hours), applied at every completed sign-in
+async function applySessionTimeout(req: Request) {
+  const h = Number(await getSetting("auth.sessionTimeoutHours")) || 4;
+  req.session.cookie.maxAge = Math.min(24, Math.max(1, h)) * 3600_000;
+}
+const ssoMfaOn = async () => (await getSetting("sso.mfaEmailOtp")) === true;
 async function mfaRequiredFor(userType: string, user?: { id: number; role: string }) {
+  if (user?.role === "admin") return true;   // r98: two-step sign-in is mandatory for Super Admin
   if ((await getSetting(`auth.mfaRequired.${userType === "external" ? "external" : "internal"}`)) === true) return true;
   // r97: Admin › Settings › "Require MFA for these roles" — "admin" = Super Admin (base role), numbers = access roles
   const roles = (await getSetting("auth.mfaRequired.roles")) as any;
@@ -212,6 +219,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
+  // r98: each person signs in ONE way — Microsoft 365 or IT Hub password (Super Admin may use both)
+  if (user.role !== "admin" && user.authMethod === "m365") {
+    res.status(403).json({ error: "Your account signs in with Microsoft 365 — use 'Sign in with Microsoft'." });
+    return;
+  }
   // Second step: authenticator app, or a code by email (chosen by the user, or forced by Admin › Settings › MFA required)
   const useTotp = user.mfaEnabled && user.mfaMethod !== "email" && !!user.mfaSecret;
   const useEmail = !useTotp && ((user.mfaEnabled && user.mfaMethod === "email") || await mfaRequiredFor(user.userType, user));
@@ -239,6 +251,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   req.session.userId = user.id;
   { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(user.id).catch(() => {}); }
   req.session.mfaVerified = true;
+  await applySessionTimeout(req);
   await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
   await db.update(usersTable).set({ lastLoginAt: new Date(), status: "active" }).where(eq(usersTable.id, user.id));
   res.json({
@@ -274,6 +287,7 @@ router.post("/auth/login/mfa", async (req, res): Promise<void> => {
   req.session.userId = user.id;
   { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(user.id).catch(() => {}); }
   req.session.mfaVerified = true;
+  await applySessionTimeout(req);
   await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
   await db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
   res.json({
@@ -510,13 +524,29 @@ router.get("/auth/sso/callback", async (req, res): Promise<void> => {
     if (!user) {
       // Admin › Settings › Microsoft SSO: create users on first sign-in, or only allow users already in IT Hub
       if ((await getSetting("sso.autoCreateUsers")) === false) return fail("not_registered");
-      [user] = await db.insert(usersTable).values({ email, name: me.displayName || email, userType: "internal", role: "user", azureId: me.id, isActive: true, status: "active", identitySource: "local", designation: me.jobTitle || null, employeeCode: me.employeeId || null }).returning();
+      const { deptLabel } = await import("../lib/dept");
+      [user] = await db.insert(usersTable).values({ email, name: me.displayName || email, userType: "internal", role: "user", azureId: me.id, isActive: true, status: "active", identitySource: "local", authMethod: "m365", designation: me.jobTitle || null, employeeCode: me.employeeId || null, department: me.department ? await deptLabel(me.department) : null }).returning();
       await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'CREATE', 'Microsoft sign-in', ${`User created at first Microsoft sign-in: ${email}`})`).catch(() => {});
     }
     if (!user.isActive || user.status === "inactive") return fail("account_disabled");
+    if (user.role !== "admin" && user.authMethod === "password") return fail("password_only");
+    await db.update(usersTable).set({ azureId: me.id }).where(eq(usersTable.id, user.id));
+    // r98: second step after Microsoft — when switched on in Admin › Settings › Microsoft SSO, or required for this person
+    if (await ssoMfaOn() || await mfaRequiredFor(user.userType, user)) {
+      const totp = user.mfaEnabled && user.mfaMethod !== "email" && !!user.mfaSecret;
+      if (totp || await mailReady()) {
+        await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+        req.session.pendingMfaUserId = user.id; req.session.pendingMfaMethod = totp ? "totp" : "email";
+        const s = totp ? { to: "" } : await sendEmailCode(req, user, "login");
+        await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+        return void res.redirect(`/login?mfa=${totp ? "totp" : "email"}${s.to ? `&to=${encodeURIComponent(s.to)}` : ""}`);
+      }
+      await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'MFA_SKIPPED', ${email}, 'Second step after Microsoft sign-in required but email delivery is not set up')`).catch(() => {});
+    }
     await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
     req.session.userId = user.id; req.session.mfaVerified = true;   // Microsoft did the sign-in (and its own MFA / Conditional Access)
     { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(user.id).catch(() => {}); }
+    await applySessionTimeout(req);
     await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
     await db.update(usersTable).set({ azureId: me.id, lastLoginAt: new Date(), status: "active" }).where(eq(usersTable.id, user.id));
     await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'LOGIN', ${email}, 'Signed in with Microsoft')`).catch(() => {});
