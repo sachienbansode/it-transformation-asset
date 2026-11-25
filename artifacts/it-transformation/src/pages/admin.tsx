@@ -810,22 +810,7 @@ const MASTER_MODULES = [
   { module: "Audit & Compliance", items: [
     { key: "compliance_status", label: "Checkpoint Status" },
   ]},
-  { module: "IT Service Management", items: [
-    { key: "incident_priority", label: "Incident Priority" },
-    { key: "incident_severity", label: "Incident Severity" },
-    { key: "incident_status", label: "Incident Status" },
-    { key: "incident_category", label: "Incident Category" },
-    { key: "problem_status", label: "Problem Status" },
-    { key: "change_type", label: "Change Type" },
-    { key: "change_risk", label: "Change Risk Level" },
-    { key: "change_status", label: "Change Status" },
-    { key: "change_approval", label: "Change Approval Status" },
-    { key: "kb_category", label: "KB Category" },
-    { key: "kb_status", label: "KB Status" },
-    { key: "sr_category", label: "Service Request Category" },
-    { key: "sr_status", label: "Service Request Status" },
-    { key: "sla_priority", label: "SLA Priority" },
-  ]},
+  // ITSM lists (categories, priorities, statuses, teams) are kept in ITSM › Setup, not here (r96)
 ];
 const CATEGORIES = MASTER_MODULES.flatMap(m => m.items);
 
