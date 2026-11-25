@@ -87,7 +87,17 @@ function checkEmailCode(req: Request, uid: number, purpose: string, token: strin
   if (hashCode(token) !== o.h) return "Invalid code";
   delete req.session.emailOtp; return null;
 }
-async function mfaRequiredFor(userType: string) { return (await getSetting(`auth.mfaRequired.${userType === "external" ? "external" : "internal"}`)) === true; }
+async function mfaRequiredFor(userType: string, user?: { id: number; role: string }) {
+  if ((await getSetting(`auth.mfaRequired.${userType === "external" ? "external" : "internal"}`)) === true) return true;
+  // r97: Admin › Settings › "Require MFA for these roles" — "admin" = Super Admin (base role), numbers = access roles
+  const roles = (await getSetting("auth.mfaRequired.roles")) as any;
+  if (!user || !Array.isArray(roles) || !roles.length) return false;
+  if (user.role === "admin" && roles.includes("admin")) return true;
+  const ids = roles.map((r: any) => Number(r)).filter((n: number) => Number.isInteger(n) && n > 0);
+  if (!ids.length) return false;
+  const [hit] = rowsOfAny(await db.execute(sql`SELECT 1 FROM user_roles WHERE user_id = ${user.id} AND role_id IN (${sql.join(ids.map((i: number) => sql`${i}`), sql`, `)}) LIMIT 1`).catch(() => ({ rows: [] })));
+  return !!hit;
+}
 
 // ─── AUTH ROUTES ─────────────────────────────────────────────
 
@@ -204,7 +214,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 
   // Second step: authenticator app, or a code by email (chosen by the user, or forced by Admin › Settings › MFA required)
   const useTotp = user.mfaEnabled && user.mfaMethod !== "email" && !!user.mfaSecret;
-  const useEmail = !useTotp && ((user.mfaEnabled && user.mfaMethod === "email") || await mfaRequiredFor(user.userType));
+  const useEmail = !useTotp && ((user.mfaEnabled && user.mfaMethod === "email") || await mfaRequiredFor(user.userType, user));
   if (useTotp) {
     req.session.pendingMfaUserId = user.id; req.session.pendingMfaMethod = "totp";
     await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
@@ -403,9 +413,9 @@ router.post("/auth/mfa/disable", requireAuth, async (req, res): Promise<void> =>
   const body = z.object({ token: z.string().min(6).max(6) }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid token" }); return; }
 
-  const [user] = await db.select({ mfaSecret: usersTable.mfaSecret, mfaMethod: usersTable.mfaMethod, mfaEnabled: usersTable.mfaEnabled, userType: usersTable.userType }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
+  const [user] = await db.select({ id: usersTable.id, role: usersTable.role, mfaSecret: usersTable.mfaSecret, mfaMethod: usersTable.mfaMethod, mfaEnabled: usersTable.mfaEnabled, userType: usersTable.userType }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
   if (!user?.mfaEnabled) { res.status(400).json({ error: "MFA not enabled" }); return; }
-  if (await mfaRequiredFor(user.userType)) { res.status(400).json({ error: "Two-step sign-in is required by your organisation — you can switch the method, but not turn it off" }); return; }
+  if (await mfaRequiredFor(user.userType, user)) { res.status(400).json({ error: "Two-step sign-in is required by your organisation — you can switch the method, but not turn it off" }); return; }
   if (user.mfaMethod === "email") {
     const err = checkEmailCode(req, req.session.userId!, "disable", body.data.token);
     await new Promise<void>(r => req.session.save(() => r()));
@@ -531,7 +541,7 @@ router.get("/auth/profile", requireAuth, async (req, res): Promise<void> => {
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   // show the department NAME (users keep the master key, e.g. "it" → "IT")
   const [dep] = rowsOfAny(await db.execute(sql`SELECT label FROM masters WHERE category = 'department' AND (key = ${user.department} OR lower(label) = lower(${user.department})) ORDER BY is_active DESC LIMIT 1`).catch(() => ({ rows: [] })));
-  res.json({ ...user, department: dep?.label || user.department, mfaRequired: await mfaRequiredFor(user.userType), emailReady: await mailReady() });
+  res.json({ ...user, department: dep?.label || user.department, mfaRequired: await mfaRequiredFor(user.userType, user), emailReady: await mailReady() });
 });
 
 // PATCH /auth/profile — update display name (read-only: designation, employeeCode, department, etc.)

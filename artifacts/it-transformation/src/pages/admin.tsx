@@ -56,6 +56,7 @@ interface AdminSettings {
   "auth.mfaDefault"?: boolean;
   "auth.mfaRequired.internal"?: boolean;
   "auth.mfaRequired.external"?: boolean;
+  "auth.mfaRequired.roles"?: string[];
   "sso.msEnabled"?: boolean;
   "sso.clientId"?: string;
   "sso.tenantId"?: string;
@@ -211,6 +212,7 @@ function SettingsTab() {
             checked={!!settings["auth.mfaRequired.external"]}
             onChange={v => set("auth.mfaRequired.external", v)}
           />
+          <MfaRoles value={settings["auth.mfaRequired.roles"] || []} onChange={v => set("auth.mfaRequired.roles", v)} />
         </CardContent>
       </Card>
 
@@ -724,7 +726,7 @@ function UsersTab() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="user">User (Read-Only)</SelectItem>
-                  <SelectItem value="admin">Admin (Full Access)</SelectItem>
+                  <SelectItem value="admin">Super Admin (Full Access)</SelectItem>
                   <SelectItem value="cxo">CXO (Dept KPIs)</SelectItem>
                   <SelectItem value="kpi_employee">Employee (Own KPI set)</SelectItem>
                   <SelectItem value="hr">HR (KPI module only)</SelectItem>
@@ -2104,6 +2106,23 @@ function SsoTest({ settings }: { settings: any }) {
         <div className={r.ok ? "text-sm font-semibold text-emerald-600" : "text-sm font-semibold text-red-600"}>{r.ok ? "SSO settings are correct" : "SSO settings need attention"}</div>
         {(r.steps || []).map((s: any, i: number) => <div key={i} className="text-xs flex gap-2"><span className={s.ok ? "text-emerald-600" : "text-red-600"}>{s.ok ? "✓" : "✕"}</span><span className="font-medium min-w-[220px]">{s.step}</span><span className="text-muted-foreground break-all">{s.detail}</span></div>)}
       </div>}
+    </div>
+  );
+}
+
+/* r97 — require two-step sign-in for chosen roles (Super Admin = base role admin; others = access roles) */
+function MfaRoles({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const { data: roles = [] } = useQuery<any[]>({ queryKey: ["roles"], queryFn: () => apiFetch("/roles") });
+  const opts = [{ id: "admin", name: "Super Admin" }, ...roles.map((r: any) => ({ id: String(r.id), name: r.name }))];
+  const sel = new Set((value || []).map(String));
+  const toggle = (id: string) => { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); onChange([...n]); };
+  return (
+    <div className="py-3 space-y-2" data-testid="mfa-roles">
+      <div><div className="text-sm font-medium">Require MFA for these roles</div>
+        <div className="text-xs text-muted-foreground">Anyone with a ticked role must use two-step sign-in (their authenticator app, or a code by email). Recommended: Super Admin and every admin role.</div></div>
+      <div className="flex flex-wrap gap-1.5">
+        {opts.map(o => <button key={o.id} type="button" onClick={() => toggle(o.id)} className={sel.has(o.id) ? "rounded-full border border-primary bg-primary/10 text-primary px-3 py-1 text-xs font-medium" : "rounded-full border px-3 py-1 text-xs text-muted-foreground hover:bg-muted"}>{sel.has(o.id) ? "✓ " : ""}{o.name}</button>)}
+      </div>
     </div>
   );
 }

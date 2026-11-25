@@ -24,7 +24,7 @@ interface DeptMaster { key: string; label: string; sortOrder: number; }
 
 const ROLE_OPTIONS = [
   { value: "user", label: "User (Read-Only)" },
-  { value: "admin", label: "Admin (Full Access)" },
+  { value: "admin", label: "Super Admin (Full Access)" },
   { value: "cxo", label: "CXO (Dept KPIs)" },
   { value: "kpi_employee", label: "Employee (Own KPI set)" },
   { value: "hr", label: "HR (KPI module only)" },
