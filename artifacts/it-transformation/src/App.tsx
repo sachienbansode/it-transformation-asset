@@ -23,6 +23,7 @@ import Login from "@/pages/login";
 import Admin from "@/pages/admin";
 import AdminUsers from "@/pages/admin-users";
 import AdminArchive from "@/pages/admin-archive";
+import AdminIntegrations from "@/pages/admin-integrations";
 import AdminDataImport from "@/pages/admin-data-import";
 import AdminUpdates from "@/pages/admin-updates";
 import PlatformConsole from "@/pages/platform-console";
@@ -240,6 +241,9 @@ function Router() {
               </Route>
               <Route path="/admin/data-import">
                 {user.role === "admin" ? <AdminDataImport /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
+              </Route>
+              <Route path="/admin/integrations">
+                {user.role === "admin" ? <AdminIntegrations /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}
               </Route>
               <Route path="/admin/archive">
                 {user.role === "admin" ? <AdminArchive /> : <Redirect to={defaultDashboard || "/kpi-dashboard"} />}

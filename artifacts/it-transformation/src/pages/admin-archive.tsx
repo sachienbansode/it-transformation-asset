@@ -1,3 +1,4 @@
+import { useIntegrationTest, TestButton, TestResult } from "@/components/integration-test";
 import React, { useEffect, useMemo, useState } from "react";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -215,8 +216,9 @@ function MailDelivery() {
         <label className="flex items-center gap-2 text-xs md:col-span-2"><input type="checkbox" checked={f.smtp.rejectUnauthorized !== false} onChange={e => set("smtp", { rejectUnauthorized: e.target.checked })} />Check the server's TLS certificate (untick only for an internal relay with a self-signed certificate)</label>
       </div>}
       {f.provider === "off" && <div className="text-xs text-muted-foreground">No emails are sent; every notification is still recorded in the email log as Skipped.</div>}
+      <MailTestBar f={f} />
       <div className="flex justify-end"><Button size="sm" disabled={busy} onClick={save}>{busy ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}Save email delivery</Button></div>
-      <div className="text-[11px] text-muted-foreground">Save, then use “Send test” below. Changes are recorded in the audit log (secrets are never logged).</div>
+      <div className="text-[11px] text-muted-foreground">“Test connection” uses the values on screen (saved secret if left blank). Changes are recorded in the audit log (secrets are never logged).</div>
     </CardContent></Card>
   );
 }
@@ -241,5 +243,23 @@ function LogTab() {
         </TableBody>
       </Table>
     </CardContent></Card>
+  );
+}
+
+/* r100 (ITH-161) — test Microsoft 365 / SMTP with the values on screen, before or after saving */
+function MailTestBar({ f }: { f: any }) {
+  const t = useIntegrationTest(); const [to, setTo] = useState("");
+  if (f.provider === "off") return null;
+  const body = () => ({ kind: "mail", provider: f.provider, to,
+    smtp: { host: f.smtp.host, port: Number(f.smtp.port), security: f.smtp.security, user: f.smtp.user, from: f.smtp.from, fromName: f.smtp.fromName, rejectUnauthorized: f.smtp.rejectUnauthorized, ...(f.smtp.password ? { password: f.smtp.password } : {}) },
+    m365: { tenantId: f.m365.tenantId, clientId: f.m365.clientId, from: f.m365.from, ...(f.m365.secret ? { secret: f.m365.secret } : {}) } });
+  return (
+    <div className="space-y-2" data-testid="mail-test">
+      <div className="flex flex-wrap items-center gap-2">
+        <TestButton busy={t.busy} onClick={() => t.run(body())} label={`Test ${f.provider === "smtp" ? "SMTP" : "Microsoft 365"} connection`} testId="mail-test-btn" />
+        <Input className="h-8 w-60" placeholder="…and send a test email to (optional)" value={to} onChange={e => setTo(e.target.value)} />
+      </div>
+      <TestResult r={t.r} />
+    </div>
   );
 }

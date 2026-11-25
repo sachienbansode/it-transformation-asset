@@ -1,5 +1,5 @@
 import { ForcePasswordChange } from "@/components/account-security";
-import { Info, PackageSearch, Workflow } from "lucide-react";
+import { Info, PackageSearch, Workflow, PlugZap } from "lucide-react";
 import { usePresenceHeartbeat, useMyPresence, PresenceDot, PRESENCE_LABEL, setMyPresence } from "@/lib/presence";
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
@@ -105,6 +105,7 @@ const ADMIN_ITEMS = [
   { href: "/admin/updates", label: "Updates", icon: RefreshCcw, tab: "updates" },
   { href: "/platform", label: "NIYTRI Platform", icon: Server, tab: "platform" },
   { href: "/admin/archive", label: "Email, Alerts & Archive", icon: Archive, tab: "archive" },
+  { href: "/admin/integrations", label: "Integrations", icon: PlugZap, tab: "integrations" },
 ];
 
 function NavItem({

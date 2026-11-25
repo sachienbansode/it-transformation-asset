@@ -66,6 +66,7 @@ export async function smtpSend(c: SmtpConfig, to: string[], subject: string, htm
       if (/AUTH[^\n]*PLAIN/i.test(r.text)) await conn.cmd(`AUTH PLAIN ${Buffer.from(`\0${c.user}\0${c.pass || ""}`).toString("base64")}`, [235], "AUTH PLAIN");
       else { await conn.cmd("AUTH LOGIN", [334]); await conn.cmd(Buffer.from(c.user).toString("base64"), [334], "AUTH user"); await conn.cmd(Buffer.from(c.pass || "").toString("base64"), [235], "AUTH password"); }
     }
+    if (!to.length) { await conn.cmd("QUIT", [221]).catch(() => {}); conn.sock.end(); return; }   // r100: connection test only (no email)
     await conn.cmd(`MAIL FROM:<${addr(c.from)}>`, [250]);
     for (const a of to) await conn.cmd(`RCPT TO:<${addr(a)}>`, [250, 251]);
     await conn.cmd("DATA", [354]);

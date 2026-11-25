@@ -136,8 +136,13 @@ export async function createApp(): Promise<Express> {
   if (process.env.NODE_ENV === "production") {
     // Production: serve the pre-built React frontend as static files
     const distPath = path.resolve(__dirname, "../../it-transformation/dist/public");
-    app.use(express.static(distPath, { redirect: false }));   // no /assets → /assets/ redirect (clashes with the Asset Dashboard route)
+    // r100: index.html is never cached (so a new version shows straight after a deploy); hashed /assets files are cached for a year
+    app.use(express.static(distPath, { redirect: false, index: false, setHeaders: (res, p) => {
+      if (/[\\/]assets[\\/]/.test(p)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      else res.setHeader("Cache-Control", "no-cache");
+    } }));   // no /assets → /assets/ redirect (clashes with the Asset Dashboard route)
     app.use(/(.*)/, (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.sendFile(path.join(distPath, "index.html"));
     });
   } else {

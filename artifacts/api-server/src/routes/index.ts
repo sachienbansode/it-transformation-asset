@@ -52,6 +52,7 @@ import { seedAssetAndItsmModules, seedExtendedItsmData } from "./seed-modules";
 import docsExportRouter from "./docs-export";
 import { requireAuth, requireAdmin } from "./auth";
 import centralAuthRouter, { centralSessionGuard } from "./central-auth";
+import integrationsRouter from "./integrations";
 import { assetRbac } from "../lib/rbac";
 
 const router: IRouter = Router();
@@ -164,5 +165,6 @@ router.use(complianceRouter);
 router.use(auditorRouter);
 router.use(itsmRouter);
 router.use(docsExportRouter);
+router.use(integrationsRouter);   // r100: Admin › Integrations tests
 
 export default router;
