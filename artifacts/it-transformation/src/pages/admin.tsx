@@ -58,6 +58,7 @@ interface AdminSettings {
   "auth.mfaRequired.external"?: boolean;
   "auth.mfaRequired.roles"?: string[];
   "sso.mfaEmailOtp"?: boolean;
+  "auth.passwordPolicy"?: any;
   "auth.sessionTimeoutHours"?: number;
   "sso.msEnabled"?: boolean;
   "sso.clientId"?: string;
@@ -221,6 +222,7 @@ function SettingsTab() {
           </div>
           <p className="text-xs text-muted-foreground">Two-step sign-in is always required for Super Admins.</p>
           <MfaRoles value={settings["auth.mfaRequired.roles"] || []} onChange={v => set("auth.mfaRequired.roles", v)} />
+          <PasswordPolicyEditor value={settings["auth.passwordPolicy"]} onChange={v => set("auth.passwordPolicy", v)} />
         </CardContent>
       </Card>
 
@@ -2137,6 +2139,26 @@ function MfaRoles({ value, onChange }: { value: string[]; onChange: (v: string[]
       <div className="flex flex-wrap gap-1.5">
         {opts.map(o => <button key={o.id} type="button" onClick={() => toggle(o.id)} className={sel.has(o.id) ? "rounded-full border border-primary bg-primary/10 text-primary px-3 py-1 text-xs font-medium" : "rounded-full border px-3 py-1 text-xs text-muted-foreground hover:bg-muted"}>{sel.has(o.id) ? "✓ " : ""}{o.name}</button>)}
       </div>
+    </div>
+  );
+}
+
+/* r99 (ITH-160) — password policy for IT Hub passwords (Microsoft 365 users follow the Microsoft policy) */
+function PasswordPolicyEditor({ value, onChange }: { value: any; onChange: (v: any) => void }) {
+  const p = { minLength: 12, upper: true, lower: true, number: true, symbol: true, notEmailName: true, expiryDays: 90, history: 3, ...(value && typeof value === "object" ? value : {}) };
+  const up = (k: string, v: any) => onChange({ ...p, [k]: v });
+  const num = (k: string, v: string, lo: number, hi: number) => up(k, Math.min(hi, Math.max(lo, Number(v) || 0)));
+  const box = (k: string, label: string) => <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={!!p[k]} onChange={e => up(k, e.target.checked)} />{label}</label>;
+  return (
+    <div className="py-3 border-t space-y-3" data-testid="password-policy">
+      <div><div className="text-sm font-medium">Password policy</div>
+        <div className="text-xs text-muted-foreground">For IT Hub passwords (sign-in method "IT Hub password" and Super Admin). Microsoft 365 users follow your Microsoft policy. Applies to new and changed passwords, including temporary ones set by an admin.</div></div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1"><Label className="text-xs">Minimum length (8–64)</Label><Input type="number" min={8} max={64} value={p.minLength} onChange={e => num("minLength", e.target.value, 8, 64)} data-testid="pp-min" /></div>
+        <div className="space-y-1"><Label className="text-xs">Expires after (days, 0 = never)</Label><Input type="number" min={0} max={365} value={p.expiryDays} onChange={e => num("expiryDays", e.target.value, 0, 365)} /></div>
+        <div className="space-y-1"><Label className="text-xs">Cannot reuse last … passwords (0–10)</Label><Input type="number" min={0} max={10} value={p.history} onChange={e => num("history", e.target.value, 0, 10)} /></div>
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-2">{box("upper", "Upper-case letter")}{box("lower", "Lower-case letter")}{box("number", "Number")}{box("symbol", "Symbol")}{box("notEmailName", "Must not contain the email name")}</div>
     </div>
   );
 }

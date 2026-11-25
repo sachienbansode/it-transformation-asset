@@ -11,22 +11,28 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { fmtDateTime } from "@/lib/date";
 import { cn } from "@/lib/utils";
-import { KeyRound, ShieldCheck, Smartphone, Mail, Loader2, Check, X } from "lucide-react";
+import { KeyRound, ShieldCheck, Smartphone, Mail, Loader2, Check, X, LogOut } from "lucide-react";
 
 /* r94 (ITH-146/147) — change own password; two-step sign-in with an authenticator app or a code by email. */
 const H = { "X-No-Confirm": "1" };
-export const PW_RULES: [string, (p: string, email?: string) => boolean][] = [
-  ["12 or more characters", p => p.length >= 12],
-  ["a lower-case letter", p => /[a-z]/.test(p)],
-  ["an upper-case letter", p => /[A-Z]/.test(p)],
-  ["a number", p => /[0-9]/.test(p)],
-  ["a symbol (e.g. ! @ # $)", p => /[^A-Za-z0-9]/.test(p)],
-  ["does not contain your email name", (p, e) => { const l = String(e || "").split("@")[0].toLowerCase(); return l.length < 4 || !p.toLowerCase().includes(l); }],
-];
+type Policy = { minLength: number; upper: boolean; lower: boolean; number: boolean; symbol: boolean; notEmailName: boolean; expiryDays: number; history: number };
+/** r99: the live checklist follows Admin › Settings › Password policy */
+function rulesFor(p?: Policy): [string, (pw: string, email?: string) => boolean][] {
+  const q: Policy = p || { minLength: 12, upper: true, lower: true, number: true, symbol: true, notEmailName: true, expiryDays: 0, history: 0 };
+  const r: [string, (pw: string, email?: string) => boolean][] = [[`${q.minLength} or more characters`, pw => pw.length >= q.minLength]];
+  if (q.lower) r.push(["a lower-case letter", pw => /[a-z]/.test(pw)]);
+  if (q.upper) r.push(["an upper-case letter", pw => /[A-Z]/.test(pw)]);
+  if (q.number) r.push(["a number", pw => /[0-9]/.test(pw)]);
+  if (q.symbol) r.push(["a symbol (e.g. ! @ # $)", pw => /[^A-Za-z0-9]/.test(pw)]);
+  if (q.notEmailName) r.push(["does not contain your email name", (pw, e) => { const l = String(e || "").split("@")[0].toLowerCase(); return l.length < 4 || !pw.toLowerCase().includes(l); }]);
+  return r;
+}
 
 export function ChangePasswordForm({ onDone, compact }: { onDone?: () => void; compact?: boolean }) {
   const { user, refresh } = useAuth(); const { toast } = useToast();
   const [cur, setCur] = useState(""); const [pw, setPw] = useState(""); const [pw2, setPw2] = useState(""); const [busy, setBusy] = useState(false);
+  const { data: policy } = useQuery<Policy>({ queryKey: ["password-policy"], queryFn: () => apiFetch("/auth/password-policy"), staleTime: 300_000 });
+  const PW_RULES = rulesFor(policy);
   const ok = PW_RULES.every(([, f]) => f(pw, user?.email)) && pw === pw2 && !!cur && pw !== cur;
   async function save(e: React.FormEvent) {
     e.preventDefault(); if (!ok) return; setBusy(true);
@@ -48,6 +54,7 @@ export function ChangePasswordForm({ onDone, compact }: { onDone?: () => void; c
         {PW_RULES.map(([t, f]) => { const good = !!pw && f(pw, user?.email); return <span key={t} className={cn("inline-flex items-center gap-1", good ? "text-emerald-600" : "text-muted-foreground")}>{good ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}{t}</span>; })}
         <span className={cn("inline-flex items-center gap-1", pw2 && pw === pw2 ? "text-emerald-600" : "text-muted-foreground")}>{pw2 && pw === pw2 ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}both new passwords match</span>
       </div>
+      {!!policy && (policy.history > 0 || policy.expiryDays > 0) && <p className="text-[11px] text-muted-foreground">{policy.history > 0 ? `Must differ from your last ${policy.history + 1} passwords. ` : ""}{policy.expiryDays > 0 ? `Passwords expire after ${policy.expiryDays} days.` : ""}</p>}
       <Button type="submit" disabled={!ok || busy} className="gap-1.5" data-testid="pw-save">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}Change password</Button>
     </form>
   );
@@ -126,11 +133,14 @@ export function ForcePasswordChange() {
   if (!user?.mustChangePassword) return null;
   return (
     <Dialog open>
-      <DialogContent className="max-w-lg [&>button]:hidden" onEscapeKeyDown={e => e.preventDefault()} onPointerDownOutside={e => e.preventDefault()} data-testid="force-password">
+      <DialogContent className="max-w-lg [&>button.absolute]:hidden" onEscapeKeyDown={e => e.preventDefault()} onPointerDownOutside={e => e.preventDefault()} data-testid="force-password">
         <DialogHeader><DialogTitle>Set your own password</DialogTitle>
-          <DialogDescription>You signed in with a temporary password. Choose a new password to continue.</DialogDescription></DialogHeader>
+          <DialogDescription>Your password is temporary or has expired. Choose a new password to continue — or sign out.</DialogDescription></DialogHeader>
         <ChangePasswordForm compact />
-        <button type="button" className="text-xs text-muted-foreground underline justify-self-start" onClick={() => logout()}>Sign out</button>
+        <div className="flex items-center justify-between border-t pt-3">
+          <span className="text-xs text-muted-foreground">Not you, or want to do this later?</span>
+          <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => logout().then(() => { window.location.href = "/login"; })} data-testid="force-signout"><LogOut className="w-4 h-4" />Sign out</Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

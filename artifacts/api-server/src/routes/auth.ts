@@ -10,6 +10,7 @@ import { z } from "zod";
 import { centralConfig } from "../lib/central-identity";
 import crypto from "crypto";
 import { sendDirect, loadMailConfig, esc } from "../lib/mailer";
+import { getPolicy, policyProblems, policyMessage, reusedPassword, nextHistory } from "../lib/password-policy";
 
 declare module "express-session" {
   interface SessionData {
@@ -54,17 +55,6 @@ async function getSetting(key: string): Promise<unknown> {
 
 
 // ─── r94: password policy, emailed one-time codes, MFA policy ─────────────────
-export function passwordProblems(pw: string, email?: string): string[] {
-  const p: string[] = [];
-  if (pw.length < 12) p.push("at least 12 characters");
-  if (!/[a-z]/.test(pw)) p.push("a lower-case letter");
-  if (!/[A-Z]/.test(pw)) p.push("an upper-case letter");
-  if (!/[0-9]/.test(pw)) p.push("a number");
-  if (!/[^A-Za-z0-9]/.test(pw)) p.push("a symbol");
-  const local = String(email || "").split("@")[0].toLowerCase();
-  if (local.length >= 4 && pw.toLowerCase().includes(local)) p.push("NOEMAIL");
-  return p;
-}
 const maskEmail = (e: string) => { const [u, d] = e.split("@"); return `${u.slice(0, 2)}${"•".repeat(Math.max(2, u.length - 2))}@${d}`; };
 const hashCode = (c: string) => crypto.createHash("sha256").update(c).digest("hex");
 async function mailReady() { try { const mc: any = await loadMailConfig(); return mc.provider === "smtp" ? !!(mc.smtp?.host && mc.smtp?.from) : mc.provider === "m365" ? !!(mc.m365?.tenantId && mc.m365?.clientId && mc.m365?.secret && mc.m365?.from) : false; } catch { return false; } }
@@ -224,6 +214,12 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Your account signs in with Microsoft 365 — use 'Sign in with Microsoft'." });
     return;
   }
+  // r99: password expiry (Admin › Settings › Password policy) → must set a new one after signing in
+  { const pol = await getPolicy();
+    const since = user.passwordChangedAt || user.createdAt;
+    if (pol.expiryDays > 0 && !user.mustChangePassword && since && Date.now() - +new Date(since) > pol.expiryDays * 86400_000) {
+      await db.update(usersTable).set({ mustChangePassword: true }).where(eq(usersTable.id, user.id)); (user as any).mustChangePassword = true;
+    } }
   // Second step: authenticator app, or a code by email (chosen by the user, or forced by Admin › Settings › MFA required)
   const useTotp = user.mfaEnabled && user.mfaMethod !== "email" && !!user.mfaSecret;
   const useEmail = !useTotp && ((user.mfaEnabled && user.mfaMethod === "email") || await mfaRequiredFor(user.userType, user));
@@ -309,6 +305,9 @@ router.post("/auth/login/mfa/resend", async (req, res): Promise<void> => {
   res.json({ ok: true, to: s.to });
 });
 
+// GET /auth/password-policy — the rules shown live while typing a new password
+router.get("/auth/password-policy", requireAuth, async (_req, res): Promise<void> => { res.json(await getPolicy()); });
+
 // POST /auth/change-password — signed-in user changes own password (current password needed)
 router.post("/auth/change-password", requireAuth, async (req, res): Promise<void> => {
   const body = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(1).max(200) }).safeParse(req.body);
@@ -316,10 +315,11 @@ router.post("/auth/change-password", requireAuth, async (req, res): Promise<void
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!));
   if (!user?.passwordHash) { res.status(400).json({ error: "This account signs in through the company portal — change the password there" }); return; }
   if (!await bcrypt.compare(body.data.currentPassword, user.passwordHash)) { res.status(400).json({ error: "Current password is not correct" }); return; }
-  const probs = passwordProblems(body.data.newPassword, user.email);
-  if (probs.length) { const need = probs.filter(x => x !== "NOEMAIL"); res.status(400).json({ error: [need.length ? `The new password needs ${need.join(", ")}` : "", probs.includes("NOEMAIL") ? "It must not contain your email name" : ""].filter(Boolean).join(". ") }); return; }
-  if (await bcrypt.compare(body.data.newPassword, user.passwordHash)) { res.status(400).json({ error: "The new password must be different from the current one" }); return; }
-  await db.update(usersTable).set({ passwordHash: await bcrypt.hash(body.data.newPassword, 12), mustChangePassword: false, passwordChangedAt: new Date() }).where(eq(usersTable.id, user.id));
+  const pol = await getPolicy();
+  const probs = policyProblems(body.data.newPassword, pol, user.email);
+  if (probs.length) { res.status(400).json({ error: policyMessage(probs) }); return; }
+  if (await reusedPassword(body.data.newPassword, user.passwordHash, user.passwordHistory, pol.history)) { res.status(400).json({ error: pol.history ? `Choose a password you have not used for your last ${pol.history + 1} passwords` : "The new password must be different from the current one" }); return; }
+  await db.update(usersTable).set({ passwordHash: await bcrypt.hash(body.data.newPassword, 12), mustChangePassword: false, passwordChangedAt: new Date(), passwordHistory: nextHistory(user.passwordHash, user.passwordHistory, pol.history) }).where(eq(usersTable.id, user.id));
   await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'PASSWORD_CHANGED', ${user.email}, 'Password changed by the user')`).catch(() => {});
   res.json({ ok: true });
 });

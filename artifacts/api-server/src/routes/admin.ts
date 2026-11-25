@@ -204,6 +204,7 @@ router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
   // r98: sign-in method — Microsoft 365 when chosen (or when SSO is on and no password was given), else IT Hub password
   if (!rest.authMethod) { const [sso] = await db.select({ value: settingsTable.value }).from(settingsTable).where(eq(settingsTable.key, "sso.msEnabled")); rest.authMethod = (sso?.value === true && !password) ? "m365" : "password"; }
   if (rest.authMethod === "password" && !password) { res.status(400).json({ error: "Set a temporary password, or choose sign-in with Microsoft 365" }); return; }
+  if (password) { const { getPolicy, policyProblems, policyMessage } = await import("../lib/password-policy"); const pr = policyProblems(password, await getPolicy(), rest.email); if (pr.length) { res.status(400).json({ error: `Temporary password: ${policyMessage(pr)}` }); return; } }
   rest.employeeCode = rest.employeeCode.trim();
   const mp = await managerProblem(null, rest.reportingManagerId); if (mp) { res.status(400).json({ error: mp }); return; }
   const clash = await employeeCodeClash(rest.employeeCode, null);
@@ -244,6 +245,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const { password, ...rest } = body.data;
   if (rest.department !== undefined) { const { deptLabel } = await import("../lib/dept"); rest.department = (await deptLabel(rest.department)) || rest.department; }   // r98
+  if (password) { const { getPolicy, policyProblems, policyMessage } = await import("../lib/password-policy"); const [u0] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, id)); const pr = policyProblems(password, await getPolicy(), u0?.email); if (pr.length) { res.status(400).json({ error: `Temporary password: ${policyMessage(pr)}` }); return; } }
   if (rest.authMethod === "password" && !password) {
     const [cur] = await db.select({ h: usersTable.passwordHash }).from(usersTable).where(eq(usersTable.id, id));
     if (!cur?.h) { res.status(400).json({ error: "This person has no IT Hub password yet — set a temporary password to switch them to password sign-in" }); return; }
