@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, GitBranch, CheckCircle2, Clock, AlertTriangle, Shield, Download, Link2, Server } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, GitBranch, CheckCircle2, Clock, AlertTriangle, Shield, Download, Link2, Server, CalendarClock, ListChecks, Paperclip } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -18,6 +18,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { TicketDialog, FormSection, PendingAttachments, linkPendingFiles, pendingBusy, type PendingFile, EnvAppsFields, EnvAppsView } from "@/components/itsm-form";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
@@ -161,15 +162,22 @@ export default function ItsmChanges() {
   const approvedCount = changes.filter((c: any) => c.approvalStatus === "Approved").length;
   const emergencyCount = changes.filter((c: any) => c.type === "Emergency").length;
 
-  function openCreate() { setEditingItem(null); setFormData({ status: "Draft", type: "Normal", riskLevel: "Medium", approvalStatus: "Pending" }); setIsModalOpen(true); }
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]); const [saving, setSaving] = useState(false);
+  function openCreate() { setEditingItem(null); setFormData({ status: "Draft", type: "Normal", riskLevel: "Medium", approvalStatus: "Pending" }); setPendingFiles([]); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
 
   async function handleSave() {
     try {
       if (editingItem) { await updateChange.mutateAsync({ id: editingItem.id, ...formData }); toast({ title: "Change request updated" }); }
-      else { await createChange.mutateAsync(formData); toast({ title: "Change request created" }); }
+      else {
+        setSaving(true);
+        const r: any = await createChange.mutateAsync(formData);
+        const bad = pendingFiles.length && r?.id ? await linkPendingFiles("Change Request", r.id, pendingFiles) : 0;
+        toast({ title: `${r?.changeNo || "Change request"} created`, description: pendingFiles.length ? `${pendingFiles.length - bad} file(s) attached${bad ? ` · ${bad} could not be attached` : ""}` : undefined });
+      }
       setIsModalOpen(false);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setSaving(false); }
   }
 
   async function handleDelete(id: number, no: string) {
@@ -293,6 +301,7 @@ export default function ItsmChanges() {
             <div className="space-y-4">
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{viewModal.description || "No description provided"}</p>
+              <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
               <div className="flex flex-wrap gap-2">
                 <TypeBadge value={viewModal.type} />
                 <RiskBadge value={viewModal.riskLevel} />
@@ -340,54 +349,54 @@ export default function ItsmChanges() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editingItem ? `Edit ${editingItem.changeNo}` : "New Change Request"}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
-            <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
-            <div><Label>Change Type</Label><Select value={formData.type || "Normal"} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CHANGE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Category</Label><Select value={formData.category || "__none__"} onValueChange={v => setFormData({ ...formData, category: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{CHANGE_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Risk Level</Label><Select value={formData.riskLevel || "Medium"} onValueChange={v => setFormData({ ...formData, riskLevel: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RISKS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Status</Label><Select value={formData.status || "Draft"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Approval Status</Label><div className="h-10 flex items-center gap-2 text-sm"><ApprovalBadge value={formData.approvalStatus || "Pending"} /><span className="text-[11px] text-muted-foreground">set by the approval workflow</span></div></div>
-            <div><Label>Requested By</Label><UserSearchCombobox value={formData.requestedBy || ""} onChange={v => setFormData({ ...formData, requestedBy: v })} placeholder="Search requester…" /></div>
-            <div><Label>Approved By</Label><div className="min-h-10 flex items-center text-sm text-muted-foreground">{formData.approvedBy || "—"}</div></div>
-            <div><Label>Implementation Date</Label><Input type="date" value={formData.implementationDate || ""} onChange={e => setFormData({ ...formData, implementationDate: e.target.value })} /></div>
-            <div><Label>Backout Duration</Label><Input value={formData.backoutDuration || ""} onChange={e => setFormData({ ...formData, backoutDuration: e.target.value })} placeholder="e.g. 2 hours" /></div>
-            <div className="col-span-2"><Label>Impact</Label><Input value={formData.impact || ""} onChange={e => setFormData({ ...formData, impact: e.target.value })} placeholder="Describe the impact of this change" /></div>
-            <div className="col-span-2"><Label>Rollback Plan</Label><Textarea value={formData.rollbackPlan || ""} onChange={e => setFormData({ ...formData, rollbackPlan: e.target.value })} rows={2} /></div>
-            <div className="col-span-2"><Label>Test Plan</Label><Textarea value={formData.testPlan || ""} onChange={e => setFormData({ ...formData, testPlan: e.target.value })} rows={2} placeholder="Steps to validate the change was successful…" /></div>
-            <div className="col-span-2">
-              <Label className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-muted-foreground" />Linked Problem</Label>
-              <Select value={formData.problemId ? String(formData.problemId) : "none"} onValueChange={v => setFormData({ ...formData, problemId: v === "none" ? null : parseInt(v) })}>
-                <SelectTrigger><SelectValue placeholder="No linked problem" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— No linked problem —</SelectItem>
-                  {(problems as any[]).filter((p: any) => p.status !== "Closed").map((p: any) => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.problemNo} — {p.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2">
-              <Label className="flex items-center gap-1.5"><Server className="w-3.5 h-3.5 text-muted-foreground" />Affected Assets / CIs</Label>
-              <Textarea placeholder="List affected assets or configuration items, one per line (e.g. SRV-001, SWITCH-12, APP-DB01)" value={formData.affectedAssets || ""} onChange={e => setFormData({ ...formData, affectedAssets: e.target.value })} rows={3} />
-            </div>
+      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="change" status={editingItem?.status} wide
+        title={editingItem ? `${editingItem.changeNo} · ${editingItem.title}` : "Plan a change"}
+        subtitle={editingItem ? <span className="inline-flex items-center gap-2">Approval: <ApprovalBadge value={formData.approvalStatus || "Pending"} />{formData.approvedBy ? ` by ${formData.approvedBy}` : ""}</span> : "Any planned change to systems, network, software or configuration — approved before it is done."}
+        footer={<>
+          <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="change-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Create change"}</Button>
+        </>}>
+        <FormSection title="The change" icon={GitBranch}>
+          <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Upgrade core switch firmware to 17.9" /></div>
+          <div className="sm:col-span-2"><Label>Description & reason</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What will change, why it is needed, what happens if it is not done" /></div>
+          <div><Label>Change type</Label><Select value={formData.type || "Normal"} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CHANGE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Category</Label><Select value={formData.category || "__none__"} onValueChange={v => setFormData({ ...formData, category: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{CHANGE_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
+          <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^software|^application/i.test(formData.category || "")} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
+        </FormSection>
+        <FormSection title="Risk & schedule" icon={CalendarClock}>
+          <div><Label>Risk level</Label><Select value={formData.riskLevel || "Medium"} onValueChange={v => setFormData({ ...formData, riskLevel: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RISKS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Status</Label><Select value={formData.status || "Draft"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Implementation date</Label><Input type="date" value={formData.implementationDate || ""} onChange={e => setFormData({ ...formData, implementationDate: e.target.value })} /></div>
+          <div><Label>Backout duration</Label><Input value={formData.backoutDuration || ""} onChange={e => setFormData({ ...formData, backoutDuration: e.target.value })} placeholder="e.g. 2 hours" /></div>
+          <div><Label>Requested by</Label><UserSearchCombobox value={formData.requestedBy || ""} onChange={v => setFormData({ ...formData, requestedBy: v })} placeholder="Search requester…" /></div>
+          <div className="sm:col-span-2"><Label>Business impact</Label><Input value={formData.impact || ""} onChange={e => setFormData({ ...formData, impact: e.target.value })} placeholder="Who / what is affected during the change, expected downtime" /></div>
+        </FormSection>
+        <FormSection title="Plans" icon={ListChecks} hint="what you will do if it goes wrong, and how you will know it worked">
+          <div className="sm:col-span-2"><Label>Rollback plan</Label><Textarea value={formData.rollbackPlan || ""} onChange={e => setFormData({ ...formData, rollbackPlan: e.target.value })} rows={2} placeholder="Steps to undo the change" /></div>
+          <div className="sm:col-span-2"><Label>Test plan</Label><Textarea value={formData.testPlan || ""} onChange={e => setFormData({ ...formData, testPlan: e.target.value })} rows={2} placeholder="Steps to check the change worked" /></div>
+        </FormSection>
+        <FormSection title="Links & files" icon={Paperclip}>
+          <div className="sm:col-span-2">
+            <Label className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-muted-foreground" />Linked problem</Label>
+            <Select value={formData.problemId ? String(formData.problemId) : "none"} onValueChange={v => setFormData({ ...formData, problemId: v === "none" ? null : parseInt(v) })}>
+              <SelectTrigger><SelectValue placeholder="No linked problem" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— No linked problem —</SelectItem>
+                {(problems as any[]).filter((p: any) => p.status !== "Closed").map((p: any) => (
+                  <SelectItem key={p.id} value={String(p.id)}>{p.problemNo} — {p.title}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          {editingItem && (
-            <>
-              <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Change Request" /></div>
-              <hr className="border-border/40 mt-4" />
-              <div className="mt-2"><TicketAttachments ticketType="Change Request" ticketId={editingItem.id} /></div>
-            </>
-          )}
-          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
+          <div className="sm:col-span-2">
+            <Label className="flex items-center gap-1.5"><Server className="w-3.5 h-3.5 text-muted-foreground" />Affected assets / CIs</Label>
+            <Textarea placeholder="One per line (e.g. SRV-001, SWITCH-12, APP-DB01)" value={formData.affectedAssets || ""} onChange={e => setFormData({ ...formData, affectedAssets: e.target.value })} rows={2} />
           </div>
-        </DialogContent>
-      </Dialog>
+          {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Change Request" ticketId={editingItem.id} /></div>
+            : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
+        </FormSection>
+        {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Change Request" />}
+      </TicketDialog>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Headphones, CheckCircle2, Timer, Inbox, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Headphones, CheckCircle2, Timer, Inbox, Download, ShoppingBag, Users, Wrench, Paperclip } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -18,6 +18,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { TicketDialog, FormSection, PendingAttachments, linkPendingFiles, pendingBusy, type PendingFile, EnvAppsFields, EnvAppsView } from "@/components/itsm-form";
 import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay, useCatalog } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
@@ -179,13 +180,14 @@ export default function ItsmServiceRequests() {
   const canWork = (r: any) => isAdmin || (r?.teamId && myTeamIds.includes(r.teamId));
   const isMine = (r: any) => r?.requesterUserId === user?.id;
 
-  function openCreate() { setEditingItem(null); setFormData({ priority: "Medium" }); setIsModalOpen(true); }
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]); const [saving, setSaving] = useState(false);
+  function openCreate() { setEditingItem(null); setFormData({ priority: "Medium" }); setPendingFiles([]); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item, _teamId: item.teamId, _reason: "" }); setIsModalOpen(true); }
 
   async function handleSave() {
     try {
       if (editingItem) {
-        const d: any = { title: formData.title, description: formData.description, urgency: formData.urgency, department: formData.department };
+        const d: any = { title: formData.title, description: formData.description, urgency: formData.urgency, department: formData.department, environment: formData.environment ?? null, affectedApps: formData.affectedApps || [] };
         if (canWork(editingItem)) {
           Object.assign(d, { priority: formData.priority, status: formData.status, assignedTo: formData.assignedTo ?? null, fulfillmentNotes: formData.fulfillmentNotes, category: formData.category, subcategory: formData.subcategory });
           if (formData._teamId && formData._teamId !== editingItem.teamId) { d.teamId = formData._teamId; d.transferReason = formData._reason; }
@@ -194,11 +196,14 @@ export default function ItsmServiceRequests() {
         }
         await updateReq.mutateAsync({ id: editingItem.id, ...d }); toast({ title: `${editingItem.requestNo} updated` });
       } else {
-        const r: any = await createReq.mutateAsync({ title: formData.title, description: formData.description, category: formData.category, subcategory: formData.subcategory, priority: formData.priority, urgency: formData.urgency, department: formData.department, assignedTo: formData.assignedTo || undefined, onBehalfOfUserId: formData.onBehalfOfUserId || undefined });
-        toast({ title: `${r.requestNo} raised`, description: `Assigned to ${r.assignedGroup} · expected closure ${fmtDay(r.expectedClosureDate)}` });
+        setSaving(true);
+        const r: any = await createReq.mutateAsync({ title: formData.title, description: formData.description, category: formData.category, subcategory: formData.subcategory, priority: formData.priority, urgency: formData.urgency, department: formData.department, environment: formData.environment || undefined, affectedApps: formData.affectedApps || [], assignedTo: formData.assignedTo || undefined, onBehalfOfUserId: formData.onBehalfOfUserId || undefined });
+        const bad = pendingFiles.length ? await linkPendingFiles("Service Request", r.id, pendingFiles) : 0;
+        toast({ title: `${r.requestNo} raised`, description: `Assigned to ${r.assignedGroup} · expected closure ${fmtDay(r.expectedClosureDate)}${pendingFiles.length ? ` · ${pendingFiles.length - bad} file(s) attached` : ""}${bad ? ` · ${bad} could not be attached` : ""}` });
       }
       setIsModalOpen(false);
     } catch (e: any) { toast({ title: "Could not save", description: e.message, variant: "destructive" }); }
+    finally { setSaving(false); }
   }
 
   async function cancelOwn(r: any) {
@@ -307,6 +312,7 @@ export default function ItsmServiceRequests() {
             <div className="space-y-4">
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{viewModal.description || "No description provided"}</p>
+              <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
               <div className="flex flex-wrap gap-2"><CategoryBadge value={[viewModal.category, viewModal.subcategory].filter(Boolean).join(" › ") || "—"} /><PriorityBadge value={viewModal.priority} /></div>
               <SlaPanel sla={viewModal.sla} firstResponseAt={viewModal.firstResponseAt} />
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
@@ -327,45 +333,49 @@ export default function ItsmServiceRequests() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader><DialogTitle>{editingItem ? `${workMode ? "Work on" : "My request"} ${editingItem.requestNo}` : "New Service Request"}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2"><Label>Title *</Label><Input disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="What do you need?" /></div>
-            <div className="sm:col-span-2"><Label>Description</Label><Textarea disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
-            <CategoryFields kind="request" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
-            {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
-            {editingItem && <div className="sm:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-3 rounded-[10px] border bg-muted/30 p-3 text-sm">
-              <div><div className="text-[11px] text-muted-foreground">Raised by</div><div className="font-medium">{editingItem.requestedBy}</div></div>
-              <div><div className="text-[11px] text-muted-foreground">Assigned group</div><div className="font-medium">{editingItem.assignedGroup || "—"}</div></div>
-              <div><div className="text-[11px] text-muted-foreground">Expected closure</div><div className="font-medium">{fmtDay(editingItem.expectedClosureDate)}</div></div>
-            </div>}
-            <div><Label>Priority</Label><Select disabled={reqMode} value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Urgency</Label><Select value={formData.urgency || "__none__"} onValueChange={v => setFormData({ ...formData, urgency: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select urgency" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{URGENCIES.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Department</Label><Select value={formData.department || "__none__"} onValueChange={v => setFormData({ ...formData, department: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
-            {!editingItem && (isAgent ? <div><Label>Raised for</Label><OnBehalfSelect value={formData.onBehalfOfUserId} onChange={id => setFormData({ ...formData, onBehalfOfUserId: id })} /></div>
-              : <div><Label>Raised by</Label><div className="h-10 flex items-center text-sm font-medium">{user?.name}</div></div>)}
-            {!editingItem && route.data?.ok && route.data.canAssign && <div><Label>Assign to (optional)</Label><TeamMemberSelect teamId={route.data.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>}
-            {!editingItem && route.data?.ok && !route.data.canAssign && <div className="text-[11px] text-muted-foreground self-end pb-2">{route.data.team} will pick it up and assign it.</div>}
-            {workMode && <>
-              <div><Label>Status</Label><Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-              <div><Label>Assign to (team member)</Label><TeamMemberSelect others={isAdmin} teamId={editingItem.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
-              <TransferFields currentTeamId={editingItem.teamId} teamId={formData._teamId} reason={formData._reason} onChange={(t, r) => setFormData({ ...formData, _teamId: t, _reason: r })} />
-              {DONE.includes(editingItem.status) && formData.status !== editingItem.status && !DONE.includes(formData.status) && <div className="sm:col-span-2"><Label>Reason to reopen *</Label><Input value={formData.reopenReason || ""} onChange={e => setFormData({ ...formData, reopenReason: e.target.value })} /></div>}
-              <div className="sm:col-span-2"><Label>Fulfilment notes {formData.status === "Completed" && "*"}</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} placeholder="What was done (required to complete)" /></div>
-            </>}
-            {reqMode && <div className="sm:col-span-2 text-xs text-muted-foreground">Only {editingItem.assignedGroup || "the assigned team"} can change the status or assign this request. You can update the details while it is open, or cancel it.</div>}
-          </div>
-          {editingItem && (<><div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" /></div><hr className="border-border/40 mt-4" /><div className="mt-2"><TicketAttachments ticketType="Service Request" ticketId={editingItem.id} /></div></>)}
-          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-between gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
-            <div>{reqMode && !DONE.includes(editingItem.status) && editingItem.status !== "In Progress" && <Button variant="outline" className="text-red-600" onClick={() => cancelOwn(editingItem)}>Cancel my request</Button>}</div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setIsModalOpen(false)}>Close</Button>
-              <Button onClick={handleSave} disabled={!formData.title || (reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)) || (!editingItem && !route.data?.ok) || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Save" : "Raise request"}</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="request" status={editingItem?.status}
+        title={editingItem ? `${editingItem.requestNo} · ${editingItem.title}` : "Request something"}
+        subtitle={editingItem ? `${workMode ? "Fulfilling this request" : "Your request"} · raised by ${editingItem.requestedBy || "—"}` : "Access, software, hardware, accounts — anything new you need from IT."}
+        footer={<>
+          {reqMode && !DONE.includes(editingItem.status) && editingItem.status !== "In Progress" && <Button variant="outline" className="text-red-600 sm:mr-auto" onClick={() => cancelOwn(editingItem)}>Cancel my request</Button>}
+          <Button variant="outline" onClick={() => setIsModalOpen(false)}>Close</Button>
+          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title || (/^application/i.test(formData.category || "") && !(formData.affectedApps || []).length) || (reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)) || (!editingItem && !route.data?.ok) || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="request-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Raise request"}</Button>
+        </>}>
+        <FormSection title="What do you need" icon={ShoppingBag}>
+          <div className="sm:col-span-2"><Label>Title *</Label><Input disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Access to the Finance shared folder" /></div>
+          <div className="sm:col-span-2"><Label>Details</Label><Textarea disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What exactly, for whom, by when, and why it is needed" /></div>
+          <CategoryFields kind="request" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
+          <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^application/i.test(formData.category || "")} disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
+          {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
+          {editingItem && <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-[10px] border bg-muted/30 p-3 text-sm">
+            <div><div className="text-[11px] text-muted-foreground">Raised by</div><div className="font-medium">{editingItem.requestedBy}</div></div>
+            <div><div className="text-[11px] text-muted-foreground">Assigned group</div><div className="font-medium">{editingItem.assignedGroup || "—"}</div></div>
+            <div><div className="text-[11px] text-muted-foreground">Expected closure</div><div className="font-medium">{fmtDay(editingItem.expectedClosureDate)}</div></div>
+          </div>}
+        </FormSection>
+        <FormSection title="Priority & who it is for" icon={Users}>
+          <div><Label>Priority</Label><Select disabled={reqMode} value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Urgency</Label><Select value={formData.urgency || "__none__"} onValueChange={v => setFormData({ ...formData, urgency: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="How soon is it needed?" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{URGENCIES.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Department</Label><Select value={formData.department || "__none__"} onValueChange={v => setFormData({ ...formData, department: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
+          {!editingItem && (isAgent ? <div><Label>Raised for</Label><OnBehalfSelect value={formData.onBehalfOfUserId} onChange={id => setFormData({ ...formData, onBehalfOfUserId: id })} /></div>
+            : <div><Label>Raised by</Label><div className="h-10 flex items-center text-sm font-medium">{user?.name}</div></div>)}
+          {!editingItem && route.data?.ok && route.data.canAssign && <div><Label>Assign to (optional)</Label><TeamMemberSelect teamId={route.data.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>}
+          {!editingItem && route.data?.ok && !route.data.canAssign && <div className="text-[11px] text-muted-foreground self-end pb-2">{route.data.team} will pick it up and assign it.</div>}
+        </FormSection>
+        {workMode && <FormSection title="Fulfil it" icon={Wrench}>
+          <div><Label>Status</Label><Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Assign to (team member)</Label><TeamMemberSelect others={isAdmin} teamId={editingItem.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
+          <TransferFields currentTeamId={editingItem.teamId} teamId={formData._teamId} reason={formData._reason} onChange={(t, r) => setFormData({ ...formData, _teamId: t, _reason: r })} />
+          {DONE.includes(editingItem.status) && formData.status !== editingItem.status && !DONE.includes(formData.status) && <div className="sm:col-span-2"><Label>Reason to reopen *</Label><Input value={formData.reopenReason || ""} onChange={e => setFormData({ ...formData, reopenReason: e.target.value })} /></div>}
+          <div className="sm:col-span-2"><Label>Fulfilment notes {formData.status === "Completed" && "*"}</Label><Textarea value={formData.fulfillmentNotes || ""} onChange={e => setFormData({ ...formData, fulfillmentNotes: e.target.value })} rows={2} placeholder="What was done (required to complete)" /></div>
+        </FormSection>}
+        {reqMode && <div className="text-xs text-muted-foreground">Only {editingItem.assignedGroup || "the assigned team"} can change the status or assign this request. You can update the details while it is open, or cancel it.</div>}
+        <FormSection title="Files" icon={Paperclip} hint="quotes, approvals, screenshots">
+          {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Service Request" ticketId={editingItem.id} /></div>
+            : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
+        </FormSection>
+        {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" />}
+      </TicketDialog>
     </div>
   );
 }

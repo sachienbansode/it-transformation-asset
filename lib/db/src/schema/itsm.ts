@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, serial, timestamp, integer, boolean, numeric, date } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, numeric, date, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -21,6 +21,8 @@ export const itsmIncidentsTable = pgTable("itsm_incidents", {
   reportedBy: text("reported_by"),
   reporterEmail: text("reporter_email"),
   affectedSystem: text("affected_system"),
+  environment: text("environment"),   // 2.03: Dev / UAT / PROD (Masters › ITSM environments)
+  affectedApps: jsonb("affected_apps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   slaId: integer("sla_id"),
   slaBreachAt: timestamp("sla_breach_at", { withTimezone: true }),
   problemId: integer("problem_id"),
@@ -60,6 +62,8 @@ export const itsmProblemsTable = pgTable("itsm_problems", {
   assignedGroup: text("assigned_group"),
   relatedIncidents: text("related_incidents"),
   affectedSystems: text("affected_systems"),
+  environment: text("environment"),   // 2.03: Dev / UAT / PROD (Masters › ITSM environments)
+  affectedApps: jsonb("affected_apps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),
@@ -86,6 +90,8 @@ export const itsmChangesTable = pgTable("itsm_changes", {
   status: text("status").notNull().default("Draft"),
   problemId: integer("problem_id"),
   affectedAssets: text("affected_assets"),
+  environment: text("environment"),   // 2.03: Dev / UAT / PROD (Masters › ITSM environments)
+  affectedApps: jsonb("affected_apps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),
@@ -142,6 +148,8 @@ export const itsmServiceRequestsTable = pgTable("itsm_service_requests", {
   requestNo: text("request_no").notNull().unique(),
   title: text("title").notNull(),
   description: text("description"),
+  environment: text("environment"),   // 2.03: Dev / UAT / PROD (Masters › ITSM environments)
+  affectedApps: jsonb("affected_apps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   category: text("category"),
   status: text("status").notNull().default("Submitted"),
   priority: text("priority").notNull().default("Medium"),

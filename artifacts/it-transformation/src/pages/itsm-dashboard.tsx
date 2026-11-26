@@ -168,8 +168,8 @@ export default function ItsmDashboard() {
     return Math.round(Math.min(100, Math.max(0, 0.5 * sla + 0.3 * resolutionRate + 0.2 * crit)));
   }, [criticalIncidents, resolutionRate, itsmMetrics?.slaCompliance]);
 
-  const healthColor = serviceHealth >= 80 ? "#059669" : serviceHealth >= 60 ? "#2D7FF9" : "#dc2626";
-  const noTickets = incidents.length + serviceRequests.length === 0;
+  const noTickets = incidents.length + serviceRequests.length === 0;   // 2.03: no tickets → no score (was 70 from the defaults)
+  const healthColor = noTickets ? "#94a3b8" : serviceHealth >= 80 ? "#059669" : serviceHealth >= 60 ? "#2D7FF9" : "#dc2626";
   const healthLabel = noTickets ? "No tickets yet" : serviceHealth >= 80 ? "Healthy" : serviceHealth >= 60 ? "Degraded" : "Critical";
 
   return (
@@ -347,13 +347,13 @@ export default function ItsmDashboard() {
             <div className="flex items-center gap-6">
               <div className="relative w-[140px] h-[140px] flex-shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
-                  <RadialBarChart cx="50%" cy="50%" innerRadius="70%" outerRadius="100%" data={[{ value: serviceHealth, fill: healthColor }]} startAngle={90} endAngle={-270}>
+                  <RadialBarChart cx="50%" cy="50%" innerRadius="70%" outerRadius="100%" data={[{ value: noTickets ? 0 : serviceHealth, fill: healthColor }]} startAngle={90} endAngle={-270}>
                     <RadialBar background={{ fill: "hsl(var(--muted))" }} dataKey="value" cornerRadius={10} />
                   </RadialBarChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-3xl font-bold" style={{ color: healthColor }}>{serviceHealth}</span>
-                  <span className="text-[10px] text-muted-foreground">/ 100</span>
+                  <span className="text-3xl font-bold" style={{ color: healthColor }} data-testid="health-score">{noTickets ? "—" : serviceHealth}</span>
+                  <span className="text-[10px] text-muted-foreground">{noTickets ? "no data yet" : "/ 100"}</span>
                 </div>
               </div>
               <div className="space-y-3 flex-1">
@@ -365,7 +365,7 @@ export default function ItsmDashboard() {
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-muted-foreground">Resolution Rate</span>
-                  <span className="font-semibold">{resolutionRate}%</span>
+                  <span className="font-semibold">{noTickets ? "—" : `${resolutionRate}%`}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-muted-foreground">Open Problems</span>

@@ -274,9 +274,32 @@ const NO: Record<Kind, [string, string, string, string]> = {
 };
 const ENTITY: Record<Kind, string> = { incident: "itsm_incident", problem: "itsm_problem", change: "itsm_change", request: "itsm_service_request" };
 
+/** 2.03: environment (one of Masters › Environments) and affected applications (list + names typed under "Other") */
+async function envApps(body: any) {
+  if (body.affectedApps !== undefined) {
+    const raw = Array.isArray(body.affectedApps) ? body.affectedApps : String(body.affectedApps || "").split(",");
+    const seen = new Set<string>(); const out: string[] = [];
+    for (const a of raw) { const v = String(a ?? "").replace(/\s+/g, " ").trim().slice(0, 80); if (v && !seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); out.push(v); } }
+    if (out.length > 20) throw new Bad("Choose up to 20 applications");
+    body.affectedApps = out;
+  }
+  if (body.environment !== undefined) {
+    const v = String(body.environment || "").trim();
+    if (!v) body.environment = null;
+    else {
+      const rows: any = await db.execute(sql`SELECT label FROM masters WHERE category = 'itsm.environments' AND is_active`);
+      const list = ((rows.rows ?? rows) as any[]).map(r => String(r.label));
+      const hit = list.find(l => l.toLowerCase() === v.toLowerCase());
+      if (list.length && !hit) throw new Bad(`Environment must be one of: ${list.join(", ")}`);
+      body.environment = hit || v.slice(0, 40);
+    }
+  }
+  return body;
+}
+
 async function createTicket(kind: Kind, req: Request, res: Response) {
   const who = await actor(req);
-  const body: any = parse(SCHEMAS[kind].create, clean(req.body, ["status", "onBehalfOfUserId", "teamId"]));
+  const body: any = await envApps(parse(SCHEMAS[kind].create, clean(req.body, ["status", "onBehalfOfUserId", "teamId"])));
   const createdAt = new Date();
   const values: any = { ...body, createdBy: who.label, updatedBy: who.label, createdAt, updatedAt: createdAt };
   let notifyAssignee: string | null = null;
@@ -341,7 +364,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if (!old) return fail(res, 404, "Ticket not found");
   const who = await actor(req);
   const reopenReason = s(req.body?.reopenReason);
-  const body: any = parse(SCHEMAS[kind].patch, clean(req.body, ["reopenReason", "updatedBy", "transferReason", "onBehalfOfUserId"]));
+  const body: any = await envApps(parse(SCHEMAS[kind].patch, clean(req.body, ["reopenReason", "updatedBy", "transferReason", "onBehalfOfUserId"])));
   const transferReason = s(req.body?.transferReason);
   const extra: any = {};
   let events: ("assigned" | "transferred")[] = [];
@@ -970,9 +993,11 @@ const ITSM_CONFIG_DEFAULTS: Record<string, unknown> = {
     "Operations": ["Scheduled Job", "Maintenance", "Deployment", "Monitoring Alert"],
     "Service Request": ["Account", "Software", "Hardware", "Access", "Other"],
   },
-  "itsm.problemCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Process", "Database", "Cloud", "Operations"],
-  "itsm.changeCategories": ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User"],
-  "itsm.srCategories": ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup", "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Other"],
+  "itsm.problemCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Process", "Database", "Cloud", "Operations", "Others"],
+  "itsm.changeCategories": ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User", "Others"],
+  "itsm.srCategories": ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup", "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Others"],
+  "itsm.environments": ["Dev", "UAT", "PROD"],
+  "itsm.applications": ["Bloomberg", "Teravista Symphony", "KFIN"],
   "itsm.departments": ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"],
   "itsm.slaCalendar": { start: "09:30", end: "18:30", days: [1, 2, 3, 4, 5], holidays: [] },
   "itsm.slaWarnPercent": 75,
@@ -1052,7 +1077,13 @@ router.post("/itsm-attachments", async (req, res): Promise<void> => {
     objectPath: z.string().min(1),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid attachment data" }); return; }
-  if (!MODULE_OF[body.data.ticketType] || !await allowed(req, body.data.ticketType, "write")) { res.status(403).json({ error: "You need edit access to add attachments to this ticket" }); return; }
+  if (!MODULE_OF[body.data.ticketType]) { res.status(403).json({ error: "Unknown ticket type" }); return; }
+  if (!await allowed(req, body.data.ticketType, "write")) {
+    // 2.03: the person who raised an incident / service request may attach files to it (screenshots, quotes)
+    const k = ({ "Incident": "incident", "Service Request": "request" } as Record<string, Kind>)[body.data.ticketType];
+    const [t]: any[] = k ? await db.select().from(TABLE[k]).where(eq(TABLE[k].id, body.data.ticketId)) : [];
+    if (!t || t.requesterUserId !== (req.session as any)?.userId) { res.status(403).json({ error: "You need edit access to add attachments to this ticket" }); return; }
+  }
 
   const userId = (req.session as any)?.userId;
   const uploadedByName = await getPerformedBy(userId).catch(() => "Unknown");

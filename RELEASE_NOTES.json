@@ -1,13 +1,52 @@
 {
-  "2.02": ["Installed versions: one line per version with its main changes; an install that was stopped shows as Interrupted (never two Running)", "deploy.sh: one deploy at a time; Ctrl+C / disconnect recorded as Interrupted"],
-  "2.01": ["New branded HTML design for every email (logo, company, buttons, details table)", "Sign-in code email redesigned; the real error is shown when the code cannot be emailed", "SMTP form: display name and username explained; sign-in page shows the company name"],
-  "2.0": ["ITSM teams: escalation level 1 and 2", "ITSM Setup › Email alerts: 10 ticket alerts — choose who receives each, edit the templates, preview and test", "Requester can reopen a resolved ticket within 7 days", "Version numbers now in X.XX form"],
-  "1.100.1": ["Users export: department name, Super Admin label, sign-in method and MFA method"],
-  "1.100.0": ["Admin › Integrations: a Test button for email (Microsoft 365 / SMTP), SSO, storage, push, previews and the app address"],
-  "1.99.0": ["Password policy (length, complexity, history, expiry)", "Forced password change screen has a Sign out button"],
-  "1.98.0": ["One sign-in method per user (Microsoft 365 or IT Hub password); Super Admin MFA mandatory", "Emailed code after Microsoft sign-in (optional)", "Session timeout 4 hours", "Type to search in every drop-down"],
-  "1.97.0": ["Super Admin (Full Access) label; MFA can be required per role"],
-  "1.96.0": ["Default master lists filled on empty installations"],
-  "1.95.0": ["Hardened Microsoft SSO with a Test SSO button"],
-  "1.94.0": ["Change password and two-step sign-in (authenticator app or emailed code)"]
+ "2.03": [
+  "New ticket forms for incidents, service requests, problems and changes: sections, colour per ticket type, buttons always visible, full screen on phones",
+  "Attach files while raising any ticket (drag & drop); the person who raised a ticket can add files later",
+  "Environment (Dev / UAT / PROD) and affected applications (Bloomberg, Teravista Symphony, KFIN, or type another) on every ticket — lists editable in Masters",
+  "'Others' category and sub-category everywhere",
+  "ITSM dashboard: no health score until there are tickets"
+ ],
+ "2.02": [
+  "Installed versions: one line per version with its main changes; an install that was stopped shows as Interrupted (never two Running)",
+  "deploy.sh: one deploy at a time; Ctrl+C / disconnect recorded as Interrupted"
+ ],
+ "2.01": [
+  "New branded HTML design for every email (logo, company, buttons, details table)",
+  "Sign-in code email redesigned; the real error is shown when the code cannot be emailed",
+  "SMTP form: display name and username explained; sign-in page shows the company name"
+ ],
+ "2.0": [
+  "ITSM teams: escalation level 1 and 2",
+  "ITSM Setup › Email alerts: 10 ticket alerts — choose who receives each, edit the templates, preview and test",
+  "Requester can reopen a resolved ticket within 7 days",
+  "Version numbers now in X.XX form"
+ ],
+ "1.100.1": [
+  "Users export: department name, Super Admin label, sign-in method and MFA method"
+ ],
+ "1.100.0": [
+  "Admin › Integrations: a Test button for email (Microsoft 365 / SMTP), SSO, storage, push, previews and the app address"
+ ],
+ "1.99.0": [
+  "Password policy (length, complexity, history, expiry)",
+  "Forced password change screen has a Sign out button"
+ ],
+ "1.98.0": [
+  "One sign-in method per user (Microsoft 365 or IT Hub password); Super Admin MFA mandatory",
+  "Emailed code after Microsoft sign-in (optional)",
+  "Session timeout 4 hours",
+  "Type to search in every drop-down"
+ ],
+ "1.97.0": [
+  "Super Admin (Full Access) label; MFA can be required per role"
+ ],
+ "1.96.0": [
+  "Default master lists filled on empty installations"
+ ],
+ "1.95.0": [
+  "Hardened Microsoft SSO with a Test SSO button"
+ ],
+ "1.94.0": [
+  "Change password and two-step sign-in (authenticator app or emailed code)"
+ ]
 }

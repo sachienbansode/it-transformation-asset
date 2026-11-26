@@ -37,6 +37,8 @@ export const ITSM_LISTS: { key: string; label: string; note: string; parentOf?: 
   { key: "itsm.problemCategories", label: "Problem categories", note: "Problems form" },
   { key: "itsm.changeCategories", label: "Change categories", note: "Change Requests form" },
   { key: "itsm.srCategories", label: "Service request categories", note: "Service Requests form" },
+  { key: "itsm.environments", label: "Environments", note: "Dev / UAT / PROD on every ticket type" },
+  { key: "itsm.applications", label: "Applications", note: "Affected applications on every ticket type (users can also type another name)" },
 ];
 const isItsmList = (c: string) => c.startsWith("itsm.");
 

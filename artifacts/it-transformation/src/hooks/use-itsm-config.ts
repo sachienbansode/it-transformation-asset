@@ -11,6 +11,8 @@ export interface ItsmConfig {
   "itsm.changeCategories": string[];
   "itsm.srCategories": string[];
   "itsm.departments": string[];
+  "itsm.environments": string[];
+  "itsm.applications": string[];
   "itsm.itGroups": string[];
   "itsm.maxAttachmentSizeMB": number;
   "itsm.maxAttachmentsPerTicket": number;
@@ -34,9 +36,11 @@ export const ITSM_CONFIG_DEFAULT: ItsmConfig = {
     "Operations": ["Scheduled Job", "Maintenance", "Deployment", "Monitoring Alert"],
     "Service Request": ["Account", "Software", "Hardware", "Access", "Other"],
   },
-  "itsm.problemCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Process", "Database", "Cloud", "Operations"],
-  "itsm.changeCategories": ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User"],
+  "itsm.problemCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Process", "Database", "Cloud", "Operations", "Others"],
+  "itsm.changeCategories": ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User", "Others"],
   "itsm.srCategories": ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup", "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Other"],
+  "itsm.environments": ["Dev", "UAT", "PROD"],
+  "itsm.applications": ["Bloomberg", "Teravista Symphony", "KFIN"],
   "itsm.departments": ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"],
   "itsm.itGroups": ["IT Helpdesk", "Infrastructure Team", "Network Team", "Security Team", "Applications Team", "Database Team", "Cloud Team", "Desktop Support", "Development Team", "Operations Team"],
   "itsm.maxAttachmentSizeMB": 20,

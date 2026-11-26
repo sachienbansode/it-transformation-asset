@@ -67,11 +67,11 @@ export function useRoute(kind: Kind, category?: string | null, subcategory?: str
 export const fmtDay = (d?: string | null) => d ? `${new Date(d.length === 10 ? d + "T00:00:00" : d).toLocaleDateString("en-GB", { weekday: "short" })}, ${fmtDate(d)}` : "—";
 
 export function RoutingPreview({ route, loading }: { route: any; loading?: boolean }) {
-  if (loading) return <div className="col-span-2 text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" />Finding the team…</div>;
-  if (!route) return <div className="col-span-2 rounded-[10px] border border-dashed p-3 text-xs text-muted-foreground">Choose a category — the ticket is assigned to the mapped team automatically and gets an expected closure date.</div>;
-  if (!route.ok) return <div className="col-span-2 rounded-[10px] border border-amber-300 bg-amber-50 dark:bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />{route.error}</div>;
+  if (loading) return <div className="sm:col-span-2 text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" />Finding the team…</div>;
+  if (!route) return <div className="sm:col-span-2 rounded-[10px] border border-dashed p-3 text-xs text-muted-foreground">Choose a category — the ticket is assigned to the mapped team automatically and gets an expected closure date.</div>;
+  if (!route.ok) return <div className="sm:col-span-2 rounded-[10px] border border-amber-300 bg-amber-50 dark:bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />{route.error}</div>;
   return (
-    <div className="col-span-2 grid grid-cols-2 gap-3 rounded-[10px] border bg-muted/30 p-3">
+    <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-[10px] border bg-muted/30 p-3">
       <div><div className="text-[11px] text-muted-foreground flex items-center gap-1"><Users className="w-3.5 h-3.5" />Assigned group (automatic)</div><div className="font-semibold text-sm">{route.team}</div></div>
       <div><div className="text-[11px] text-muted-foreground flex items-center gap-1"><CalendarClock className="w-3.5 h-3.5" />Expected closure date (automatic)</div><div className="font-semibold text-sm">{fmtDay(route.expectedClosureDate)}</div>
         <div className="text-[10px] text-muted-foreground">T+{route.days} working day{route.days === 1 ? "" : "s"}{route.defaulted ? " (default)" : ""} · Sat & Sun excluded</div></div>
@@ -177,7 +177,7 @@ export function ViewTabs({ value, onChange, showTeam }: { value: string; onChang
 export function TransferFields({ currentTeamId, teamId, reason, onChange }: { currentTeamId?: number | null; teamId?: number | null; reason?: string; onChange: (teamId: number | null, reason: string) => void }) {
   const { data: teams = [] } = useTeams();
   return (
-    <div className="col-span-2 grid grid-cols-2 gap-3 rounded-[10px] border p-3">
+    <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-[10px] border p-3">
       <div className="space-y-1.5"><Label>Pass to another team</Label>
         <Select value={teamId && teamId !== currentTeamId ? String(teamId) : "__keep__"} onValueChange={v => onChange(v === "__keep__" ? null : Number(v), reason || "")}>
           <SelectTrigger><SelectValue /></SelectTrigger>
@@ -185,7 +185,7 @@ export function TransferFields({ currentTeamId, teamId, reason, onChange }: { cu
         </Select>
       </div>
       <div className="space-y-1.5"><Label>Reason {teamId && teamId !== currentTeamId ? "*" : ""}</Label><Input minChars={5} disabled={!teamId || teamId === currentTeamId} value={reason || ""} onChange={e => onChange(teamId ?? null, e.target.value)} placeholder="Why it goes to that team" /></div>
-      {!!teamId && teamId !== currentTeamId && (reason || "").trim().length < 5 && <p className="col-span-2 text-[11px] text-red-600" data-testid="transfer-reason-hint">Enter a reason (at least 5 characters) to pass this ticket to another team — or choose “Keep with current team” to save without passing it on.</p>}
+      {!!teamId && teamId !== currentTeamId && (reason || "").trim().length < 5 && <p className="sm:col-span-2 text-[11px] text-red-600" data-testid="transfer-reason-hint">Enter a reason (at least 5 characters) to pass this ticket to another team — or choose “Keep with current team” to save without passing it on.</p>}
     </div>
   );
 }

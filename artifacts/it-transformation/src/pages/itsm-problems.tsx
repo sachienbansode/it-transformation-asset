@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Search, Eye, Bug, CheckCircle2, Clock, AlertTriangle, Download, GitBranch, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Edit, Search, Eye, Bug, CheckCircle2, Clock, AlertTriangle, Download, GitBranch, AlertCircle, Users, Paperclip } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
@@ -18,6 +18,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { TicketDialog, FormSection, PendingAttachments, linkPendingFiles, pendingBusy, type PendingFile, EnvAppsFields, EnvAppsView } from "@/components/itsm-form";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
 import { useLocation } from "wouter";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -152,15 +153,22 @@ export default function ItsmProblems() {
   const knownErrors = problems.filter((p: any) => p.status === "Known Error").length;
   const rootCauseIdentified = problems.filter((p: any) => p.status === "Root Cause Identified").length;
 
-  function openCreate() { setEditingItem(null); setFormData({ status: "Open", priority: "Medium" }); setIsModalOpen(true); }
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]); const [saving, setSaving] = useState(false);
+  function openCreate() { setEditingItem(null); setFormData({ status: "Open", priority: "Medium" }); setPendingFiles([]); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
 
   async function handleSave() {
     try {
       if (editingItem) { await updateProblem.mutateAsync({ id: editingItem.id, ...formData }); toast({ title: "Problem updated" }); }
-      else { await createProblem.mutateAsync(formData); toast({ title: "Problem created" }); }
+      else {
+        setSaving(true);
+        const r: any = await createProblem.mutateAsync(formData);
+        const bad = pendingFiles.length && r?.id ? await linkPendingFiles("Problem", r.id, pendingFiles) : 0;
+        toast({ title: `${r?.problemNo || "Problem"} created`, description: pendingFiles.length ? `${pendingFiles.length - bad} file(s) attached${bad ? ` · ${bad} could not be attached` : ""}` : undefined });
+      }
       setIsModalOpen(false);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setSaving(false); }
   }
 
   async function handleDelete(id: number, no: string) {
@@ -284,6 +292,7 @@ export default function ItsmProblems() {
             <div className="space-y-4">
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{viewModal.description || "No description provided"}</p>
+              <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
               <div className="flex flex-wrap gap-2 items-center">
                 <PriorityBadge value={viewModal.priority} />
                 <Button size="sm" variant="outline" onClick={() => { setViewModal(null); navigate("/itsm-changes"); }} className="h-7 text-xs gap-1.5 border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400">
@@ -337,36 +346,38 @@ export default function ItsmProblems() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editingItem ? `Edit ${editingItem.problemNo}` : "New Problem"}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
-            <div className="col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
-            <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Category</Label><Select value={formData.category || "__none__"} onValueChange={v => setFormData({ ...formData, category: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{PROBLEM_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Impact Level</Label><Select value={formData.impactLevel || "__none__"} onValueChange={v => setFormData({ ...formData, impactLevel: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select impact" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{IMPACT_LEVELS.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Assigned To</Label><UserSearchCombobox value={formData.assignedTo || ""} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
-            <div><Label>Assigned Group</Label><GroupSelect value={formData.assignedGroup || ""} onChange={v => setFormData({ ...formData, assignedGroup: v })} /></div>
-            <div><Label>Related Incidents</Label><Input value={formData.relatedIncidents || ""} onChange={e => setFormData({ ...formData, relatedIncidents: e.target.value })} placeholder="INC-00001, INC-00002" /></div>
-            <div><Label>Affected Systems</Label><Input value={formData.affectedSystems || ""} onChange={e => setFormData({ ...formData, affectedSystems: e.target.value })} placeholder="e.g. ERP, Network, SAP" /></div>
-            <div className="col-span-2"><Label>Root Cause</Label><Textarea value={formData.rootCause || ""} onChange={e => setFormData({ ...formData, rootCause: e.target.value })} rows={2} /></div>
-            <div className="col-span-2"><Label>Workaround</Label><Textarea value={formData.workaround || ""} onChange={e => setFormData({ ...formData, workaround: e.target.value })} rows={2} /></div>
-          </div>
-          {editingItem && (
-            <>
-              <div className="mt-4"><ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" /></div>
-              <hr className="border-border/40 mt-4" />
-              <div className="mt-2"><TicketAttachments ticketType="Problem" ticketId={editingItem.id} /></div>
-            </>
-          )}
-          <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-background px-6 py-3 sm:rounded-b-lg">
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white">{editingItem ? "Update" : "Create"}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="problem" status={editingItem?.status}
+        title={editingItem ? `${editingItem.problemNo} · ${editingItem.title}` : "Record a problem"}
+        subtitle={editingItem ? "Find the root cause, share a workaround, then fix it for good through a change." : "The underlying cause of one or more incidents — repeat or major ones."}
+        footer={<>
+          <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="problem-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Create problem"}</Button>
+        </>}>
+        <FormSection title="The problem" icon={Bug}>
+          <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Outlook crashes after the monthly Office update" /></div>
+          <div className="sm:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="Symptoms, how often, since when, what is affected" /></div>
+          <div><Label>Category</Label><Select value={formData.category || "__none__"} onValueChange={v => setFormData({ ...formData, category: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{PROBLEM_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Affected systems</Label><Input value={formData.affectedSystems || ""} onChange={e => setFormData({ ...formData, affectedSystems: e.target.value })} placeholder="e.g. ERP, Network, SAP" /></div>
+          <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^application/i.test(formData.category || "")} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
+        </FormSection>
+        <FormSection title="Priority & ownership" icon={Users}>
+          <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Impact</Label><Select value={formData.impactLevel || "__none__"} onValueChange={v => setFormData({ ...formData, impactLevel: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select impact" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{IMPACT_LEVELS.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Assigned group</Label><GroupSelect value={formData.assignedGroup || ""} onChange={v => setFormData({ ...formData, assignedGroup: v })} /></div>
+          <div><Label>Problem owner</Label><UserSearchCombobox value={formData.assignedTo || ""} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
+          <div><Label>Related incidents</Label><Input value={formData.relatedIncidents || ""} onChange={e => setFormData({ ...formData, relatedIncidents: e.target.value })} placeholder="INC-00001, INC-00002" /></div>
+        </FormSection>
+        <FormSection title="Root cause & workaround" icon={Search}>
+          <div className="sm:col-span-2"><Label>Root cause</Label><Textarea value={formData.rootCause || ""} onChange={e => setFormData({ ...formData, rootCause: e.target.value })} rows={2} placeholder="Why did it happen? (ask “why” until you reach the real cause)" /></div>
+          <div className="sm:col-span-2"><Label>Workaround</Label><Textarea value={formData.workaround || ""} onChange={e => setFormData({ ...formData, workaround: e.target.value })} rows={2} placeholder="How users / the service desk can get going until it is fixed" /></div>
+        </FormSection>
+        <FormSection title="Files" icon={Paperclip} hint="logs, RCA reports, screenshots">
+          {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Problem" ticketId={editingItem.id} /></div>
+            : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
+        </FormSection>
+        {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" />}
+      </TicketDialog>
     </div>
   );
 }
