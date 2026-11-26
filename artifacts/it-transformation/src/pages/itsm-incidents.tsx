@@ -506,6 +506,14 @@ export default function ItsmIncidents() {
               {["Resolved", "Closed"].includes(editingItem.status) && !["Resolved", "Closed"].includes(formData.status) && <div className="col-span-2"><Label>Reason to reopen *</Label><Input value={formData.reopenReason || ""} onChange={e => setFormData({ ...formData, reopenReason: e.target.value })} /></div>}
             </>}
             {reqMode && <div className="col-span-2 text-xs text-muted-foreground">Only {editingItem.assignedGroup || "the assigned team"} can change the status or assign this incident.</div>}
+            {reqMode && editingItem.status === "Resolved" && <div className="col-span-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-500/10 p-3 space-y-2" data-testid="reopen-own">
+              <div className="text-sm font-medium">Not fixed? Reopen it (within 7 days of resolution)</div>
+              <Textarea minChars={5} rows={2} value={formData.reopenReason || ""} onChange={e => setFormData({ ...formData, reopenReason: e.target.value })} placeholder="What is still not working?" />
+              <Button size="sm" variant="outline" disabled={(formData.reopenReason || "").trim().length < 5} onClick={async () => {
+                try { await updateInc.mutateAsync({ id: editingItem.id, status: editingItem.assignedTo ? "In Progress" : "Open", reopenReason: formData.reopenReason }); toast({ title: `${editingItem.ticketNo} reopened`, description: "The team has been told." }); setIsModalOpen(false); }
+                catch (e: any) { toast({ title: "Not reopened", description: e.message, variant: "destructive" }); }
+              }} data-testid="reopen-own-btn">Reopen ticket</Button>
+            </div>}
             <div><Label>Affected System</Label><Input value={formData.affectedSystem || ""} onChange={e => setFormData({ ...formData, affectedSystem: e.target.value })} placeholder="e.g. ERP, SAP, CRM Portal" /></div>
             {workMode && (formData.status === "Resolved" || formData.status === "Closed") && <div className="col-span-2"><Label>Resolution Notes *</Label><Textarea value={formData.resolutionNotes || ""} onChange={e => setFormData({ ...formData, resolutionNotes: e.target.value })} rows={2} /></div>}
             {workMode && (kbArticles as any[]).length > 0 && <div className="col-span-2"><Label>Knowledge article used (optional)</Label>

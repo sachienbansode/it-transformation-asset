@@ -14,11 +14,13 @@ import { confirmDialog } from "@/components/confirm-dialog";
 import { Users, Plus, Pencil, Save, Loader2, Trash2, FolderTree, Info, Crown, Upload, Download, Power } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CatalogUploadDialog, downloadCatalogSheet } from "@/components/itsm-catalog-upload";
+import { SearchSelect } from "@/components/search-select";
+import { ItsmEmailAlerts } from "@/components/itsm-email-alerts";
 
 /* ITSM Setup — assignment groups (teams + members + lead) and the category / sub-category catalog that routes tickets. */
 
 export default function ItsmSetup() {
-  const [tab, setTab] = useState<"teams" | "catalog" | "lists">(() => (new URLSearchParams(window.location.search).get("tab") as any) || "catalog");
+  const [tab, setTab] = useState<"teams" | "catalog" | "lists" | "emails">(() => (new URLSearchParams(window.location.search).get("tab") as any) || "catalog");
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -27,10 +29,10 @@ export default function ItsmSetup() {
           <p className="text-sm text-muted-foreground">Teams (assignment groups) and the categories that route incidents and service requests to them, with the expected closure days.</p>
         </div>
         <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">
-          {([["catalog", "Categories & routing"], ["teams", "Teams & members"], ["lists", "Lookup lists"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
+          {([["catalog", "Categories & routing"], ["teams", "Teams & members"], ["emails", "Email alerts"], ["lists", "Lookup lists"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
         </div>
       </div>
-      {tab === "teams" ? <><SupportChatTeam /><Teams /></> : tab === "lists" ? <ItsmListsPanel /> : <Catalog />}
+      {tab === "teams" ? <><SupportChatTeam /><Teams /></> : tab === "lists" ? <ItsmListsPanel /> : tab === "emails" ? <ItsmEmailAlerts /> : <Catalog />}
     </div>
   );
 }
@@ -67,6 +69,7 @@ function Teams() {
   const qc = useQueryClient(); const { toast } = useToast(); const { canAccess } = useAuth(); const canEdit = canAccess("itsm_setup", "write");
   const { data: teams = [], isLoading } = useQuery<any[]>({ queryKey: ["itsm-teams", "all"], queryFn: () => apiFetch("/itsm-teams?all=1") });
   const [edit, setEdit] = useState<any>(null); const [members, setMembers] = useState<any>(null);
+  const { data: people = [] } = usePeople(); const nameOf = (id?: number | null) => id ? people.find((p: any) => p.id === id)?.name : null;
   const refresh = () => ["itsm-teams", "itsm-catalog", "itsm-my-teams", "itsm-team-members"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
   async function toggle(t: any) {
     if (!await confirmDialog(`${t.isActive ? "Deactivate" : "Reactivate"} ${t.name}?`, { title: t.isActive ? "Deactivate team" : "Reactivate team", confirmText: t.isActive ? "Deactivate" : "Reactivate", destructive: t.isActive })) return;
@@ -91,6 +94,7 @@ function Teams() {
             <div className="flex flex-wrap gap-1">
               {t.members.length ? t.members.map((m: any) => <span key={m.id} className="inline-flex items-center gap-1 rounded-full border bg-card px-2 py-0.5 text-[11px]">{m.id === t.leadUserId && <Crown className="w-3 h-3 text-amber-500" />}{m.name}</span>) : <span className="text-xs text-amber-700 dark:text-amber-300">No members — tickets for this team cannot be assigned</span>}
             </div>
+            {(t.escalation1UserId || t.escalation2UserId) && <div className="text-[11px] text-muted-foreground" data-testid="team-escalation">Escalation: L1 {nameOf(t.escalation1UserId) || "—"} · L2 {nameOf(t.escalation2UserId) || "—"}</div>}
             <div className="flex items-center justify-between text-[11px] text-muted-foreground">
               <span>{t.openTickets} open ticket{t.openTickets === 1 ? "" : "s"} · {t.categoriesMapped} categor{t.categoriesMapped === 1 ? "y" : "ies"} mapped</span>
               {canEdit && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setMembers(t)}>Members</Button>}
@@ -106,7 +110,7 @@ function Teams() {
 
 function TeamDialog({ team, onClose, onDone }: { team: any; onClose: () => void; onDone: () => void }) {
   const { toast } = useToast(); const { data: people = [] } = usePeople();
-  const [f, setF] = useState<any>({ name: team.name || "", description: team.description || "", email: team.email || "", leadUserId: team.leadUserId ?? null }); const [busy, setBusy] = useState(false);
+  const [f, setF] = useState<any>({ name: team.name || "", description: team.description || "", email: team.email || "", leadUserId: team.leadUserId ?? null, escalation1UserId: team.escalation1UserId ?? null, escalation2UserId: team.escalation2UserId ?? null }); const [busy, setBusy] = useState(false);
   async function save() {
     setBusy(true);
     try { await apiFetch(team.id ? `/itsm-teams/${team.id}` : "/itsm-teams", { method: team.id ? "PATCH" : "POST", body: JSON.stringify(f) }); toast({ title: team.id ? "Team saved" : "Team created" }); onDone(); onClose(); }
@@ -120,6 +124,10 @@ function TeamDialog({ team, onClose, onDone }: { team: any; onClose: () => void;
           <div className="space-y-1.5"><Label>Name *</Label><Input minChars={2} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="e.g. Desktop Support" /></div>
           <div className="space-y-1.5"><Label>Description</Label><Input value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
           <div className="space-y-1.5"><Label>Team mailbox (optional)</Label><Input value={f.email} onChange={e => setF({ ...f, email: e.target.value })} placeholder="desktop.support@company.com" /></div>
+          {([["escalation1UserId", "Escalation level 1", "Emailed when the response is overdue or the SLA is at risk"], ["escalation2UserId", "Escalation level 2", "Emailed when the SLA is breached"]] as const).map(([k, lab, hint]) =>
+            <div key={k} className="space-y-1.5"><Label>{lab}</Label>
+              <SearchSelect testId={`team-${k}`} options={[{ value: "", label: "— None —" }, ...people.map((p: any) => ({ value: String(p.id), label: p.name, hint: p.email }))]} value={f[k] ? String(f[k]) : ""} onChange={v => setF({ ...f, [k]: v ? Number(v) : null })} placeholder="— None —" />
+              <p className="text-[11px] text-muted-foreground">{hint} (ITSM Setup › Email alerts decides who receives what).</p></div>)}
           <div className="space-y-1.5"><Label>Team lead</Label>
             <Select value={f.leadUserId ? String(f.leadUserId) : "__none__"} onValueChange={v => setF({ ...f, leadUserId: v === "__none__" ? null : Number(v) })}>
               <SelectTrigger><SelectValue /></SelectTrigger>

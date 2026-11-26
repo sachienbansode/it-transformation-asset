@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { slaConfig, slaInfo, fmtMins } from "./itsm-sla";
 import { teamById, teamMembers, userByName } from "./itsm-routing";
 import { fmtDateTime } from "./dates";
+import { itsmMail } from "./itsm-mail";
 
 /*
  * ITSM background checks (every 5 minutes, one server at a time via an advisory lock):
@@ -56,7 +57,7 @@ export async function checkSla(now = new Date()) {
         const members = team ? await teamMembers(team.id) : [];
         const people = [...members, ...(lead ? [lead] : [])];
         await inApp(people.map(p => p.id), `Response overdue: ${no}`, `${t.title} — not picked up within ${i.responseHours}h`, "warning", K.page);
-        await mail("itsm_sla_alert", people.map(p => p.email).filter(Boolean) as string[], `Response overdue: ${no} — ${t.title}`, `<p>${K.label} <b>${no}</b> has not been picked up within the ${i.responseHours}h response target. Please assign it now.</p>${facts}<p>Regards,</p>`);
+        void itsmMail("sla_response_overdue", K.kind, t);
         set.responseBreachSentAt = now; out.responseBreached++;
         await db.insert(itsmTicketHistoryTable).values({ ticketId: t.id, ticketType: K.hist, updatedBy: "System", notes: `SLA: response target (${i.responseHours}h) missed — team${lead ? " and lead" : ""} alerted` });
       }
@@ -64,7 +65,7 @@ export async function checkSla(now = new Date()) {
         const people = [assignee, lead].filter(Boolean) as any[];
         const target = people.length ? people : team ? await teamMembers(team.id) : [];
         await inApp(target.map(p => p.id), `SLA at risk: ${no}`, `${t.title} — ${i.usedPct}% of the time used, ${fmtMins(i.minutesLeft || 0)} left`, "warning", K.page);
-        await mail("itsm_sla_alert", target.map(p => p.email).filter(Boolean) as string[], `SLA at risk: ${no} — ${fmtMins(i.minutesLeft || 0)} left`, `<p>${K.label} <b>${no}</b> has used <b>${i.usedPct}%</b> of its resolution time — <b>${fmtMins(i.minutesLeft || 0)}</b> left.</p>${facts}<p>Regards,</p>`);
+        void itsmMail("sla_at_risk", K.kind, t, { slaLeft: `${fmtMins(i.minutesLeft || 0)} left (${i.usedPct}% used)` });
         set.slaWarnSentAt = now; out.warned++;
       }
       if (i.state === "Breached" && !t.slaBreachSentAt) {
@@ -72,7 +73,7 @@ export async function checkSla(now = new Date()) {
         const members = team ? await teamMembers(team.id) : [];
         const people = [...(assignee ? [assignee] : []), ...(lead ? [lead] : []), ...members, ...adminList];
         await inApp(people.map(p => p.id), `SLA breached: ${no}`, `${t.title} — overdue by ${fmtMins(-(i.minutesLeft || 0))}`, "error", K.page);
-        await mail("itsm_sla_alert", people.map(p => p.email).filter(Boolean) as string[], `SLA breached: ${no} — ${t.title}`, `<p>${K.label} <b>${no}</b> has <b>breached</b> its resolution SLA (overdue by ${fmtMins(-(i.minutesLeft || 0))}).</p>${facts}<p>Please resolve it or update the requester.</p><p>Regards,</p>`);
+        void itsmMail("sla_breached", K.kind, t, { slaLeft: `overdue by ${fmtMins(-(i.minutesLeft || 0))}` });
         set.slaBreachSentAt = now; set.slaWarnSentAt = t.slaWarnSentAt || now; out.breached++;
         await db.insert(itsmTicketHistoryTable).values({ ticketId: t.id, ticketType: K.hist, updatedBy: "System", notes: `SLA breached (${i.resolutionHours}h resolution) — escalated to ${lead ? `${lead.name} (team lead), ` : ""}team and admins` });
       }

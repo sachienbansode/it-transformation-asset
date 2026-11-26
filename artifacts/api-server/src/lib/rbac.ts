@@ -57,7 +57,7 @@ const RULES: [RegExp, string | null][] = [
   [/^\/knowledge-base(\/|$)/, "itsm_kb"],
   [/^\/sla-policies(\/|$)/, "itsm_sla"],
   [/^\/approval-matrix(\/|$)/, "itsm_approval"],
-  [/^\/(itsm-teams|itsm-catalog)(\/|$)/, "itsm_setup"],
+  [/^\/(itsm-teams|itsm-catalog|itsm-email-rules)(\/|$)/, "itsm_setup"],
   [/^\/(itsm-route|itsm-my-teams)$/, null],
   [/^\/(itsm-metrics|itsm-report)$/, "itsm_dashboard"],
   [/^\/(approvals|my-approvals|ticket-history|itsm-attachments|itsm-config|itsm-settings|itsm-people)(\/|$)/, null], // checked in the route

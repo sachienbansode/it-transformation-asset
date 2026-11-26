@@ -51,11 +51,14 @@ const teamSchema = z.object({
   description: z.string().trim().max(300).nullable().optional(),
   email: z.string().trim().email("Team email is not valid").nullable().optional().or(z.literal("").transform(() => null)),
   leadUserId: z.coerce.number().int().positive().nullable().optional(),
+  escalation1UserId: z.coerce.number().int().positive().nullable().optional(),
+  escalation2UserId: z.coerce.number().int().positive().nullable().optional(),
 }).passthrough();
 
 async function checkTeam(v: any, id?: number) {
   const [dup] = await db.select({ id: itsmTeamsTable.id }).from(itsmTeamsTable).where(sql`lower(${itsmTeamsTable.name}) = lower(${v.name})`);
   if (dup && dup.id !== id) throw new Bad(`A team named "${v.name}" already exists`);
+  for (const [k, lab] of [["escalation1UserId", "Escalation level 1"], ["escalation2UserId", "Escalation level 2"]] as const) if (v[k]) { const [u] = await db.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.id, v[k]), eq(usersTable.isActive, true))); if (!u) throw new Bad(`${lab} must be an active user`); }
   if (v.leadUserId) { const [u] = await db.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.id, v.leadUserId), eq(usersTable.isActive, true))); if (!u) throw new Bad("Team lead must be an active user"); }
 }
 
@@ -63,7 +66,7 @@ router.post("/itsm-teams", wrap(async (req, res) => {
   const v: any = parse(teamSchema, req.body);
   await checkTeam(v);
   const by = await who(req);
-  const [t] = await db.insert(itsmTeamsTable).values({ name: v.name, description: s(v.description), email: s(v.email), leadUserId: v.leadUserId ?? null }).returning();
+  const [t] = await db.insert(itsmTeamsTable).values({ name: v.name, description: s(v.description), email: s(v.email), leadUserId: v.leadUserId ?? null, escalation1UserId: v.escalation1UserId ?? null, escalation2UserId: v.escalation2UserId ?? null }).returning();
   if (t.leadUserId) await db.insert(itsmTeamMembersTable).values({ teamId: t.id, userId: t.leadUserId }).onConflictDoNothing();
   await audit({ entityType: "itsm_team", entityId: t.id, action: "create", performedBy: by, summary: `Team created: ${t.name}` });
   res.status(201).json(t);
@@ -80,7 +83,7 @@ router.patch("/itsm-teams/:id", wrap(async (req, res) => {
     if (m?.n > 0) throw new Bad(`${old.name} is mapped to ${m.n} categor${m.n === 1 ? "y" : "ies"} — map them to another team first`);
   }
   const by = await who(req);
-  const [t] = await db.update(itsmTeamsTable).set({ name: v.name, description: s(v.description), email: s(v.email), leadUserId: v.leadUserId ?? null, isActive: req.body?.isActive ?? old.isActive, updatedAt: new Date() }).where(eq(itsmTeamsTable.id, id)).returning();
+  const [t] = await db.update(itsmTeamsTable).set({ name: v.name, description: s(v.description), email: s(v.email), leadUserId: v.leadUserId ?? null, escalation1UserId: v.escalation1UserId ?? null, escalation2UserId: v.escalation2UserId ?? null, isActive: req.body?.isActive ?? old.isActive, updatedAt: new Date() }).where(eq(itsmTeamsTable.id, id)).returning();
   if (t.leadUserId) await db.insert(itsmTeamMembersTable).values({ teamId: id, userId: t.leadUserId }).onConflictDoNothing();
   if (t.name !== old.name) { // keep the readable team name on tickets in step
     await db.update(itsmIncidentsTable).set({ assignedGroup: t.name }).where(eq(itsmIncidentsTable.teamId, id));
@@ -299,4 +302,66 @@ router.get("/itsm-my-teams", wrap(async (req, res) => {
 router.get("/itsm-teams/:id/members", wrap(async (req, res) => { res.json(await teamMembers(Number(req.params.id))); }));
 
 export { addBusinessDays };
+/* ─── r101 (ITH-164): ITSM email alerts — who receives each event, and the template ─────────────────────────── */
+const RULE_COLS = ["enabled", "to_requester", "to_assignee", "to_team", "to_lead", "to_escalation1", "to_escalation2", "to_admins", "skip_actor"] as const;
+router.get("/itsm-email-rules", wrap(async (_req, res) => {
+  res.json(((await db.execute(sql`SELECT * FROM itsm_email_rules ORDER BY sort_order, event_key`)) as any).rows ?? []);
+}));
+router.put("/itsm-email-rules/:key", wrap(async (req, res) => {
+  const key = String(req.params.key);
+  const [old] = ((await db.execute(sql`SELECT * FROM itsm_email_rules WHERE event_key = ${key}`)) as any).rows ?? [];
+  if (!old) return fail(res, 404, "Unknown email alert");
+  const b = req.body || {};
+  const next: any = { ...old };
+  for (const c of RULE_COLS) if (typeof b[c] === "boolean") next[c] = b[c];
+  if (b.extra !== undefined) {
+    const list = String(b.extra || "").split(/[,;\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+    const bad = list.filter(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)); if (bad.length) throw new Bad(`Not valid email: ${bad.join(", ")}`);
+    next.extra = list.join(", ") || null;
+  }
+  if (b.subject !== undefined) { if (String(b.subject).trim().length < 3) throw new Bad("Subject is too short"); next.subject = String(b.subject).trim().slice(0, 300); }
+  if (b.body !== undefined) { if (String(b.body).trim().length < 10) throw new Bad("Email text is too short"); next.body = String(b.body).slice(0, 20000); }
+  if (next.enabled && !RULE_COLS.slice(1, 8).some(c => next[c]) && !next.extra) throw new Bad("Choose at least one recipient, or switch this email off");
+  const by = await who(req);
+  await db.execute(sql`UPDATE itsm_email_rules SET enabled = ${next.enabled}, to_requester = ${next.to_requester}, to_assignee = ${next.to_assignee}, to_team = ${next.to_team}, to_lead = ${next.to_lead},
+    to_escalation1 = ${next.to_escalation1}, to_escalation2 = ${next.to_escalation2}, to_admins = ${next.to_admins}, skip_actor = ${next.skip_actor}, extra = ${next.extra}, subject = ${next.subject}, body = ${next.body},
+    updated_by = ${by}, updated_at = now() WHERE event_key = ${key}`);
+  const { clearItsmMailCache } = await import("../lib/itsm-mail"); clearItsmMailCache();
+  const ch = [...RULE_COLS.filter(c => old[c] !== next[c]).map(c => `${c.replace(/^to_/, "")}: ${old[c] ? "on" : "off"} → ${next[c] ? "on" : "off"}`), ...(old.extra !== next.extra ? [`extra: ${old.extra || "—"} → ${next.extra || "—"}`] : []), ...(old.subject !== next.subject ? ["subject changed"] : []), ...(old.body !== next.body ? ["text changed"] : [])];
+  await audit({ entityType: "itsm_email_rule", action: "update", performedBy: by, summary: `ITSM email "${old.label}": ${ch.join("; ") || "no change"}` });
+  res.json({ ok: true, changes: ch });
+}));
+/** preview for a real ticket (or the latest one): who would receive it, and the rendered email. Nothing is sent. */
+router.post("/itsm-email-rules/:key/preview", wrap(async (req, res) => {
+  const key = String(req.params.key);
+  const [rule] = ((await db.execute(sql`SELECT * FROM itsm_email_rules WHERE event_key = ${key}`)) as any).rows ?? [];
+  if (!rule) return fail(res, 404, "Unknown email alert");
+  const draft = { ...rule, ...(req.body?.draft || {}) };
+  const no = String(req.body?.ticketNo || "").trim();
+  let kind: "incident" | "request" = no.toUpperCase().startsWith("SR") || no.toUpperCase().startsWith("REQ") ? "request" : "incident";
+  let [t] = no ? await db.select().from(kind === "incident" ? itsmIncidentsTable : itsmServiceRequestsTable).where(kind === "incident" ? eq(itsmIncidentsTable.ticketNo, no) : eq(itsmServiceRequestsTable.requestNo, no)) as any[] : [];
+  if (!t && !no) { [t] = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(sql`id DESC`).limit(1) as any[]; kind = "incident"; }
+  if (!t) return fail(res, 404, no ? `Ticket ${no} not found` : "No ticket yet — log one to preview");
+  const { recipients, ticketValues, render } = await import("../lib/itsm-mail");
+  const ctx = { reason: "(reason given by the user)", slaLeft: "2h 15m left (75% used)", actorEmail: req.body?.skipMe === false ? null : undefined };
+  const to = await recipients(draft, kind, t, ctx);
+  const v = await ticketValues(kind, t, ctx);
+  res.json({ ticket: kind === "incident" ? t.ticketNo : t.requestNo, recipients: to, subject: render(draft.subject, v, false), html: render(draft.body, v) });
+}));
+/** send the rendered email for a ticket to me only */
+router.post("/itsm-email-rules/:key/test", wrap(async (req, res) => {
+  const key = String(req.params.key);
+  const [rule] = ((await db.execute(sql`SELECT * FROM itsm_email_rules WHERE event_key = ${key}`)) as any).rows ?? [];
+  if (!rule) return fail(res, 404, "Unknown email alert");
+  const [me] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, (req.session as any).userId));
+  const [t] = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(sql`id DESC`).limit(1) as any[];
+  if (!t) return fail(res, 404, "No ticket yet — log one first");
+  const { ticketValues, render } = await import("../lib/itsm-mail"); const { sendDirect } = await import("../lib/mailer");
+  const draft = { ...rule, ...(req.body?.draft || {}) };
+  const v = await ticketValues("incident", t, { reason: "(reason given by the user)", slaLeft: "2h 15m left (75% used)" });
+  const r: any = await sendDirect(`itsm_test_${key}`, [me.email], `[TEST] ${render(draft.subject, v, false)}`, render(draft.body, v));
+  const [o] = ((await db.execute(sql`SELECT status, error FROM email_outbox ORDER BY id DESC LIMIT 1`)) as any).rows ?? [];
+  res.json({ ok: o?.status === "Sent", to: me.email, status: o?.status, error: o?.error });
+}));
+
 export default router;

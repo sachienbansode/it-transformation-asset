@@ -329,7 +329,7 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
     await history(kind, item.id, "System", "Auto-escalated: Critical / S1 incident needs immediate attention", "Open", "Escalated");
   }
   await audit({ entityType: ENTITY[kind], entityId: item.id, action: "create", performedBy: who.label, summary: `Created ${TYPE_NAME[kind]} ${item[key]}: ${item.title}${item.assignedGroup ? ` → ${item.assignedGroup}` : ""}`, newValues: out });
-  if (ROUTED.includes(kind)) { void notifyTicket(kind, out, "created"); if (notifyAssignee) void notifyTicket(kind, out, "assigned"); }
+  if (ROUTED.includes(kind)) { void notifyTicket(kind, out, "created", null, who.email); if (notifyAssignee) void notifyTicket(kind, out, "assigned", null, who.email); }
   res.status(201).json((await withSla(kind, [out]))[0]);
 }
 
@@ -353,9 +353,12 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     const touched = OPS.filter(k => body[k] !== undefined && String(body[k] ?? "") !== String(old[k] ?? ""));
     if (!isItsmAdmin(a) && !member) {
       const cancelOwn = kind === "request" && isRequester && touched.length === 1 && touched[0] === "status" && body.status === "Cancelled" && !DONE.request.includes(old.status);
-      if (touched.length && !cancelOwn) throw new Forbidden(`Only members of ${old.assignedGroup || "the assigned team"} can change ${touched.join(", ")}${isRequester && kind === "request" ? " (you can cancel your own request)" : ""}`);
+      // r101: the person who raised it may reopen a RESOLVED (not closed) ticket within 7 days, with a reason
+      const reopenOwn = isRequester && touched.length === 1 && touched[0] === "status" && ["Resolved", "Completed"].includes(old.status) && !DONE[kind].includes(body.status)
+        && Date.now() - +new Date(old.resolvedAt || old.completedAt || old.updatedAt) < 7 * 86400_000;
+      if (touched.length && !cancelOwn && !reopenOwn) throw new Forbidden(`Only members of ${old.assignedGroup || "the assigned team"} can change ${touched.join(", ")}${isRequester && kind === "request" ? " (you can cancel your own request)" : ""}`);
       if (!isRequester) throw new Forbidden(`Only the requester or members of ${old.assignedGroup || "the assigned team"} can edit this ticket`);
-      if (!["Open", "Pending Approval"].includes(old.status) && !touched.length) throw new Forbidden("The request is already being worked on — add details through the assigned team");
+      if (!["Open", "Pending Approval"].includes(old.status) && !touched.length && !reopenOwn) throw new Forbidden("The request is already being worked on — add details through the assigned team");
     }
     // Category change re-routes the ticket
     let newTeamId: number | null = body.teamId ? Number(body.teamId) : null;
@@ -431,7 +434,16 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   // ITH-110: ask the requester to rate the service when an incident is resolved or a request completed
   if (old.status !== item.status && ((kind === "incident" && item.status === "Resolved") || (kind === "request" && item.status === "Completed")) && item.requesterUserId && item.requesterUserId !== who.userId)
     void inApp([item.requesterUserId], `How did we do? ${item[NO[kind][3]]}`, `${item.title} is ${item.status.toLowerCase()}. Please rate the service (1–5 stars).`, "success", `${kind === "incident" ? "/itsm-incidents" : "/itsm-requests"}?open=${id}`);
-  for (const ev of events) void notifyTicket(kind, item, ev, transferReason);
+  for (const ev of events) void notifyTicket(kind, item, ev, transferReason, who.email);
+  // r101: status emails to the people concerned (rules in ITSM Setup › Email alerts)
+  if (ROUTED.includes(kind) && old.status !== item.status) {
+    const { itsmMail } = await import("../lib/itsm-mail");
+    const reopened = REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(item.status);
+    const done = (kind === "incident" && ["Resolved", "Closed"].includes(item.status)) || (kind === "request" && ["Completed", "Closed"].includes(item.status));
+    if (reopened) void itsmMail("ticket_reopened", kind as any, item, { actorEmail: who.email, reason: reopenReason });
+    if (done && !(old.status === "Resolved" && item.status === "Closed")) void itsmMail("ticket_resolved", kind as any, item, { actorEmail: who.email });
+    else if (!reopened && !done && item.status !== "Cancelled") void itsmMail("ticket_status", kind as any, item, { actorEmail: who.email });
+  }
   const changed = [...Object.keys(body), ...Object.keys(extra)].filter(k => String(old[k] ?? "") !== String(item[k] ?? ""));
   if (changed.length) await audit({ entityType: ENTITY[kind], entityId: id, action: "update", performedBy: who.label, summary: `Updated ${old[NO[kind][3]]}: ${changed.join(", ")}`, newValues: { changed: Object.fromEntries(changed.map(k => [k, { from: old[k], to: item[k] }])) } });
   res.json((await withSla(kind, [item]))[0]);
@@ -492,17 +504,19 @@ async function visibleRows(req: Request, kind: Kind, rows: any[]) {
 }
 
 /** Emails for routed tickets: new ticket → team; assignment → assignee; transfer → new team. Never throws. */
-async function notifyTicket(kind: Kind, t: any, event: "created" | "assigned" | "transferred", reason?: string | null) {
+async function notifyTicket(kind: Kind, t: any, event: "created" | "assigned" | "transferred", reason?: string | null, actorEmail?: string | null) {
   try {
-    const { sendDirect, notify, htmlTable } = await import("../lib/mailer");
-    const no = t[NO[kind][3]], type = TYPE_NAME[kind];
-    const rows: [string, unknown][] = [["Ticket", no], ["Title", t.title], ["Category", [t.category, t.subcategory].filter(Boolean).join(" › ")], ["Priority", t.priority], ["Raised by", t.requestedBy || t.reportedBy || t.createdBy], ["Team", t.assignedGroup], ["Assigned to", t.assignedTo || "—"], ["Expected closure", t.expectedClosureDate || "—"]];
-    let to: string[] = [], subject = "", intro = "";
-    if (event === "assigned") { const u = t.assignedTo ? await userByName(t.assignedTo) : null; to = u?.email ? [u.email] : []; subject = `${no} assigned to you — ${t.title}`; intro = `${type} <b>${no}</b> has been assigned to you.`; }
-    else { to = t.teamId ? await emailsOfTeam(t.teamId) : []; subject = event === "created" ? `New ${type.toLowerCase()} ${no} in ${t.assignedGroup} queue — ${t.title}` : `${no} passed to ${t.assignedGroup} — ${t.title}`; intro = event === "created" ? `A new ${type.toLowerCase()} is in the <b>${t.assignedGroup}</b> queue.` : `${type} <b>${no}</b> was passed to <b>${t.assignedGroup}</b>${reason ? `: ${reason}` : ""}.`; }
-    const html = `<p>${intro}</p>${htmlTable(rows)}<p>Open it in IT Hub › ITSM.</p><p>Regards,</p>`;
-    await sendDirect("itsm_assignment", to, subject, html);
-    if (event !== "assigned") void notify("itsm_tickets", { subject, html });
+    if (!ROUTED.includes(kind)) return;
+    const { itsmMail } = await import("../lib/itsm-mail");
+    const k = kind as "incident" | "request", ctx = { actorEmail, reason };
+    if (event === "created") { await itsmMail("ticket_created_requester", k, t, { reason }); await itsmMail("ticket_created_team", k, t, ctx); }
+    if (event === "assigned") await itsmMail("ticket_assigned", k, t, ctx);
+    if (event === "transferred") await itsmMail("ticket_transferred", k, t, ctx);
+    if (event !== "assigned") {   // the admin copy list (Admin › Email, Alerts & Archive › ITSM tickets) keeps working
+      const { notify, htmlTable } = await import("../lib/mailer");
+      const no = t[NO[kind][3]];
+      void notify("itsm_tickets", { subject: `${event === "created" ? "New" : "Passed on"}: ${no} — ${t.title}`, html: htmlTable([["Ticket", no], ["Title", t.title], ["Team", t.assignedGroup || "—"], ["Priority", t.priority || "—"]]) });
+    }
   } catch (e) { console.error("notifyTicket failed", e); }
 }
 

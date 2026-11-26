@@ -261,6 +261,8 @@ export const itsmTeamsTable = pgTable("itsm_teams", {
   description: text("description"),
   email: text("email"),
   leadUserId: integer("lead_user_id"),
+  escalation1UserId: integer("escalation1_user_id"),   // r101: level 1 escalation (SLA at risk / breached)
+  escalation2UserId: integer("escalation2_user_id"),   // r101: level 2 escalation (SLA breached)
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
