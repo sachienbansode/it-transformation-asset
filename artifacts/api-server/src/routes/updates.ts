@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { getAccess } from "../lib/rbac";
 import { logAudit, getPerformedBy } from "./audit-logs";
-import { appVersion } from "../lib/tenant";
+import { appVersion, releaseNotes } from "../lib/tenant";
 
 const router = Router();
 router.use("/updates", requireAuth);
@@ -18,7 +18,16 @@ router.get("/updates", async (req, res) => {
   const [s] = rowsOf(await db.execute(sql`SELECT value FROM settings WHERE key = 'updates.consent_required'`));
   const requests = rowsOf(await db.execute(sql`SELECT id, version, git_ref AS "ref", title, notes, planned_at AS "plannedAt", status, requested_by AS "requestedBy", requested_at AS "requestedAt",
     decided_by AS "decidedBy", decided_at AS "decidedAt", decision_note AS "note", defer_until AS "deferUntil", deployed_at AS "deployedAt", emergency_reason AS "emergency" FROM app_update_requests ORDER BY requested_at DESC LIMIT 50`));
-  const deployments = rowsOf(await db.execute(sql`SELECT version, git_commit AS "commit", status, started_at AS "at" FROM app_deployments ORDER BY started_at DESC LIMIT 10`).catch(() => ({ rows: [] })));
+  const raw = rowsOf(await db.execute(sql`SELECT version, git_commit AS "commit", status, started_at AS "at", finished_at AS "done" FROM app_deployments ORDER BY started_at DESC LIMIT 60`).catch(() => ({ rows: [] })));
+  // 2.02: only the newest install can still be running; an older "Running" (stopped with Ctrl+C, lost connection) was interrupted
+  raw.forEach((d, i) => { if (d.status === "Running" && (i > 0 || Date.now() - +new Date(d.at) > 60 * 60_000)) d.status = "Interrupted"; });
+  const notes = releaseNotes(), byVer = new Map<string, any>();
+  for (const d of raw) {
+    const v = byVer.get(d.version);
+    if (!v) byVer.set(d.version, { version: d.version, commit: d.commit, status: d.status, at: d.done || d.at, attempts: 1, changes: notes[d.version] || [] });
+    else { v.attempts++; if (v.status !== "Done" && d.status === "Done") { v.status = "Done"; v.at = d.done || d.at; v.commit = d.commit; } }
+  }
+  const deployments = [...byVer.values()].slice(0, 15);
   res.json({ current: appVersion(), consentRequired: s?.value === true || s?.value === "true", requests, deployments });
 });
 

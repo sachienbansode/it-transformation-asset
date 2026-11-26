@@ -16,3 +16,13 @@ export function appVersion(): string | null {
   }
   return ver;
 }
+
+/** 2.02 — main changes per version (RELEASE_NOTES.json next to VERSION) */
+let notes: Record<string, string[]> | undefined;
+export function releaseNotes(): Record<string, string[]> {
+  if (notes) return notes; notes = {};
+  for (let d = process.cwd(), i = 0; i < 5; i++, d = path.dirname(d)) {
+    try { notes = JSON.parse(fs.readFileSync(path.join(d, "RELEASE_NOTES.json"), "utf8")); break; } catch { /* look higher */ }
+  }
+  return notes!;
+}

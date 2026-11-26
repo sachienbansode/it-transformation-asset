@@ -67,7 +67,25 @@ export default function AdminUpdates() {
         </CardContent></Card>))}
       {!!data.deployments?.length && <Card><CardContent className="p-4">
         <div className="text-sm font-semibold mb-2">Installed versions</div>
-        {data.deployments.map((d: any, i: number) => <div key={i} className="text-xs flex gap-3"><span className="w-36">{fmtDateTime(d.at)}</span><span className="font-mono">{d.version}</span><span className="font-mono text-muted-foreground">{d.commit}</span><span className={d.status === "Done" ? "text-emerald-600" : d.status === "Failed" ? "text-red-600" : "text-amber-600"}>{d.status}</span></div>)}
+        <div className="divide-y" data-testid="installed-versions">
+          {data.deployments.map((d: any, i: number) => {
+            const label = d.status === "Done" ? (d.version === data.current ? "Installed · in use" : "Installed") : d.status === "Running" ? "Installing…" : d.status === "Interrupted" ? "Interrupted" : d.status;
+            const tone = d.status === "Done" ? (d.version === data.current ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-muted text-muted-foreground")
+              : d.status === "Failed" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" : d.status === "Running" ? "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
+            return <div key={i} className="py-2.5 first:pt-0 last:pb-0">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <span className="font-mono font-semibold w-16">{d.version}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{label}</span>
+                <span className="text-xs text-muted-foreground">{fmtDateTime(d.at)}</span>
+                <span className="text-[11px] font-mono text-muted-foreground">{d.commit}</span>
+                {d.attempts > 1 && <span className="text-[11px] text-muted-foreground">({d.attempts} install runs)</span>}
+              </div>
+              {d.changes?.length ? <ul className="mt-1 ml-[76px] max-sm:ml-0 list-disc pl-4 text-xs text-muted-foreground space-y-0.5">{d.changes.map((c: string, j: number) => <li key={j}>{c}</li>)}</ul>
+                : <div className="mt-1 ml-[76px] max-sm:ml-0 text-xs text-muted-foreground italic">No change notes for this version.</div>}
+            </div>;
+          })}
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-3">Interrupted = an install that was stopped before it finished (for example the session closed); the next install of that version replaces it.</p>
       </CardContent></Card>}
     </div>
   );

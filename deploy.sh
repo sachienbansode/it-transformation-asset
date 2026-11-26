@@ -20,6 +20,8 @@ umask 022                 # built files must be readable by the service user, wh
 cd "$(dirname "$0")"
 
 TENANT="$(cat .tenant 2>/dev/null | tr -cd 'a-z0-9-' || true)"
+# 2.02: one deploy at a time per instance
+exec 9>"/tmp/it-hub-deploy-${TENANT:-main}.lock"; flock -n 9 || { echo "!! Another deploy of this instance is still running — wait for it to finish"; exit 4; }
 if [[ -n "$TENANT" ]]; then ENV_FILE="/etc/it-hub-$TENANT.env"; SERVICE="it-hub-$TENANT"; else ENV_FILE="/etc/it-hub.env"; SERVICE="it-hub"; fi
 echo "== Client: ${TENANT:-main}  (config $ENV_FILE, service $SERVICE)"
 
@@ -70,10 +72,16 @@ if [[ "$CONSENT" == "true" ]]; then
 fi
 fail() { [[ -n "$DEP_ID" ]] && q -c "UPDATE app_deployments SET status='Failed', finished_at=now() WHERE id=$DEP_ID" >/dev/null 2>&1 || true; echo "!! Deploy FAILED"; }
 trap fail ERR
+# 2.02: stopped with Ctrl+C, closed SSH window or killed → recorded as Interrupted (never left as Running)
+stopped() { [[ -n "$DEP_ID" ]] && q -c "UPDATE app_deployments SET status='Interrupted', finished_at=now() WHERE id=$DEP_ID AND status='Running'" >/dev/null 2>&1 || true; echo "!! Deploy STOPPED before it finished"; exit 130; }
+trap stopped INT TERM HUP
 
 newdep() { q -Atc "INSERT INTO app_deployments (tenant, version, git_commit, git_ref, status, deployed_by)
   VALUES ('${TENANT:-main}', '$VERSION', '$COMMIT', '$GITREF', 'Running', '${SUDO_USER:-$(whoami)}') RETURNING id" | head -1; }
-q -Atc "SELECT to_regclass('public.app_deployments')" | grep -q app_deployments && DEP_ID=$(newdep)
+if q -Atc "SELECT to_regclass('public.app_deployments')" | grep -q app_deployments; then
+  q -c "UPDATE app_deployments SET status='Interrupted', finished_at=coalesce(finished_at, now()) WHERE tenant='${TENANT:-main}' AND status='Running'" >/dev/null 2>&1 || true
+  DEP_ID=$(newdep)
+fi
 
 # First install on an EMPTY database (e.g. a client on its own server, ITH-143): load the base schema + default
 # system configuration once, so the migrations below have their tables. Never runs on a database that has tables.
