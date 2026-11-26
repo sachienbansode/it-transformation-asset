@@ -64,9 +64,24 @@ async function sendEmailCode(req: Request, user: { id: number; email: string; na
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
   req.session.emailOtp = { h: hashCode(code), exp: Date.now() + 10 * 60_000, tries: 0, uid: user.id, purpose, sentAt: Date.now() };
   const what = purpose === "login" ? "sign in" : purpose === "enable" ? "turn on email sign-in codes" : "turn off two-step sign-in";
-  await sendDirect(`mfa_${purpose}`, [user.email], `Your sign-in code: ${code}`,
-    `<p>Hello ${esc(user.name)},</p><p>Your code to ${what} is:</p><p style="font-size:26px;font-weight:700;letter-spacing:6px">${code}</p>
-     <p>It expires in 10 minutes. If you did not try to ${what}, change your password and tell the IT team.</p>`);
+  const b = await getBrand().catch(() => ({ appName: "IT Hub" } as any));
+  const when = new Date().toLocaleString("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const ua = String(req.get("user-agent") || ""); const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "a browser";
+  const os = /Windows/.test(ua) ? "Windows" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iPhone / iPad" : /Mac OS/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "";
+  const sent = await sendDirect(`mfa_${purpose}`, [user.email], `Your sign-in code: ${code}`,
+    `<p style="margin:0 0 14px">Hello ${esc(user.name)},</p>
+     <p style="margin:0 0 18px">Use this code to ${what} to <b>${esc(b.appName || "IT Hub")}</b>:</p>
+     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px"><tr><td style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 26px;font-family:Consolas,'Courier New',monospace;font-size:32px;font-weight:700;letter-spacing:10px;color:#1e3a8a">${code}</td></tr></table>
+     <p style="margin:0 0 6px;color:#475569">The code expires in <b>10 minutes</b> and works once.</p>
+     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:14px 0;font-size:12.5px;color:#475569"><tr><td style="padding:2px 14px 2px 0">Requested</td><td>${esc(when)} IST</td></tr>
+       <tr><td style="padding:2px 14px 2px 0">From</td><td>${esc(browser)}${os ? ` on ${esc(os)}` : ""} · ${esc(String(req.ip || "").replace(/^::ffff:/, ""))}</td></tr></table>
+     <p style="margin:14px 0 0;padding:10px 12px;background:#fff7ed;border-left:3px solid #f97316;color:#7c2d12;font-size:12.5px">Didn't try to ${what}? Do not share this code with anyone — change your password and tell the IT team.</p>`,
+    `You received this because someone tried to ${what} with your account. IT staff will never ask you for this code.`);
+  if (sent.status !== "Sent") {   // 2.01: never say "we emailed" when the email did not go
+    delete req.session.emailOtp;
+    console.error(`sign-in code for user ${user.id} not delivered: ${sent.error}`);
+    return { ok: false, mailFailed: true, error: `We could not email your sign-in code (${String(sent.error || sent.status).slice(0, 160)}). Try again in a minute; if it keeps failing, ask the IT administrator to check Admin › Email, Alerts & Archive.` };
+  }
   return { ok: true, to: maskEmail(user.email) };
 }
 function checkEmailCode(req: Request, uid: number, purpose: string, token: string): string | null {
@@ -232,8 +247,9 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   if (useEmail) {
     if (await mailReady()) {
       req.session.pendingMfaUserId = user.id; req.session.pendingMfaMethod = "email";
-      const s = await sendEmailCode(req, user, "login");
+      const s: any = await sendEmailCode(req, user, "login");
       await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+      if (!s.ok) { delete req.session.pendingMfaUserId; res.status(s.mailFailed ? 503 : 429).json({ error: s.error }); return; }
       res.json({ requiresMfa: true, method: "email", to: s.to || maskEmail(user.email) });
       return;
     }
@@ -299,9 +315,9 @@ router.post("/auth/login/mfa/resend", async (req, res): Promise<void> => {
   if (!uid || req.session.pendingMfaMethod !== "email") { res.status(400).json({ error: "Sign in again" }); return; }
   const [user] = await db.select({ id: usersTable.id, email: usersTable.email, name: usersTable.name }).from(usersTable).where(eq(usersTable.id, uid));
   if (!user) { res.status(400).json({ error: "Sign in again" }); return; }
-  const s = await sendEmailCode(req, user, "login");
+  const s: any = await sendEmailCode(req, user, "login");
   await new Promise<void>(r => req.session.save(() => r()));
-  if (!s.ok) { res.status(429).json({ error: s.error }); return; }
+  if (!s.ok) { res.status(s.mailFailed ? 503 : 429).json({ error: s.error }); return; }
   res.json({ ok: true, to: s.to });
 });
 
@@ -329,9 +345,9 @@ router.post("/auth/mfa/email/start", requireAuth, async (req, res): Promise<void
   const purpose = req.body?.purpose === "disable" ? "disable" : "enable";
   if (!await mailReady()) { res.status(400).json({ error: "Email delivery is not set up yet — ask the admin (Admin › Email, alerts & archive)" }); return; }
   const [user] = await db.select({ id: usersTable.id, email: usersTable.email, name: usersTable.name }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
-  const s = await sendEmailCode(req, user, purpose);
+  const s: any = await sendEmailCode(req, user, purpose);
   await new Promise<void>(r => req.session.save(() => r()));
-  if (!s.ok) { res.status(429).json({ error: s.error }); return; }
+  if (!s.ok) { res.status(s.mailFailed ? 503 : 429).json({ error: s.error }); return; }
   res.json({ ok: true, to: s.to });
 });
 
@@ -461,6 +477,15 @@ router.get("/config", async (_req, res): Promise<void> => {
   });
 });
 
+// GET /brand/logo — the uploaded logo as an image (public; used by emails, which block embedded images)
+router.get("/brand/logo", async (_req, res): Promise<void> => {
+  const v = String((await getSetting("logo_url")) || "");
+  const m = v.match(/^data:(image\/(?:png|jpe?g|gif|webp|svg\+xml));base64,(.+)$/);
+  if (m) { res.set({ "Content-Type": m[1], "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'" }).send(Buffer.from(m[2], "base64")); return; }
+  if (/^https:\/\//.test(v)) { res.redirect(302, v); return; }
+  res.status(404).end();
+});
+
 // GET /auth/sso/config — check if SSO is configured & enabled
 router.get("/auth/sso/config", async (_req, res): Promise<void> => {
   const enabled = await getSetting("sso.msEnabled");
@@ -537,8 +562,9 @@ router.get("/auth/sso/callback", async (req, res): Promise<void> => {
       if (totp || await mailReady()) {
         await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
         req.session.pendingMfaUserId = user.id; req.session.pendingMfaMethod = totp ? "totp" : "email";
-        const s = totp ? { to: "" } : await sendEmailCode(req, user, "login");
+        const s: any = totp ? { ok: true, to: "" } : await sendEmailCode(req, user, "login");
         await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+        if (!s.ok) return void res.redirect(`/login?sso_error=${s.mailFailed ? "mfa_mail" : "mfa_wait"}`);
         return void res.redirect(`/login?mfa=${totp ? "totp" : "email"}${s.to ? `&to=${encodeURIComponent(s.to)}` : ""}`);
       }
       await db.execute(sql`INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, summary) VALUES ('User', ${user.id}, 'MFA_SKIPPED', ${email}, 'Second step after Microsoft sign-in required but email delivery is not set up')`).catch(() => {});

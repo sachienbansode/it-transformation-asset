@@ -76,6 +76,8 @@ export default function Login() {
         not_registered: "You signed in to the company portal, but you are not registered in IT Hub. Please ask the IT administrator to add you.",
         no_role: "You are registered in IT Hub but no role has been assigned to you yet. Please ask the IT administrator to assign one.",
         invalid_state: "The sign-in link expired or was opened in another browser. Please try again.",
+        mfa_mail: "Microsoft sign-in worked, but we could not email your sign-in code. Try again in a minute; if it keeps failing, tell the IT administrator.",
+        mfa_wait: "A sign-in code was sent less than 30 seconds ago — check your inbox, or wait and try again.",
         password_only: "Your account signs in with an IT Hub password, not Microsoft. Use the email and password fields below.",
         not_configured: "Portal sign-in is not configured on this server.",
         session_ended: "Your session has ended (account or role changed, or it expired). Please sign in again.",
@@ -146,6 +148,7 @@ export default function Login() {
               <Shield className="h-8 w-8 text-primary" />
             )}
             <span className="text-[20px] font-semibold text-foreground leading-tight">{appConfig.appName}</span>
+            {appConfig.companyName && <span className="-mt-2 text-[13px] font-medium text-primary" data-testid="login-company">{appConfig.companyName}</span>}
           </div>
           <p className="text-[12.5px] text-muted-foreground">{appConfig.appTagline}</p>
         </div>

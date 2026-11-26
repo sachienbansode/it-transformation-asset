@@ -27,14 +27,19 @@ const env = (k: string) => (process.env[k] || "").trim();
 export type MailConfig = { provider: "m365" | "smtp" | "off"; m365: { tenantId: string; clientId: string; secret: string; from: string }; smtp: SmtpConfig };
 let cfgCache: { at: number; cfg: MailConfig } | null = null;
 export function clearMailCache() { cfgCache = null; cached = null; }
-let MAIL_BRAND = "IT Hub";
+let MAIL_BRAND = "IT Hub", MAIL_APP = "IT Hub", MAIL_CO = "", MAIL_LOGO = "";
+/** subject prefix = this client's app name, e.g. "[IT Hub]" */
+export const mailPrefix = () => `[${MAIL_APP}]`;
 export async function loadMailConfig(): Promise<MailConfig> {
   if (cfgCache && Date.now() - cfgCache.at < 30_000) return cfgCache.cfg;
   let saved: any = null;
   try {   // email header = this client's app name and company (Admin › Settings › Branding)
-    const b: any = await db.execute(sql`SELECT key, value FROM settings WHERE key IN ('app_name', 'company_name', 'app_tagline')`); const m: any = Object.fromEntries(((b.rows ?? b) as any[]).map(x => [x.key, x.value]));
+    const b: any = await db.execute(sql`SELECT key, CASE WHEN key = 'logo_url' THEN to_jsonb(left(value #>> '{}', 12)) ELSE value END AS value FROM settings WHERE key IN ('app_name', 'company_name', 'app_tagline', 'logo_url')`); const m: any = Object.fromEntries(((b.rows ?? b) as any[]).map(x => [x.key, x.value]));
     const co = m.company_name || (String(m.app_tagline || "").includes("—") ? String(m.app_tagline).split("—").pop()!.trim() : "");
-    MAIL_BRAND = [m.app_name || "IT Hub", co].filter(Boolean).join(" — ");
+    MAIL_APP = m.app_name || "IT Hub"; MAIL_CO = co; MAIL_BRAND = [MAIL_APP, co].filter(Boolean).join(" — ");
+    // logo: e-mail programs block embedded (data:) images, so the logo is served from the app at /api/brand/logo
+    const base = String(process.env.APP_URL || "").replace(/\/$/, "");
+    MAIL_LOGO = m.logo_url && /^https:\/\//.test(base) ? `${base}/api/brand/logo` : "";
   } catch { /* keep last */ }
   try { const r: any = await db.execute(sql`SELECT value FROM settings WHERE key = 'mail.config'`); const v = (r.rows ?? r)[0]?.value; saved = typeof v === "string" ? JSON.parse(v) : v; } catch { /* no table / value */ }
   const cfg: MailConfig = saved?.provider ? {
@@ -109,7 +114,7 @@ export async function notify(eventKey: string, msg: { subject: string; html: str
     to = parseRecipients(rule?.recipients).filter(a => EMAIL_RE.test(a));
     const att = rule?.attach_excel === false ? null : msg.attachment || null;
     await loadMailConfig().catch(() => null);   // also refreshes the email header (brand)
-    const subject = `[IT Hub] ${msg.subject}`;
+    const subject = `${mailPrefix()} ${msg.subject}`;
     const html = wrapHtml(msg.html);
     if (!rule || !rule.enabled) return outbox(eventKey, to.join(", "), subject, html, att?.name ?? null, msg.batchId ?? null, "Skipped", "Notification switched off");
     if (!to.length) return outbox(eventKey, "", subject, html, att?.name ?? null, msg.batchId ?? null, "Skipped", "No recipients configured");
@@ -118,36 +123,56 @@ export async function notify(eventKey: string, msg: { subject: string; html: str
     return outbox(eventKey, to.join(", "), subject, html, att?.name ?? null, msg.batchId ?? null, "Sent", null);
   } catch (e: any) {
     console.error(`notify(${eventKey}) failed:`, e?.message || e);
-    return outbox(eventKey, to.join(", "), `[IT Hub] ${msg.subject}`, msg.html, msg.attachment?.name ?? null, msg.batchId ?? null, "Failed", String(e?.message || e).slice(0, 500));
+    return outbox(eventKey, to.join(", "), `${mailPrefix()} ${msg.subject}`, msg.html, msg.attachment?.name ?? null, msg.batchId ?? null, "Failed", String(e?.message || e).slice(0, 500));
   }
 }
 
 /** Email specific people (e.g. the employee on a handover). Never throws — logged in email_outbox. */
-export async function sendDirect(eventKey: string, to: string[], subject: string, html: string) {
+export async function sendDirect(eventKey: string, to: string[], subject: string, html: string, note?: string): Promise<{ status: string; error: string | null }> {
   const list = to.map(x => x.trim().toLowerCase()).filter(a => EMAIL_RE.test(a));
   await loadMailConfig().catch(() => null);
-  const subj = `[IT Hub] ${subject}`, body = wrapHtml(html);
-  if (!list.length) return outbox(eventKey, "", subj, body, null, null, "Skipped", "No valid recipient");
-  const mc = await loadMailConfig(); if (!ready(mc)) return outbox(eventKey, list.join(", "), subj, body, null, null, "Skipped", notReady(mc));
-  try { await deliver(list, subj, body, []); return outbox(eventKey, list.join(", "), subj, body, null, null, "Sent", null); }
-  catch (e: any) { return outbox(eventKey, list.join(", "), subj, body, null, null, "Failed", String(e?.message || e).slice(0, 500)); }
+  const subj = `${mailPrefix()} ${subject}`, body = wrapHtml(html, note);
+  const done = async (status: string, error: string | null) => { await outbox(eventKey, list.join(", "), subj, body, null, null, status, error); return { status, error }; };
+  if (!list.length) return done("Skipped", "No valid recipient");
+  const mc = await loadMailConfig(); if (!ready(mc)) return done("Skipped", notReady(mc));
+  try { await deliver(list, subj, body, []); return done("Sent", null); }
+  catch (e: any) { return done("Failed", String(e?.message || e).slice(0, 500)); }
 }
 
 export async function sendTest(to: string[]) {
   const mc = await loadMailConfig(); if (!ready(mc)) throw new Error(notReady(mc));
-  const subject = "[IT Hub] Test email";
+  const subject = `${mailPrefix()} Test email`;
   const html = wrapHtml(`<p>This is a test email from ${esc(MAIL_BRAND)}, sent through <b>${mc.provider === "smtp" ? `SMTP (${esc(mc.smtp.host)}:${mc.smtp.port})` : "Microsoft 365"}</b>. Notifications are working.</p>`);
   try { await deliver(to, subject, html, []); await outbox("test", to.join(", "), subject, html, null, null, "Sent", null); }
   catch (e: any) { await outbox("test", to.join(", "), subject, html, null, null, "Failed", String(e?.message || e).slice(0, 500)); throw e; }
 }
 
 export const esc = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
-function wrapHtml(inner: string) {
-  return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:680px">
-    <div style="border-bottom:3px solid #2D7FF9;padding-bottom:8px;margin-bottom:14px;font-weight:600;color:#1F4E9E">${esc(MAIL_BRAND)}</div>
-    ${inner}
-    <p style="color:#6b7280;font-size:12px;margin-top:20px">Automated message. Recipients are set in IT Hub › Admin › Notifications.</p></div>`;
+/** a call-to-action button that works in Outlook, Gmail and phones */
+export const mailButton = (text: string, url: string) =>
+  `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 6px"><tr><td style="background:#2563eb;border-radius:8px">` +
+  `<a href="${esc(url)}" style="display:inline-block;padding:11px 22px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px">${esc(text)}</a></td></tr></table>`;
+/* 2.01 (ITH-168) — one branded layout for every email: logo + app + company header, white card, footer saying why the
+   person received it. Table layout and inline styles so Outlook (desktop / web), Gmail and phone mail apps show it alike. */
+function wrapHtml(inner: string, note?: string) {
+  // ticket templates written as <a href="…">Open INC-1</a> become buttons
+  const body = inner.replace(/<a href="([^"]+)">((?:Open|View) [^<]{1,60})<\/a>/g, (_m, u, t) => mailButton(t, u.replace(/&amp;/g, "&")));
+  const logo = MAIL_LOGO ? `<td width="52" style="padding-right:12px;vertical-align:middle"><img src="${esc(MAIL_LOGO)}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border-radius:8px;background:#ffffff;padding:3px"></td>` : "";
+  const why = note || `You receive this because of your role in ${MAIL_APP}${MAIL_CO ? ` at ${MAIL_CO}` : ""}.`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"></head>
+<body style="margin:0;padding:0;background:#f1f5f9">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9"><tr><td align="center" style="padding:24px 12px">
+ <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b">
+  <tr><td style="background:#0f2a5c;padding:16px 24px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>${logo}
+   <td style="vertical-align:middle"><div style="font-size:17px;font-weight:700;color:#ffffff;line-height:1.2">${esc(MAIL_APP)}</div>${MAIL_CO ? `<div style="font-size:12px;color:#bfd3f5;line-height:1.4">${esc(MAIL_CO)}</div>` : ""}</td></tr></table></td></tr>
+  <tr><td style="height:4px;background:#2d7ff9;font-size:0;line-height:0">&nbsp;</td></tr>
+  <tr><td style="padding:26px 28px 22px;font-size:14px;line-height:1.6;color:#1e293b">${body}</td></tr>
+  <tr><td style="padding:14px 28px 18px;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:11.5px;line-height:1.5;color:#64748b">${esc(why)}<br>This is an automated message — please do not reply.</td></tr>
+ </table>
+ <div style="font-family:'Segoe UI',Arial,sans-serif;font-size:11px;color:#94a3b8;padding-top:12px">${esc(MAIL_BRAND)}</div>
+</td></tr></table></body></html>`;
 }
 export function htmlTable(rows: [string, unknown][]) {
-  return `<table style="border-collapse:collapse;font-size:13px">${rows.map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">${esc(k)}</td><td style="padding:4px 0;font-weight:600">${esc(v)}</td></tr>`).join("")}</table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;margin:12px 0;border:1px solid #e2e8f0">${rows.map(([k, v], i) =>
+    `<tr style="background:${i % 2 ? "#ffffff" : "#f8fafc"}"><td style="padding:8px 12px;color:#64748b;width:34%;border-bottom:1px solid #e2e8f0">${esc(k)}</td><td style="padding:8px 12px;font-weight:600;border-bottom:1px solid #e2e8f0">${esc(v)}</td></tr>`).join("")}</table>`;
 }

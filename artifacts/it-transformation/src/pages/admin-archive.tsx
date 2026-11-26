@@ -209,10 +209,10 @@ function MailDelivery() {
         <L label="SMTP server"><Input className="h-8" value={f.smtp.host || ""} onChange={e => set("smtp", { host: e.target.value })} placeholder="smtp.example.com" /></L>
         <L label="Port" hint="587 STARTTLS · 465 SSL/TLS · 25 relay"><Input className="h-8" type="number" value={f.smtp.port || ""} onChange={e => set("smtp", { port: e.target.value })} /></L>
         <L label="Encryption"><select className="w-full h-8 rounded-md border bg-background px-2 text-sm" value={f.smtp.security} onChange={e => set("smtp", { security: e.target.value })}><option value="starttls">STARTTLS</option><option value="tls">SSL/TLS</option><option value="none">None (internal relay only)</option></select></L>
-        <L label="Username (optional)"><Input className="h-8" autoComplete="off" value={f.smtp.user || ""} onChange={e => set("smtp", { user: e.target.value })} /></L>
-        <L label="Password" hint={data.smtp.hasPassword ? "A password is saved — leave blank to keep it." : "Stored encrypted; never shown again."}><PasswordInput className="h-8" autoComplete="new-password" value={f.smtp.password} onChange={e => set("smtp", { password: e.target.value })} placeholder={data.smtp.hasPassword ? "••••••••" : ""} /></L>
+        <L label="Username (sign-in mailbox)" hint="Full mailbox address, e.g. it.notifications@company.com — blank only for an internal relay without login."><Input className="h-8" autoComplete="off" value={f.smtp.user || ""} onChange={e => set("smtp", { user: e.target.value })} placeholder="it.notifications@company.com" /></L>
+        <L label="Password" hint={data.smtp.hasPassword ? "A password is saved — leave blank to keep it." : "Gmail / Microsoft 365 with 2-step: use an app password. Stored encrypted; never shown again."}><PasswordInput className="h-8" autoComplete="new-password" value={f.smtp.password} onChange={e => set("smtp", { password: e.target.value })} placeholder={data.smtp.hasPassword ? "••••••••" : ""} /></L>
         <L label="From address"><Input className="h-8" value={f.smtp.from || ""} onChange={e => set("smtp", { from: e.target.value })} placeholder="it-hub@ashikagroup.com" /></L>
-        <L label="From name"><Input className="h-8" value={f.smtp.fromName || ""} onChange={e => set("smtp", { fromName: e.target.value })} placeholder="IT Hub" /></L>
+        <L label="From name (display name)" hint="What people see as the sender, e.g. IT Helpdesk."><Input className="h-8" value={f.smtp.fromName || ""} onChange={e => set("smtp", { fromName: e.target.value })} placeholder="IT Helpdesk" /></L>
         <label className="flex items-center gap-2 text-xs md:col-span-2"><input type="checkbox" checked={f.smtp.rejectUnauthorized !== false} onChange={e => set("smtp", { rejectUnauthorized: e.target.checked })} />Check the server's TLS certificate (untick only for an internal relay with a self-signed certificate)</label>
       </div>}
       {f.provider === "off" && <div className="text-xs text-muted-foreground">No emails are sent; every notification is still recorded in the email log as Skipped.</div>}
@@ -249,6 +249,7 @@ function LogTab() {
 /* r100 (ITH-161) — test Microsoft 365 / SMTP with the values on screen, before or after saving */
 function MailTestBar({ f }: { f: any }) {
   const t = useIntegrationTest(); const [to, setTo] = useState("");
+  useEffect(() => { t.clear(); }, [f.provider]);   // 2.01: a Microsoft 365 result must not stay on screen after switching to SMTP
   if (f.provider === "off") return null;
   const body = () => ({ kind: "mail", provider: f.provider, to,
     smtp: { host: f.smtp.host, port: Number(f.smtp.port), security: f.smtp.security, user: f.smtp.user, from: f.smtp.from, fromName: f.smtp.fromName, rejectUnauthorized: f.smtp.rejectUnauthorized, ...(f.smtp.password ? { password: f.smtp.password } : {}) },
