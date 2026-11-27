@@ -13,6 +13,7 @@ export interface ItsmConfig {
   "itsm.departments": string[];
   "itsm.environments": string[];
   "itsm.applications": string[];
+  "itsm.priorityMatrix": Record<string, Record<string, string>>;
   "itsm.itGroups": string[];
   "itsm.maxAttachmentSizeMB": number;
   "itsm.maxAttachmentsPerTicket": number;
@@ -41,6 +42,12 @@ export const ITSM_CONFIG_DEFAULT: ItsmConfig = {
   "itsm.srCategories": ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup", "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Other"],
   "itsm.environments": ["Dev", "UAT", "PROD"],
   "itsm.applications": ["Bloomberg", "Teravista Symphony", "KFIN"],
+  "itsm.priorityMatrix": {
+    "Enterprise-wide": { Critical: "Critical", High: "Critical", Medium: "High", Low: "Medium" },
+    "Department": { Critical: "Critical", High: "High", Medium: "Medium", Low: "Medium" },
+    "Team": { Critical: "High", High: "High", Medium: "Medium", Low: "Low" },
+    "Individual": { Critical: "High", High: "Medium", Medium: "Low", Low: "Low" },
+  },
   "itsm.departments": ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"],
   "itsm.itGroups": ["IT Helpdesk", "Infrastructure Team", "Network Team", "Security Team", "Applications Team", "Database Team", "Cloud Team", "Desktop Support", "Development Team", "Operations Team"],
   "itsm.maxAttachmentSizeMB": 20,

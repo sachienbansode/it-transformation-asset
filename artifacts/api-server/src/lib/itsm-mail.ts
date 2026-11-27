@@ -40,7 +40,7 @@ export async function ticketValues(kind: ItsmKind, t: any, ctx: MailCtx = {}) {
     type: TYPE[kind], no, title: t.title || "", priority: t.priority || "—", status: t.status || "", team: t.assignedGroup || team?.name || "IT team",
     assignee: t.assignedTo || "the team", requester: requester?.name || t.reportedBy || t.requestedBy || "there", category: [t.category, t.subcategory].filter(Boolean).join(" › "),
     expectedClosure: t.expectedClosureDate ? fmtDate(t.expectedClosureDate) : "as per SLA", resolution: t.resolutionNotes || t.fulfillmentNotes || t.rootCause || "—",
-    reason: ctx.reason || "—", slaLeft: ctx.slaLeft || "—", assigneeLine: t.assignedTo ? ` and is with ${t.assignedTo}` : "",
+    reason: ctx.reason || "—", bridge: t.majorBridge || t.major_bridge || "—", slaLeft: ctx.slaLeft || "—", assigneeLine: t.assignedTo ? ` and is with ${t.assignedTo}` : "",
     link: `${base}${PAGE[kind]}?q=${encodeURIComponent(no)}`, details,
   } as Record<string, string>;
 }

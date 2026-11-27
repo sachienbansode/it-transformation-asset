@@ -1,4 +1,15 @@
 {
+ "2.06": [
+  "New role 'Policy Owner' — full rights on the Policy Register",
+  "Multi-role: a person keeps the Employee role next to any other roles (e.g. Employee + Policy Owner, ITSM Agent + Policy Owner); start page picked from the strongest role",
+  "Sign-in code email: centred, phone friendly, code easy to copy"
+ ],
+ "2.05": [
+  "Incident priority set automatically from impact × urgency (ITSM Setup › Priority matrix); the service desk can set it by hand",
+  "Major incidents: declare with business impact and bridge / war-room link, stakeholder updates, stand down — each emailed (alerts editable); red MAJOR badge and banner",
+  "Parent / child incidents: link duplicates to one main incident; resolving it resolves them all",
+  "Repeat incidents: banner when similar incidents keep coming; create one problem and link them all"
+ ],
  "2.04": [
   "Problems and changes are assigned like incidents: the category decides the team (IT Helpdesk by default), assign to a team member, pass to another team with a reason, expected closure date",
   "Email alerts for problems and changes (team, assignee, raiser)",

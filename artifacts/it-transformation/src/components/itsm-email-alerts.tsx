@@ -14,7 +14,7 @@ import { Mail, Eye, Send, Save, Loader2, ChevronDown, ChevronRight } from "lucid
 /* r101 (ITH-164) — ITSM Setup › Email alerts: for every ticket event, who receives the email and what it says. */
 const WHO: [string, string][] = [["to_requester", "Person who raised it"], ["to_assignee", "Assigned person"], ["to_team", "Whole team"], ["to_lead", "Team lead"],
   ["to_escalation1", "Escalation level 1"], ["to_escalation2", "Escalation level 2"], ["to_admins", "Super Admins"]];
-const FIELDS = ["no", "title", "type", "priority", "status", "team", "assignee", "requester", "category", "expectedClosure", "resolution", "reason", "slaLeft", "link", "details"];
+const FIELDS = ["no", "title", "type", "priority", "status", "team", "assignee", "requester", "category", "expectedClosure", "resolution", "reason", "bridge", "slaLeft", "link", "details"];
 
 function RuleCard({ rule, canEdit }: { rule: any; canEdit: boolean }) {
   const qc = useQueryClient(); const { toast } = useToast();

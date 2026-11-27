@@ -16,23 +16,24 @@ import { cn } from "@/lib/utils";
 import { CatalogUploadDialog, downloadCatalogSheet } from "@/components/itsm-catalog-upload";
 import { SearchSelect } from "@/components/search-select";
 import { ItsmEmailAlerts } from "@/components/itsm-email-alerts";
+import { PriorityMatrixEditor } from "@/components/itsm-priority-matrix";
 
 /* ITSM Setup — assignment groups (teams + members + lead) and the category / sub-category catalog that routes tickets. */
 
 export default function ItsmSetup() {
-  const [tab, setTab] = useState<"teams" | "catalog" | "lists" | "emails">(() => (new URLSearchParams(window.location.search).get("tab") as any) || "catalog");
+  const [tab, setTab] = useState<"teams" | "catalog" | "lists" | "emails" | "priority">(() => (new URLSearchParams(window.location.search).get("tab") as any) || "catalog");
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">ITSM Setup</h1>
-          <p className="text-sm text-muted-foreground">Teams (assignment groups) and the categories that route incidents and service requests to them, with the expected closure days.</p>
+          <p className="text-sm text-muted-foreground">Teams (assignment groups), the categories that route incidents, requests, problems and changes to them, email alerts and the priority matrix.</p>
         </div>
-        <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">
-          {([["catalog", "Categories & routing"], ["teams", "Teams & members"], ["emails", "Email alerts"], ["lists", "Lookup lists"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
+        <div className="inline-flex flex-wrap bg-muted rounded-[10px] p-[3px] gap-[3px]">
+          {([["catalog", "Categories & routing"], ["teams", "Teams & members"], ["emails", "Email alerts"], ["priority", "Priority matrix"], ["lists", "Lookup lists"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", tab === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{l}</button>)}
         </div>
       </div>
-      {tab === "teams" ? <><SupportChatTeam /><Teams /></> : tab === "lists" ? <ItsmListsPanel /> : tab === "emails" ? <ItsmEmailAlerts /> : <Catalog />}
+      {tab === "teams" ? <><SupportChatTeam /><Teams /></> : tab === "lists" ? <ItsmListsPanel /> : tab === "emails" ? <ItsmEmailAlerts /> : tab === "priority" ? <PriorityMatrixEditor /> : <Catalog />}
     </div>
   );
 }

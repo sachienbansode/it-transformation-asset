@@ -69,13 +69,19 @@ async function sendEmailCode(req: Request, user: { id: number; email: string; na
   const ua = String(req.get("user-agent") || ""); const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "a browser";
   const os = /Windows/.test(ua) ? "Windows" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iPhone / iPad" : /Mac OS/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "";
   const sent = await sendDirect(`mfa_${purpose}`, [user.email], `Your sign-in code: ${code}`,
-    `<p style="margin:0 0 14px">Hello ${esc(user.name)},</p>
-     <p style="margin:0 0 18px">Use this code to ${what} to <b>${esc(b.appName || "IT Hub")}</b>:</p>
-     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px"><tr><td style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 26px;font-family:Consolas,'Courier New',monospace;font-size:32px;font-weight:700;letter-spacing:10px;color:#1e3a8a">${code}</td></tr></table>
-     <p style="margin:0 0 6px;color:#475569">The code expires in <b>10 minutes</b> and works once.</p>
-     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:14px 0;font-size:12.5px;color:#475569"><tr><td style="padding:2px 14px 2px 0">Requested</td><td>${esc(when)} IST</td></tr>
-       <tr><td style="padding:2px 14px 2px 0">From</td><td>${esc(browser)}${os ? ` on ${esc(os)}` : ""} · ${esc(String(req.ip || "").replace(/^::ffff:/, ""))}</td></tr></table>
-     <p style="margin:14px 0 0;padding:10px 12px;background:#fff7ed;border-left:3px solid #f97316;color:#7c2d12;font-size:12.5px">Didn't try to ${what}? Do not share this code with anyone — change your password and tell the IT team.</p>`,
+    // 2.06 (ITH-185): centred, phone-friendly; the code is one plain run of digits so a double-click / long-press copies it exactly
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="text-align:center">
+      <tr><td align="center" style="padding:0 0 6px;font-size:15px;color:#334155">Hello ${esc(user.name)},</td></tr>
+      <tr><td align="center" style="padding:0 0 18px;font-size:15px;color:#334155">Use this code to ${what} to <b>${esc(b.appName || "IT Hub")}</b></td></tr>
+      <tr><td align="center" style="padding:0 0 8px">
+        <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto"><tr>
+          <td align="center" style="background:#eff6ff;border:2px dashed #93c5fd;border-radius:12px;padding:16px 28px;font-family:Consolas,Menlo,'Courier New',monospace;font-size:34px;line-height:40px;font-weight:700;color:#1e3a8a;user-select:all;-webkit-user-select:all">${code}</td>
+        </tr></table></td></tr>
+      <tr><td align="center" style="padding:0 0 18px;font-size:12px;color:#64748b">Double-click (or long-press on a phone) the code to copy it</td></tr>
+      <tr><td align="center" style="padding:0 0 16px;font-size:14px;color:#334155">Expires in <b>10 minutes</b> · works once</td></tr>
+      <tr><td align="center" style="padding:12px 8px;border-top:1px solid #e2e8f0;font-size:12px;line-height:18px;color:#64748b">Requested ${esc(when)} IST<br>${esc(browser)}${os ? ` on ${esc(os)}` : ""} · ${esc(String(req.ip || "").replace(/^::ffff:/, ""))}</td></tr>
+      <tr><td align="center" style="padding:12px 14px;background:#fff7ed;border-radius:8px;font-size:12.5px;line-height:18px;color:#9a3412">Didn't try to ${what}? Don't share this code — change your password and tell the IT team.</td></tr>
+    </table>`,
     `You received this because someone tried to ${what} with your account. IT staff will never ask you for this code.`);
   if (sent.status !== "Sent") {   // 2.01: never say "we emailed" when the email did not go
     delete req.session.emailOtp;
@@ -147,7 +153,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
   if (roleIds.length > 0) {
     const [perms, roleRows] = await Promise.all([
       db.select().from(rolePermissionsTable).where(inArray(rolePermissionsTable.roleId, roleIds)),
-      db.select({ defaultDashboard: rolesTable.defaultDashboard }).from(rolesTable).where(inArray(rolesTable.id, roleIds)),
+      db.select({ id: rolesTable.id, defaultDashboard: rolesTable.defaultDashboard }).from(rolesTable).where(inArray(rolesTable.id, roleIds)),
     ]);
     const levels = ["none", "read", "write", "admin"];
     for (const p of perms) {
@@ -156,13 +162,10 @@ router.get("/auth/me", async (req, res): Promise<void> => {
         effectivePermissions[p.module] = p.accessLevel;
       }
     }
-    // Use the most specific default dashboard (non-root takes priority)
-    for (const r of roleRows) {
-      if (r.defaultDashboard && r.defaultDashboard !== "/") {
-        defaultDashboard = r.defaultDashboard;
-        break;
-      }
-    }
+    // 2.06: several roles → the start page of the role with the most edit / full rights (then the oldest role), not a random one
+    const weight = (rid: number) => perms.filter(p => p.roleId === rid).reduce((n, p) => n + (p.accessLevel === "admin" ? 3 : p.accessLevel === "write" ? 2 : p.accessLevel === "read" ? 1 : 0), 0);
+    const ranked = roleRows.filter(r => r.defaultDashboard && r.defaultDashboard !== "/").sort((a, b) => weight(b.id) - weight(a.id) || a.id - b.id);
+    if (ranked[0]) defaultDashboard = ranked[0].defaultDashboard!;
   }
   // Admin always gets /
   if (user.role === "admin") defaultDashboard = "/";

@@ -2,9 +2,9 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
 /*
- * Default "Employee" role (settings: auth.defaultEmployeeRole). Every active INTERNAL user who has no IT Hub role gets
- * it automatically (at sign-in, when created, or when changed to internal), so all employees can use IT Hub for
- * My Assets, My Policies, My Approvals and raising tickets. External users never get it — it is removed if a user
+ * Default "Employee" role (settings: auth.defaultEmployeeRole). Every active INTERNAL user keeps it next to any other
+ * roles (2.06: multi-role — e.g. Employee + Policy Owner), given at sign-in, when created, or when changed to internal,
+ * so all employees can use IT Hub for My Assets, My Policies, My Approvals and raising tickets. External users never get it — it is removed if a user
  * becomes external, and it cannot be assigned to an external user.
  */
 const rowsOf = (r: any) => (r.rows ?? r) as any[];
@@ -28,12 +28,14 @@ export async function ensureDefaultRole(userId: number): Promise<boolean> {
     const [n] = rowsOf(await db.execute(sql`SELECT count(*)::int AS n FROM user_roles WHERE user_id = ${userId}`));
     return u.role === "admin" || n.n > 0;
   }
-  if (u.roles > 0 || u.role === "admin") return true;
-  if (!u.is_active || !rid) return false;
+  if (u.role === "admin") return true;
+  if (!u.is_active || !rid) return u.roles > 0;
+  const [has] = rowsOf(await db.execute(sql`SELECT 1 FROM user_roles WHERE user_id = ${userId} AND role_id = ${rid}`));
+  if (has) return true;
   await db.execute(sql`INSERT INTO user_roles (user_id, role_id) VALUES (${userId}, ${rid}) ON CONFLICT DO NOTHING`);
   try {
     const { logAudit } = await import("../routes/audit-logs");
-    await logAudit({ entityType: "user", entityId: userId, action: "role_default", performedBy: "System", summary: `Default Employee role given (internal user without an IT Hub role)` } as any);
+    await logAudit({ entityType: "user", entityId: userId, action: "role_default", performedBy: "System", summary: `Default Employee role given (every internal employee keeps it next to other roles)` } as any);
   } catch { /* non-fatal */ }
   return true;
 }

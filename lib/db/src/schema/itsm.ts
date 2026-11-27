@@ -40,6 +40,14 @@ export const itsmIncidentsTable = pgTable("itsm_incidents", {
   slaBreachSentAt: timestamp("sla_breach_sent_at", { withTimezone: true }),
   responseBreachSentAt: timestamp("response_breach_sent_at", { withTimezone: true }),
   kbArticleId: integer("kb_article_id"),
+  isMajor: boolean("is_major").notNull().default(false),   // 2.05 major incident
+  majorDeclaredAt: timestamp("major_declared_at", { withTimezone: true }),
+  majorDeclaredBy: text("major_declared_by"),
+  majorReason: text("major_reason"),
+  majorBridge: text("major_bridge"),
+  majorEndedAt: timestamp("major_ended_at", { withTimezone: true }),
+  parentIncidentId: integer("parent_incident_id"),   // 2.05 child of a parent incident
+  priorityManual: boolean("priority_manual").notNull().default(false),   // 2.05 priority set by hand (not impact × urgency)
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),

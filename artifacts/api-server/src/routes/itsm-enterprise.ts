@@ -104,8 +104,9 @@ router.delete("/itsm-links/:linkId", requireAuth, wrap(async (req, res) => {
 /* ── major incident banner: open S1 incidents (service desk only) ──────── */
 router.get("/itsm-major", requireAuth, wrap(async (req, res) => {
   const a = await getAccess(req); if (!a || !(await isItsmStaff(a))) return res.json([]);
-  res.json(rowsOf(await db.execute(sql`SELECT id, ticket_no AS "ticketNo", title, status, assigned_group AS team, assigned_to AS "assignedTo", created_at AS "createdAt" FROM itsm_incidents
-    WHERE coalesce(is_active, true) AND severity = 'S1' AND status NOT IN ('Resolved', 'Closed') ORDER BY created_at LIMIT 5`)));
+  res.json(rowsOf(await db.execute(sql`SELECT id, ticket_no AS "ticketNo", title, status, assigned_group AS team, assigned_to AS "assignedTo", created_at AS "createdAt",
+      (is_major AND major_ended_at IS NULL) AS "isMajor", major_bridge AS bridge FROM itsm_incidents
+    WHERE coalesce(is_active, true) AND (severity = 'S1' OR (is_major AND major_ended_at IS NULL)) AND status NOT IN ('Resolved', 'Closed') ORDER BY (is_major AND major_ended_at IS NULL) DESC, created_at LIMIT 5`)));
 }));
 
 /* ── insights for the dashboard ───────────────────────────────────────── */

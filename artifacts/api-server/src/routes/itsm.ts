@@ -274,6 +274,20 @@ const NO: Record<Kind, [string, string, string, string]> = {
 };
 const ENTITY: Record<Kind, string> = { incident: "itsm_incident", problem: "itsm_problem", change: "itsm_change", request: "itsm_service_request" };
 
+/** 2.05: priority from impact × urgency (settings itsm.priorityMatrix) */
+let pmCache: { at: number; m: any } | null = null;
+async function priorityFrom(impact?: string | null, urgency?: string | null): Promise<string | null> {
+  if (!impact || !urgency) return null;
+  if (!pmCache || Date.now() - pmCache.at > 30_000) {
+    const [r] = await db.select({ value: settingsTable.value }).from(settingsTable).where(eq(settingsTable.key, "itsm.priorityMatrix"));
+    let m: any = r?.value; if (typeof m === "string") { try { m = JSON.parse(m); } catch { m = null; } }
+    pmCache = { at: Date.now(), m };
+  }
+  const hit = Object.entries(pmCache.m || {}).find(([k]) => k.toLowerCase() === impact.toLowerCase())?.[1] as any;
+  const p = hit ? Object.entries(hit).find(([k]) => k.toLowerCase() === urgency.toLowerCase())?.[1] : null;
+  return ["Critical", "High", "Medium", "Low"].includes(String(p)) ? String(p) : null;
+}
+
 /** 2.03: environment (one of Masters › Environments) and affected applications (list + names typed under "Other") */
 async function envApps(body: any) {
   if (body.affectedApps !== undefined) {
@@ -325,7 +339,13 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
       values.assignedTo = u.name; values.firstResponseAt = createdAt; notifyAssignee = u.email;
     } else values.assignedTo = null;
   } else if (body.assignedTo !== undefined || body.assignedGroup !== undefined) await validateAssignment(body.assignedTo, body.assignedGroup);
-  if (kind === "incident") { values.status = "Open"; values.reportedBy ||= who.name; }
+  if (kind === "incident") {
+    values.status = "Open"; values.reportedBy ||= who.name;
+    if (body.priorityManual !== true) { const p = await priorityFrom(body.impactLevel, body.urgency); if (p) { values.priority = p; values.priorityManual = false; } }
+    else values.priorityManual = true;
+    if (body.parentIncidentId) { await checkParent(null, Number(body.parentIncidentId)); values.parentIncidentId = Number(body.parentIncidentId); }
+    delete values.isMajor; delete values.majorDeclaredAt; delete values.majorDeclaredBy; delete values.majorReason; delete values.majorBridge; delete values.majorEndedAt;
+  }
   if (kind === "request") { values.status = "Open"; values.requestedBy ||= who.name; }
   if (SLA_KINDS.includes(kind)) Object.assign(values, slaColumns(kind, values, await slaConfig()));
   if (kind === "problem") values.status = "Open";
@@ -372,7 +392,8 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     const a = await getAccess(req);
     const member = await isMember(who.userId, old.teamId);
     const isRequester = old.requesterUserId === who.userId || old.createdBy === who.label;
-    const OPS = ["status", "assignedTo", "assignedGroup", "teamId", "priority", "severity", "resolutionNotes", "fulfillmentNotes", "category", "subcategory", "problemId", "urgency", "impactLevel", "source"];
+    for (const k of ["isMajor", "majorDeclaredAt", "majorDeclaredBy", "majorReason", "majorBridge", "majorEndedAt"]) delete body[k];   // 2.05: only through /major
+    const OPS = ["status", "assignedTo", "assignedGroup", "teamId", "priority", "severity", "resolutionNotes", "fulfillmentNotes", "category", "subcategory", "problemId", "urgency", "impactLevel", "source", "parentIncidentId", "priorityManual"];
     const touched = OPS.filter(k => body[k] !== undefined && String(body[k] ?? "") !== String(old[k] ?? ""));
     if (!isItsmAdmin(a) && !member) {
       const cancelOwn = (kind === "request" || kind === "change") && isRequester && touched.length === 1 && touched[0] === "status" && body.status === "Cancelled" && !DONE[kind].includes(old.status);
@@ -384,6 +405,13 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
       const EDITABLE: Record<string, string[]> = { incident: ["Open", "Pending Approval"], request: ["Open", "Pending Approval"], problem: ["Open"], change: ["Draft", "Pending Approval"] };
       if (!EDITABLE[kind].includes(old.status) && !touched.length && !reopenOwn) throw new Forbidden("The ticket is already being worked on — add details through the assigned team");
     }
+    // 2.05: incident priority follows impact × urgency unless the team set it by hand
+    if (kind === "incident" && (isItsmAdmin(a) || member)) {
+      const manual = body.priorityManual !== undefined ? body.priorityManual === true : (body.priority !== undefined && body.priority !== old.priority && body.impactLevel === undefined && body.urgency === undefined) || old.priorityManual;
+      if (!manual) { const p = await priorityFrom(body.impactLevel ?? old.impactLevel, body.urgency ?? old.urgency); if (p) body.priority = p; body.priorityManual = false; }
+      else body.priorityManual = true;
+      if (body.parentIncidentId !== undefined && (body.parentIncidentId || null) !== (old.parentIncidentId || null)) { body.parentIncidentId = body.parentIncidentId ? Number(body.parentIncidentId) : null; if (body.parentIncidentId) await checkParent(id, body.parentIncidentId); }
+    } else if (kind === "incident") { delete body.priorityManual; }
     // Category change re-routes the ticket
     let newTeamId: number | null = body.teamId ? Number(body.teamId) : null;
     if (!newTeamId && body.assignedGroup !== undefined && (body.assignedGroup || null) !== (old.assignedGroup || null)) {
@@ -469,6 +497,8 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     if (done && !(old.status === "Resolved" && item.status === "Closed")) void itsmMail("ticket_resolved", kind as any, item, { actorEmail: who.email });
     else if (!reopened && !done && item.status !== "Cancelled") void itsmMail("ticket_status", kind as any, item, { actorEmail: who.email });
   }
+  // 2.05: resolving / closing a parent incident resolves its open child incidents with the same note
+  if (kind === "incident" && old.status !== item.status && ["Resolved", "Closed"].includes(item.status)) void resolveChildren(item, who.label);
   const changed = [...Object.keys(body), ...Object.keys(extra)].filter(k => String(old[k] ?? "") !== String(item[k] ?? ""));
   if (changed.length) await audit({ entityType: ENTITY[kind], entityId: id, action: "update", performedBy: who.label, summary: `Updated ${old[NO[kind][3]]}: ${changed.join(", ")}`, newValues: { changed: Object.fromEntries(changed.map(k => [k, { from: old[k], to: item[k] }])) } });
   res.json((await withSla(kind, [item]))[0]);
@@ -551,6 +581,111 @@ router.get("/itsm-people", wrap(async (req, res) => {
   if (!a || !(a.isAdmin || Object.entries(a.perms).some(([m, l]) => m.startsWith("itsm_") && l !== "none"))) return fail(res, 403, "No ITSM access");
   res.json(await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, employeeCode: usersTable.employeeCode, department: usersTable.department, userType: usersTable.userType })
     .from(usersTable).where(eq(usersTable.isActive, true)).orderBy(usersTable.name));
+}));
+
+/* ─── 2.05 ADVANCED INCIDENTS: parent / child, major incident, repeat incidents → problem ─────────── */
+async function checkParent(selfId: number | null, parentId: number) {
+  if (selfId && parentId === selfId) throw new Bad("An incident cannot be its own parent");
+  const [p]: any[] = await db.select().from(itsmIncidentsTable).where(and(eq(itsmIncidentsTable.id, parentId), eq(itsmIncidentsTable.isActive, true)));
+  if (!p) throw new Bad("Parent incident not found");
+  if (p.parentIncidentId) throw new Bad(`${p.ticketNo} is itself a child of another incident — link to the main (parent) incident`);
+  if (["Resolved", "Closed"].includes(p.status)) throw new Bad(`${p.ticketNo} is already ${p.status.toLowerCase()}`);
+  if (selfId) { const [c] = await db.select({ id: itsmIncidentsTable.id }).from(itsmIncidentsTable).where(and(eq(itsmIncidentsTable.parentIncidentId, selfId), eq(itsmIncidentsTable.isActive, true))).limit(1); if (c) throw new Bad("This incident already has child incidents — it cannot become a child itself"); }
+}
+async function resolveChildren(parent: any, by: string) {
+  try {
+    const kids: any[] = await db.select().from(itsmIncidentsTable).where(and(eq(itsmIncidentsTable.parentIncidentId, parent.id), eq(itsmIncidentsTable.isActive, true)));
+    const { itsmMail } = await import("../lib/itsm-mail");
+    for (const k of kids.filter(k => !["Resolved", "Closed"].includes(k.status))) {
+      const note = `Resolved with parent ${parent.ticketNo}: ${parent.resolutionNotes || "see the parent incident"}`;
+      const [u]: any[] = await db.update(itsmIncidentsTable).set({ status: "Resolved", resolutionNotes: note, resolvedAt: new Date(), updatedBy: by, updatedAt: new Date() } as any).where(eq(itsmIncidentsTable.id, k.id)).returning();
+      await history("incident", k.id, by, note, k.status, "Resolved");
+      await wfAfterStatus("incident", k.id, k.status, "Resolved", by, true).catch(() => {});
+      void itsmMail("ticket_resolved", "incident", u, {});
+    }
+  } catch (e) { console.error("resolveChildren failed", e); }
+}
+async function canWorkIncident(req: Request, inc: any) { const a = await getAccess(req); return !!a && (isItsmAdmin(a) || await isMember(a.userId, inc.teamId)); }
+
+router.get("/incidents/:id/children", wrap(async (req, res) => {
+  if (!await allowed(req, "incident", "read")) return fail(res, 403, "No access to incidents");
+  res.json(await db.select({ id: itsmIncidentsTable.id, ticketNo: itsmIncidentsTable.ticketNo, title: itsmIncidentsTable.title, status: itsmIncidentsTable.status, reportedBy: itsmIncidentsTable.reportedBy, createdAt: itsmIncidentsTable.createdAt })
+    .from(itsmIncidentsTable).where(and(eq(itsmIncidentsTable.parentIncidentId, Number(req.params.id)), eq(itsmIncidentsTable.isActive, true))).orderBy(itsmIncidentsTable.createdAt));
+}));
+
+/** major incident: declare (team / ITSM Admin), stakeholder updates, stand down — each step emailed (ITSM Setup › Email alerts) */
+router.get("/incidents/:id/major", wrap(async (req, res) => {
+  if (!await allowed(req, "incident", "read")) return fail(res, 403, "No access to incidents");
+  const [i]: any[] = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.id, Number(req.params.id)));
+  if (!i) return fail(res, 404, "Incident not found");
+  const ups = ((await db.execute(sql`SELECT id, kind, message, created_by AS "by", created_at AS "at" FROM itsm_major_updates WHERE incident_id = ${i.id} ORDER BY created_at DESC`)) as any);
+  res.json({ isMajor: i.isMajor, open: i.isMajor && !i.majorEndedAt, declaredAt: i.majorDeclaredAt, declaredBy: i.majorDeclaredBy, reason: i.majorReason, bridge: i.majorBridge, endedAt: i.majorEndedAt, canManage: await canWorkIncident(req, i), updates: ups.rows ?? ups });
+}));
+router.post("/incidents/:id/major", wrap(async (req, res) => {
+  const id = Number(req.params.id); const action = String(req.body?.action || "");
+  const [i]: any[] = await db.select().from(itsmIncidentsTable).where(and(eq(itsmIncidentsTable.id, id), eq(itsmIncidentsTable.isActive, true)));
+  if (!i) return fail(res, 404, "Incident not found");
+  if (!await canWorkIncident(req, i)) return fail(res, 403, `Only ${i.assignedGroup || "the assigned team"} or an ITSM Admin can manage a major incident`);
+  const who = await actor(req); const msg = s(req.body?.message); const bridge = s(req.body?.bridge)?.slice(0, 300) ?? null;
+  if (!msg || msg.length < 5) return fail(res, 400, action === "declare" ? "Give the reason (business impact) — at least 5 characters" : "Write the update — at least 5 characters");
+  const { itsmMail } = await import("../lib/itsm-mail");
+  let set: any; let kind: string; let ev: string;
+  if (action === "declare") {
+    if (i.isMajor && !i.majorEndedAt) return fail(res, 409, `${i.ticketNo} is already a major incident`);
+    if (["Resolved", "Closed"].includes(i.status)) return fail(res, 400, `${i.ticketNo} is ${i.status.toLowerCase()} — reopen it first`);
+    set = { isMajor: true, majorDeclaredAt: new Date(), majorDeclaredBy: who.name, majorReason: msg, majorBridge: bridge, majorEndedAt: null, severity: "S1", priority: "Critical", priorityManual: true }; kind = "declared"; ev = "major_declared";
+  } else if (action === "update") {
+    if (!i.isMajor || i.majorEndedAt) return fail(res, 400, `${i.ticketNo} is not an open major incident`);
+    set = bridge !== null ? { majorBridge: bridge } : {}; kind = "update"; ev = "major_update";
+  } else if (action === "end") {
+    if (!i.isMajor || i.majorEndedAt) return fail(res, 400, `${i.ticketNo} is not an open major incident`);
+    set = { majorEndedAt: new Date() }; kind = "ended"; ev = "major_ended";
+  } else return fail(res, 400, "action must be declare, update or end");
+  const [u]: any[] = await db.update(itsmIncidentsTable).set({ ...set, updatedBy: who.label, updatedAt: new Date() }).where(eq(itsmIncidentsTable.id, id)).returning();
+  await db.execute(sql`INSERT INTO itsm_major_updates (incident_id, kind, message, created_by) VALUES (${id}, ${kind}, ${msg}, ${who.name})`);
+  await history("incident", id, who.label, kind === "declared" ? `Declared a MAJOR INCIDENT: ${msg}` : kind === "ended" ? `Major incident stood down: ${msg}` : `Major incident update: ${msg}`);
+  await audit({ entityType: "itsm_incident", entityId: id, action: `major_${kind}`, performedBy: who.label, summary: `${i.ticketNo} major incident ${kind}: ${msg}` });
+  const to = await itsmMail(ev, "incident", u, { actorEmail: who.email, reason: msg });
+  res.json({ ok: true, ticketNo: i.ticketNo, isMajor: u.isMajor, open: u.isMajor && !u.majorEndedAt, emailed: to.length });
+}));
+
+/** repeat incidents: same category / sub-category (or the same application) in the last 30 days */
+router.get("/incidents/:id/similar", wrap(async (req, res) => {
+  if (!await allowed(req, "incident", "read")) return fail(res, 403, "No access to incidents");
+  const [i]: any[] = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.id, Number(req.params.id)));
+  if (!i) return fail(res, 404, "Incident not found");
+  const apps = (Array.isArray(i.affectedApps) ? i.affectedApps : []).map((x: string) => x.toLowerCase());
+  const rows: any = await db.execute(sql`SELECT id, ticket_no AS "ticketNo", title, status, problem_id AS "problemId", created_at AS "createdAt" FROM itsm_incidents
+    WHERE coalesce(is_active, true) AND id <> ${i.id} AND created_at >= now() - interval '30 days'
+      AND ((lower(category) = lower(${i.category || ""}) AND lower(coalesce(subcategory, '')) = lower(${i.subcategory || ""}) AND lower(category) <> 'others')
+           OR (${apps.length > 0} AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(coalesce(affected_apps, '[]'::jsonb)) a WHERE lower(a) = ANY(${`{${apps.map((a: string) => `"${a.replace(/"/g, "")}"`).join(",")}}`}::text[]))))
+    ORDER BY created_at DESC LIMIT 20`);
+  const list = rows.rows ?? rows;
+  res.json({ count: list.length, unlinked: list.filter((r: any) => !r.problemId).length, problemId: i.problemId, items: list });
+}));
+
+/** create a problem from this incident (and its repeats); the incidents are linked to the new problem */
+router.post("/incidents/:id/create-problem", wrap(async (req, res) => {
+  if (!await allowed(req, "problem", "write")) return fail(res, 403, "You need edit access to Problems to create one");
+  const [i]: any[] = await db.select().from(itsmIncidentsTable).where(and(eq(itsmIncidentsTable.id, Number(req.params.id)), eq(itsmIncidentsTable.isActive, true)));
+  if (!i) return fail(res, 404, "Incident not found");
+  if (i.problemId) return fail(res, 409, `${i.ticketNo} is already linked to a problem`);
+  const ids = [i.id, ...(Array.isArray(req.body?.incidentIds) ? req.body.incidentIds.map(Number).filter((n: number) => Number.isInteger(n) && n !== i.id) : [])].slice(0, 50);
+  const cats: any = await db.execute(sql`SELECT category FROM itsm_catalog WHERE ticket_type = 'Problem' AND subcategory IS NULL AND is_active`);
+  const pc = ((cats.rows ?? cats) as any[]).map(r => r.category); const cat = pc.find(c => c.toLowerCase() === String(i.category || "").toLowerCase()) || pc.find(c => /^others?$/i.test(c)) || pc[0];
+  const body = { title: s(req.body?.title) || `Repeat incidents: ${i.title}`.slice(0, 300), description: `Raised from ${i.ticketNo}${ids.length > 1 ? ` and ${ids.length - 1} similar incident(s)` : ""}.\n\n${i.description || ""}`.slice(0, 4000),
+    category: cat, priority: i.priority, impactLevel: i.impactLevel, environment: i.environment, affectedApps: i.affectedApps || [], relatedIncidents: undefined as any };
+  let out: any = null, code = 200;
+  const sink: any = { status(c: number) { code = c; return this; }, json(b: any) { out = b; return this; }, end() { return this; } };
+  await createTicket("problem", { ...req, body } as any, sink);
+  if (code >= 400 || !out?.id) return res.status(code >= 400 ? code : 500).json(out || { error: "Problem not created" });
+  const who = await actor(req); const nos: string[] = [];
+  for (const iid of ids) {
+    const [x]: any[] = await db.update(itsmIncidentsTable).set({ problemId: out.id, updatedBy: who.label, updatedAt: new Date() } as any).where(and(eq(itsmIncidentsTable.id, iid), eq(itsmIncidentsTable.isActive, true), sql`${itsmIncidentsTable.problemId} IS NULL`)).returning();
+    if (x) { nos.push(x.ticketNo); await history("incident", iid, who.label, `Linked to problem ${out.problemNo} (created from repeat incidents)`); }
+  }
+  await db.update(itsmProblemsTable).set({ relatedIncidents: nos.join(", ") } as any).where(eq(itsmProblemsTable.id, out.id));
+  res.status(201).json({ ...out, linkedIncidents: nos });
 }));
 
 /* ─── INCIDENTS ──────────────────────────────────────────────────────────── */
@@ -1004,6 +1139,12 @@ const ITSM_CONFIG_DEFAULTS: Record<string, unknown> = {
   "itsm.problemCategories": ["Application", "Infrastructure", "Network", "Hardware", "Security", "Process", "Database", "Cloud", "Operations", "Others"],
   "itsm.changeCategories": ["Software", "Hardware", "Network", "Security", "Process", "Infrastructure", "Database", "Cloud", "End-User", "Others"],
   "itsm.srCategories": ["Access Request", "Software Install", "Hardware Request", "Account Setup", "Password Reset", "VPN Access", "Email Setup", "Mobile Device", "Printer Setup", "Data Export / Report", "New Joinee Onboarding", "Offboarding / Exit", "Others"],
+  "itsm.priorityMatrix": {
+    "Enterprise-wide": { Critical: "Critical", High: "Critical", Medium: "High", Low: "Medium" },
+    "Department": { Critical: "Critical", High: "High", Medium: "Medium", Low: "Medium" },
+    "Team": { Critical: "High", High: "High", Medium: "Medium", Low: "Low" },
+    "Individual": { Critical: "High", High: "Medium", Medium: "Low", Low: "Low" },
+  },
   "itsm.environments": ["Dev", "UAT", "PROD"],
   "itsm.applications": ["Bloomberg", "Teravista Symphony", "KFIN"],
   "itsm.departments": ["IT", "Finance", "HR", "Operations", "Sales", "Marketing", "Legal", "Admin", "Executive"],
@@ -1043,7 +1184,7 @@ router.get("/itsm-config", async (_req, res): Promise<void> => {
 });
 
 router.put("/itsm-config", requireAdmin, async (req, res): Promise<void> => {
-  responseCache.clear(); clearSlaCache();
+  responseCache.clear(); clearSlaCache(); pmCache = null;
   const body = req.body as Record<string, unknown>;
   { const bad = (m: string) => { res.status(400).json({ error: m }); return true; };
     const c: any = body["itsm.slaCalendar"];

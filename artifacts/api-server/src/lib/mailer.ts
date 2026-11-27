@@ -159,15 +159,15 @@ function wrapHtml(inner: string, note?: string) {
   const body = inner.replace(/<a href="([^"]+)">((?:Open|View) [^<]{1,60})<\/a>/g, (_m, u, t) => mailButton(t, u.replace(/&amp;/g, "&")));
   const logo = MAIL_LOGO ? `<td width="52" style="padding-right:12px;vertical-align:middle"><img src="${esc(MAIL_LOGO)}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border-radius:8px;background:#ffffff;padding:3px"></td>` : "";
   const why = note || `You receive this because of your role in ${MAIL_APP}${MAIL_CO ? ` at ${MAIL_CO}` : ""}.`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"></head>
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><style>@media only screen and (max-width:620px){.ith-pad{padding:20px 16px 18px!important}.ith-head{padding:14px 16px!important}.ith-foot{padding:12px 16px 16px!important}.ith-outer{padding:12px 6px!important}}</style></head>
 <body style="margin:0;padding:0;background:#f1f5f9">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9"><tr><td align="center" class="ith-outer" style="padding:24px 12px">
  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b">
-  <tr><td style="background:#0f2a5c;padding:16px 24px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>${logo}
+  <tr><td class="ith-head" style="background:#0f2a5c;padding:16px 24px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>${logo}
    <td style="vertical-align:middle"><div style="font-size:17px;font-weight:700;color:#ffffff;line-height:1.2">${esc(MAIL_APP)}</div>${MAIL_CO ? `<div style="font-size:12px;color:#bfd3f5;line-height:1.4">${esc(MAIL_CO)}</div>` : ""}</td></tr></table></td></tr>
   <tr><td style="height:4px;background:#2d7ff9;font-size:0;line-height:0">&nbsp;</td></tr>
-  <tr><td style="padding:26px 28px 22px;font-size:14px;line-height:1.6;color:#1e293b">${body}</td></tr>
-  <tr><td style="padding:14px 28px 18px;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:11.5px;line-height:1.5;color:#64748b">${esc(why)}<br>This is an automated message — please do not reply.</td></tr>
+  <tr><td class="ith-pad" style="padding:26px 28px 22px;font-size:14px;line-height:1.6;color:#1e293b">${body}</td></tr>
+  <tr><td class="ith-foot" style="padding:14px 28px 18px;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:11.5px;line-height:1.5;color:#64748b">${esc(why)}<br>This is an automated message — please do not reply.</td></tr>
  </table>
  <div style="font-family:'Segoe UI',Arial,sans-serif;font-size:11px;color:#94a3b8;padding-top:12px">${esc(MAIL_BRAND)}</div>
 </td></tr></table></body></html>`;

@@ -20,6 +20,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { MajorIncidentPanel, ParentIncidentField, ChildIncidents, RepeatBanner, PriorityPreview, priorityFromMatrix } from "@/components/itsm-incident-extras";
 import { TicketDialog, FormSection, PendingAttachments, linkPendingFiles, pendingBusy, type PendingFile, EnvAppsFields, EnvAppsView } from "@/components/itsm-form";
 import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -247,7 +248,7 @@ export default function ItsmIncidents() {
       if (editingItem) {
         const d: any = { title: f.title, description: f.description, affectedSystem: f.affectedSystem, urgency: f.urgency, impactLevel: f.impactLevel, source: f.source, environment: f.environment ?? null, affectedApps: f.affectedApps || [] };
         if (canWork(editingItem)) {
-          Object.assign(d, { priority: f.priority, severity: f.severity, status: f.status, assignedTo: f.assignedTo ?? null, resolutionNotes: f.resolutionNotes, problemId: f.problemId ?? null, ...(f.kbArticleId ? { kbArticleId: Number(f.kbArticleId) } : {}), category: f.category, subcategory: f.subcategory });
+          Object.assign(d, { priority: f.priorityManual ? f.priority : undefined, priorityManual: !!f.priorityManual, parentIncidentId: f.parentIncidentId ?? null, severity: f.severity, status: f.status, assignedTo: f.assignedTo ?? null, resolutionNotes: f.resolutionNotes, problemId: f.problemId ?? null, ...(f.kbArticleId ? { kbArticleId: Number(f.kbArticleId) } : {}), category: f.category, subcategory: f.subcategory });
           if (_teamId && _teamId !== editingItem.teamId) { d.teamId = _teamId; d.transferReason = _reason; }
           else if (f.category !== editingItem.category || (f.subcategory || null) !== (editingItem.subcategory || null)) d.transferReason = _reason || "Category corrected";
           if (f.reopenReason) d.reopenReason = f.reopenReason;
@@ -255,7 +256,7 @@ export default function ItsmIncidents() {
         await updateInc.mutateAsync({ id: editingItem.id, ...d }); toast({ title: `${editingItem.ticketNo} updated` });
       } else {
         setSaving(true);
-        const r: any = await createInc.mutateAsync({ title: f.title, description: f.description, priority: f.priority, severity: f.severity, urgency: f.urgency, impactLevel: f.impactLevel, source: f.source, category: f.category, subcategory: f.subcategory, affectedSystem: f.affectedSystem, environment: f.environment || undefined, affectedApps: f.affectedApps || [], problemId: f.problemId || undefined, assignedTo: f.assignedTo || undefined, onBehalfOfUserId: f.onBehalfOfUserId || undefined });
+        const r: any = await createInc.mutateAsync({ title: f.title, description: f.description, priority: f.priorityManual ? f.priority : (priorityFromMatrix(cfg["itsm.priorityMatrix"], f.impactLevel, f.urgency) || f.priority), priorityManual: !!f.priorityManual, parentIncidentId: f.parentIncidentId || undefined, severity: f.severity, urgency: f.urgency, impactLevel: f.impactLevel, source: f.source, category: f.category, subcategory: f.subcategory, affectedSystem: f.affectedSystem, environment: f.environment || undefined, affectedApps: f.affectedApps || [], problemId: f.problemId || undefined, assignedTo: f.assignedTo || undefined, onBehalfOfUserId: f.onBehalfOfUserId || undefined });
         const bad = pendingFiles.length ? await linkPendingFiles("Incident", r.id, pendingFiles) : 0;
         toast({ title: `${r.ticketNo} logged`, description: `Assigned to ${r.assignedGroup} · expected closure ${fmtDay(r.expectedClosureDate)}${pendingFiles.length ? ` · ${pendingFiles.length - bad} file(s) attached` : ""}${bad ? ` · ${bad} file(s) could not be attached` : ""}` });
       }
@@ -265,6 +266,7 @@ export default function ItsmIncidents() {
   }
   const route = useRoute("incident", isModalOpen && (!editingItem || (canWork(editingItem) && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) ? formData.category : null, formData.subcategory);
   const workMode = !!editingItem && canWork(editingItem);
+  const autoPriority = priorityFromMatrix(cfg["itsm.priorityMatrix"], formData.impactLevel, formData.urgency);
   const reqMode = !!editingItem && !workMode;
 
   async function handleDelete(id: number, ticket: string) {
@@ -398,7 +400,7 @@ export default function ItsmIncidents() {
                   <TableCell className="py-3">
                     <Checkbox checked={selectedIds.includes(inc.id)} onCheckedChange={() => toggleSelect(inc.id)} />
                   </TableCell>
-                  <TableCell className="py-3"><TicketNo no={inc.ticketNo} /></TableCell>
+                  <TableCell className="py-3"><TicketNo no={inc.ticketNo} />{inc.isMajor && !inc.majorEndedAt && <span className="ml-1.5 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white" data-testid="major-badge">MAJOR</span>}{inc.parentIncidentId && <span className="ml-1.5 text-[10px] text-muted-foreground" title="Child of another incident">↳ child</span>}</TableCell>
                   <TableCell className="py-3">
                     <div className="font-medium text-sm leading-tight max-w-[220px] truncate" title={inc.title}>{inc.title}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[220px]">{[inc.category, inc.subcategory].filter(Boolean).join(" › ") || inc.affectedSystem || "—"}</div>
@@ -446,6 +448,10 @@ export default function ItsmIncidents() {
                 <SeverityBadge value={viewModal.severity} />
               </div>
               <SlaPanel sla={viewModal.sla} firstResponseAt={viewModal.firstResponseAt} />
+              <MajorIncidentPanel incident={viewModal} />
+              {viewModal.parentIncidentId && (() => { const p = (incidents as any[]).find((x: any) => x.id === viewModal.parentIncidentId); return <div className="text-xs rounded-md border px-3 py-2" data-testid="parent-link">Part of <button type="button" className="font-mono text-primary hover:underline" onClick={() => p && setViewModal(p)}>{p?.ticketNo || `incident #${viewModal.parentIncidentId}`}</button>{p ? ` — ${p.title}` : ""} · resolved together with it</div>; })()}
+              <ChildIncidents incident={viewModal} onOpen={id => { const c = (incidents as any[]).find((x: any) => x.id === id); if (c) setViewModal(c); }} />
+              {canWork(viewModal) && <RepeatBanner incident={viewModal} />}
               {viewModal.kbArticleId && (kbArticles as any[]).find((k: any) => k.id === viewModal.kbArticleId) && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-sky-50 dark:bg-sky-900/10 border-sky-200 dark:border-sky-800 text-sm text-sky-700 dark:text-sky-300">
                   <Link2 className="w-4 h-4 flex-shrink-0" /><span className="font-semibold">Knowledge article:</span>
@@ -491,6 +497,7 @@ export default function ItsmIncidents() {
           <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title || (/^application/i.test(formData.category || "") && !(formData.affectedApps || []).length) || (!editingItem && !route.data?.ok) || (reqMode && editingItem?.status !== "Open") || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="incident-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Log incident"}</Button>
         </>}>
+        {editingItem && workMode && <div className="space-y-2"><MajorIncidentPanel incident={editingItem} /><RepeatBanner incident={editingItem} /><ChildIncidents incident={editingItem} /></div>}
         <FormSection title="What happened" icon={FileWarning}>
           <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Outlook not opening on my laptop" data-testid="incident-title" /></div>
           <div className="sm:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What were you doing, what did you see (error message), since when, who else is affected?" /></div>
@@ -508,7 +515,11 @@ export default function ItsmIncidents() {
         <FormSection title="How serious is it" icon={Gauge} hint="impact × urgency decide how fast the team responds">
           <div><Label>Impact</Label><Select value={formData.impactLevel || "__none__"} onValueChange={v => setFormData({ ...formData, impactLevel: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Who is affected?" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{IMPACT_LEVELS.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}</SelectContent></Select></div>
           <div><Label>Urgency</Label><Select value={formData.urgency || "__none__"} onValueChange={v => setFormData({ ...formData, urgency: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="How soon is it needed?" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{URGENCIES.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Priority</Label><Select disabled={reqMode} value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label className="flex items-center justify-between gap-2">Priority
+              {(workMode || (!editingItem && isAgent)) && <label className="flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground"><Checkbox checked={!!formData.priorityManual} onCheckedChange={v => setFormData({ ...formData, priorityManual: !!v, priority: v ? (formData.priority || autoPriority || "Medium") : formData.priority })} data-testid="priority-manual" />set by hand</label>}</Label>
+            {formData.priorityManual && (workMode || (!editingItem && isAgent))
+              ? <Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select>
+              : <PriorityPreview value={editingItem && !workMode ? editingItem.priority : (autoPriority || (editingItem ? editingItem.priority : null))} manual={!!editingItem?.priorityManual && !workMode} />}</div>
           <div><Label>Severity</Label><Select disabled={reqMode} value={formData.severity || "S3"} onValueChange={v => setFormData({ ...formData, severity: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{SEVERITIES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
         </FormSection>
         {(!editingItem || workMode) && <FormSection title={editingItem ? "Work on it" : "People"} icon={Users}>
@@ -519,6 +530,7 @@ export default function ItsmIncidents() {
             <div><Label>Status</Label><Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Assign to (team member)</Label><TeamMemberSelect others={isAdmin} teamId={editingItem.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
             <TransferFields currentTeamId={editingItem.teamId} teamId={formData._teamId} reason={formData._reason} onChange={(t, r) => setFormData({ ...formData, _teamId: t, _reason: r })} />
+            <ParentIncidentField incidents={incidents as any[]} selfId={editingItem.id} value={formData.parentIncidentId} onChange={v => setFormData({ ...formData, parentIncidentId: v })} />
             {["Resolved", "Closed"].includes(editingItem.status) && !["Resolved", "Closed"].includes(formData.status) && <div className="sm:col-span-2"><Label>Reason to reopen *</Label><Input value={formData.reopenReason || ""} onChange={e => setFormData({ ...formData, reopenReason: e.target.value })} /></div>}
             {(formData.status === "Resolved" || formData.status === "Closed") && <div className="sm:col-span-2"><Label>Resolution notes *</Label><Textarea value={formData.resolutionNotes || ""} onChange={e => setFormData({ ...formData, resolutionNotes: e.target.value })} rows={2} placeholder="What was the cause and what fixed it?" /></div>}
             {(kbArticles as any[]).length > 0 && <div className="sm:col-span-2"><Label>Knowledge article used (optional)</Label>
