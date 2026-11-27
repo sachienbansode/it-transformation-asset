@@ -28,8 +28,7 @@ export async function ensureDefaultRole(userId: number): Promise<boolean> {
     const [n] = rowsOf(await db.execute(sql`SELECT count(*)::int AS n FROM user_roles WHERE user_id = ${userId}`));
     return u.role === "admin" || n.n > 0;
   }
-  if (u.role === "admin") return true;
-  if (!u.is_active || !rid) return u.roles > 0;
+  if (!u.is_active || !rid) return u.role === "admin" || u.roles > 0;   // 2.08: every internal user, Super Admin included
   const [has] = rowsOf(await db.execute(sql`SELECT 1 FROM user_roles WHERE user_id = ${userId} AND role_id = ${rid}`));
   if (has) return true;
   await db.execute(sql`INSERT INTO user_roles (user_id, role_id) VALUES (${userId}, ${rid}) ON CONFLICT DO NOTHING`);

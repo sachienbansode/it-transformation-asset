@@ -251,6 +251,70 @@ router.post("/policies/:id/publish", requireAuth, wrap(async (req, res) => {
   res.json({ ok: true, version: ver, notified });
 }));
 
+/* ── 2.08 (ITH-189): policy emails from editable templates; each person gets their own email ── */
+const PE_KEY: Record<string, string> = { New: "policy_new", Updated: "policy_updated", Reminder: "policy_reminder", Resent: "policy_resent" };
+export const PE_FIELDS = ["name", "policyTitle", "code", "version", "type", "requirement", "action", "message", "dueDate", "changeNote", "link", "company"];
+async function peTemplate(key: string) { const [t] = rowsOf(await db.execute(sql`SELECT * FROM policy_email_templates WHERE event_key = ${key}`).catch(() => ({ rows: [] }))); return t || null; }
+async function peValues(p: any, person: { name?: string } | null, msg: string) {
+  const [v] = rowsOf(await db.execute(sql`SELECT change_note FROM policy_versions WHERE policy_id = ${p.id} AND version = ${p.version}`));
+  const due = overdueAt(p); const { getBrand } = await import("../lib/brand"); const b: any = await getBrand().catch(() => ({}));
+  const base = (process.env.APP_URL || "").replace(/\/$/, "");
+  return { name: person?.name || "colleague", policyTitle: p.title, code: p.code, version: String(p.version || 1), type: String(p.category || "Policy").toLowerCase(), requirement: p.requirement,
+    action: p.requirement === "Mandatory" ? "Please accept" : p.requirement === "Optional" ? "Your consent is requested" : "Please read",
+    message: msg, dueDate: due ? due.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).replace(/ /g, "-") : "—",
+    changeNote: v?.change_note || "—", link: `${base}/my-policies`, company: b.company || b.companyName || b.appName || "IT Team" } as Record<string, string>;
+}
+const peRender = (tpl: string, v: Record<string, string>, html = true) => tpl.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, k) => k in v ? (html ? escH(v[k]) : v[k]) : "");
+const escH = (x: string) => String(x ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+async function policyEmails(p: any, what: string, rows: any[], msg: string) {
+  try {
+    const t = await peTemplate(PE_KEY[what]); if (!t || !t.enabled) return;
+    const { sendDirect } = await import("../lib/mailer");
+    for (const r of rows.filter(r => r.email)) {
+      const v = await peValues(p, r, msg);
+      await sendDirect(PE_KEY[what], [r.email], peRender(t.subject, v, false), peRender(t.body, v), "You received this because this policy applies to you.");
+    }
+  } catch (e) { console.error("policy email failed", e); }
+}
+
+router.get("/policy-email-templates", requireAuth, wrap(async (req, res) => {
+  if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
+  res.json({ fields: PE_FIELDS, templates: rowsOf(await db.execute(sql`SELECT event_key AS key, label, description, enabled, subject, body, updated_by AS "updatedBy", updated_at AS "updatedAt" FROM policy_email_templates ORDER BY sort_order`)) });
+}));
+router.put("/policy-email-templates/:key", requireAuth, wrap(async (req, res) => {
+  const by = await adminGuard(req, res); if (!by) return;
+  const t = await peTemplate(String(req.params.key)); if (!t) return fail(res, 404, "Unknown template");
+  const subject = s(req.body?.subject, 300), body = String(req.body?.body ?? "").slice(0, 20000); const enabled = req.body?.enabled !== false;
+  if (!subject || subject.length < 3) return fail(res, 400, "Subject is required");
+  if (body.replace(/<[^>]*>/g, "").trim().length < 10) return fail(res, 400, "Write the email text (at least 10 characters)");
+  if (/<script|javascript:|on\w+\s*=/i.test(body)) return fail(res, 400, "Scripts and event handlers are not allowed in the email HTML");
+  await db.execute(sql`UPDATE policy_email_templates SET subject = ${subject}, body = ${body}, enabled = ${enabled}, updated_by = ${by}, updated_at = now() WHERE event_key = ${t.event_key}`);
+  const ch = [t.enabled !== enabled && (enabled ? "switched on" : "switched off"), t.subject !== subject && "subject", t.body !== body && "text"].filter(Boolean);
+  void logAudit({ entityType: "policy_email_template", entityId: 0, action: "update", performedBy: by, summary: `Policy email “${t.label}”: ${ch.join(", ") || "no change"}` }).catch(() => {});
+  res.json({ ok: true, changes: ch });
+}));
+router.post("/policy-email-templates/:key/preview", requireAuth, wrap(async (req, res) => {
+  if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
+  const t = await peTemplate(String(req.params.key)); if (!t) return fail(res, 404, "Unknown template");
+  const d = { ...t, ...(req.body?.draft || {}) };
+  const [p] = rowsOf(await db.execute(req.body?.policyId ? sql`SELECT * FROM policies WHERE id = ${Number(req.body.policyId)}` : sql`SELECT * FROM policies WHERE status = 'Published' ORDER BY updated_at DESC LIMIT 1`));
+  const sample = p || { id: 0, title: "Information Security Policy", code: "POL-0001", version: 1, category: "Policy", requirement: "Mandatory", due_days: 7 };
+  const [me] = rowsOf(await db.execute(sql`SELECT name FROM users WHERE id = ${uid(req)}`));
+  const v = await peValues(sample, me, "Read and accept by the due date. If not accepted by then, your access to IT Hub will be halted until you accept.");
+  res.json({ policy: sample.code, subject: peRender(d.subject, v, false), html: peRender(d.body, v) });
+}));
+router.post("/policy-email-templates/:key/test", requireAuth, wrap(async (req, res) => {
+  const by = await adminGuard(req, res); if (!by) return;
+  const t = await peTemplate(String(req.params.key)); if (!t) return fail(res, 404, "Unknown template");
+  const d = { ...t, ...(req.body?.draft || {}) };
+  const [me] = rowsOf(await db.execute(sql`SELECT name, email FROM users WHERE id = ${uid(req)}`));
+  const [p] = rowsOf(await db.execute(sql`SELECT * FROM policies WHERE status = 'Published' ORDER BY updated_at DESC LIMIT 1`));
+  const v = await peValues(p || { id: 0, title: "Information Security Policy", code: "POL-0001", version: 1, category: "Policy", requirement: "Mandatory", due_days: 7 }, me, "Read and accept by the due date.");
+  const { sendDirect } = await import("../lib/mailer");
+  const r = await sendDirect(`${t.event_key}_test`, [me.email], `[TEST] ${peRender(d.subject, v, false)}`, peRender(d.body, v), "This is a test sent from Policy Register › Email templates.");
+  res.json({ ok: r.status === "Sent", to: me.email, ...r });
+}));
+
 async function notifyAudience(p: any, what: "New" | "Updated" | "Reminder" | "Resent", scope: "pending" | "all" = "pending", extra?: string | null) {
   const rows = (await statusRows(p)).filter(r => scope === "all" || (r.decision !== "Accepted" && !(p.requirement === "Optional" && r.decision === "Declined")));
   const due = overdueAt(p); const dueTxt = due ? due.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).replace(/ /g, "-") : "";
@@ -258,13 +322,7 @@ async function notifyAudience(p: any, what: "New" | "Updated" | "Reminder" | "Re
   let msg = p.requirement === "Mandatory" ? (p.block_access !== false ? `Read and accept by ${dueTxt}. If not accepted by then, your access to IT Hub will be halted until you accept.` : `Please read and accept by ${dueTxt}.`) : p.requirement === "Optional" ? "You can accept or decline; you can change your choice later." : "Please read and acknowledge.";
   if (extra) msg = `${extra} ${msg}`;
   for (const r of rows) await db.execute(sql`INSERT INTO notifications (user_id, title, message, type, link) VALUES (${r.userId}, ${title.slice(0, 200)}, ${msg}, ${p.requirement === "Mandatory" ? "warning" : "info"}, '/my-policies')`);
-  try {
-    const { sendDirect } = await import("../lib/mailer");
-    const base = (process.env.APP_URL || "").replace(/\/$/, "");
-    const html = `<p>${title}</p><p>${msg}</p><p>Open it in IT Hub › My Policies${base ? ` (${base}/my-policies)` : ""}.</p><p>Regards,</p>`;
-    const to = rows.map(r => r.email).filter(Boolean);
-    for (let i = 0; i < to.length; i += 40) await sendDirect("policy_notice", to.slice(i, i + 40), title, html);
-  } catch (e) { console.error("policy email failed", e); }
+  void policyEmails(p, what, rows, msg);   // 2.08: one email per person from the editable template (Policy Register › Email templates)
   return rows.length;
 }
 

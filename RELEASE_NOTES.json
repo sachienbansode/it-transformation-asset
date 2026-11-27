@@ -1,4 +1,12 @@
 {
+ "2.08": [
+  "Admin › Users: separate Access roles column; Employee is the default role for every internal user (cannot be removed)",
+  "Reporting manager in User Master; Org tree view (people under their manager, unmapped people under the Super Admin)",
+  "Policy emails: on / off and editable HTML templates (new, updated, reminder, read again) with preview and test; one email per person"
+ ],
+ "2.07": [
+  "ITSM Setup › Categories: search (category, sub-category or team), categories collapsed by default, expand / collapse one or all"
+ ],
  "2.06": [
   "New role 'Policy Owner' — full rights on the Policy Register",
   "Multi-role: a person keeps the Employee role next to any other roles (e.g. Employee + Policy Owner, ITSM Agent + Policy Owner); start page picked from the strongest role",

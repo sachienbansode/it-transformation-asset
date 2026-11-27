@@ -160,7 +160,10 @@ router.get("/admin/users", requireAdmin, async (_req, res): Promise<void> => {
     .from(usersTable)
     .orderBy(usersTable.createdAt);
   const nameOf = new Map(users.map(u => [u.id, u.name]));
-  res.json(users.map(u => ({ ...u, reportingManager: u.reportingManagerId ? nameOf.get(u.reportingManagerId) || null : null })));
+  // 2.08 (ITH-188): access roles per user for the list
+  const rr: any = await db.execute(sql`SELECT ur.user_id, r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id ORDER BY r.name`);
+  const rolesOf = new Map<number, string[]>(); for (const x of (rr.rows ?? rr) as any[]) rolesOf.set(Number(x.user_id), [...(rolesOf.get(Number(x.user_id)) || []), x.name]);
+  res.json(users.map(u => ({ ...u, accessRoles: rolesOf.get(u.id) || [], reportingManager: u.reportingManagerId ? nameOf.get(u.reportingManagerId) || null : null })));
 });
 
 /** Employee codes are unique (case-insensitive) — they map people to assets. Returns the clashing user, if any. */

@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
-import { Users, Plus, Pencil, Save, Loader2, Trash2, FolderTree, Info, Crown, Upload, Download, Power } from "lucide-react";
+import { Users, Plus, Pencil, Save, Loader2, Trash2, FolderTree, Info, Crown, Upload, Download, Power, Search, X, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CatalogUploadDialog, downloadCatalogSheet } from "@/components/itsm-catalog-upload";
 import { SearchSelect } from "@/components/search-select";
@@ -177,6 +177,17 @@ function Catalog() {
   const [draft, setDraft] = useState<Record<number, any>>({}); const [busy, setBusy] = useState<number | null>(null); const [add, setAdd] = useState<any>(null); const [upload, setUpload] = useState(false);
   useEffect(() => { setDraft(Object.fromEntries(rows.map(r => [r.id, { teamId: r.teamId ?? null, resolutionDays: r.resolutionDays ?? "" }]))); }, [rows]);
   const groups = useMemo(() => rows.filter(r => !r.subcategory).map(c => ({ cat: c, subs: rows.filter(r => r.subcategory && r.category.toLowerCase() === c.category.toLowerCase()) })), [rows]);
+  // 2.07 (ITH-186): search; categories collapsed by default, expand one / all; a search opens the matching categories
+  const [q, setQ] = useState(""); const [open, setOpen] = useState<Set<number>>(new Set());
+  useEffect(() => { setOpen(new Set()); setQ(""); }, [type]);
+  const ql = q.trim().toLowerCase();
+  const shown = useMemo(() => !ql ? groups : groups.map(g => {
+    const catHit = [g.cat.category, g.cat.effectiveTeam].some(x => String(x || "").toLowerCase().includes(ql));
+    const subs = g.subs.filter(sr => [sr.subcategory, sr.effectiveTeam].some(x => String(x || "").toLowerCase().includes(ql)));
+    return catHit || subs.length ? { ...g, subs: catHit ? g.subs : subs, matched: subs.length } : null;
+  }).filter(Boolean) as any[], [groups, ql]);
+  const isOpen = (id: number) => !!ql || open.has(id);
+  const toggle = (id: number) => setOpen(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const refresh = () => ["itsm-catalog", "itsm-teams", "itsm-route"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
   const dirty = (r: any) => { const d = draft[r.id]; return d && ((d.teamId ?? null) !== (r.teamId ?? null) || String(d.resolutionDays ?? "") !== String(r.resolutionDays ?? "")); };
   async function save(r: any) {
@@ -192,7 +203,11 @@ function Catalog() {
   const set = (id: number, k: string, v: any) => setDraft(p => ({ ...p, [id]: { ...p[id], [k]: v } }));
   const renderRow = (r: any, sub?: boolean) => { const d = draft[r.id] || {}; return (
     <div key={r.id} className={cn("grid grid-cols-12 gap-2 items-center px-3 py-2", sub ? "bg-background" : "bg-muted/40 font-medium")}>
-      <div className={cn("col-span-12 md:col-span-4 text-sm", sub && "pl-6 text-muted-foreground")}>{sub ? `› ${r.subcategory}` : r.category}</div>
+      <div className={cn("col-span-12 md:col-span-4 text-sm", sub && "pl-8 text-muted-foreground")}>{sub ? `› ${r.subcategory}` : (() => { const n = groups.find(g => g.cat.id === r.id)?.subs.length || 0; return (
+        <button type="button" className="flex items-center gap-1.5 text-left w-full" onClick={() => n && toggle(r.id)} disabled={!n || !!ql} aria-expanded={isOpen(r.id)} data-testid={`cat-${r.category}`}>
+          {n ? (isOpen(r.id) ? <ChevronDown className="w-4 h-4 shrink-0" /> : <ChevronRight className="w-4 h-4 shrink-0" />) : <span className="w-4 shrink-0" />}
+          <span>{r.category}</span>{n > 0 && <span className="rounded-full bg-muted px-1.5 text-[10px] font-normal text-muted-foreground">{n}</span>}
+        </button>); })()}</div>
       <div className="col-span-7 md:col-span-4">
         <Select disabled={!canEdit} value={d.teamId ? String(d.teamId) : "__inherit__"} onValueChange={v => set(r.id, "teamId", v === "__inherit__" ? null : Number(v))}>
           <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -217,9 +232,18 @@ function Catalog() {
         </div>
       </div>
       <div className="flex items-start gap-2 text-xs text-muted-foreground"><Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />A new ticket goes to the team mapped to its sub-category (or its category). Expected closure date = raised date + the working days set here (Saturday and Sunday skipped); blank days = T+2. Changes apply to new tickets.</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[220px] max-w-md"><Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-9 pl-8" placeholder="Search category, sub-category or team" value={q} onChange={e => setQ(e.target.value)} data-testid="catalog-search" />
+          {q && <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" onClick={() => setQ("")} title="Clear"><X className="w-4 h-4" /></button>}</div>
+        <Button size="sm" variant="ghost" className="gap-1" disabled={!!ql} onClick={() => setOpen(new Set(groups.filter(g => g.subs.length).map(g => g.cat.id)))} data-testid="expand-all"><ChevronsUpDown className="w-4 h-4" />Expand all</Button>
+        <Button size="sm" variant="ghost" className="gap-1" disabled={!!ql} onClick={() => setOpen(new Set())} data-testid="collapse-all"><ChevronsDownUp className="w-4 h-4" />Collapse all</Button>
+        <span className="text-xs text-muted-foreground ml-auto">{ql ? `${shown.length} of ${groups.length} categories match` : `${groups.length} categories · ${rows.length - groups.length} sub-categories`}</span>
+      </div>
       <div className="grid grid-cols-12 gap-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"><div className="col-span-12 md:col-span-4">Category › Sub-category</div><div className="col-span-7 md:col-span-4">Assigned group</div><div className="col-span-3 md:col-span-2">Days to close</div></div>
       {isLoading && <div className="text-sm text-muted-foreground px-3">Loading…</div>}
-      <div className="space-y-2">{groups.map(g => <div key={g.cat.id} className="rounded-[10px] border overflow-hidden divide-y">{renderRow(g.cat)}{g.subs.map(sr => renderRow(sr, true))}</div>)}</div>
+      {ql && !shown.length && <div className="text-sm text-muted-foreground px-3 py-6 text-center">Nothing matches “{q}”.</div>}
+      <div className="space-y-2">{shown.map((g: any) => <div key={g.cat.id} className="rounded-[10px] border overflow-hidden divide-y">{renderRow(g.cat)}{isOpen(g.cat.id) && g.subs.map((sr: any) => renderRow(sr, true))}</div>)}</div>
       <CatalogUploadDialog open={upload} onClose={() => setUpload(false)} />
       {add && <AddCatalog init={add} teams={teams} onClose={() => setAdd(null)} onDone={refresh} />}
     </CardContent></Card>

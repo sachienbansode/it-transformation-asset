@@ -1,5 +1,5 @@
--- ONE-TIME (re-runnable) — Ashika AMC: IT Helpdesk team, its people, escalation levels and ticket routing.
--- Run in pgAdmin on it_hub_ashika_amc AFTER deploying 2.0 (needs db/62). Safe to run again: nothing is duplicated.
+-- ONE-TIME (re-runnable, manual — not part of deploy) — Ashika AMC: IT Helpdesk team, its people, escalation levels and ticket routing.
+-- Run in pgAdmin on it_hub_ashika_amc only if wanted. Safe to run again: nothing is duplicated.
 --
 --   * Users Sounak Ghosh, Darshan Jadhav (agents) and Arunava Nandi (lead + escalation level 1) are created if missing,
 --     with placeholder email / employee code / mobile — the admin corrects them in Admin › Users (sign-in: Microsoft 365).

@@ -14,16 +14,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Users, Plus, Pencil, Trash2, RefreshCw, Search, UserCheck, UserX, Shield, KeyRound, Download } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { confirmDialog } from "@/components/confirm-dialog";
+import { UserOrgTree } from "@/components/user-org-tree";
 
 interface AdminUser {
   id: number; email: string; name: string; userType: string;
   role: string; department: string; designation?: string; employeeCode?: string;
-  mobile?: string; mfaEnabled: boolean; status?: string; isActive: boolean; lastLoginAt?: string; authMethod?: string;
+  mobile?: string; mfaEnabled: boolean; status?: string; isActive: boolean; lastLoginAt?: string; authMethod?: string; accessRoles?: string[]; reportingManagerId?: number | null; reportingManager?: string | null;
 }
 interface DeptMaster { key: string; label: string; sortOrder: number; }
 
 const ROLE_OPTIONS = [
-  { value: "user", label: "User (Read-Only)" },
+  { value: "user", label: "User (access from roles)" },
   { value: "admin", label: "Super Admin (Full Access)" },
   { value: "cxo", label: "CXO (Dept KPIs)" },
   { value: "kpi_employee", label: "Employee (Own KPI set)" },
@@ -45,6 +46,8 @@ export default function AdminUsers() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
   const [searchQ, setSearchQ] = useState("");
+  const [view, setView] = useState<"list" | "tree">(() => { try { return (localStorage.getItem("users.view") as any) || "list"; } catch { return "list"; } });
+  useEffect(() => { try { localStorage.setItem("users.view", view); } catch { /* ignore */ } }, [view]);
   const [filterRole, setFilterRole] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [sortCol, setSortCol] = useState<"name" | "department" | "role" | "status">("name");
@@ -53,7 +56,7 @@ export default function AdminUsers() {
   const USER_PAGE_SIZE = 12;
   const [form, setForm] = useState({
     name: "", email: "", password: "", userType: "internal", role: "user",
-    department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true, authMethod: "password",
+    department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true, authMethod: "password", reportingManagerId: null as number | null,
   });
   const [ssoOn, setSsoOn] = useState(false);
   useEffect(() => { apiFetch<any>("/auth/sso/config").then(c => setSsoOn(!!c?.enabled)).catch(() => {}); }, []);
@@ -82,14 +85,14 @@ export default function AdminUsers() {
 
   const openAdd = () => {
     setEditUser(null);
-    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true, authMethod: ssoOn ? "m365" : "password" });
+    setForm({ name: "", email: "", password: "", userType: "internal", role: "user", department: "", designation: "", employeeCode: "", mobile: "", status: "active", isActive: true, authMethod: ssoOn ? "m365" : "password", reportingManagerId: null });
     setRoleIds([]);
     setModalOpen(true);
   };
 
   const openEdit = (u: AdminUser) => {
     setEditUser(u);
-    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", designation: u.designation || "", employeeCode: u.employeeCode || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive, authMethod: u.authMethod || "password" });
+    setForm({ name: u.name, email: u.email, password: "", userType: u.userType, role: u.role, department: u.department || "", designation: u.designation || "", employeeCode: u.employeeCode || "", mobile: u.mobile || "", status: u.status || "active", isActive: u.isActive, authMethod: u.authMethod || "password", reportingManagerId: u.reportingManagerId ?? null });
     setRoleIds([]);
     apiFetch<number[]>(`/user-roles/${u.id}`).then(setRoleIds).catch(() => {});
     setModalOpen(true);
@@ -102,7 +105,7 @@ export default function AdminUsers() {
         if (!form.employeeCode.trim()) { toast({ title: "Employee Code is required", description: "It links the person to their assets.", variant: "destructive" }); return; }
         if (users.some(u => u.id !== editUser.id && u.employeeCode?.toLowerCase() === form.employeeCode.trim().toLowerCase())) { toast({ title: "Employee Code already exists", description: "Employee codes must be unique.", variant: "destructive" }); return; }
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) { toast({ title: "Enter a valid login email", variant: "destructive" }); return; }
-        const body: any = { name: form.name, email: form.email.trim().toLowerCase(), userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
+        const body: any = { name: form.name, email: form.email.trim().toLowerCase(), userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status, reportingManagerId: form.reportingManagerId ?? null };
         if (form.password) body.password = form.password;
         body.authMethod = form.authMethod;
         await apiFetch(`/admin/users/${editUser.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -118,7 +121,7 @@ export default function AdminUsers() {
         const empCodeExists = users.some(u => u.employeeCode?.toLowerCase() === form.employeeCode.trim().toLowerCase());
         if (empCodeExists) { toast({ title: "Employee Code already exists", description: "Employee codes must be unique.", variant: "destructive" }); return; }
         if (form.authMethod === "password" && !form.password) { toast({ title: "Set a temporary password", description: "Or choose sign-in with Microsoft 365.", variant: "destructive" }); return; }
-        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status };
+        const body: any = { name: form.name, email: form.email, userType: form.userType, role: form.role, department: form.department, designation: form.designation, employeeCode: form.employeeCode, mobile: form.mobile, status: form.status, reportingManagerId: form.reportingManagerId ?? null };
         if (form.password) body.password = form.password;
         body.authMethod = form.authMethod;
         const created: any = await apiFetch("/admin/users", { method: "POST", body: JSON.stringify(body) });
@@ -160,7 +163,8 @@ export default function AdminUsers() {
       deptLabel(u.department || "").toLowerCase().includes(q) ||
       (u.designation || "").toLowerCase().includes(q) ||
       (u.employeeCode || "").toLowerCase().includes(q) ||
-      (u.mobile || "").includes(q)
+      (u.mobile || "").includes(q) ||
+      (u.accessRoles || []).some(r => r.toLowerCase().includes(q))
     );
     if (filterRole !== "all") filtered = filtered.filter(u => u.role === filterRole);
     if (filterType !== "all") filtered = filtered.filter(u => u.userType === filterType);
@@ -222,6 +226,7 @@ export default function AdminUsers() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex bg-muted rounded-[8px] p-[3px] gap-[3px]" data-testid="users-view">{([["list", "List"], ["tree", "Org tree"]] as const).map(([k, l]) => <button key={k} onClick={() => setView(k)} className={`px-2.5 py-1 rounded-[6px] text-xs ${view === k ? "bg-card font-semibold shadow-sm" : "text-muted-foreground"}`}>{l}</button>)}</div>
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input
@@ -263,23 +268,26 @@ export default function AdminUsers() {
 
       {loading ? (
         <div className="space-y-1.5">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-10 w-full" />)}</div>
+      ) : view === "tree" ? (
+        <UserOrgTree users={users as any} q={searchQ} deptLabel={deptLabel} onEdit={(u: any) => openEdit(u)} />
       ) : (
         <>
           <div className="border border-border rounded-lg overflow-hidden">
             <table className="w-full text-sm table-fixed">
               <thead>
                 <tr className="bg-muted/40 border-b border-border">
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[30%]">User</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[22%]">Email</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[22%]">Designation / Dept</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[12%]">Role</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[10%]">Status</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[24%]">User</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[19%]">Email</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[16%]">Designation / Dept</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[9%]">Base role</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[20%]">Access roles</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase w-[8%]">Status</th>
                   <th className="px-3 py-2.5 text-right text-[11px] font-semibold text-muted-foreground uppercase w-[4%]"></th>
                 </tr>
               </thead>
               <tbody>
                 {pagedUsers.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-muted-foreground">No users match your search.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">No users match your search.</td></tr>
                 )}
                 {pagedUsers.map(u => {
                   const s = u.status || (u.isActive ? "active" : "inactive");
@@ -309,7 +317,12 @@ export default function AdminUsers() {
                         {u.department && <p className="text-[11px] text-muted-foreground truncate">{deptLabel(u.department)}</p>}
                       </td>
                       <td className="px-3 py-2.5">
-                        <Badge variant="outline" className={`text-[10px] capitalize ${ROLE_BADGE[u.role] || ""}`}>{getRoleLabel(u.role)}</Badge>
+                        <Badge variant="outline" className={`text-[10px] capitalize ${ROLE_BADGE[u.role] || ""}`}>{u.role === "admin" ? "Super Admin" : getRoleLabel(u.role)}</Badge>
+                      </td>
+                      <td className="px-3 py-2.5" data-testid="user-access-roles">
+                        <div className="flex flex-wrap gap-1">{(u.accessRoles || []).length ? [...(u.accessRoles || [])].sort((a, b) => (a === "Employee" ? -1 : b === "Employee" ? 1 : a.localeCompare(b))).map(r =>
+                          <span key={r} className={`rounded-full border px-1.5 py-0.5 text-[10px] leading-none ${r === "Employee" ? "text-muted-foreground bg-muted/50" : "border-primary/40 bg-primary/10 text-primary font-medium"}`}>{r}</span>)
+                          : <span className="text-[11px] text-muted-foreground">{u.role === "admin" ? "All modules" : "—"}</span>}</div>
                       </td>
                       <td className="px-3 py-2.5">
                         <Badge variant="outline" className={`text-[10px] capitalize ${statusCls(s)}`}>{s}</Badge>
@@ -424,6 +437,12 @@ export default function AdminUsers() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5" data-testid="user-manager">
+              <Label>Reporting manager</Label>
+              <SearchSelect value={form.reportingManagerId ? String(form.reportingManagerId) : ""} onChange={(v: string) => setForm(f => ({ ...f, reportingManagerId: v ? Number(v) : null }))} placeholder="Search a person"
+                options={[{ value: "", label: "— Not set (shown under the Super Admin) —" }, ...users.filter(x => x.isActive && x.id !== editUser?.id).sort((a, b) => a.name.localeCompare(b.name)).map(x => ({ value: String(x.id), label: x.name, hint: [x.designation, x.department && deptLabel(x.department)].filter(Boolean).join(" · ") }))]} />
+              <p className="text-[11px] text-muted-foreground">Org tree and manager approvals use this.</p>
+            </div>
             <div className="space-y-1.5">
               <Label>Sign-in method</Label>
               <Select value={form.authMethod} onValueChange={v => setForm(f => ({ ...f, authMethod: v }))}>
@@ -442,13 +461,14 @@ export default function AdminUsers() {
             </div>}
             <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Access roles <span className="text-muted-foreground text-xs">(Portal users need one, or base role Admin)</span></Label>
+              <Label>Access roles <span className="text-muted-foreground text-xs">(Employee is given to every internal user; add more roles as approved)</span></Label>
               <div className="flex flex-wrap gap-1.5 rounded-[10px] border p-2 max-h-40 overflow-y-auto">
-                {accessRoles.map(r => {
-                  const on = roleIds.includes(r.id);
+                {accessRoles.filter(r => !(r.name === "Employee" && form.userType === "external")).map(r => {
+                  const locked = r.name === "Employee" && form.userType !== "external";   // 2.08: every internal user keeps Employee
+                  const on = locked || roleIds.includes(r.id);
                   return (
-                    <button key={r.id} type="button" title={`${r.description || r.name}\n` + (r.permissions.filter(p => p.accessLevel !== "none").map(p => `• ${moduleLabels[p.module]?.label || p.module}: ${p.accessLevel === "read" ? "View" : p.accessLevel === "write" ? "Edit" : "Full"}`).join("\n") || "No module access")} onClick={() => setRoleIds(ids => on ? ids.filter(x => x !== r.id) : [...ids, r.id])}
-                      className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${on ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground hover:bg-accent"}`}>{r.name}</button>
+                    <button key={r.id} type="button" disabled={locked} data-testid={`role-chip-${r.name}`} title={(locked ? "Default role — every internal employee has it\n" : "") + `${r.description || r.name}\n` + (r.permissions.filter(p => p.accessLevel !== "none").map(p => `• ${moduleLabels[p.module]?.label || p.module}: ${p.accessLevel === "read" ? "View" : p.accessLevel === "write" ? "Edit" : "Full"}`).join("\n") || "No module access")} onClick={() => !locked && setRoleIds(ids => on ? ids.filter(x => x !== r.id) : [...ids, r.id])}
+                      className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${locked ? "bg-primary/80 text-primary-foreground border-primary/80 cursor-default" : on ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground hover:bg-accent"}`}>{r.name}{locked && " · default"}</button>
                   );
                 })}
                 {!accessRoles.length && <span className="text-xs text-muted-foreground">No roles defined — Admin › Roles & Permissions.</span>}

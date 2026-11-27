@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, asc, inArray, and } from "drizzle-orm";
+import { eq, asc, inArray, and, sql } from "drizzle-orm";
 import { db, rolesTable, rolePermissionsTable, userRolesTable, usersTable } from "@workspace/db";
 import { z } from "zod";
 
@@ -186,6 +186,7 @@ router.delete("/roles/:id/users/:userId", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id);
   const userId = parseInt(req.params.userId);
   if (isNaN(id) || isNaN(userId)) { res.status(400).json({ error: "Invalid id" }); return; }
+  { const { defaultRoleId } = await import("../lib/default-role"); if (id === await defaultRoleId()) { const [u]: any = ((await db.execute(sql`SELECT coalesce(user_type, 'internal') AS t FROM users WHERE id = ${userId}`)) as any).rows ?? []; if (u?.t !== "external") { res.status(400).json({ error: "Every internal user keeps the Employee role (default)" }); return; } } }
   await db.delete(userRolesTable)
     .where(and(eq(userRolesTable.roleId, id), eq(userRolesTable.userId, userId)));
   res.sendStatus(204);
@@ -216,6 +217,7 @@ router.put("/user-roles/:userId", async (req, res): Promise<void> => {
       }))
     );
   }
+  { const { ensureDefaultRole } = await import("../lib/default-role"); await ensureDefaultRole(userId).catch(() => {}); }   // 2.08: Employee always kept for internal users
   res.sendStatus(204);
 });
 

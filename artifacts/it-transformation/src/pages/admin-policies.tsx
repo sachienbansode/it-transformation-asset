@@ -1,3 +1,4 @@
+import { PolicyEmailTemplates } from "@/components/policy-email-templates";
 import React, { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +18,7 @@ import { SearchMulti, EmployeePicker } from "@/components/search-select";
 import { PolicyPdfViewer } from "@/components/policy-pdf-viewer";
 import { uploadFile } from "@/components/compliance-shared";
 import { useAuth } from "@/contexts/auth-context";
-import { FileText, Eye } from "lucide-react";
+import { FileText, Eye, Mail } from "lucide-react";
 import { Plus, Send, BellRing, Users, Download, History, Archive, Edit, Loader2, MoreHorizontal, PauseCircle, PlayCircle, Undo2, Copy, Trash2, ArchiveRestore, RotateCcw } from "lucide-react";
 
 /* Policies & Consent › Policy Register (ITH-124: own menu, role permission "policies") — — write, publish (versioned) and track acceptance of policies, notices and consents. */
@@ -60,14 +61,17 @@ export default function AdminPolicies() {
   // ITH-124: active policies first view (latest version), newest change on top (server sorts by last update)
   const stOf: Record<string, (p: any) => boolean> = { active: p => p.status === "Published", draft: p => p.status === "Draft", inactive: p => p.status === "Inactive", retired: p => p.status === "Retired", all: () => true };
   const visible = list.filter(stOf[show]);
+  const [tplOpen, setTplOpen] = useState(false);
   const count = (k: string) => list.filter(stOf[k]).length;
   return (
     <div className="space-y-5">
+      <PolicyEmailTemplates open={tplOpen} onClose={() => setTplOpen(false)} canEdit={canWrite} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div><h1 className="text-2xl font-bold tracking-tight">Policy Register</h1>
           <p className="text-sm text-muted-foreground">Publish policies, notices and consents; every acceptance is recorded with the version, text fingerprint, time, IP and browser. Mandatory items lock IT Hub for a person once the days to accept have passed.</p></div>
         <div className="flex gap-2 items-center"><select data-testid="policy-filter" className="h-9 rounded-md border bg-background px-2 text-sm" value={show} onChange={e => setShow(e.target.value as any)}>
           {([["active", "Active"], ["draft", "Drafts"], ["inactive", "Inactive"], ["retired", "Retired"], ["all", "All"]] as const).map(([k, l]) => <option key={k} value={k}>{l} ({count(k)})</option>)}</select>
+        <Button variant="outline" className="gap-2" onClick={() => setTplOpen(true)} data-testid="open-policy-email-templates"><Mail className="w-4 h-4" />Email templates</Button>
         {canWrite && <Button className="gap-2" onClick={() => setEdit({ requirement: "Mandatory", category: "Policy", dueDays: 7, audience: { all: true }, allowWithdraw: true, push: true, blockAccess: true })}><Plus className="w-4 h-4" />New policy / notice</Button>}</div>
       </div>
       <Card><CardContent className="p-0 overflow-x-auto">

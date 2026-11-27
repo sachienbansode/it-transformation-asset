@@ -1,5 +1,5 @@
--- ONE-TIME (re-runnable) — Ashika AMC: users from users_AMC list + "Policy Owner" role mapping. Run in pgAdmin on
--- it_hub_ashika_amc after deploying 2.06. Nothing is duplicated; existing users keep their password / sign-in history.
+-- ONE-TIME (re-runnable, manual — not part of deploy) — Ashika AMC:
+-- users from users_AMC list + additional role mapping. Nothing is duplicated; existing users keep their password / sign-in history.
 --   * Users sign in with Microsoft 365 (their @ashikamf.com account); two-step sign-in by emailed code is on.
 --   * Every internal user has the Employee role. Additional roles are given ONLY to the people listed in `extra_roles`
 --     below (approved internally) — not by designation. Add / remove lines there and run again; removals are not done
