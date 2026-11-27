@@ -10,7 +10,7 @@ import { fmtDate } from "./dates";
  * (requester, assignee, team, team lead, escalation level 1 / 2, admins, extra addresses), and an editable subject + body.
  * Only those people get it; the person who made the change is left out; each person gets their own email.
  */
-export type ItsmKind = "incident" | "request";
+export type ItsmKind = "incident" | "request" | "problem" | "change";
 export type MailCtx = { actorEmail?: string | null; reason?: string | null; slaLeft?: string | null };
 type Rule = { event_key: string; enabled: boolean; to_requester: boolean; to_assignee: boolean; to_team: boolean; to_lead: boolean; to_escalation1: boolean; to_escalation2: boolean; to_admins: boolean; extra: string | null; skip_actor: boolean; subject: string; body: string };
 
@@ -24,9 +24,9 @@ async function rules() {
 }
 const userById = async (id?: number | null) => id ? (await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, isActive: usersTable.isActive }).from(usersTable).where(eq(usersTable.id, id)))[0] || null : null;
 
-export const TYPE = { incident: "Incident", request: "Service request" } as const;
-const NOF = (k: ItsmKind, t: any) => k === "incident" ? t.ticketNo ?? t.ticket_no : t.requestNo ?? t.request_no;
-const PAGE = { incident: "/itsm-incidents", request: "/itsm-requests" } as const;
+export const TYPE = { incident: "Incident", request: "Service request", problem: "Problem", change: "Change request" } as const;
+const NOF = (k: ItsmKind, t: any) => k === "incident" ? t.ticketNo ?? t.ticket_no : k === "problem" ? t.problemNo ?? t.problem_no : k === "change" ? t.changeNo ?? t.change_no : t.requestNo ?? t.request_no;
+const PAGE = { incident: "/itsm-incidents", request: "/itsm-requests", problem: "/itsm-problems", change: "/itsm-changes" } as const;
 
 /** placeholder values for one ticket — also used by the template preview */
 export async function ticketValues(kind: ItsmKind, t: any, ctx: MailCtx = {}) {
@@ -39,7 +39,7 @@ export async function ticketValues(kind: ItsmKind, t: any, ctx: MailCtx = {}) {
   return {
     type: TYPE[kind], no, title: t.title || "", priority: t.priority || "—", status: t.status || "", team: t.assignedGroup || team?.name || "IT team",
     assignee: t.assignedTo || "the team", requester: requester?.name || t.reportedBy || t.requestedBy || "there", category: [t.category, t.subcategory].filter(Boolean).join(" › "),
-    expectedClosure: t.expectedClosureDate ? fmtDate(t.expectedClosureDate) : "as per SLA", resolution: t.resolutionNotes || t.fulfillmentNotes || "—",
+    expectedClosure: t.expectedClosureDate ? fmtDate(t.expectedClosureDate) : "as per SLA", resolution: t.resolutionNotes || t.fulfillmentNotes || t.rootCause || "—",
     reason: ctx.reason || "—", slaLeft: ctx.slaLeft || "—", assigneeLine: t.assignedTo ? ` and is with ${t.assignedTo}` : "",
     link: `${base}${PAGE[kind]}?q=${encodeURIComponent(no)}`, details,
   } as Record<string, string>;

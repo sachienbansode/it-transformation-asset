@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, usersTable, itsmTeamsTable, itsmTeamMembersTable, itsmCatalogTable, itsmIncidentsTable, itsmServiceRequestsTable } from "@workspace/db";
+import { db, usersTable, itsmTeamsTable, itsmTeamMembersTable, itsmCatalogTable, itsmIncidentsTable, itsmServiceRequestsTable, itsmProblemsTable, itsmChangesTable } from "@workspace/db";
 import { and, eq, inArray, sql, asc } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth } from "./auth";
@@ -126,7 +126,7 @@ router.get("/itsm-catalog", wrap(async (req, res) => {
 }));
 
 const catSchema = z.object({
-  ticketType: z.enum(["Incident", "Service Request"]),
+  ticketType: z.enum(["Incident", "Service Request", "Problem", "Change Request"]),
   category: z.string().trim().min(2, "Category is required").max(80),
   subcategory: z.string().trim().max(80).nullable().optional(),
   teamId: z.coerce.number().int().positive().nullable().optional(),
@@ -284,7 +284,7 @@ router.post("/itsm-catalog/import", wrap(async (req, res) => {
 
 router.get("/itsm-route", wrap(async (req, res) => {
   const kind = String(req.query.type || "request");
-  if (!CATALOG_TYPE[kind]) return fail(res, 400, "type must be incident or request");
+  if (!CATALOG_TYPE[kind]) return fail(res, 400, "type must be incident, request, problem or change");
   try {
     const r = await route(kind, req.query.category, req.query.subcategory);
     const a = await getAccess(req);
@@ -338,8 +338,10 @@ router.post("/itsm-email-rules/:key/preview", wrap(async (req, res) => {
   if (!rule) return fail(res, 404, "Unknown email alert");
   const draft = { ...rule, ...(req.body?.draft || {}) };
   const no = String(req.body?.ticketNo || "").trim();
-  let kind: "incident" | "request" = no.toUpperCase().startsWith("SR") || no.toUpperCase().startsWith("REQ") ? "request" : "incident";
-  let [t] = no ? await db.select().from(kind === "incident" ? itsmIncidentsTable : itsmServiceRequestsTable).where(kind === "incident" ? eq(itsmIncidentsTable.ticketNo, no) : eq(itsmServiceRequestsTable.requestNo, no)) as any[] : [];
+  const U = no.toUpperCase();
+  let kind: "incident" | "request" | "problem" | "change" = /^(SR|REQ)/.test(U) ? "request" : /^PRB/.test(U) ? "problem" : /^CHG/.test(U) ? "change" : "incident";
+  const TB: any = { incident: [itsmIncidentsTable, "ticketNo"], request: [itsmServiceRequestsTable, "requestNo"], problem: [itsmProblemsTable, "problemNo"], change: [itsmChangesTable, "changeNo"] }[kind];
+  let [t] = no ? await db.select().from(TB[0]).where(eq(TB[0][TB[1]], no)) as any[] : [];
   if (!t && !no) { [t] = await db.select().from(itsmIncidentsTable).where(eq(itsmIncidentsTable.isActive, true)).orderBy(sql`id DESC`).limit(1) as any[]; kind = "incident"; }
   if (!t) return fail(res, 404, no ? `Ticket ${no} not found` : "No ticket yet — log one to preview");
   const { recipients, ticketValues, render } = await import("../lib/itsm-mail");

@@ -4,7 +4,8 @@
 --   * Users Sounak Ghosh, Darshan Jadhav (agents) and Arunava Nandi (lead + escalation level 1) are created if missing,
 --     with placeholder email / employee code / mobile — the admin corrects them in Admin › Users (sign-in: Microsoft 365).
 --   * Escalation level 2 = the user whose email is in l2_email below. Leave it as is and the first active Super Admin is used.
---   * Every incident and service-request category / sub-category is routed to IT Helpdesk; IT support chat uses it too.
+--   * Every incident, service-request, problem and change category / sub-category is routed to IT Helpdesk; IT support chat uses it too.
+--   * The problem-management workflow is switched on (needs 2.04).
 --   * All three get the ITSM Agent role; the lead also gets ITSM Admin.
 DO $$
 DECLARE
@@ -44,6 +45,8 @@ BEGIN
   UPDATE itsm_catalog SET team_id = tid, updated_at = now() WHERE (team_id IS DISTINCT FROM tid) AND (subcategory IS NULL OR team_id IS NOT NULL);
   GET DIAGNOSTICS n = ROW_COUNT; RAISE NOTICE 'Routing: % categories / sub-categories now go to IT Helpdesk', n;
   INSERT INTO settings (key, value) VALUES ('chat.supportTeamId', to_jsonb(tid)) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+  -- 2.04: problems follow the problem-management workflow (root cause → known error → fix sign-off)
+  UPDATE itsm_workflows SET is_active = true, updated_at = now() WHERE ticket_type = 'problem' AND name = 'Problem management' AND NOT is_active;
 END $$;
 
 -- check

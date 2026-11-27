@@ -16,8 +16,8 @@ import { fmtDate, fmtDateTime } from "@/lib/date";
  * team-member assignee picker, team transfer, and listing cells (raised by, with, expected closure, time taken).
  */
 
-export type Kind = "incident" | "request";
-const TYPE: Record<Kind, string> = { incident: "Incident", request: "Service Request" };
+export type Kind = "incident" | "request" | "problem" | "change";   // 2.04: problems and changes are routed too
+const TYPE: Record<Kind, string> = { incident: "Incident", request: "Service Request", problem: "Problem", change: "Change Request" };
 
 export function useCatalog(kind: Kind) {
   return useQuery<any[]>({ queryKey: ["itsm-catalog", kind], queryFn: () => apiFetch(`/itsm-catalog?ticketType=${encodeURIComponent(TYPE[kind])}`), staleTime: 60_000 });

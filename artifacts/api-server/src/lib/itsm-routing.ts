@@ -9,7 +9,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
  */
 
 export const DEFAULT_DAYS = 2;
-export const CATALOG_TYPE: Record<string, string> = { incident: "Incident", request: "Service Request" };
+export const CATALOG_TYPE: Record<string, string> = { incident: "Incident", request: "Service Request", problem: "Problem", change: "Change Request" };   // 2.04: problems + changes routed too
 
 export class RoutingError extends Error { status = 400; }
 
@@ -74,9 +74,11 @@ export async function teamById(id: number | null | undefined) {
   const [t] = await db.select().from(itsmTeamsTable).where(eq(itsmTeamsTable.id, id));
   return t || null;
 }
-export async function userByName(name: string) {
+export async function userByName(name: string, preferTeamId?: number | null) {
+  // 2.04: two active people with the same name → prefer the one in the ticket's team, then the newest
   const [u] = await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email }).from(usersTable)
-    .where(and(sql`(lower(${usersTable.name}) = lower(${name}) OR lower(${usersTable.email}) = lower(${name}))`, eq(usersTable.isActive, true)));
+    .where(and(sql`(lower(${usersTable.name}) = lower(${name}) OR lower(${usersTable.email}) = lower(${name}))`, eq(usersTable.isActive, true)))
+    .orderBy(sql`(EXISTS (SELECT 1 FROM itsm_team_members m WHERE m.user_id = ${usersTable.id} AND m.team_id = ${preferTeamId ?? 0})) DESC`, sql`${usersTable.id} DESC`).limit(1);
   return u || null;
 }
 export async function emailsOfTeam(teamId: number) {

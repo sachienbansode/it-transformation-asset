@@ -294,7 +294,7 @@ export async function wfCheckStatus(kind: WfKind, ticketId: number, from: string
   if (!ok) throw new WfError(`Workflow “${inst.workflow}” at “${n?.label || n?.config?.status || "this step"}” allows: ${opts.map(o => `${o.label}${o.status && o.status !== o.label ? ` (${o.status})` : ""}`).join(", ") || "no manual moves"}`);
 }
 /** After a status change has been saved: move the workflow along the matching edge. */
-export async function wfAfterStatus(kind: WfKind, ticketId: number, from: string, to: string, by: string, admin: boolean) {
+export async function wfAfterStatus(kind: WfKind, ticketId: number, from: string, to: string, by: string, admin: boolean, reopened = false) {
   if (from === to) return;
   const inst = await instanceOf(kind, ticketId); if (!inst || inst.state === "Finished" || inst.state === "Stopped") return;
   const d: WfDef = inst.definition; const t = await ticket(kind, ticketId);
@@ -302,10 +302,11 @@ export async function wfAfterStatus(kind: WfKind, ticketId: number, from: string
     const o = (await targets(kind, inst, { ...t, status: from })).find(x => x.status === to) || (await targets(kind, inst, { ...t, status: from })).find(x => !x.status);
     if (o) { await event(inst.id, nodeOf(d, inst.current_node), "left", `${o.label} → ${to}`, by); await walk(kind, inst, o.edge, by); return; }
   }
-  if (admin) {   // override outside the drawn path: jump to a stage with that status, else stop the workflow
-    const st = d.nodes.find(n => n.type === "stage" && n.config?.status === to);
-    await db.execute(sql`UPDATE itsm_workflow_tasks SET status = 'Cancelled', notes = 'Status changed by ITSM Admin' WHERE instance_id = ${inst.id} AND status = 'Pending'`);
-    if (st) { await db.execute(sql`UPDATE itsm_ticket_workflows SET current_node = ${st.id}, entered_at = now(), state = 'Running' WHERE id = ${inst.id}`); await event(inst.id, st, "override", `ITSM Admin moved the ticket to ${to}`, by); }
+  if (admin || reopened) {   // override outside the drawn path (or a reopen): jump to a stage with that status, else stop the workflow
+    const who = reopened && !admin ? "Reopened" : "ITSM Admin";
+    const st = d.nodes.find(n => n.type === "stage" && n.config?.status === to) || (reopened ? d.nodes.find(n => n.type === "stage" && ["In Progress", "Open"].includes(n.config?.status)) : undefined);
+    await db.execute(sql`UPDATE itsm_workflow_tasks SET status = 'Cancelled', notes = ${`Status changed (${who})`} WHERE instance_id = ${inst.id} AND status = 'Pending'`);
+    if (st) { await db.execute(sql`UPDATE itsm_ticket_workflows SET current_node = ${st.id}, entered_at = now(), state = 'Running', finished_at = null WHERE id = ${inst.id}`); await event(inst.id, st, "override", reopened ? `Reopened → ${to}` : `ITSM Admin moved the ticket to ${to}`, by); }
     else { await db.execute(sql`UPDATE itsm_ticket_workflows SET state = 'Stopped', finished_at = now() WHERE id = ${inst.id}`); await event(inst.id, null, "stopped", `ITSM Admin set ${to}, which is not in the workflow`, by); await history(kind, ticketId, `Workflow “${inst.workflow}” stopped: status ${to} set by ITSM Admin outside the workflow`, null, null, by); }
   }
 }

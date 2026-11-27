@@ -64,6 +64,13 @@ export const itsmProblemsTable = pgTable("itsm_problems", {
   affectedSystems: text("affected_systems"),
   environment: text("environment"),   // 2.03: Dev / UAT / PROD (Masters › ITSM environments)
   affectedApps: jsonb("affected_apps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  teamId: integer("team_id"),   // 2.04: routed like incidents (category → team)
+  subcategory: text("subcategory"),
+  requesterUserId: integer("requester_user_id"),
+  expectedClosureDate: date("expected_closure_date", { mode: "string" }),
+  firstResponseAt: timestamp("first_response_at", { withTimezone: true }),
+  reportedBy: text("reported_by"),
+  reporterEmail: text("reporter_email"),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),
@@ -92,6 +99,13 @@ export const itsmChangesTable = pgTable("itsm_changes", {
   affectedAssets: text("affected_assets"),
   environment: text("environment"),   // 2.03: Dev / UAT / PROD (Masters › ITSM environments)
   affectedApps: jsonb("affected_apps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  teamId: integer("team_id"),   // 2.04: routed like incidents (category → team)
+  subcategory: text("subcategory"),
+  requesterUserId: integer("requester_user_id"),
+  expectedClosureDate: date("expected_closure_date", { mode: "string" }),
+  firstResponseAt: timestamp("first_response_at", { withTimezone: true }),
+  assignedTo: text("assigned_to"),
+  assignedGroup: text("assigned_group"),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),

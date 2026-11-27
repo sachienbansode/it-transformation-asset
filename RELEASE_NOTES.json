@@ -1,4 +1,11 @@
 {
+ "2.04": [
+  "Problems and changes are assigned like incidents: the category decides the team (IT Helpdesk by default), assign to a team member, pass to another team with a reason, expected closure date",
+  "Email alerts for problems and changes (team, assignee, raiser)",
+  "Reopening a resolved ticket works with workflows switched on",
+  "Same-name users: the person in the ticket's team is chosen when assigning",
+  "ITSM Setup › Categories has Problem and Change Request tabs"
+ ],
  "2.03": [
   "New ticket forms for incidents, service requests, problems and changes: sections, colour per ticket type, buttons always visible, full screen on phones",
   "Attach files while raising any ticket (drag & drop); the person who raised a ticket can add files later",

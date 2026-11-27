@@ -317,10 +317,10 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
       requester = u;
     }
     Object.assign(values, { category: rt.category, subcategory: rt.subcategory, teamId: rt.team.id, assignedGroup: rt.team.name, expectedClosureDate: rt.expectedClosureDate, requesterUserId: requester.id });
-    if (kind === "request") values.requestedBy = requester.name; else { values.reportedBy = requester.name; values.reporterEmail = requester.email; }
+    if (kind === "request" || kind === "change") values.requestedBy = requester.name; else { values.reportedBy = requester.name; values.reporterEmail = requester.email; }
     if (s(body.assignedTo)) {
       if (!isItsmAdmin(a) && !myTeams.includes(rt.team.id)) throw new Forbidden(`Only members of ${rt.team.name} can assign this ticket to a person`);
-      const u = await userByName(String(body.assignedTo));
+      const u = await userByName(String(body.assignedTo), rt.team.id);
       if (!u || !await isMember(u.id, rt.team.id)) throw new Bad(`${body.assignedTo} is not a member of ${rt.team.name}`);
       values.assignedTo = u.name; values.firstResponseAt = createdAt; notifyAssignee = u.email;
     } else values.assignedTo = null;
@@ -375,13 +375,14 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     const OPS = ["status", "assignedTo", "assignedGroup", "teamId", "priority", "severity", "resolutionNotes", "fulfillmentNotes", "category", "subcategory", "problemId", "urgency", "impactLevel", "source"];
     const touched = OPS.filter(k => body[k] !== undefined && String(body[k] ?? "") !== String(old[k] ?? ""));
     if (!isItsmAdmin(a) && !member) {
-      const cancelOwn = kind === "request" && isRequester && touched.length === 1 && touched[0] === "status" && body.status === "Cancelled" && !DONE.request.includes(old.status);
+      const cancelOwn = (kind === "request" || kind === "change") && isRequester && touched.length === 1 && touched[0] === "status" && body.status === "Cancelled" && !DONE[kind].includes(old.status);
       // r101: the person who raised it may reopen a RESOLVED (not closed) ticket within 7 days, with a reason
       const reopenOwn = isRequester && touched.length === 1 && touched[0] === "status" && ["Resolved", "Completed"].includes(old.status) && !DONE[kind].includes(body.status)
         && Date.now() - +new Date(old.resolvedAt || old.completedAt || old.updatedAt) < 7 * 86400_000;
       if (touched.length && !cancelOwn && !reopenOwn) throw new Forbidden(`Only members of ${old.assignedGroup || "the assigned team"} can change ${touched.join(", ")}${isRequester && kind === "request" ? " (you can cancel your own request)" : ""}`);
       if (!isRequester) throw new Forbidden(`Only the requester or members of ${old.assignedGroup || "the assigned team"} can edit this ticket`);
-      if (!["Open", "Pending Approval"].includes(old.status) && !touched.length && !reopenOwn) throw new Forbidden("The request is already being worked on — add details through the assigned team");
+      const EDITABLE: Record<string, string[]> = { incident: ["Open", "Pending Approval"], request: ["Open", "Pending Approval"], problem: ["Open"], change: ["Draft", "Pending Approval"] };
+      if (!EDITABLE[kind].includes(old.status) && !touched.length && !reopenOwn) throw new Forbidden("The ticket is already being worked on — add details through the assigned team");
     }
     // Category change re-routes the ticket
     let newTeamId: number | null = body.teamId ? Number(body.teamId) : null;
@@ -399,11 +400,11 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
       const t = await teamById(newTeamId); if (!t || !t.isActive) throw new Bad("Choose an active team");
       if (!transferReason || transferReason.length < 5) throw new Bad(`Give a reason for passing the ticket to ${t.name} (transferReason)`);
       extra.teamId = t.id; extra.assignedGroup = t.name; teamId = t.id; events.push("transferred");
-      if (old.assignedTo && body.assignedTo === undefined) { const u = await userByName(old.assignedTo); if (!u || !await isMember(u.id, t.id)) extra.assignedTo = null; }
+      if (old.assignedTo && body.assignedTo === undefined) { const u = await userByName(old.assignedTo, t.id); if (!u || !await isMember(u.id, t.id)) extra.assignedTo = null; }
     }
     if (body.assignedTo !== undefined && (body.assignedTo || null) !== (old.assignedTo || null)) {
       if (body.assignedTo) {
-        const u = await userByName(String(body.assignedTo));
+        const u = await userByName(String(body.assignedTo), teamId);
         if (!u) throw new Bad(`${body.assignedTo} is not an active user`);
         if (!await isMember(u.id, teamId)) {
           // r92: an ITSM admin may assign someone outside the team — that person is added to the team (logged)
@@ -430,7 +431,8 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     if (kind === "request" && to === "Completed" && !s(body.fulfillmentNotes ?? old.fulfillmentNotes)) throw new Bad("Fulfilment notes are required to complete a request");
     if (kind === "change" && ["Scheduled", "In Progress", "Completed"].includes(to) && old.approvalStatus !== "Approved" && !(await wfRunning(kind, id))) throw new Bad("Change request must be approved before it is scheduled or implemented");
     await assertApproved(kind, id, to);
-    await wfCheckStatus(kind, id, old.status, to, isItsmAdmin(await getAccess(req)));
+    // 2.04: a reopen (with its reason, checked above) is always allowed — the workflow goes back to the matching stage
+    await wfCheckStatus(kind, id, old.status, to, isItsmAdmin(await getAccess(req)) || (REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(to)));
   }
   const updates: any = { ...body, ...extra, updatedBy: who.label, updatedAt: new Date() };
   if (kind === "incident" && to === "Resolved" && old.status !== "Resolved") updates.resolvedAt = new Date();
@@ -453,7 +455,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if ((old.assignedGroup || null) !== (item.assignedGroup || null)) await history(kind, id, who.label, `Passed to team ${item.assignedGroup || "(none)"} from ${old.assignedGroup || "(none)"}${s(req.body?.transferReason) ? ` — ${s(req.body.transferReason)}` : ""}`);
   if ((old.assignedTo || null) !== (item.assignedTo || null)) await history(kind, id, who.label, item.assignedTo ? `Assigned to ${item.assignedTo}${old.assignedTo ? ` (was ${old.assignedTo})` : ""}` : `Unassigned (was ${old.assignedTo})`);
   if (old.priority && item.priority && old.priority !== item.priority) await history(kind, id, who.label, `Priority ${old.priority} → ${item.priority}`);
-  if (old.status !== item.status) await wfAfterStatus(kind, id, old.status, item.status, who.label, isItsmAdmin(await getAccess(req)));
+  if (old.status !== item.status) await wfAfterStatus(kind, id, old.status, item.status, who.label, isItsmAdmin(await getAccess(req)), REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(item.status));
   // ITH-110: ask the requester to rate the service when an incident is resolved or a request completed
   if (old.status !== item.status && ((kind === "incident" && item.status === "Resolved") || (kind === "request" && item.status === "Completed")) && item.requesterUserId && item.requesterUserId !== who.userId)
     void inApp([item.requesterUserId], `How did we do? ${item[NO[kind][3]]}`, `${item.title} is ${item.status.toLowerCase()}. Please rate the service (1–5 stars).`, "success", `${kind === "incident" ? "/itsm-incidents" : "/itsm-requests"}?open=${id}`);
@@ -462,7 +464,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if (ROUTED.includes(kind) && old.status !== item.status) {
     const { itsmMail } = await import("../lib/itsm-mail");
     const reopened = REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(item.status);
-    const done = (kind === "incident" && ["Resolved", "Closed"].includes(item.status)) || (kind === "request" && ["Completed", "Closed"].includes(item.status));
+    const done = (["incident", "problem"].includes(kind) && ["Resolved", "Closed"].includes(item.status)) || (kind === "request" && ["Completed", "Closed"].includes(item.status)) || (kind === "change" && ["Completed", "Closed"].includes(item.status));
     if (reopened) void itsmMail("ticket_reopened", kind as any, item, { actorEmail: who.email, reason: reopenReason });
     if (done && !(old.status === "Resolved" && item.status === "Closed")) void itsmMail("ticket_resolved", kind as any, item, { actorEmail: who.email });
     else if (!reopened && !done && item.status !== "Cancelled") void itsmMail("ticket_status", kind as any, item, { actorEmail: who.email });
@@ -509,7 +511,7 @@ async function validateAssignment(assignedTo: unknown, assignedGroup: unknown) {
   }
 }
 
-const ROUTED: Kind[] = ["incident", "request"];
+const ROUTED: Kind[] = ["incident", "request", "problem", "change"];   // 2.04: all four ticket types are routed to a team
 
 /** Who sees which tickets: admins, Full-access holders and team members see all; everyone else sees what they raised. */
 async function visibleRows(req: Request, kind: Kind, rows: any[]) {
@@ -531,7 +533,7 @@ async function notifyTicket(kind: Kind, t: any, event: "created" | "assigned" | 
   try {
     if (!ROUTED.includes(kind)) return;
     const { itsmMail } = await import("../lib/itsm-mail");
-    const k = kind as "incident" | "request", ctx = { actorEmail, reason };
+    const k = kind as "incident" | "request" | "problem" | "change", ctx = { actorEmail, reason };
     if (event === "created") { await itsmMail("ticket_created_requester", k, t, { reason }); await itsmMail("ticket_created_team", k, t, ctx); }
     if (event === "assigned") await itsmMail("ticket_assigned", k, t, ctx);
     if (event === "transferred") await itsmMail("ticket_transferred", k, t, ctx);
@@ -574,14 +576,20 @@ router.patch("/incidents/:id", wrap((req, res) => updateTicket("incident", req, 
 router.delete("/incidents/:id", wrap((req, res) => deleteTicket("incident", req, res)));
 
 /* ─── PROBLEMS ───────────────────────────────────────────────────────────── */
-router.get("/problems", cachedGet("/problems", () => db.select().from(itsmProblemsTable).where(eq(itsmProblemsTable.isActive, true)).orderBy(desc(itsmProblemsTable.createdAt))));
+router.get("/problems", wrap(async (req, res) => {   // 2.04: same visibility / views as incidents
+  const rows = await db.select().from(itsmProblemsTable).where(eq(itsmProblemsTable.isActive, true)).orderBy(desc(itsmProblemsTable.createdAt));
+  res.json(await visibleRows(req, "problem", rows));
+}));
 router.post("/problems/bulk-update", wrap((req, res) => bulkUpdate("problem", req, res)));
 router.post("/problems", wrap((req, res) => createTicket("problem", req, res)));
 router.patch("/problems/:id", wrap((req, res) => updateTicket("problem", req, res)));
 router.delete("/problems/:id", wrap((req, res) => deleteTicket("problem", req, res)));
 
 /* ─── CHANGES ────────────────────────────────────────────────────────────── */
-router.get("/changes", cachedGet("/changes", () => db.select().from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)).orderBy(desc(itsmChangesTable.createdAt))));
+router.get("/changes", wrap(async (req, res) => {
+  const rows = await db.select().from(itsmChangesTable).where(eq(itsmChangesTable.isActive, true)).orderBy(desc(itsmChangesTable.createdAt));
+  res.json(await visibleRows(req, "change", rows));
+}));
 router.get("/changes/stats", cachedGet("/changes/stats", async () => {
   const where = eq(itsmChangesTable.isActive, true);
   const total = await db.select({ count: sql<number>`count(*)::int` }).from(itsmChangesTable).where(where);

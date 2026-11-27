@@ -20,6 +20,7 @@ import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-ext
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { TicketDialog, FormSection, PendingAttachments, linkPendingFiles, pendingBusy, type PendingFile, EnvAppsFields, EnvAppsView } from "@/components/itsm-form";
 import { UserSearchCombobox, GroupSelect } from "@/components/user-search-combobox";
+import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, TransferFields, fmtDay } from "@/components/itsm-routing";
 import { useLocation } from "wouter";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
@@ -28,6 +29,7 @@ import { fmtCell, fmtDate, fmtDateTime } from "@/lib/date";
 const PAGE_SIZE = 10;
 const STATUSES = ["Open", "Under Investigation", "Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"];
 const CREATE_STATUSES = ["Open"];
+const REOPENABLE = ["Resolved", "Closed"];
 const PRIORITIES = ["Critical", "High", "Medium", "Low"];
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
@@ -153,23 +155,40 @@ export default function ItsmProblems() {
   const knownErrors = problems.filter((p: any) => p.status === "Known Error").length;
   const rootCauseIdentified = problems.filter((p: any) => p.status === "Root Cause Identified").length;
 
+  const { data: myTeams = [] } = useMyTeams();
+  const myTeamIds = (myTeams as any[]).map((t: any) => t.id);
+  const isAgent = isAdmin || myTeams.length > 0;
+  const canWork = (r: any) => isAdmin || (r?.teamId && myTeamIds.includes(r.teamId));
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]); const [saving, setSaving] = useState(false);
   function openCreate() { setEditingItem(null); setFormData({ status: "Open", priority: "Medium" }); setPendingFiles([]); setIsModalOpen(true); }
-  function openEdit(item: any) { setEditingItem(item); setFormData({ ...item }); setIsModalOpen(true); }
+  function openEdit(item: any) { setEditingItem(item); setFormData({ ...item, _teamId: item.teamId, _reason: "" }); setIsModalOpen(true); }
 
   async function handleSave() {
     try {
-      if (editingItem) { await updateProblem.mutateAsync({ id: editingItem.id, ...formData }); toast({ title: "Problem updated" }); }
-      else {
+      const { _teamId, _reason, ...f } = formData;
+      if (editingItem) {
+        const d: any = { ...f };
+        for (const k of ["id", "problemNo", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive", "teamId", "assignedGroup", "requesterUserId", "expectedClosureDate", "firstResponseAt", "approvalStatus", "approvedBy"]) delete d[k];
+        if (!canWork(editingItem)) for (const k of ["status", "assignedTo", "category", "subcategory", "priority"]) delete d[k];
+        else {
+          if (_teamId && _teamId !== editingItem.teamId) { d.teamId = _teamId; d.transferReason = _reason; }
+          else if (f.category !== editingItem.category || (f.subcategory || null) !== (editingItem.subcategory || null)) d.transferReason = _reason || "Category corrected";
+        }
+        await updateProblem.mutateAsync({ id: editingItem.id, ...d }); toast({ title: `${editingItem.problemNo} updated` });
+      } else {
         setSaving(true);
-        const r: any = await createProblem.mutateAsync(formData);
+        const { assignedGroup, ...c } = f;
+        const r: any = await createProblem.mutateAsync({ ...c, assignedTo: f.assignedTo || undefined, onBehalfOfUserId: f.onBehalfOfUserId || undefined });
         const bad = pendingFiles.length && r?.id ? await linkPendingFiles("Problem", r.id, pendingFiles) : 0;
-        toast({ title: `${r?.problemNo || "Problem"} created`, description: pendingFiles.length ? `${pendingFiles.length - bad} file(s) attached${bad ? ` · ${bad} could not be attached` : ""}` : undefined });
+        toast({ title: `${r?.problemNo || "Problem"} created`, description: `Assigned to ${r?.assignedGroup || "—"}${r?.expectedClosureDate ? ` · expected closure ${fmtDay(r.expectedClosureDate)}` : ""}${pendingFiles.length ? ` · ${pendingFiles.length - bad} file(s) attached` : ""}${bad ? ` · ${bad} could not be attached` : ""}` });
       }
       setIsModalOpen(false);
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: "Could not save", description: e.message, variant: "destructive" }); }
     finally { setSaving(false); }
   }
+  const workMode = !!editingItem && canWork(editingItem);
+  const reqMode = !!editingItem && !workMode;
+  const route = useRoute("problem", isModalOpen && (!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) ? formData.category : null, formData.subcategory);
 
   async function handleDelete(id: number, no: string) {
     const reason = await reasonDialog(`Delete problem ${no}? It is removed from the lists but kept in the audit trail.`, { title: "Delete problem", confirmText: "Delete", destructive: true, label: "Reason for deleting" });
@@ -351,21 +370,34 @@ export default function ItsmProblems() {
         subtitle={editingItem ? "Find the root cause, share a workaround, then fix it for good through a change." : "The underlying cause of one or more incidents — repeat or major ones."}
         footer={<>
           <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="problem-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Create problem"}</Button>
+          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title || (!editingItem && !route.data?.ok) || (reqMode && editingItem?.status !== "Open") || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="problem-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Create problem"}</Button>
         </>}>
         <FormSection title="The problem" icon={Bug}>
           <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Outlook crashes after the monthly Office update" /></div>
           <div className="sm:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="Symptoms, how often, since when, what is affected" /></div>
-          <div><Label>Category</Label><Select value={formData.category || "__none__"} onValueChange={v => setFormData({ ...formData, category: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{PROBLEM_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Affected systems</Label><Input value={formData.affectedSystems || ""} onChange={e => setFormData({ ...formData, affectedSystems: e.target.value })} placeholder="e.g. ERP, Network, SAP" /></div>
+          <CategoryFields kind="problem" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
+          {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
+          <div className="sm:col-span-2"><Label>Affected systems</Label><Input value={formData.affectedSystems || ""} onChange={e => setFormData({ ...formData, affectedSystems: e.target.value })} placeholder="e.g. ERP, Network, SAP" /></div>
           <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^application/i.test(formData.category || "")} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
         </FormSection>
         <FormSection title="Priority & ownership" icon={Users}>
-          <div><Label>Priority</Label><Select value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Priority</Label><Select disabled={reqMode} value={formData.priority || "Medium"} onValueChange={v => setFormData({ ...formData, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
           <div><Label>Impact</Label><Select value={formData.impactLevel || "__none__"} onValueChange={v => setFormData({ ...formData, impactLevel: v === "__none__" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select impact" /></SelectTrigger><SelectContent><SelectItem value="__none__">— None —</SelectItem>{IMPACT_LEVELS.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Status</Label><Select value={formData.status || "Open"} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(editingItem ? STATUSES : CREATE_STATUSES).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Assigned group</Label><GroupSelect value={formData.assignedGroup || ""} onChange={v => setFormData({ ...formData, assignedGroup: v })} /></div>
-          <div><Label>Problem owner</Label><UserSearchCombobox value={formData.assignedTo || ""} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
+          {!editingItem && (isAgent ? <div><Label>Raised for</Label><OnBehalfSelect value={formData.onBehalfOfUserId} onChange={id => setFormData({ ...formData, onBehalfOfUserId: id })} /></div>
+            : <div><Label>Raised by</Label><div className="h-10 flex items-center text-sm font-medium">{user?.name}</div></div>)}
+          {!editingItem && route.data?.ok && route.data.canAssign && <div><Label>Assign to (optional)</Label><TeamMemberSelect teamId={route.data.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>}
+          {workMode && <>
+            <div><Label>Status</Label><Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div><Label>Assign to (team member)</Label><TeamMemberSelect others={isAdmin} teamId={editingItem.teamId} value={formData.assignedTo} onChange={v => setFormData({ ...formData, assignedTo: v })} /></div>
+            <TransferFields currentTeamId={editingItem.teamId} teamId={formData._teamId} reason={formData._reason} onChange={(t, r) => setFormData({ ...formData, _teamId: t, _reason: r })} />
+            {REOPENABLE.includes(editingItem.status) && formData.status !== editingItem.status && !REOPENABLE.includes(formData.status) && <div className="sm:col-span-2"><Label>Reason to reopen *</Label><Input value={formData.reopenReason || ""} onChange={e => setFormData({ ...formData, reopenReason: e.target.value })} /></div>}
+          </>}
+          {editingItem && <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-[10px] border bg-muted/30 p-3 text-sm">
+            <div><div className="text-[11px] text-muted-foreground">Raised by</div><div className="font-medium">{editingItem.reportedBy || editingItem.requestedBy || editingItem.createdBy || "—"}</div></div>
+            <div><div className="text-[11px] text-muted-foreground">Assigned group</div><div className="font-medium">{editingItem.assignedGroup || "—"}</div></div>
+            <div><div className="text-[11px] text-muted-foreground">Expected closure</div><div className="font-medium">{fmtDay(editingItem.expectedClosureDate)}</div></div>
+          </div>}
+          {reqMode && <div className="sm:col-span-2 text-xs text-muted-foreground">Only {editingItem.assignedGroup || "the assigned team"} can change the status or assign this ticket.</div>}
           <div><Label>Related incidents</Label><Input value={formData.relatedIncidents || ""} onChange={e => setFormData({ ...formData, relatedIncidents: e.target.value })} placeholder="INC-00001, INC-00002" /></div>
         </FormSection>
         <FormSection title="Root cause & workaround" icon={Search}>

@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 /* ITSM Setup › Categories: download the catalog as Excel, edit it, upload it (checked first, then applied, archived and emailed). */
 
 const COLS = [
-  { key: "ticketType", header: "Ticket Type", width: 16, rule: "Service Request or Incident." },
+  { key: "ticketType", header: "Ticket Type", width: 16, rule: "Service Request, Incident, Problem or Change Request." },
   { key: "category", header: "Category", width: 26, rule: "Category name. Every category needs its own row with Sub-category blank." },
   { key: "subcategory", header: "Sub-category", width: 30, rule: "Blank = the category row. Filled = a sub-category under that category." },
   { key: "team", header: "Assigned Group", width: 24, rule: "Team name exactly as on the Teams sheet. Required on a category row; blank on a sub-category = same as its category." },
@@ -24,7 +24,7 @@ const nk = (s: any) => String(s ?? "").toLowerCase().replace(/\(.*?\)|\*/g, "").
 
 export async function downloadCatalogSheet() {
   const [rows, teams] = await Promise.all([apiFetch<any[]>("/itsm-catalog"), apiFetch<any[]>("/itsm-teams")]);
-  const order = ["Service Request", "Incident"];
+  const order = ["Service Request", "Incident", "Problem", "Change Request"];
   const sorted: any[] = [];
   for (const t of order) {
     const of = rows.filter(r => r.ticketType === t);

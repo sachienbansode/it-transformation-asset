@@ -170,7 +170,7 @@ function MembersDialog({ team, onClose, onDone }: { team: any; onClose: () => vo
 
 function Catalog() {
   const qc = useQueryClient(); const { toast } = useToast(); const { canAccess } = useAuth(); const canEdit = canAccess("itsm_setup", "write");
-  const [type, setType] = useState<"Service Request" | "Incident">("Service Request");
+  const [type, setType] = useState<"Service Request" | "Incident" | "Problem" | "Change Request">("Service Request");
   const { data: rows = [], isLoading } = useQuery<any[]>({ queryKey: ["itsm-catalog", "setup", type], queryFn: () => apiFetch(`/itsm-catalog?ticketType=${encodeURIComponent(type)}`) });
   const { data: teams = [] } = useQuery<any[]>({ queryKey: ["itsm-teams"], queryFn: () => apiFetch("/itsm-teams") });
   const [draft, setDraft] = useState<Record<number, any>>({}); const [busy, setBusy] = useState<number | null>(null); const [add, setAdd] = useState<any>(null); const [upload, setUpload] = useState(false);
@@ -208,7 +208,7 @@ function Catalog() {
   return (
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex bg-muted rounded-[10px] p-[3px] gap-[3px]">{(["Service Request", "Incident"] as const).map(t => <button key={t} onClick={() => setType(t)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", type === t ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{t}</button>)}</div>
+        <div className="inline-flex flex-wrap bg-muted rounded-[10px] p-[3px] gap-[3px]">{(["Service Request", "Incident", "Problem", "Change Request"] as const).map(t => <button key={t} onClick={() => setType(t)} className={cn("px-3 py-1.5 rounded-[8px] text-[12.5px]", type === t ? "bg-card font-semibold shadow-sm" : "text-muted-foreground")}>{t}</button>)}</div>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" className="gap-1.5" onClick={async () => { try { const n = await downloadCatalogSheet(); toast({ title: `${n} rows downloaded` }); } catch (e: any) { toast({ title: "Download failed", description: e.message, variant: "destructive" }); } }}><Download className="w-4 h-4" />Download Excel</Button>
           {canEdit && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setUpload(true)}><Upload className="w-4 h-4" />Upload Excel</Button>}
