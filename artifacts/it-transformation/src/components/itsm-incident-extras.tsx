@@ -31,13 +31,13 @@ export function PriorityPreview({ value, manual }: { value?: string | null; manu
 }
 
 /* ─── major incident ─── */
-export function MajorIncidentPanel({ incident, onChanged }: { incident: any; onChanged?: () => void }) {
+export function MajorIncidentPanel({ incident, onChanged, readonly }: { incident: any; onChanged?: () => void; readonly?: boolean }) {
   const qc = useQueryClient(); const { toast } = useToast();
   const { data, refetch } = useQuery<any>({ queryKey: ["major", incident.id], queryFn: () => apiFetch(`/incidents/${incident.id}/major`) });
   const [dlg, setDlg] = useState<null | "declare" | "update" | "end">(null); const [msg, setMsg] = useState(""); const [bridge, setBridge] = useState(""); const [busy, setBusy] = useState(false);
   if (!data) return null;
   const done = ["Resolved", "Closed"].includes(incident.status);
-  if (!data.isMajor && (!data.canManage || done)) return null;
+  if (!data.isMajor && (!(data.canManage && !readonly) || done)) return null;
   async function send() {
     setBusy(true);
     try {
@@ -54,8 +54,8 @@ export function MajorIncidentPanel({ incident, onChanged }: { incident: any; onC
         <span className={cn("text-sm font-semibold", data.open && "text-red-700 dark:text-red-300")}>{data.open ? "MAJOR INCIDENT" : data.isMajor ? `Major incident (stood down ${fmtDateTime(data.endedAt)})` : "Major incident"}</span>
         {data.open && data.bridge && <span className="inline-flex items-center gap-1 text-xs"><PhoneCall className="w-3.5 h-3.5" />{/^https?:\/\//.test(data.bridge) ? <a href={data.bridge} target="_blank" rel="noreferrer" className="underline">join bridge <ExternalLink className="inline w-3 h-3" /></a> : data.bridge}</span>}
         <div className="ml-auto flex flex-wrap gap-1.5">
-          {data.canManage && !data.open && !done && <Button size="sm" variant="outline" className="h-7 border-red-300 text-red-700 gap-1.5" onClick={() => open("declare")} data-testid="major-declare"><Siren className="w-3.5 h-3.5" />Declare major incident</Button>}
-          {data.canManage && data.open && <><Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => open("update")} data-testid="major-update"><Megaphone className="w-3.5 h-3.5" />Post update</Button>
+          {(data.canManage && !readonly) && !data.open && !done && <Button size="sm" variant="outline" className="h-7 border-red-300 text-red-700 gap-1.5" onClick={() => open("declare")} data-testid="major-declare"><Siren className="w-3.5 h-3.5" />Declare major incident</Button>}
+          {(data.canManage && !readonly) && data.open && <><Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => open("update")} data-testid="major-update"><Megaphone className="w-3.5 h-3.5" />Post update</Button>
             <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => open("end")}><CheckCircle2 className="w-3.5 h-3.5" />Stand down</Button></>}
         </div>
       </div>

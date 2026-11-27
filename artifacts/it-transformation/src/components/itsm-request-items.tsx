@@ -53,10 +53,10 @@ export function RequestAnswers({ request }: { request: any }) {
 }
 
 /** fulfilment checklist: the team ticks the steps; the request can be completed only when none is open */
-export function RequestChecklist({ requestId }: { requestId: number }) {
+export function RequestChecklist({ requestId, readonly }: { requestId: number; readonly?: boolean }) {
   const qc = useQueryClient(); const { toast } = useToast(); const [add, setAdd] = useState(""); const [busy, setBusy] = useState<number | "add" | null>(null);
   const { data } = useQuery<any>({ queryKey: ["req-tasks", requestId], queryFn: () => apiFetch(`/service-requests/${requestId}/tasks`) });
-  if (!data || (!data.tasks.length && !data.canEdit)) return null;
+  if (!data || (!data.tasks.length && !(data.canEdit && !readonly))) return null;
   const done = data.tasks.filter((t: any) => t.status !== "Open").length;
   const refresh = () => qc.invalidateQueries({ queryKey: ["req-tasks", requestId] });
   async function setStatus(t: any, status: string) {
@@ -69,13 +69,13 @@ export function RequestChecklist({ requestId }: { requestId: number }) {
         <div className="ml-auto h-1.5 w-24 rounded-full bg-muted overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${data.tasks.length ? done / data.tasks.length * 100 : 0}%` }} /></div></div>
       <ul className="space-y-1">{data.tasks.map((t: any) => { const I = t.status === "Done" ? CheckCircle2 : t.status === "Not needed" ? MinusCircle : Circle; return (
         <li key={t.id} className="flex items-start gap-2 text-sm" data-testid={`task-${t.id}`}>
-          <button type="button" disabled={!data.canEdit || busy === t.id} onClick={() => setStatus(t, t.status === "Open" ? "Done" : "Open")} title={t.status === "Open" ? "Mark done" : "Mark open again"} className="mt-0.5 shrink-0">
+          <button type="button" disabled={!(data.canEdit && !readonly) || busy === t.id} onClick={() => setStatus(t, t.status === "Open" ? "Done" : "Open")} title={t.status === "Open" ? "Mark done" : "Mark open again"} className="mt-0.5 shrink-0">
             {busy === t.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <I className={cn("w-4 h-4", t.status === "Done" ? "text-emerald-600" : t.status === "Not needed" ? "text-muted-foreground" : "text-muted-foreground/60")} />}</button>
           <div className="flex-1 min-w-0"><span className={cn(t.status !== "Open" && "line-through text-muted-foreground")}>{t.title}</span>
             {t.status !== "Open" && <div className="text-[11px] text-muted-foreground">{t.status} · {t.doneBy} · {fmtDateTime(t.doneAt)}{t.note ? ` — ${t.note}` : ""}</div>}</div>
-          {data.canEdit && t.status === "Open" && <button type="button" className="text-[11px] text-muted-foreground hover:underline shrink-0" onClick={() => setStatus(t, "Not needed")}>not needed</button>}
+          {(data.canEdit && !readonly) && t.status === "Open" && <button type="button" className="text-[11px] text-muted-foreground hover:underline shrink-0" onClick={() => setStatus(t, "Not needed")}>not needed</button>}
         </li>); })}</ul>
-      {data.canEdit && <div className="flex gap-2"><Input className="h-8 text-sm" placeholder="Add a step" value={add} onChange={e => setAdd(e.target.value)} />
+      {(data.canEdit && !readonly) && <div className="flex gap-2"><Input className="h-8 text-sm" placeholder="Add a step" value={add} onChange={e => setAdd(e.target.value)} />
         <Button size="sm" variant="outline" disabled={add.trim().length < 3 || busy === "add"} onClick={async () => { setBusy("add"); try { await apiFetch(`/service-requests/${requestId}/tasks`, { method: "POST", headers: { "X-No-Confirm": "1" }, body: JSON.stringify({ title: add }) }); setAdd(""); refresh(); } catch (e: any) { toast({ title: "Not added", description: e.message, variant: "destructive" }); } finally { setBusy(null); } }}><Plus className="w-4 h-4" /></Button></div>}
     </div>
   );

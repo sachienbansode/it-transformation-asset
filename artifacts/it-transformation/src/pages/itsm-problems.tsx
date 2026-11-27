@@ -188,6 +188,12 @@ export default function ItsmProblems() {
     finally { setSaving(false); }
   }
   const workMode = !!editingItem && canWork(editingItem);
+  /** after a workflow step / review / publish in the edit dialog: reload the ticket so the form shows the new status */
+  async function refreshEditing() {
+    if (!editingItem) return;
+    try { const l: any[] = await apiFetch("/problems"); const t = l.find(x => x.id === editingItem.id); if (t) { setEditingItem(t); setFormData((f: any) => ({ ...f, status: t.status, approvalStatus: t.approvalStatus, approvedBy: t.approvedBy, pirAt: t.pirAt, knownError: t.knownError, kbArticleId: t.kbArticleId })); } } catch { /* ignore */ }
+    queryClient.invalidateQueries();
+  }
   const reqMode = !!editingItem && !workMode;
   const route = useRoute("problem", isModalOpen && (!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) ? formData.category : null, formData.subcategory);
 
@@ -284,7 +290,7 @@ export default function ItsmProblems() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(p)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      {canEdit && <button onClick={() => openEdit(p)} title={["Resolved","Closed"].includes(p.status) ? "Ticket is locked — cannot edit resolved/closed" : "Edit"} disabled={["Resolved","Closed"].includes(p.status)} className={`p-2 rounded-md transition-colors ${["Resolved","Closed"].includes(p.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
+                      {canEdit && <button onClick={() => openEdit(p)} title={(["Resolved","Closed"].includes(p.status) && !canWork(p)) ? "Ticket is locked — cannot edit resolved/closed" : "Edit"} disabled={(["Resolved","Closed"].includes(p.status) && !canWork(p))} className={`p-2 rounded-md transition-colors ${(["Resolved","Closed"].includes(p.status) && !canWork(p)) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
                       
                     </div>
                   </TableCell>
@@ -315,9 +321,6 @@ export default function ItsmProblems() {
               <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
               <div className="flex flex-wrap gap-2 items-center">
                 <PriorityBadge value={viewModal.priority} />
-                <Button size="sm" variant="outline" onClick={() => { setViewModal(null); navigate("/itsm-changes"); }} className="h-7 text-xs gap-1.5 border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400">
-                  <GitBranch className="w-3.5 h-3.5" />Raise Change
-                </Button>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {[["Category", viewModal.category], ["Impact Level", viewModal.impactLevel], ["Assigned To", viewModal.assignedTo], ["Assigned Group", viewModal.assignedGroup], ["Affected Systems", viewModal.affectedSystems], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
@@ -356,9 +359,9 @@ export default function ItsmProblems() {
                 </div>
               )}
               <RcaView p={viewModal} />
-              <KnownErrorPanel p={viewModal} canWork={canWork(viewModal)} onDone={async () => { const l: any[] = await apiFetch("/problems"); setViewModal(l.find(x => x.id === viewModal.id) || null); }} />
-              <TicketWorkflow kind="problem" id={viewModal.id} ticketNo={viewModal.problemNo} />
-              <RelatedRecords kind="problem" id={viewModal.id} />
+              <KnownErrorPanel p={viewModal} canWork={false} onDone={async () => { const l: any[] = await apiFetch("/problems"); setViewModal(l.find(x => x.id === viewModal.id) || null); }} />
+              <TicketWorkflow kind="problem" id={viewModal.id} ticketNo={viewModal.problemNo} readonly />
+              <RelatedRecords kind="problem" id={viewModal.id} readonly />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Problem" ticketId={viewModal.id} readonly />
@@ -410,6 +413,12 @@ export default function ItsmProblems() {
           {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Problem" ticketId={editingItem.id} /></div>
             : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
         </FormSection>
+        {editingItem && <div className="space-y-3" data-testid="edit-actions">
+          {workMode && <KnownErrorPanel p={editingItem} canWork onDone={refreshEditing} />}
+          {workMode && <Button size="sm" variant="outline" onClick={() => { setIsModalOpen(false); navigate("/itsm-changes"); }} className="h-7 text-xs gap-1.5 border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400"><GitBranch className="w-3.5 h-3.5" />Raise a change for the permanent fix</Button>}
+          <TicketWorkflow kind="problem" id={editingItem.id} ticketNo={editingItem.problemNo} onChanged={refreshEditing} />
+          <RelatedRecords kind="problem" id={editingItem.id} />
+        </div>}
         {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" />}
       </TicketDialog>
     </div>

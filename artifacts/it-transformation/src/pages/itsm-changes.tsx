@@ -199,6 +199,12 @@ export default function ItsmChanges() {
     finally { setSaving(false); }
   }
   const workMode = !!editingItem && canWork(editingItem);
+  /** after a workflow step / review / publish in the edit dialog: reload the ticket so the form shows the new status */
+  async function refreshEditing() {
+    if (!editingItem) return;
+    try { const l: any[] = await apiFetch("/changes"); const t = l.find(x => x.id === editingItem.id); if (t) { setEditingItem(t); setFormData((f: any) => ({ ...f, status: t.status, approvalStatus: t.approvalStatus, approvedBy: t.approvedBy, pirAt: t.pirAt, knownError: t.knownError, kbArticleId: t.kbArticleId })); } } catch { /* ignore */ }
+    queryClient.invalidateQueries();
+  }
   const reqMode = !!editingItem && !workMode;
   const route = useRoute("change", isModalOpen && (!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) ? formData.category : null, formData.subcategory, { changeType: formData.type });
 
@@ -301,7 +307,7 @@ export default function ItsmChanges() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(c)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      {canEdit && <button onClick={() => openEdit(c)} title={["Completed","Closed","Failed","Rolled Back"].includes(c.status) ? "Ticket is locked — cannot edit completed/closed changes" : "Edit"} disabled={["Completed","Closed","Failed","Rolled Back"].includes(c.status)} className={`p-2 rounded-md transition-colors ${["Completed","Closed","Failed","Rolled Back"].includes(c.status) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
+                      {canEdit && <button onClick={() => openEdit(c)} title={(["Completed","Closed","Failed","Rolled Back"].includes(c.status) && !canWork(c)) ? "Ticket is locked — cannot edit completed/closed changes" : "Edit"} disabled={(["Completed","Closed","Failed","Rolled Back"].includes(c.status) && !canWork(c))} className={`p-2 rounded-md transition-colors ${(["Completed","Closed","Failed","Rolled Back"].includes(c.status) && !canWork(c)) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
                       
                     </div>
                   </TableCell>
@@ -370,9 +376,9 @@ export default function ItsmChanges() {
                   <div className="text-sm text-teal-800 dark:text-teal-300 whitespace-pre-wrap">{viewModal.testPlan}</div>
                 </div>
               )}
-              <ChangeReview change={viewModal} canWork={canWork(viewModal)} onSaved={async () => { const l: any[] = await apiFetch("/changes"); setViewModal(l.find(x => x.id === viewModal.id) || null); queryClient.invalidateQueries({ queryKey: ["changes"] }); }} />
-              <TicketWorkflow kind="change" id={viewModal.id} ticketNo={viewModal.changeNo} />
-              <RelatedRecords kind="change" id={viewModal.id} />
+              <ChangeReview change={viewModal} canWork={false} onSaved={async () => { const l: any[] = await apiFetch("/changes"); setViewModal(l.find(x => x.id === viewModal.id) || null); queryClient.invalidateQueries({ queryKey: ["changes"] }); }} />
+              <TicketWorkflow kind="change" id={viewModal.id} ticketNo={viewModal.changeNo} readonly />
+              <RelatedRecords kind="change" id={viewModal.id} readonly />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Change Request" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Change Request" ticketId={viewModal.id} readonly />
@@ -445,6 +451,11 @@ export default function ItsmChanges() {
           {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Change Request" ticketId={editingItem.id} /></div>
             : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
         </FormSection>
+        {editingItem && <div className="space-y-3" data-testid="edit-actions">
+          {workMode && <ChangeReview change={editingItem} canWork onSaved={refreshEditing} />}
+          <TicketWorkflow kind="change" id={editingItem.id} ticketNo={editingItem.changeNo} onChanged={refreshEditing} />
+          <RelatedRecords kind="change" id={editingItem.id} />
+        </div>}
         {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Change Request" />}
       </TicketDialog>
     </div>

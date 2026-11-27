@@ -14,7 +14,7 @@ type Kind = "incident" | "request" | "problem" | "change";
 const PATCH: Record<Kind, string> = { incident: "/incidents", request: "/service-requests", problem: "/problems", change: "/changes" };
 const NOTES: Record<string, { field: string; label: string }> = { "incident:Resolved": { field: "resolutionNotes", label: "Resolution notes" }, "request:Completed": { field: "fulfillmentNotes", label: "Fulfilment notes" } };
 
-export function TicketWorkflow({ kind, id, ticketNo, onChanged }: { kind: Kind; id: number; ticketNo?: string; onChanged?: () => void }) {
+export function TicketWorkflow({ kind, id, ticketNo, onChanged, readonly }: { kind: Kind; id: number; ticketNo?: string; onChanged?: () => void; readonly?: boolean }) {
   const qc = useQueryClient(); const { toast } = useToast(); const [map, setMap] = useState(false); const [busy, setBusy] = useState(false);
   const { data: wf, refetch } = useQuery({ queryKey: ["ticket-wf", kind, id], queryFn: () => apiFetch<any>(`/itsm-workflow/${kind}/${id}`) });
   if (!wf) return null;
@@ -42,11 +42,11 @@ export function TicketWorkflow({ kind, id, ticketNo, onChanged }: { kind: Kind; 
         <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={() => setMap(!map)}><MapIcon className="w-3.5 h-3.5 mr-1" />{map ? "Hide map" : "Show map"}</Button></div>
       {wf.events.filter((e: any) => e.event === "skipped").map((e: any, i: number) => <div key={"sk" + i} className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-xs" data-testid="wf-skipped">{e.detail}</div>)}
       {wf.current && wf.state !== "Finished" && <div className="text-xs">Now at <b>{wf.current.label}</b> since {fmtDateTime(wf.enteredAt)}{wf.timeoutAt && <span className="text-amber-600"> · <Clock className="w-3 h-3 inline" /> time limit {fmtDateTime(wf.timeoutAt)}</span>}</div>}
-      {wf.next.length > 0 && <div className="flex flex-wrap gap-1.5 items-center"><span className="text-xs text-muted-foreground">Next:</span>{wf.next.map((n: any) =>
+      {!readonly && wf.next.length > 0 && <div className="flex flex-wrap gap-1.5 items-center"><span className="text-xs text-muted-foreground">Next:</span>{wf.next.map((n: any) =>
         <Button key={n.label + n.status} size="sm" variant="outline" className="h-7 text-xs" disabled={busy || !n.status} onClick={() => move(n)}><ArrowRight className="w-3 h-3 mr-1" />{n.label}{n.status && n.status !== n.label ? ` (${n.status})` : ""}</Button>)}</div>}
       {pending.map((t: any) => <div key={t.id} className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-xs flex items-center gap-2 flex-wrap">
         <span className="flex-1"><b>{t.title}</b> — waiting for {t.approvers} since {fmtDateTime(t.createdAt)}</span>
-        {t.canDecide && <><Button size="sm" className="h-7 text-xs" disabled={busy} onClick={() => decide(t, "Approved")}><CheckCircle2 className="w-3.5 h-3.5 mr-1" />Approve</Button><Button size="sm" variant="outline" className="h-7 text-xs text-red-600" disabled={busy} onClick={() => decide(t, "Rejected")}><XCircle className="w-3.5 h-3.5 mr-1" />Reject</Button></>}</div>)}
+        {t.canDecide && !readonly && <><Button size="sm" className="h-7 text-xs" disabled={busy} onClick={() => decide(t, "Approved")}><CheckCircle2 className="w-3.5 h-3.5 mr-1" />Approve</Button><Button size="sm" variant="outline" className="h-7 text-xs text-red-600" disabled={busy} onClick={() => decide(t, "Rejected")}><XCircle className="w-3.5 h-3.5 mr-1" />Reject</Button></>}</div>)}
       {map && <WorkflowCanvas def={wf.definition} readOnly current={wf.state === "Finished" ? null : wf.current?.id} visited={wf.visited} compact />}
       <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">Workflow history ({wf.events.length})</summary>
         <div className="mt-1 space-y-0.5">{wf.events.map((e: any, i: number) => <div key={i} className="flex gap-2"><span className="text-muted-foreground whitespace-nowrap">{fmtDateTime(e.at)}</span><span><b>{e.label || "Workflow"}</b> · {e.event}{e.detail ? ` — ${e.detail}` : ""} <span className="text-muted-foreground">({e.by})</span></span></div>)}

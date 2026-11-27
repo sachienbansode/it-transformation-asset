@@ -267,6 +267,12 @@ export default function ItsmIncidents() {
   }
   const route = useRoute("incident", isModalOpen && (!editingItem || (canWork(editingItem) && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) ? formData.category : null, formData.subcategory);
   const workMode = !!editingItem && canWork(editingItem);
+  /** after a workflow step / review / publish in the edit dialog: reload the ticket so the form shows the new status */
+  async function refreshEditing() {
+    if (!editingItem) return;
+    try { const l: any[] = await apiFetch("/incidents"); const t = l.find(x => x.id === editingItem.id); if (t) { setEditingItem(t); setFormData((f: any) => ({ ...f, status: t.status, approvalStatus: t.approvalStatus, approvedBy: t.approvedBy, pirAt: t.pirAt, knownError: t.knownError, kbArticleId: t.kbArticleId })); } } catch { /* ignore */ }
+    queryClient.invalidateQueries();
+  }
   const autoPriority = priorityFromMatrix(cfg["itsm.priorityMatrix"], formData.impactLevel, formData.urgency);
   const reqMode = !!editingItem && !workMode;
 
@@ -417,7 +423,7 @@ export default function ItsmIncidents() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(inc)} title="View details" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      {canEdit && (canWork(inc) || inc.requesterUserId === user?.id) && <button onClick={() => openEdit(inc)} title={canWork(inc) ? "Work on incident" : "Edit my incident"} disabled={["Resolved","Closed"].includes(inc.status) && !canWork(inc)} className={`p-2 rounded-md transition-colors ${["Resolved","Closed"].includes(inc.status) && !canWork(inc) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
+                      {canEdit && (canWork(inc) || inc.requesterUserId === user?.id) && <button onClick={() => openEdit(inc)} title={canWork(inc) ? "Work on incident" : "Edit my incident"} disabled={(inc.status === "Closed" && !canWork(inc))} className={`p-2 rounded-md transition-colors ${(inc.status === "Closed" && !canWork(inc)) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
                       
                     </div>
                   </TableCell>
@@ -449,10 +455,10 @@ export default function ItsmIncidents() {
                 <SeverityBadge value={viewModal.severity} />
               </div>
               <SlaPanel sla={viewModal.sla} firstResponseAt={viewModal.firstResponseAt} />
-              <MajorIncidentPanel incident={viewModal} />
+              <MajorIncidentPanel incident={viewModal} readonly />
               {viewModal.parentIncidentId && (() => { const p = (incidents as any[]).find((x: any) => x.id === viewModal.parentIncidentId); return <div className="text-xs rounded-md border px-3 py-2" data-testid="parent-link">Part of <button type="button" className="font-mono text-primary hover:underline" onClick={() => p && setViewModal(p)}>{p?.ticketNo || `incident #${viewModal.parentIncidentId}`}</button>{p ? ` — ${p.title}` : ""} · resolved together with it</div>; })()}
               <ChildIncidents incident={viewModal} onOpen={id => { const c = (incidents as any[]).find((x: any) => x.id === id); if (c) setViewModal(c); }} />
-              {canWork(viewModal) && <RepeatBanner incident={viewModal} />}
+              
               {viewModal.kbArticleId && (kbArticles as any[]).find((k: any) => k.id === viewModal.kbArticleId) && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-sky-50 dark:bg-sky-900/10 border-sky-200 dark:border-sky-800 text-sm text-sky-700 dark:text-sky-300">
                   <Link2 className="w-4 h-4 flex-shrink-0" /><span className="font-semibold">Knowledge article:</span>
@@ -480,9 +486,9 @@ export default function ItsmIncidents() {
                   <div className="text-sm text-emerald-800 dark:text-emerald-300">{viewModal.resolutionNotes}</div>
                 </div>
               )}
-              <TicketWorkflow kind="incident" id={viewModal.id} ticketNo={viewModal.ticketNo} />
-              <CsatPanel kind="incident" id={viewModal.id} />
-              <RelatedRecords kind="incident" id={viewModal.id} />
+              <TicketWorkflow kind="incident" id={viewModal.id} ticketNo={viewModal.ticketNo} readonly />
+              <CsatPanel kind="incident" id={viewModal.id} readonly />
+              <RelatedRecords kind="incident" id={viewModal.id} readonly />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Incident" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Incident" ticketId={viewModal.id} readonly />
@@ -567,6 +573,11 @@ export default function ItsmIncidents() {
           {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Incident" ticketId={editingItem.id} /></div>
             : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
         </FormSection>
+        {editingItem && <div className="space-y-3" data-testid="edit-actions">
+          <CsatPanel kind="incident" id={editingItem.id} />
+          <TicketWorkflow kind="incident" id={editingItem.id} ticketNo={editingItem.ticketNo} onChanged={refreshEditing} />
+          <RelatedRecords kind="incident" id={editingItem.id} />
+        </div>}
         {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Incident" />}
       </TicketDialog>
     </div>

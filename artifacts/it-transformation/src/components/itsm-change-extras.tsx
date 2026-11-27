@@ -117,7 +117,7 @@ export function ChangeReview({ change, canWork, onSaved }: { change: any; canWor
     </div>
   );
   if (change.type === "Standard" && change.status === "Completed") return null;
-  if (!canWork) return <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/10 p-3 text-xs text-amber-800">Review after go-live is due — the assigned team records it before the change is closed.</div>;
+  if (!canWork) return <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/10 p-3 text-xs text-amber-800">Review after go-live is due — the assigned team records it in Edit before the change is closed.</div>;
   async function save() {
     setBusy(true);
     try { await apiFetch(`/itsm-changes/${change.id}/review`, { method: "POST", body: JSON.stringify(f) }); toast({ title: "Review recorded", description: "The change can now be closed." }); qc.invalidateQueries({ queryKey: ["/api/changes"] }); qc.invalidateQueries(); onSaved?.(); }

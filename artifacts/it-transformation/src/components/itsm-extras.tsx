@@ -27,11 +27,11 @@ export function useOpenFromUrl(list: any[], open: (t: any) => void) {
 }
 
 /* ── CSAT ── */
-export function CsatPanel({ kind, id }: { kind: Kind; id: number }) {
+export function CsatPanel({ kind, id, readonly }: { kind: Kind; id: number; readonly?: boolean }) {
   const qc = useQueryClient(); const { toast } = useToast();
   const { data, refetch } = useQuery({ queryKey: ["csat", kind, id], enabled: kind === "incident" || kind === "request", queryFn: () => apiFetch<any>(`/itsm-csat/${kind}/${id}`) });
   const [stars, setStars] = useState(0); const [hover, setHover] = useState(0); const [comment, setComment] = useState(""); const [busy, setBusy] = useState(false);
-  if (!data || (!data.rating && !data.canRate)) return null;
+  if (!data || (!data.rating && (!data.canRate || readonly))) return null;
   if (data.rating) return (
     <div className="rounded-lg border px-3 py-2 text-sm flex items-center gap-2 flex-wrap" data-testid="csat-done"><Smile className="w-4 h-4 text-emerald-600" />Customer satisfaction:
       <span className="flex">{[1, 2, 3, 4, 5].map(s => <Star key={s} className={cn("w-4 h-4", s <= data.rating.rating ? "fill-amber-400 text-amber-400" : "text-muted-foreground/40")} />)}</span>
@@ -55,7 +55,7 @@ export function CsatPanel({ kind, id }: { kind: Kind; id: number }) {
 }
 
 /* ── related records ── */
-export function RelatedRecords({ kind, id }: { kind: Kind; id: number }) {
+export function RelatedRecords({ kind, id, readonly }: { kind: Kind; id: number; readonly?: boolean }) {
   const qc = useQueryClient(); const { toast } = useToast(); const [no, setNo] = useState(""); const [rel, setRel] = useState("related"); const [adding, setAdding] = useState(false);
   const { data, refetch } = useQuery({ queryKey: ["itsm-links", kind, id], queryFn: () => apiFetch<any>(`/itsm-links/${kind}/${id}`) });
   if (!data) return null;
@@ -72,14 +72,14 @@ export function RelatedRecords({ kind, id }: { kind: Kind; id: number }) {
   return (
     <div className="rounded-lg border p-3 space-y-2" data-testid="related-records">
       <div className="flex items-center gap-2 text-sm font-semibold"><Link2 className="w-4 h-4 text-primary" />Related records <span className="text-xs font-normal text-muted-foreground">({data.links.length})</span>
-        {data.canEdit && !adding && <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={() => setAdding(true)}><Plus className="w-3.5 h-3.5 mr-1" />Link</Button>}</div>
+        {data.canEdit && !readonly && !adding && <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={() => setAdding(true)}><Plus className="w-3.5 h-3.5 mr-1" />Link</Button>}</div>
       {adding && <div className="flex gap-2 flex-wrap"><Input className="h-8 w-40 text-xs" placeholder="e.g. PRB-00004" value={no} onChange={e => setNo(e.target.value)} />
         <select className="h-8 rounded-md border bg-background px-2 text-xs" value={rel} onChange={e => setRel(e.target.value)}>{["related", "caused by", "duplicate of", "fixed by change", "parent of", "child of"].map(r => <option key={r}>{r}</option>)}</select>
         <Button size="sm" className="h-8" disabled={!no.trim()} onClick={add}>Link</Button><Button size="sm" variant="ghost" className="h-8" onClick={() => setAdding(false)}>Cancel</Button></div>}
       {data.links.length > 0 && <div className="divide-y text-xs">{data.links.map((l: any) => (
         <div key={`${l.type}${l.id}`} className="flex items-center gap-2 py-1.5"><span className="rounded border px-1.5 text-[10px]">{l.typeLabel}</span>
           <a href={l.link} className="font-mono text-primary hover:underline">{l.no}</a><span className="flex-1 truncate">{l.title}</span><span className="text-muted-foreground">{l.relation}</span>
-          <span className="rounded-full bg-muted px-1.5">{l.status}</span>{data.canEdit && l.linkId && <button aria-label="Unlink" className="text-muted-foreground hover:text-red-600" onClick={() => remove(l)}><X className="w-3.5 h-3.5" /></button>}</div>))}</div>}
+          <span className="rounded-full bg-muted px-1.5">{l.status}</span>{data.canEdit && !readonly && l.linkId && <button aria-label="Unlink" className="text-muted-foreground hover:text-red-600" onClick={() => remove(l)}><X className="w-3.5 h-3.5" /></button>}</div>))}</div>}
     </div>
   );
 }

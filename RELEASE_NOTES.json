@@ -1,4 +1,9 @@
 {
+ "2.13": [
+  "Ticket view (eye icon) is read-only for incidents, service requests, problems and changes: no workflow moves, approvals, Link / Unlink, major incident actions, checklist ticks, ratings, known-error publish, review after go-live or Raise change",
+  "All those actions are in Edit / Work on, with the form refreshed after each workflow step",
+  "Edit stays available where an action is still possible: a requester can open a resolved incident or completed request to reopen it; the team can open completed / failed / rolled-back changes to record the review and close, and resolved problems to close them"
+ ],
  "2.12": [
   "Change Request categories now have sub-categories: Application (Bug fix, Enhancement / change request, New feature, Configuration change, Version upgrade / patch, Report change, Integration, Data fix), Software, Hardware, Infrastructure, Network, Database, Cloud, Security, End-User, Process, Others",
   "Problem categories now have sub-categories (e.g. Application: Recurring error / bug, Performance, Integration failure, Data quality)",

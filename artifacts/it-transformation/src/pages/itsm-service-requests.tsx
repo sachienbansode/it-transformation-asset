@@ -223,6 +223,12 @@ export default function ItsmServiceRequests() {
   const DONE = ["Completed", "Cancelled", "Rejected"];
   const route = useRoute("request", isModalOpen && !editingItem ? formData.category : (isModalOpen && editingItem && canWork(editingItem) && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)) ? formData.category : null), formData.subcategory);
   const workMode = !!editingItem && canWork(editingItem);
+  /** after a workflow step / review / publish in the edit dialog: reload the ticket so the form shows the new status */
+  async function refreshEditing() {
+    if (!editingItem) return;
+    try { const l: any[] = await apiFetch("/service-requests"); const t = l.find(x => x.id === editingItem.id); if (t) { setEditingItem(t); setFormData((f: any) => ({ ...f, status: t.status, approvalStatus: t.approvalStatus, approvedBy: t.approvedBy, pirAt: t.pirAt, knownError: t.knownError, kbArticleId: t.kbArticleId })); } } catch { /* ignore */ }
+    queryClient.invalidateQueries();
+  }
   const reqMode = !!editingItem && !workMode;
 
   return (
@@ -293,7 +299,7 @@ export default function ItsmServiceRequests() {
                   <TableCell className="py-3" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-0.5 justify-center">
                       <button onClick={() => setViewModal(r)} title="View" className="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Eye className="w-4 h-4" /></button>
-                      {canEdit && (canWork(r) || isMine(r)) && <button onClick={() => openEdit(r)} title={DONE.includes(r.status) ? "Closed — view only" : canWork(r) ? "Work on request" : "Edit my request"} disabled={DONE.includes(r.status) && !canWork(r)} className={`p-2 rounded-md transition-colors ${DONE.includes(r.status) && !canWork(r) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
+                      {canEdit && (canWork(r) || isMine(r)) && <button onClick={() => openEdit(r)} title={DONE.includes(r.status) ? "Closed — view only" : canWork(r) ? "Work on request" : "Edit my request"} disabled={(["Cancelled", "Rejected"].includes(r.status) && !canWork(r))} className={`p-2 rounded-md transition-colors ${(["Cancelled", "Rejected"].includes(r.status) && !canWork(r)) ? "opacity-30 cursor-not-allowed text-muted-foreground" : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 hover:text-blue-600"}`}><Edit className="w-4 h-4" /></button>}
                       
                     </div>
                   </TableCell>
@@ -315,7 +321,7 @@ export default function ItsmServiceRequests() {
               <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{viewModal.description || "No description provided"}</p>
               <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
               <RequestAnswers request={viewModal} />
-              <RequestChecklist requestId={viewModal.id} />
+              <RequestChecklist requestId={viewModal.id} readonly />
               <div className="flex flex-wrap gap-2"><CategoryBadge value={[viewModal.category, viewModal.subcategory].filter(Boolean).join(" › ") || "—"} /><PriorityBadge value={viewModal.priority} /></div>
               <SlaPanel sla={viewModal.sla} firstResponseAt={viewModal.firstResponseAt} />
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
@@ -324,9 +330,9 @@ export default function ItsmServiceRequests() {
                 ))}
               </div>
               {viewModal.fulfillmentNotes && (<div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200/50 dark:border-emerald-800/30 p-3"><div className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-semibold mb-1">Fulfilment notes</div><div className="text-sm text-emerald-800 dark:text-emerald-300">{viewModal.fulfillmentNotes}</div></div>)}
-              <TicketWorkflow kind="request" id={viewModal.id} ticketNo={viewModal.requestNo} />
-              <CsatPanel kind="request" id={viewModal.id} />
-              <RelatedRecords kind="request" id={viewModal.id} />
+              <TicketWorkflow kind="request" id={viewModal.id} ticketNo={viewModal.requestNo} readonly />
+              <CsatPanel kind="request" id={viewModal.id} readonly />
+              <RelatedRecords kind="request" id={viewModal.id} readonly />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
               <TicketHistory ticketId={viewModal.id} />
               <hr className="border-border/40" />
@@ -379,6 +385,11 @@ export default function ItsmServiceRequests() {
           {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Service Request" ticketId={editingItem.id} /></div>
             : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
         </FormSection>
+        {editingItem && <div className="space-y-3" data-testid="edit-actions">
+          <CsatPanel kind="request" id={editingItem.id} />
+          <TicketWorkflow kind="request" id={editingItem.id} ticketNo={editingItem.requestNo} onChanged={refreshEditing} />
+          <RelatedRecords kind="request" id={editingItem.id} />
+        </div>}
         {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" />}
       </TicketDialog>
     </div>
