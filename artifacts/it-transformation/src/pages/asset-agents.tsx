@@ -127,6 +127,7 @@ export default function AssetAgents() {
           {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/chats?box=support")}><MessageSquare className="w-4 h-4" />Chats</Button>}
           {canEdit && <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/asset-agents/keys")}><KeyRound className="w-4 h-4" />Installation keys</Button>}
           {canEdit && <Button className="gap-2" onClick={() => setEnrol(true)}><KeyRound className="w-4 h-4" />Install agent / keys</Button>}
+          <Link href="/asset-agents/install"><Button variant="outline" className="gap-2" data-testid="agent-guide"><FileDown className="w-4 h-4" />Agent download & guide</Button></Link>
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

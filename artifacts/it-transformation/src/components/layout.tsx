@@ -12,7 +12,7 @@ import { PolicyGate } from "@/components/policy-gate";
 import { PushPrompt } from "@/pages/my-policies";
 import { ChatPopup } from "@/components/device-chat";
 import {
-  LayoutDashboard, CheckSquare, Map, Archive, Server, Upload, RefreshCcw,
+  Download as DownloadIcon, Search as SearchIcon2, LayoutDashboard, CheckSquare, Map, Archive, Server, Upload, RefreshCcw,
   BrainCircuit, ShieldCheck, User, Settings, LogOut, ChevronDown,
   Users, Sliders, Database, ChevronRight, Sun, Moon,
   PanelLeftClose, PanelLeftOpen, Menu, X, Building2, Clock, Presentation, Target, ClipboardList, Shield, BarChart3, Search,
@@ -68,10 +68,45 @@ const ASSET_ITEMS = [
   { href: "/asset-allocations", label: "Handovers", icon: Users, module: "asset_allocations" },
   { href: "/asset-employees", label: "Employee Assets", icon: UserCheck, module: "asset_allocations" },
   { href: "/asset-agents", label: "Device Health", icon: Activity, module: "asset_registry" },
+  { href: "/asset-agents/install", label: "Agent Download", icon: DownloadIcon, module: "asset_registry" },
   { href: "/device-policy", label: "Device Policy", icon: ShieldCheck, module: "asset_registry" },
   { href: "/software-compliance", label: "Software & Licences", icon: PackageSearch, module: "asset_registry" },
   { href: "/maintenance-records", label: "Maintenance", icon: Wrench, module: "maintenance_records" },
   { href: "/asset-audits", label: "Physical Audit", icon: ScanLine, module: "asset_audits" },
+];
+
+/* 2.12 — menu search covers the whole app: every menu item has extra words people search for, plus pages and tabs
+   that are not menu items (opened by a deep link). Each entry is shown only to people with access to its module. */
+const MENU_WORDS: Record<string, string> = {
+  "/": "home executive overview", "/my-assets": "laptop my devices allocated", "/my-device": "health agent my computer", "/chats": "message support help chat",
+  "/my-policies": "accept consent sign acknowledge", "/policies": "policy register publish notice consent decision log",
+  "/assets": "asset overview", "/asset-registry": "asset list inventory laptop desktop serial", "/asset-vendors": "supplier vendor", "/asset-licenses": "licence license subscription",
+  "/asset-contracts": "amc warranty contract renewal", "/asset-depreciation": "depreciation book value", "/asset-allocations": "handover allocate issue return",
+  "/asset-employees": "employee assets who has", "/asset-agents": "device health agent online offline monitoring", "/asset-agents/install": "agent download install uninstall installer niytri intune sccm setup deploy remove",
+  "/device-policy": "device policy rules bitlocker antivirus usb", "/software-compliance": "software installed licence compliance", "/maintenance-records": "repair maintenance service",
+  "/asset-audits": "physical audit verification", "/itsm": "itsm dashboard tickets overview", "/itsm-incidents": "incident ticket issue outage broken inc major",
+  "/itsm-problems": "problem root cause rca known error prb", "/itsm-changes": "change request cr chg cab deployment release bug fix enhancement",
+  "/itsm-kb": "knowledge article how to known error kb", "/itsm-sla": "sla response resolution time", "/itsm-requests": "service request sr access new joiner onboarding",
+  "/itsm-my-approvals": "approve pending approvals", "/itsm-approval": "approval matrix approver", "/itsm-workflows": "workflow designer approvals flow",
+  "/itsm-setup": "teams groups categories catalogue email alerts priority matrix", "/compliance": "audit compliance sebi cscrf", "/compliance-library": "evidence documents",
+  "/admin/users": "users people employees reporting manager org tree", "/admin/roles": "roles permissions access rights", "/admin": "settings configuration",
+  "/admin?tab=masters": "master data lists departments locations", "/admin?tab=audit": "audit trail log history", "/admin/data-import": "import upload excel bulk",
+  "/admin/updates": "updates version release deploy", "/admin/archive": "email smtp m365 mail alerts archive", "/admin/integrations": "integration sso azure entra api",
+};
+const DEEP_LINKS: { href: string; label: string; section: string; module?: string; admin?: boolean; words: string }[] = [
+  { href: "/itsm-changes?tab=board", label: "Change approval board (CAB)", section: "ITSM", module: "itsm_changes", words: "cab approve change schedule freeze review after go-live" },
+  { href: "/itsm-changes?tab=board", label: "Change freeze windows", section: "ITSM", module: "itsm_changes", words: "freeze blackout quarter end" },
+  { href: "/itsm-kb?q=Known%20error", label: "Known errors", section: "ITSM", module: "itsm_kb", words: "known error workaround" },
+  { href: "/itsm-setup?tab=teams", label: "ITSM teams / groups", section: "ITSM", module: "itsm_setup", words: "team group members lead escalation assignment" },
+  { href: "/itsm-setup?tab=catalog", label: "ITSM categories & sub-categories", section: "ITSM", module: "itsm_setup", words: "category subcategory catalogue routing request items questions checklist" },
+  { href: "/itsm-setup?tab=emails", label: "ITSM email alerts", section: "ITSM", module: "itsm_setup", words: "email alert notification template" },
+  { href: "/itsm-setup?tab=priority", label: "Priority matrix (impact × urgency)", section: "ITSM", module: "itsm_setup", words: "priority impact urgency" },
+  { href: "/itsm-setup?tab=lists", label: "ITSM lists (environments, applications)", section: "ITSM", module: "itsm_setup", words: "environment application list dev uat prod" },
+  { href: "/asset-agents/keys", label: "Agent installation keys", section: "IT Assets", module: "asset_registry", words: "key installation agent bulk personal" },
+  { href: "/asset-agents/chats", label: "Device chats", section: "IT Assets", module: "asset_registry", words: "chat remote support device" },
+  { href: "/asset-agents/data", label: "Device data", section: "IT Assets", module: "asset_registry", words: "device data usage report" },
+  { href: "/profile", label: "Profile & Security", section: "My Workspace", words: "password mfa otp profile sign in security" },
+  { href: "/about", label: "About IT Hub", section: "My Workspace", words: "version about help" },
 ];
 
 const ITSM_ITEMS = [
@@ -186,7 +221,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     } catch { return {}; }
   });
   const [appConfig, setAppConfig] = useState<AppConfig>({ appName: "IT Hub", appTagline: "", logoUrl: "" });
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false); const [searchSeed, setSearchSeed] = useState("");
   const [menuQ, setMenuQ] = useState("");
   const [platformOn, setPlatformOn] = useState(false);   // NIYTRI console instance only
   useEffect(() => { if (isAdmin) apiFetch<{ console: boolean }>("/platform/status").then(r => setPlatformOn(!!r.console)).catch(() => {}); }, [isAdmin]);
@@ -263,7 +298,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // exact admin item highlight (all admin pages share /admin)
   for (const it of navSections.find(x => x.key === "admin")?.items || []) it.active = it.href.includes("?") ? location === "/admin" && window.location.search === it.href.slice(it.href.indexOf("?")) : it.href === "/admin" ? location === "/admin" && !window.location.search : location === it.href || location.startsWith(it.href + "/");
   const q = menuQ.trim().toLowerCase();
-  const menuHits = q ? navSections.flatMap(sec => sec.items.map(i => ({ ...i, section: sec.key, sectionLabel: sec.label }))).filter(i => (i.label + " " + i.sectionLabel).toLowerCase().includes(q)) : [];
+  const menuHits = (() => {
+    if (!q) return [] as any[];
+    const words = q.split(/\s+/).filter(Boolean);
+    const all = [...navSections.flatMap(sec => sec.items.map(i => ({ ...i, section: sec.key, sectionLabel: sec.label, words: MENU_WORDS[i.href] || "" }))),
+      ...DEEP_LINKS.filter(d => d.admin ? isAdmin : !d.module || canAccess(d.module)).map(d => ({ href: d.href, label: d.label, icon: SearchIcon2, active: false, section: "x" + d.label, sectionLabel: d.section, words: d.words }))];
+    const scored = all.map(i => {
+      const lab = i.label.toLowerCase(), hay = `${lab} ${i.sectionLabel.toLowerCase()} ${i.words}`;
+      if (!words.every(w => hay.includes(w))) return null;
+      return { i, s: lab.startsWith(q) ? 0 : lab.includes(q) ? 1 : words.every(w => lab.includes(w)) ? 2 : 3 };
+    }).filter(Boolean) as { i: any; s: number }[];
+    const seen = new Set<string>();
+    return scored.sort((a, b) => a.s - b.s).map(x => x.i).filter(i => { const k = i.href + i.label; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 15);
+  })();
 
   // Longest matching href wins (so "/itsm-incidents" is not shown as "/itsm" ITSM Dashboard)
   const best = (items: { href: string; label: string }[]) => items.filter(i => i.href === "/" ? location === "/" : (location === i.href || location.startsWith(i.href + "/") || location.startsWith(i.href + "?"))).sort((a, b) => b.href.length - a.href.length)[0]?.label;
@@ -337,7 +384,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <input value={menuQ} onChange={e => setMenuQ(e.target.value)} onKeyDown={e => { if (e.key === "Escape") setMenuQ(""); if (e.key === "Enter" && menuHits[0]) { navigate(menuHits[0].href); setMenuQ(""); } }}
-                  placeholder="Search menu…" aria-label="Search menu" data-testid="menu-search"
+                  placeholder="Search the app…" aria-label="Search the app" data-testid="menu-search"
                   className="w-full h-8 rounded-md border border-sidebar-border bg-background/60 pl-7 pr-6 text-[12px] outline-none focus:ring-1 focus:ring-primary/40" />
                 {menuQ && <button className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setMenuQ("")} aria-label="Clear"><X className="h-3 w-3" /></button>}
               </div>
@@ -349,7 +396,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <div key={it.section + it.href} onClick={() => setMenuQ("")}>
                   <NavItem href={it.href} label={it.label} icon={it.icon} active={it.active} collapsed={false} badge={it.badge} />
                   <div className="-mt-1 mb-1 pl-9 text-[9.5px] uppercase tracking-wide text-muted-foreground/70">{it.sectionLabel}</div>
-                </div>)) : <div className="px-2 py-4 text-[11px] text-muted-foreground text-center">No menu item matches “{menuQ}”</div>
+                </div>)).concat(<button key="__all" data-testid="menu-search-all" onClick={() => { setSearchSeed(menuQ.trim()); setSearchOpen(true); setMenuQ(""); }} className="mt-1 w-full text-left px-2.5 py-2 rounded-md text-[12px] text-primary hover:bg-sidebar-accent flex items-center gap-2"><SearchIcon2 className="h-3.5 w-3.5" />Search records for “{menuQ.trim()}”</button>)
+              : <div className="px-2 py-4 text-[11px] text-muted-foreground text-center space-y-2"><div>No menu item matches “{menuQ}”</div><button data-testid="menu-search-all" onClick={() => { setSearchSeed(menuQ.trim()); setSearchOpen(true); setMenuQ(""); }} className="text-primary hover:underline">Search records (tickets, assets, people…) for “{menuQ.trim()}”</button></div>
             ) : navSections.map(sec => {
               const open = isCollapsed || (sectionsOpen[sec.key] ?? sec.items.some(i => i.active));
               return (
@@ -531,7 +579,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </main>
 
-      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <SearchModal open={searchOpen} onClose={() => { setSearchOpen(false); setSearchSeed(""); }} initialQuery={searchSeed} />
     </div>
   );
 }

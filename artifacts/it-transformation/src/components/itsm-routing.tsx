@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
-import { Users, CalendarClock, Loader2, AlertTriangle } from "lucide-react";
+import { Users, CalendarClock, Loader2, AlertTriangle, GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtDate, fmtDateTime } from "@/lib/date";
 
@@ -56,10 +56,12 @@ export function CategoryFields({ kind, category, subcategory, onChange, disabled
 }
 
 /** Live routing preview: team (auto), expected closure (auto) and whether the user may assign. */
-export function useRoute(kind: Kind, category?: string | null, subcategory?: string | null) {
+export function useRoute(kind: Kind, category?: string | null, subcategory?: string | null, extra?: { changeType?: string; priority?: string; severity?: string }) {
+  const x = Object.entries(extra || {}).filter(([, v]) => v).map(([k, v]) => `&${k}=${encodeURIComponent(String(v))}`).join("");
   return useQuery<any>({
-    queryKey: ["itsm-route", kind, category, subcategory],
-    queryFn: () => apiFetch(`/itsm-route?type=${kind}&category=${encodeURIComponent(category || "")}&subcategory=${encodeURIComponent(subcategory || "")}`),
+    queryKey: ["itsm-route", kind, category, subcategory, x],
+    queryFn: () => apiFetch(`/itsm-route?type=${kind}&category=${encodeURIComponent(category || "")}&subcategory=${encodeURIComponent(subcategory || "")}${x}`),
+    placeholderData: (prev: any) => prev,
     enabled: !!category,
   });
 }
@@ -75,6 +77,7 @@ export function RoutingPreview({ route, loading }: { route: any; loading?: boole
       <div><div className="text-[11px] text-muted-foreground flex items-center gap-1"><Users className="w-3.5 h-3.5" />Assigned group (automatic)</div><div className="font-semibold text-sm">{route.team}</div></div>
       <div><div className="text-[11px] text-muted-foreground flex items-center gap-1"><CalendarClock className="w-3.5 h-3.5" />Expected closure date (automatic)</div><div className="font-semibold text-sm">{fmtDay(route.expectedClosureDate)}</div>
         <div className="text-[10px] text-muted-foreground">T+{route.days} working day{route.days === 1 ? "" : "s"}{route.defaulted ? " (default)" : ""} · Sat & Sun excluded</div></div>
+      {route.workflow !== undefined && <div className="sm:col-span-2 border-t pt-2"><div className="text-[11px] text-muted-foreground flex items-center gap-1"><GitBranch className="w-3.5 h-3.5" />Workflow (automatic)</div><div className="font-semibold text-sm" data-testid="route-workflow">{route.workflow || "No workflow — approval matrix applies"}</div></div>}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { logAudit, getPerformedBy } from "./audit-logs";
 import { getAccess } from "../lib/rbac";
 import { createBatch, batchWorkbook, XLSX_TYPE } from "../lib/archive";
 import { notify, htmlTable } from "../lib/mailer";
+import { pickWorkflow } from "../lib/itsm-workflow";
 import { route, RoutingError, teamIdsOf, teamMembers, DEFAULT_DAYS, addBusinessDays, CATALOG_TYPE } from "../lib/itsm-routing";
 
 /*
@@ -313,7 +314,10 @@ router.get("/itsm-route", wrap(async (req, res) => {
     const a = await getAccess(req);
     const mine = await teamIdsOf(a?.userId);
     const canAssign = !!a?.isAdmin || mine.includes(r.team.id);
-    res.json({ ok: true, formFields: kind === "request" ? r.formFields : [], tasks: kind === "request" ? r.tasks : [], category: r.category, subcategory: r.subcategory, teamId: r.team.id, team: r.team.name, days: r.days, defaulted: r.defaulted, expectedClosureDate: r.expectedClosureDate, canAssign, members: canAssign ? await teamMembers(r.team.id) : [] });
+    // 2.12: which workflow the ticket will follow (type / priority / severity from the form)
+    const q = req.query as any;
+    const wf = await pickWorkflow(kind as any, { category: r.category, subcategory: r.subcategory, type: q.changeType || (kind === "change" ? "Normal" : undefined), priority: q.priority, severity: q.severity }).catch(() => null);
+    res.json({ ok: true, formFields: kind === "request" ? r.formFields : [], tasks: kind === "request" ? r.tasks : [], category: r.category, subcategory: r.subcategory, teamId: r.team.id, team: r.team.name, days: r.days, defaulted: r.defaulted, expectedClosureDate: r.expectedClosureDate, ...(["change", "problem"].includes(kind) || q.priority || q.severity ? { workflow: wf ? wf.name : null } : {}), canAssign, members: canAssign ? await teamMembers(r.team.id) : [] });
   } catch (e: any) { if (e instanceof RoutingError) res.json({ ok: false, error: e.message }); else throw e; }
 }));
 

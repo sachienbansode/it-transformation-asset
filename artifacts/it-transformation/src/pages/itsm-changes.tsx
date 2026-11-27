@@ -200,7 +200,7 @@ export default function ItsmChanges() {
   }
   const workMode = !!editingItem && canWork(editingItem);
   const reqMode = !!editingItem && !workMode;
-  const route = useRoute("change", isModalOpen && (!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) ? formData.category : null, formData.subcategory);
+  const route = useRoute("change", isModalOpen && (!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) ? formData.category : null, formData.subcategory, { changeType: formData.type });
 
   async function handleDelete(id: number, no: string) {
     const reason = await reasonDialog(`Delete change request ${no}? It is removed from the lists but kept in the audit trail.`, { title: "Delete change request", confirmText: "Delete", destructive: true, label: "Reason for deleting" });
@@ -392,7 +392,7 @@ export default function ItsmChanges() {
           <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Upgrade core switch firmware to 17.9" /></div>
           <div className="sm:col-span-2"><Label>Description & reason</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What will change, why it is needed, what happens if it is not done" /></div>
           <div><Label>Change type</Label><Select value={formData.type || "Normal"} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CHANGE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
-          <div className="hidden sm:block" />
+          <div className="text-xs text-muted-foreground self-end pb-2" data-testid="change-type-hint">{({ Standard: "Pre-approved, repeatable, low risk — no CAB approval.", Normal: "Planned change — risk assessed and approved by the Change Advisory Board.", Emergency: "Urgent fix to restore or protect service — fast approval; allowed in freeze windows; review after go-live." } as any)[formData.type || "Normal"]}</div>
           <CategoryFields kind="change" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
           {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
           <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^software|^application/i.test(formData.category || "")} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />

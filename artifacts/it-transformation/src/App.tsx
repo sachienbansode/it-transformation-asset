@@ -44,6 +44,7 @@ import DevicePolicy from "@/pages/device-policy";
 import ItsmWorkflows from "@/pages/itsm-workflows";
 import SoftwareCompliance from "@/pages/software-compliance";
 import AgentKeys from "@/pages/agent-keys";
+import AgentInstall from "@/pages/agent-install";
 import AgentChats from "@/pages/agent-chats";
 import DeviceData from "@/pages/device-data";
 import ItsmChats from "@/pages/itsm-chats";
@@ -111,7 +112,7 @@ function guard(module: string, Component: React.ComponentType) {
 const G = {
   dashboard: guard("assets", AssetDashboard), registry: guard("asset_registry", AssetRegistry), vendors: guard("asset_vendors", AssetVendors),
   licenses: guard("asset_licenses", AssetLicenses), contracts: guard("asset_contracts", AssetContracts), depreciation: guard("asset_depreciation", AssetDepreciation),
-  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), devicePolicy: guard("asset_registry", DevicePolicy), software: guard("asset_registry", SoftwareCompliance), agentKeys: guard("asset_registry", AgentKeys), agentChats: guard("asset_registry", AgentChats), deviceData: guard("asset_registry", DeviceData), itsmChats: ItsmChats,
+  handovers: guard("asset_allocations", AssetHandovers), employees: guard("asset_allocations", AssetEmployees), agents: guard("asset_registry", AssetAgents), devicePolicy: guard("asset_registry", DevicePolicy), software: guard("asset_registry", SoftwareCompliance), agentKeys: guard("asset_registry", AgentKeys), agentInstall: guard("asset_registry", AgentInstall), agentChats: guard("asset_registry", AgentChats), deviceData: guard("asset_registry", DeviceData), itsmChats: ItsmChats,
   audits: guard("asset_audits", AssetAudits), auditDetail: guard("asset_audits", AssetAuditDetail),
 };
 
@@ -194,6 +195,7 @@ function Router() {
               <Route path="/asset-allocations" component={G.handovers} />
               <Route path="/asset-employees" component={G.employees} />
               <Route path="/asset-agents/keys" component={G.agentKeys} />
+              <Route path="/asset-agents/install" component={G.agentInstall} />
               <Route path="/asset-agents/chats" component={G.agentChats} />
               <Route path="/asset-agents/data" component={G.deviceData} />
               <Route path="/itsm-chats" component={G.itsmChats} />

@@ -58,7 +58,7 @@ function useDebounce<T>(val: T, delay: number) {
   return debouncedVal;
 }
 
-export function SearchModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function SearchModal({ open, onClose, initialQuery }: { open: boolean; onClose: () => void; initialQuery?: string }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,7 +68,7 @@ export function SearchModal({ open, onClose }: { open: boolean; onClose: () => v
 
   useEffect(() => {
     if (open) {
-      setQuery("");
+      setQuery(initialQuery || "");
       setResults(null);
       setTimeout(() => inputRef.current?.focus(), 80);
     }
