@@ -163,6 +163,8 @@ export const itsmTicketHistoryTable = pgTable("itsm_ticket_history", {
   newStatus: text("new_status"),
   updatedBy: text("updated_by"),
   notes: text("notes"),
+  entryType: text("entry_type").notNull().default("event"),   // event | comment
+  changes: jsonb("changes").$type<{ field: string; label: string; from: any; to: any }[]>(),   // 2.17 field-level edit trail
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

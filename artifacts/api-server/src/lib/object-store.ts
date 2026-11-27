@@ -96,13 +96,16 @@ async function azureReq(method: "PUT" | "GET" | "DELETE" | "HEAD", c: StoreCfg, 
 async function azure(method: "PUT" | "GET" | "DELETE", c: StoreCfg, key: string, body?: Buffer) {
   const extra: Record<string, string> = method === "PUT" ? { "x-ms-blob-type": "BlockBlob", "content-type": "application/octet-stream" } : {};
   const r = await azureReq(method, c, `/${enc(c.container!)}/${keyPath(key)}`, "", body, extra);
-  if (!r.ok && !(method === "DELETE" && r.status === 404)) throw new Error(`Azure Blob ${method} failed (${r.status}): ${azureWhy(r.status, await r.text())}`);
+  if (!r.ok && !(method === "DELETE" && r.status === 404)) throw new Error(`Azure Blob ${method} failed (${r.status}): ${azureWhy(r.status, await r.text(), azureAuth(c))}`);
   return method === "GET" ? Buffer.from(await r.arrayBuffer()) : null;
 }
-function azureWhy(status: number, text: string) {
+function azureWhy(status: number, text: string, mode = "") {
   const code = (text.match(/<Code>([^<]+)<\/Code>/) || [])[1] || "";
-  if (status === 403 && /AuthorizationPermissionMismatch|AuthorizationFailure/.test(code)) return `${code} — the server is not allowed: give the VM's managed identity the role "Storage Blob Data Contributor" on the storage account, and allow the server's IP in the storage account Networking (wait ~5 minutes after a role change)`;
-  if (status === 404 && /ContainerNotFound/.test(code)) return "ContainerNotFound — click Set up storage to create it";
+  if (status === 403 && code === "AuthorizationFailure") return "AuthorizationFailure — the storage account firewall blocked this server. In the storage account › Networking allow the server: if the VM is in the same Azure region, add its virtual network / subnet (Virtual networks › Add existing) — an IP rule does not work within the same region; otherwise add the server's outbound IP";
+  if (status === 403 && code === "AuthenticationFailed") return mode === "key" ? "AuthenticationFailed — the storage account key is wrong (copy key1 again into AZURE_STORAGE_KEY and restart IT Hub)" : mode === "sas" ? "AuthenticationFailed — the SAS is wrong or expired" : "AuthenticationFailed";
+  if (status === 403 && code === "KeyBasedAuthenticationNotPermitted") return "Storage account key access is turned off — Storage account › Configuration › Allow storage account key access: Enabled";
+  if (status === 403 && code === "AuthorizationPermissionMismatch") return mode === "managed-identity" ? "The VM's managed identity has no access — give it the role Storage Blob Data Contributor on the storage account (wait ~5 minutes)" : mode === "sas" ? "The SAS is missing a permission (needs read, add, create, write, delete, list)" : code;
+  if (status === 404 && /ContainerNotFound/.test(code)) return "ContainerNotFound — click Save & set up storage to create it";
   return code || text.slice(0, 200);
 }
 /** Create the container if it is missing (managed identity or account key; a container SAS cannot create containers). */
@@ -113,7 +116,7 @@ export async function ensureContainer(c: StoreCfg): Promise<"created" | "exists"
   const r = await azureReq("PUT", c, `/${enc(c.container!)}`, "restype=container");
   if (r.status === 201) return "created";
   if (r.status === 409) return "exists";
-  throw new Error(`Could not create the container (${r.status}): ${azureWhy(r.status, await r.text())}`);
+  throw new Error(`Could not create the container (${r.status}): ${azureWhy(r.status, await r.text(), azureAuth(c))}`);
 }
 
 const call = (m: "PUT" | "GET" | "DELETE", c: StoreCfg, key: string, body?: Buffer) => c.provider === "s3" ? s3(m, c, key, body) : c.provider === "azure" ? azure(m, c, key, body) : Promise.reject(new Error("Cloud file storage is not configured"));

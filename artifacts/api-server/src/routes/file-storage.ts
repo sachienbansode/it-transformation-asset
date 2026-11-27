@@ -44,7 +44,7 @@ router.get("/file-storage", requireAuth, wrap(async (req, res) => {
       (SELECT count(*) FROM stored_files WHERE uploaded)::int AS uploads,
       (SELECT count(*) FROM policy_documents WHERE object_key IS NOT NULL)::int AS policies,
       (SELECT count(*) FROM chat_attachments WHERE coalesce(storage, 'db') <> 'db')::int AS chats`).catch(() => ({ rows: [{}] })))[0];
-  return res.json({ config: saved || (active ? { ...active, fromOldSetting: true } : { provider: "none", root: defaultRoot(), container: "it-hub", auth: "managed-identity" }),
+  return res.json({ config: saved || (active ? { ...active, fromOldSetting: true } : { provider: "none", root: defaultRoot(), container: "it-hub", auth: process.env.AZURE_STORAGE_KEY ? "key" : (process.env.FILE_STORAGE_AZURE_SAS || process.env.RECORDINGS_AZURE_SAS) ? "sas" : "managed-identity" }),
     active: active ? storeLabel(active) : null, defaultRoot: defaultRoot(), folders: FOLDER_LABELS,
     server: { sas: !!(process.env.FILE_STORAGE_AZURE_SAS || process.env.RECORDINGS_AZURE_SAS), key: !!process.env.AZURE_STORAGE_KEY, s3keys: !!(process.env.RECORDINGS_S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID) },
     inCloud: counts });

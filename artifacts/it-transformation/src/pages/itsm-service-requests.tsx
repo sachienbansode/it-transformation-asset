@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketHistory } from "@/components/ticket-history";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
@@ -334,9 +335,10 @@ export default function ItsmServiceRequests() {
               <CsatPanel kind="request" id={viewModal.id} readonly />
               <RelatedRecords kind="request" id={viewModal.id} readonly />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Service Request" readonly />
-              <TicketHistory ticketId={viewModal.id} />
+              
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Service Request" ticketId={viewModal.id} readonly />
+              <TicketHistory kind="request" id={viewModal.id} />
             </div>
           )}
         </DialogContent>
@@ -353,7 +355,7 @@ export default function ItsmServiceRequests() {
         {editingItem && <div className="space-y-2"><RequestAnswers request={editingItem} />{workMode && <RequestChecklist requestId={editingItem.id} />}</div>}
         <FormSection title="What do you need" icon={ShoppingBag}>
           <div className="sm:col-span-2"><Label>Title *</Label><Input disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Access to the Finance shared folder" /></div>
-          <div className="sm:col-span-2"><Label>Details</Label><Textarea disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What exactly, for whom, by when, and why it is needed" /></div>
+          <div className="sm:col-span-2"><Label>Details{editingItem ? <span className="text-[11px] font-normal text-muted-foreground"> — fixed once raised; add a comment in the trail below</span> : null}</Label><Textarea disabled={!!editingItem} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What exactly, for whom, by when, and why it is needed" /></div>
           <CategoryFields kind="request" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
           <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^application/i.test(formData.category || "")} disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
           {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
@@ -389,6 +391,7 @@ export default function ItsmServiceRequests() {
           <CsatPanel kind="request" id={editingItem.id} />
           <TicketWorkflow kind="request" id={editingItem.id} ticketNo={editingItem.requestNo} onChanged={refreshEditing} />
           <RelatedRecords kind="request" id={editingItem.id} />
+          <TicketHistory kind="request" id={editingItem.id} canComment />
         </div>}
         {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" />}
       </TicketDialog>
@@ -396,13 +399,3 @@ export default function ItsmServiceRequests() {
   );
 }
 
-/** Ticket history (status, assignment, transfers, approvals) — newest first. */
-function TicketHistory({ ticketId }: { ticketId: number }) {
-  const { data = [] } = useQuery<any[]>({ queryKey: ["ticket-history", "service_request", ticketId], queryFn: () => apiFetch(`/ticket-history?ticketId=${ticketId}&ticketType=service_request`) });
-  if (!data.length) return null;
-  return (
-    <div><div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">History</div>
-      <ol className="space-y-1.5 border-l pl-3">{data.map((h: any) => <li key={h.id} className="text-xs"><span className="text-muted-foreground">{formatDateTime(h.createdAt)} · {String(h.updatedBy || "").replace(/ <.*>$/, "")}</span><div>{h.notes}</div></li>)}</ol>
-    </div>
-  );
-}

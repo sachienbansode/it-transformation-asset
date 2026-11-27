@@ -1,4 +1,12 @@
 {
+ "2.17": [
+  "Ticket trail for incidents, service requests, problems and changes: every save records each changed field (old → new, long text expandable), status, assignment, files added / removed — latest on top with date, time and who",
+  "Comments: the assigned team, ITSM Admin and the person who raised the ticket add comments in Edit; comments cannot be edited or deleted; the requester is notified",
+  "Description is fixed once the ticket is raised — further information goes in as a comment"
+ ],
+ "2.16": [
+  "File storage errors now say the real cause: storage firewall (add the VM's virtual network / subnet), wrong key, key access turned off, managed identity without the role, or SAS missing a permission"
+ ],
  "2.15": [
   "File storage for ALL files (Azure Blob / Amazon S3): ticket attachments, policy PDFs, chat files, screen recordings, audit evidence and templates, profile photos",
   "Container created automatically on Save; test writes, reads and removes a file; sign-in by the VM's managed identity (recommended), storage account key or SAS",

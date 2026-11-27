@@ -18,6 +18,7 @@ import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { KnownErrorHints } from "@/components/itsm-problem-extras";
+import { TicketHistory } from "@/components/ticket-history";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
@@ -492,6 +493,7 @@ export default function ItsmIncidents() {
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Incident" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Incident" ticketId={viewModal.id} readonly />
+              <TicketHistory kind="incident" id={viewModal.id} />
             </div>
           )}
         </DialogContent>
@@ -507,7 +509,7 @@ export default function ItsmIncidents() {
         {editingItem && workMode && <div className="space-y-2"><MajorIncidentPanel incident={editingItem} /><RepeatBanner incident={editingItem} /><ChildIncidents incident={editingItem} /></div>}
         <FormSection title="What happened" icon={FileWarning}>
           <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Outlook not opening on my laptop" data-testid="incident-title" /></div>
-          <div className="sm:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What were you doing, what did you see (error message), since when, who else is affected?" /></div>
+          <div className="sm:col-span-2"><Label>Description{editingItem ? <span className="text-[11px] font-normal text-muted-foreground"> — fixed once raised; add a comment in the trail below</span> : null}</Label><Textarea disabled={!!editingItem} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What were you doing, what did you see (error message), since when, who else is affected?" /></div>
           <CategoryFields kind="incident" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
           <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^application/i.test(formData.category || "")} disabled={reqMode && editingItem?.status !== "Open"} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
           {(!editingItem || !["Resolved", "Closed"].includes(editingItem.status)) && <KnownErrorHints text={`${formData.title || ""} ${formData.description || ""}`} category={formData.category} apps={formData.affectedApps} linkedId={formData.kbArticleId} onUse={editingItem && workMode ? (kb => setFormData({ ...formData, kbArticleId: kb })) : undefined} />}
@@ -577,6 +579,7 @@ export default function ItsmIncidents() {
           <CsatPanel kind="incident" id={editingItem.id} />
           <TicketWorkflow kind="incident" id={editingItem.id} ticketNo={editingItem.ticketNo} onChanged={refreshEditing} />
           <RelatedRecords kind="incident" id={editingItem.id} />
+          <TicketHistory kind="incident" id={editingItem.id} canComment />
         </div>}
         {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Incident" />}
       </TicketDialog>

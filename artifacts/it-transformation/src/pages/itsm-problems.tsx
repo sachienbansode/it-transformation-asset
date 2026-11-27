@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketHistory } from "@/components/ticket-history";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { RcaEditor, RcaView, KnownErrorPanel } from "@/components/itsm-problem-extras";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
@@ -365,6 +366,7 @@ export default function ItsmProblems() {
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Problem" ticketId={viewModal.id} readonly />
+              <TicketHistory kind="problem" id={viewModal.id} />
             </div>
             );
           })()}
@@ -380,7 +382,7 @@ export default function ItsmProblems() {
         </>}>
         <FormSection title="The problem" icon={Bug}>
           <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Outlook crashes after the monthly Office update" /></div>
-          <div className="sm:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="Symptoms, how often, since when, what is affected" /></div>
+          <div className="sm:col-span-2"><Label>Description{editingItem ? <span className="text-[11px] font-normal text-muted-foreground"> — fixed once raised; add a comment in the trail below</span> : null}</Label><Textarea disabled={!!editingItem} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="Symptoms, how often, since when, what is affected" /></div>
           <CategoryFields kind="problem" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
           {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
           <div className="sm:col-span-2"><Label>Affected systems</Label><Input value={formData.affectedSystems || ""} onChange={e => setFormData({ ...formData, affectedSystems: e.target.value })} placeholder="e.g. ERP, Network, SAP" /></div>
@@ -418,6 +420,7 @@ export default function ItsmProblems() {
           {workMode && <Button size="sm" variant="outline" onClick={() => { setIsModalOpen(false); navigate("/itsm-changes"); }} className="h-7 text-xs gap-1.5 border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400"><GitBranch className="w-3.5 h-3.5" />Raise a change for the permanent fix</Button>}
           <TicketWorkflow kind="problem" id={editingItem.id} ticketNo={editingItem.problemNo} onChanged={refreshEditing} />
           <RelatedRecords kind="problem" id={editingItem.id} />
+          <TicketHistory kind="problem" id={editingItem.id} canComment />
         </div>}
         {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" />}
       </TicketDialog>

@@ -127,6 +127,24 @@ function problemFields(body: any) {
   if (body.rootCauseCategory != null && !ROOT_CAUSE_CATEGORIES.includes(body.rootCauseCategory)) throw new Bad("Root cause category: choose one from the list");
 }
 
+/** 2.17: field-level edit trail — every changed field with its old and new value, one history entry per save. */
+const TRACK: Record<string, string> = { title: "Title", description: "Description", category: "Category", subcategory: "Sub-category", severity: "Severity", urgency: "Urgency", impactLevel: "Impact",
+  environment: "Environment", affectedApps: "Affected applications", source: "Source", resolutionNotes: "Resolution notes", fulfillmentNotes: "Fulfilment notes", parentIncidentId: "Parent incident", problemId: "Linked problem",
+  kbArticleId: "Knowledge article", rootCause: "Root cause", rootCauseCategory: "Root cause category", workaround: "Workaround", permanentFix: "Permanent fix", rcaMethod: "Analysis method", rca: "Root cause analysis",
+  relatedIncidents: "Related incidents", affectedSystems: "Affected systems", impact: "Business impact", type: "Change type", riskLevel: "Risk level", riskScore: "Risk score", riskAnswers: "Risk answers",
+  plannedStart: "Window start", plannedEnd: "Window end", implementationDate: "Implementation date", backoutDuration: "Backout duration", rollbackPlan: "Rollback plan", testPlan: "Test plan", affectedAssets: "Affected assets", formData: "Request details" };
+const norm = (v: any) => v == null || v === "" || (Array.isArray(v) && !v.length) || (typeof v === "object" && !(v instanceof Date) && !Array.isArray(v) && !Object.keys(v).length) ? null
+  : v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v);
+function fieldChanges(old: any, item: any) {
+  const out: { field: string; label: string; from: any; to: any }[] = [];
+  for (const [f, label] of Object.entries(TRACK)) {
+    if (!(f in item)) continue;
+    const a = norm(old[f]), b = norm(item[f]);
+    if (a !== b && !(f === "implementationDate" && a?.slice(0, 10) === b?.slice(0, 10))) out.push({ field: f, label, from: a, to: b });
+  }
+  return out;
+}
+
 /** Next ticket number, allocated under a transaction-scoped advisory lock (no duplicates with simultaneous users). */
 async function nextNo(tx: any, table: string, col: string, prefix: string) {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"itsm_no:" + table}))`);
@@ -487,6 +505,9 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     const newTeam = body.assignedGroup !== undefined && (body.assignedGroup || null) !== (old.assignedGroup || null) ? body.assignedGroup : null;
     if (newWho || newTeam) await validateAssignment(newWho, newTeam);
   }
+  // 2.17: the description is fixed once the ticket is raised — later information goes in as a comment
+  if (body.description !== undefined && String(body.description ?? "").trim() !== String(old.description ?? "").trim()) throw new Bad("The description cannot be changed after the ticket is raised — add a comment instead");
+  delete body.description;
   const to = body.status ?? old.status;
   if (kind === "change") {   // 2.11
     const w = await changeFields(body, old);
@@ -542,6 +563,8 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if ((old.assignedGroup || null) !== (item.assignedGroup || null)) await history(kind, id, who.label, `Passed to team ${item.assignedGroup || "(none)"} from ${old.assignedGroup || "(none)"}${s(req.body?.transferReason) ? ` — ${s(req.body.transferReason)}` : ""}`);
   if ((old.assignedTo || null) !== (item.assignedTo || null)) await history(kind, id, who.label, item.assignedTo ? `Assigned to ${item.assignedTo}${old.assignedTo ? ` (was ${old.assignedTo})` : ""}` : `Unassigned (was ${old.assignedTo})`);
   if (old.priority && item.priority && old.priority !== item.priority) await history(kind, id, who.label, `Priority ${old.priority} → ${item.priority}`);
+  { const ch = fieldChanges(old, item);   // 2.17: what else was edited, old → new
+    if (ch.length) await db.insert(itsmTicketHistoryTable).values({ ticketId: id, ticketType: HISTORY_TYPE[kind] || kind, updatedBy: who.label, notes: `Edited: ${ch.map(c => c.label).join(", ")}`, changes: ch } as any); }
   if (kind === "problem" && (item.status === "Known Error" && old.status !== "Known Error" || (item.kbArticleId && ["rootCause", "workaround", "permanentFix", "rootCauseCategory", "status", "title", "description"].some(k => String(old[k] ?? "") !== String(item[k] ?? "")))))
     await publishKnownError(id, who.label).then(kb => history(kind, id, who.label, old.kbArticleId ? "Known error article updated in the knowledge base" : `Published as a known error in the knowledge base (article #${kb})`)).catch(e => console.error("known error publish", e?.message));
   if (kind === "change" && old.status !== item.status && PIR_FROM.includes(item.status) && needsPir(item) && !item.pirAt) {
@@ -897,6 +920,22 @@ router.delete("/sla-policies/:id", wrap(async (req, res) => {
 }));
 
 /* ─── TICKET HISTORY ─────────────────────────────────────────────────────── */
+/** 2.17: comment on a ticket (assigned team, ITSM Admin, or the person who raised it) — kept in the trail, cannot be edited or deleted. */
+router.post("/ticket-comments", wrap(async (req, res) => {
+  const kind = String(req.body?.kind || "") as Kind; if (!TABLE[kind]) return fail(res, 400, "Unknown ticket type");
+  const id = Number(req.body?.id); const text = String(req.body?.text || "").trim();
+  if (text.length < 3) return fail(res, 400, "Write the comment (at least 3 characters)");
+  if (text.length > 4000) return fail(res, 400, "The comment is too long (4,000 characters at most)");
+  const [t]: any[] = await db.select().from(TABLE[kind]).where(and(eq(TABLE[kind].id, id), eq(TABLE[kind].isActive, true))); if (!t) return fail(res, 404, "Ticket not found");
+  const who = await actor(req); const a = await getAccess(req);
+  const ok = isItsmAdmin(a) || (ROUTED.includes(kind) && await isMember(who.userId, t.teamId)) || t.requesterUserId === who.userId || t.createdBy === who.label;
+  if (!ok) return fail(res, 403, `Only ${t.assignedGroup || "the assigned team"} or the person who raised it can comment`);
+  const [h] = await db.insert(itsmTicketHistoryTable).values({ ticketId: id, ticketType: HISTORY_TYPE[kind] || kind, updatedBy: who.label, notes: text, entryType: "comment" } as any).returning();
+  await audit({ entityType: `itsm_${kind}`, entityId: id, action: "comment", performedBy: who.label, summary: `${t[NO[kind][3]]}: comment added` });
+  if (t.requesterUserId && t.requesterUserId !== who.userId) void inApp([t.requesterUserId], `New comment on ${t[NO[kind][3]]}`, `${who.name}: ${text.slice(0, 140)}`, "info", `${PAGE_OF[kind] || ""}?open=${id}`);
+  return res.status(201).json(h);
+}));
+
 router.get("/ticket-history", wrap(async (req, res) => {
   const ticketId = req.query.ticketId ? parseInt(req.query.ticketId as string) : null;
   const ticketType = (req.query.ticketType as string) || null;
@@ -1358,7 +1397,8 @@ router.post("/itsm-attachments", async (req, res): Promise<void> => {
   {   // 2.14: cloud storage — move the file into itsm/<type>/<ticket no>/
     const k = ({ "Incident": "incident", "Problem": "problem", "Change Request": "change", "Service Request": "request" } as Record<string, Kind>)[body.data.ticketType];
     const [t]: any[] = k ? await db.select().from(TABLE[k]).where(eq(TABLE[k].id, body.data.ticketId)) : [];
-    if (k && t) { const { fileUpload } = await import("./storage"); const { FOLDERS } = await import("../lib/file-store"); await fileUpload(body.data.objectPath, FOLDERS[k], [String(t[NO[k][3]])]); }
+    if (k && t) await history(k, body.data.ticketId, uploadedByName, `File attached: ${body.data.fileName}`);
+  if (k && t) { const { fileUpload } = await import("./storage"); const { FOLDERS } = await import("../lib/file-store"); await fileUpload(body.data.objectPath, FOLDERS[k], [String(t[NO[k][3]])]); }
   }
   await logAudit({ entityType: "itsm_attachment", entityId: attachment.id, action: "CREATE", performedBy: uploadedByName, summary: `Attachment uploaded: ${body.data.fileName} for ${body.data.ticketType} #${body.data.ticketId}` }).catch(() => {});
   res.status(201).json(attachment);
@@ -1372,6 +1412,7 @@ router.delete("/itsm-attachments/:id", async (req, res): Promise<void> => {
   const [att] = await db.delete(itsmAttachmentsTable).where(eq(itsmAttachmentsTable.id, id)).returning();
   if (!att) { res.status(404).json({ error: "Attachment not found" }); return; }
   const actorName = await getPerformedBy((req.session as any)?.userId).catch(() => "Unknown");
+  { const k = ({ "Incident": "incident", "Problem": "problem", "Change Request": "change", "Service Request": "request" } as Record<string, string>)[att.ticketType]; if (k) await history(k, att.ticketId, actorName, `File removed: ${att.fileName}`); }
   await logAudit({ entityType: "itsm_attachment", entityId: id, action: "DELETE", performedBy: actorName, summary: `Attachment deleted: ${att.fileName} for ${att.ticketType} #${att.ticketId}` }).catch(() => {});
   res.sendStatus(204);
 });

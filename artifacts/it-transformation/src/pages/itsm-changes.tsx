@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { TicketHistory } from "@/components/ticket-history";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
@@ -382,6 +383,7 @@ export default function ItsmChanges() {
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Change Request" readonly />
               <hr className="border-border/40" />
               <TicketAttachments ticketType="Change Request" ticketId={viewModal.id} readonly />
+              <TicketHistory kind="change" id={viewModal.id} />
             </div>
           )}
         </DialogContent>
@@ -396,7 +398,7 @@ export default function ItsmChanges() {
         </>}>
         <FormSection title="The change" icon={GitBranch}>
           <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Upgrade core switch firmware to 17.9" /></div>
-          <div className="sm:col-span-2"><Label>Description & reason</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What will change, why it is needed, what happens if it is not done" /></div>
+          <div className="sm:col-span-2"><Label>Description & reason{editingItem ? <span className="text-[11px] font-normal text-muted-foreground"> — fixed once raised; add a comment in the trail below</span> : null}</Label><Textarea disabled={!!editingItem} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What will change, why it is needed, what happens if it is not done" /></div>
           <div><Label>Change type</Label><Select value={formData.type || "Normal"} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CHANGE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
           <div className="text-xs text-muted-foreground self-end pb-2" data-testid="change-type-hint">{({ Standard: "Pre-approved, repeatable, low risk — no CAB approval.", Normal: "Planned change — risk assessed and approved by the Change Advisory Board.", Emergency: "Urgent fix to restore or protect service — fast approval; allowed in freeze windows; review after go-live." } as any)[formData.type || "Normal"]}</div>
           <CategoryFields kind="change" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
@@ -455,6 +457,7 @@ export default function ItsmChanges() {
           {workMode && <ChangeReview change={editingItem} canWork onSaved={refreshEditing} />}
           <TicketWorkflow kind="change" id={editingItem.id} ticketNo={editingItem.changeNo} onChanged={refreshEditing} />
           <RelatedRecords kind="change" id={editingItem.id} />
+          <TicketHistory kind="change" id={editingItem.id} canComment />
         </div>}
         {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Change Request" />}
       </TicketDialog>
