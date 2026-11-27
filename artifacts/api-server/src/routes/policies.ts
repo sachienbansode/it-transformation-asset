@@ -48,10 +48,10 @@ function audSql(a: Aud) {
 async function statusRows(p: any) {
   return rowsOf(await db.execute(sql`
     SELECT u.id AS "userId", u.name, u.email, u.employee_code AS "employeeCode", u.department, coalesce(u.user_type, 'internal') AS "userType",
-           d.decision, d.at, d.method, d.ip, d.user_agent AS "userAgent", d.version AS "decidedVersion",
+           d.decision, d.at, d.method, d.user_agent AS "userAgent", d.version AS "decidedVersion",
            (SELECT max(version) FROM policy_acceptances x WHERE x.policy_id = ${p.id} AND x.user_id = u.id AND x.decision = 'Accepted') AS "lastAcceptedVersion"
     FROM users u
-    LEFT JOIN LATERAL (SELECT decision, at, method, ip, user_agent, version FROM policy_acceptances a WHERE a.policy_id = ${p.id} AND a.user_id = u.id AND a.version = ${p.version} ORDER BY a.at DESC, a.id DESC LIMIT 1) d ON true
+    LEFT JOIN LATERAL (SELECT decision, at, method, user_agent, version FROM policy_acceptances a WHERE a.policy_id = ${p.id} AND a.user_id = u.id AND a.version = ${p.version} ORDER BY a.at DESC, a.id DESC LIMIT 1) d ON true
     WHERE ${audSql(p.audience || {})} ORDER BY u.name`));
 }
 /** Deadline = days after publishing, or after a resend / reactivation that restarted the clock. */
@@ -130,7 +130,7 @@ const docInfo = async (id: number | null) => id ? rowsOf(await db.execute(sql`SE
 /* ═══ user ═══════════════════════════════════════════════════════════════ */
 router.get("/my-policies", requireAuth, wrap(async (req, res) => {
   const list = await policiesFor(uid(req)!);
-  const history = rowsOf(await db.execute(sql`SELECT a.id, a.policy_id AS "policyId", p.title, p.code, a.version, a.decision, a.method, a.at, a.ip
+  const history = rowsOf(await db.execute(sql`SELECT a.id, a.policy_id AS "policyId", p.title, p.code, p.category AS type, p.requirement, a.version, a.decision, a.method, a.at
     FROM policy_acceptances a JOIN policies p ON p.id = a.policy_id WHERE a.user_id = ${uid(req)!} ORDER BY a.at DESC LIMIT 200`));
   res.json({ policies: list, pending: list.filter(x => x.pending).length, blocking: list.filter(x => x.halts).length, history });
 }));
@@ -477,8 +477,9 @@ router.get("/policies/:id/report", requireAuth, wrap(async (req, res) => {
 /** Full decision log (all versions, append-only) — for audit / DPDP requests. */
 router.get("/policies/:id/log", requireAuth, wrap(async (req, res) => {
   if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
-  res.json(rowsOf(await db.execute(sql`SELECT a.id, a.version, a.decision, a.method, a.ip, a.user_agent AS "userAgent", a.body_sha256 AS "sha256", a.note, a.at, u.name, u.email, u.employee_code AS "employeeCode"
-    FROM policy_acceptances a JOIN users u ON u.id = a.user_id WHERE a.policy_id = ${Number(req.params.id)} ORDER BY a.at DESC LIMIT 5000`)));
+  // 2.10 (ITH-194): the IP address stays in the database (evidence) but is not sent to the screen or the download
+  res.json(rowsOf(await db.execute(sql`SELECT a.id, p.code, p.title, p.category AS type, a.version, a.decision, a.method, a.user_agent AS "userAgent", a.body_sha256 AS "sha256", a.note, a.at, u.name, u.email, u.employee_code AS "employeeCode"
+    FROM policy_acceptances a JOIN users u ON u.id = a.user_id JOIN policies p ON p.id = a.policy_id WHERE a.policy_id = ${Number(req.params.id)} ORDER BY a.at DESC LIMIT 5000`)));
 }));
 
 /* ── ITH-124 read-only PDF for the in-app viewer (no download link anywhere; every opening is logged) ── */
@@ -518,7 +519,7 @@ router.get("/policies-people", requireAuth, wrap(async (req, res) => {
 /** Who opened the PDF (for audits). */
 router.get("/policies/:id/views", requireAuth, wrap(async (req, res) => {
   if (!await admin(req, "read")) return fail(res, 403, NO_ACCESS);
-  res.json(rowsOf(await db.execute(sql`SELECT v.version, v.viewed_at AS "at", v.ip, u.name, u.email FROM policy_document_views v JOIN users u ON u.id = v.user_id WHERE v.policy_id = ${Number(req.params.id)} ORDER BY v.viewed_at DESC LIMIT 2000`)));
+  res.json(rowsOf(await db.execute(sql`SELECT v.version, v.viewed_at AS "at", u.name, u.email FROM policy_document_views v JOIN users u ON u.id = v.user_id WHERE v.policy_id = ${Number(req.params.id)} ORDER BY v.viewed_at DESC LIMIT 2000`)));
 }));
 
 /* ═══ push subscriptions ═════════════════════════════════════════════════ */

@@ -24,6 +24,7 @@ import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSel
 import { useItsmConfig } from "@/hooks/use-itsm-config";
 import { confirmDialog, reasonDialog } from "@/components/confirm-dialog";
 import { fmtCell, fmtDate, fmtDateTime } from "@/lib/date";
+import { RiskAssessment, RiskScoreBadge, ChangeWindowFields, ClashCheck, ChangeReview, ChangeBoard, fmtWindow, useAdvMeta, scoreOf } from "@/components/itsm-change-extras";
 
 const PAGE_SIZE = 10;
 const CHANGE_TYPES = ["Standard", "Normal", "Emergency"];
@@ -137,6 +138,8 @@ export default function ItsmChanges() {
   const [filterType, setFilterType] = useState("");
   const [filterApproval, setFilterApproval] = useState("");
   const [page, setPage] = useState(1);
+  const [tab, setTab] = useState<"list" | "board">(() => new URLSearchParams(window.location.search).get("tab") === "board" ? "board" : "list");
+  const { data: advMeta } = useAdvMeta();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewModal, setViewModal] = useState<any>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -169,7 +172,7 @@ export default function ItsmChanges() {
   const isAgent = isAdmin || myTeams.length > 0;
   const canWork = (r: any) => isAdmin || (r?.teamId && myTeamIds.includes(r.teamId));
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]); const [saving, setSaving] = useState(false);
-  function openCreate() { setEditingItem(null); setFormData({ status: "Draft", type: "Normal", riskLevel: "Medium", approvalStatus: "Pending" }); setPendingFiles([]); setIsModalOpen(true); }
+  function openCreate() { setEditingItem(null); setFormData({ status: "Draft", type: "Normal", riskLevel: "Medium", approvalStatus: "Pending", riskAnswers: {} }); setPendingFiles([]); setIsModalOpen(true); }
   function openEdit(item: any) { setEditingItem(item); setFormData({ ...item, _teamId: item.teamId, _reason: "" }); setIsModalOpen(true); }
 
   async function handleSave() {
@@ -177,7 +180,7 @@ export default function ItsmChanges() {
       const { _teamId, _reason, ...f } = formData;
       if (editingItem) {
         const d: any = { ...f };
-        for (const k of ["id", "changeNo", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive", "teamId", "assignedGroup", "requesterUserId", "expectedClosureDate", "firstResponseAt", "approvalStatus", "approvedBy"]) delete d[k];
+        for (const k of ["id", "changeNo", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive", "teamId", "assignedGroup", "requesterUserId", "expectedClosureDate", "firstResponseAt", "approvalStatus", "approvedBy", "riskScore", "pirOutcome", "pirNotes", "pirLessons", "pirIncidents", "pirBy", "pirAt"]) delete d[k];
         if (!canWork(editingItem)) for (const k of ["status", "assignedTo", "category", "subcategory", "priority"]) delete d[k];
         else {
           if (_teamId && _teamId !== editingItem.teamId) { d.teamId = _teamId; d.transferReason = _reason; }
@@ -219,6 +222,10 @@ export default function ItsmChanges() {
         </div>
       </div>
 
+      <div className="inline-flex rounded-lg border p-0.5 bg-muted/40" data-testid="change-tabs">
+        {([["list", "Change requests"], ["board", "Approval board"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} data-testid={`tab-${k}`} className={`px-3 py-1.5 text-sm rounded-md ${tab === k ? "bg-background shadow-sm font-semibold" : "text-muted-foreground"}`}>{l}</button>)}
+      </div>
+      {tab === "board" ? <ChangeBoard isItsmAdmin={isAdmin || canAccess("itsm_setup", "write")} /> : <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard icon={GitBranch} label="Total Changes" value={changes.length} iconBg="bg-blue-100 dark:bg-blue-900/30" iconColor="text-blue-600" borderColor="border-l-blue-500" />
         <StatCard icon={Clock} label="Pending Approval" value={pendingCount} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600" borderColor="border-l-amber-500" />
@@ -259,7 +266,7 @@ export default function ItsmChanges() {
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[80px]">Risk</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[120px]">Approval</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Status</TableHead>
-                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Scheduled</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[150px]">Window</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3">Requested By</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Created</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide font-semibold py-3 w-[100px]">Updated</TableHead>
@@ -284,10 +291,10 @@ export default function ItsmChanges() {
                     {c.impact && <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{c.impact}</div>}
                   </TableCell>
                   <TableCell className="py-3"><TypeBadge value={c.type} /></TableCell>
-                  <TableCell className="py-3"><RiskBadge value={c.riskLevel} /></TableCell>
+                  <TableCell className="py-3"><RiskBadge value={c.riskLevel} />{c.riskScore != null && <div className="text-[10px] text-muted-foreground mt-0.5">{c.riskScore}/100</div>}</TableCell>
                   <TableCell className="py-3"><ApprovalBadge value={c.approvalStatus} /></TableCell>
                   <TableCell className="py-3 text-xs font-medium text-muted-foreground">{c.status}</TableCell>
-                  <TableCell className="py-3 text-xs text-muted-foreground">{c.implementationDate ? fmtDate(c.implementationDate) : <span className="italic">TBD</span>}</TableCell>
+                  <TableCell className="py-3 text-xs text-muted-foreground">{c.plannedStart ? fmtWindow(c.plannedStart, c.plannedEnd) : c.implementationDate ? fmtDate(c.implementationDate) : <span className="italic">TBD</span>}</TableCell>
                   <TableCell className="py-3"><AssigneeBadge name={c.requestedBy} /></TableCell>
                   <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(c.createdAt)}</TableCell>
                   <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(c.updatedAt)}</TableCell>
@@ -307,6 +314,7 @@ export default function ItsmChanges() {
           </div>
         </CardContent>
       </Card>
+      </>}
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
@@ -324,9 +332,13 @@ export default function ItsmChanges() {
               <div className="flex flex-wrap gap-2">
                 <TypeBadge value={viewModal.type} />
                 <RiskBadge value={viewModal.riskLevel} />
+                <RiskScoreBadge score={viewModal.riskScore} level={viewModal.riskScore != null ? viewModal.riskLevel : null} />
               </div>
+              {Object.keys(viewModal.riskAnswers || {}).length > 0 && advMeta && <div className="rounded-lg border p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-xs">{advMeta.riskQuestions.map((q: any) => <div key={q.key}><span className="text-muted-foreground">{q.label}: </span>{viewModal.riskAnswers[q.key]}</div>)}</div>}
+              <div className="rounded-lg border p-2.5 space-y-1.5"><div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Implementation window</div><div className="text-sm font-medium">{fmtWindow(viewModal.plannedStart, viewModal.plannedEnd)}</div>
+                {viewModal.plannedStart && !["Closed", "Cancelled", "Rejected", "Completed", "Failed", "Rolled Back"].includes(viewModal.status) && <ClashCheck start={viewModal.plannedStart} end={viewModal.plannedEnd} id={viewModal.id} environment={viewModal.environment} apps={viewModal.affectedApps} teamId={viewModal.teamId} type={viewModal.type} />}</div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {[["Status", viewModal.status], ["Category", viewModal.category], ["Requested By", viewModal.requestedBy], ["Approved By", viewModal.approvedBy], ["Implementation Date", fmtDate(viewModal.implementationDate)], ["Backout Duration", viewModal.backoutDuration], ["Impact", viewModal.impact], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
+                {[["Status", viewModal.status], ["Category", viewModal.category], ["Requested By", viewModal.requestedBy], ["Approved By", viewModal.approvedBy], ["Backout Duration", viewModal.backoutDuration], ["Impact", viewModal.impact], ["Created", formatDateTime(viewModal.createdAt)], ["Last Updated", formatDateTime(viewModal.updatedAt)]].map(([l, v]) => (
                   <div key={l as string} className="space-y-1">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{l}</div>
                     <div className="font-medium text-sm">{(v as string) || "—"}</div>
@@ -358,6 +370,7 @@ export default function ItsmChanges() {
                   <div className="text-sm text-teal-800 dark:text-teal-300 whitespace-pre-wrap">{viewModal.testPlan}</div>
                 </div>
               )}
+              <ChangeReview change={viewModal} canWork={canWork(viewModal)} onSaved={async () => { const l: any[] = await apiFetch("/changes"); setViewModal(l.find(x => x.id === viewModal.id) || null); queryClient.invalidateQueries({ queryKey: ["changes"] }); }} />
               <TicketWorkflow kind="change" id={viewModal.id} ticketNo={viewModal.changeNo} />
               <RelatedRecords kind="change" id={viewModal.id} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Change Request" readonly />
@@ -373,7 +386,7 @@ export default function ItsmChanges() {
         subtitle={editingItem ? <span className="inline-flex items-center gap-2">Approval: <ApprovalBadge value={formData.approvalStatus || "Pending"} />{formData.approvedBy ? ` by ${formData.approvedBy}` : ""}</span> : "Any planned change to systems, network, software or configuration — approved before it is done."}
         footer={<>
           <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title || (!editingItem && !route.data?.ok) || (reqMode && !["Draft", "Pending Approval"].includes(editingItem?.status)) || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="change-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Create change"}</Button>
+          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title || (!editingItem && !route.data?.ok) || (!editingItem && formData.type !== "Standard" && (!scoreOf(advMeta, formData.riskAnswers, formData.environment) || !formData.plannedStart || !formData.plannedEnd)) || (reqMode && !["Draft", "Pending Approval"].includes(editingItem?.status)) || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="change-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Create change"}</Button>
         </>}>
         <FormSection title="The change" icon={GitBranch}>
           <div className="sm:col-span-2"><Label>Title *</Label><Input value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Upgrade core switch firmware to 17.9" /></div>
@@ -385,8 +398,9 @@ export default function ItsmChanges() {
           <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^software|^application/i.test(formData.category || "")} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
         </FormSection>
         <FormSection title="Risk & schedule" icon={CalendarClock}>
-          <div><Label>Risk level</Label><Select value={formData.riskLevel || "Medium"} onValueChange={v => setFormData({ ...formData, riskLevel: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RISKS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Implementation date</Label><Input type="date" value={formData.implementationDate || ""} onChange={e => setFormData({ ...formData, implementationDate: e.target.value })} /></div>
+          <RiskAssessment answers={formData.riskAnswers} environment={formData.environment} onChange={a => setFormData({ ...formData, riskAnswers: a })} disabled={reqMode && !["Draft", "Pending Approval"].includes(editingItem?.status)} />
+          {!scoreOf(advMeta, formData.riskAnswers, formData.environment) && formData.type === "Standard" && <div><Label>Risk level</Label><Select value={formData.riskLevel || "Low"} onValueChange={v => setFormData({ ...formData, riskLevel: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RISKS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent></Select></div>}
+          <ChangeWindowFields start={formData.plannedStart} end={formData.plannedEnd} onChange={(a, b) => setFormData({ ...formData, plannedStart: a, plannedEnd: b })} id={editingItem?.id} environment={formData.environment} apps={formData.affectedApps} teamId={editingItem?.teamId ?? route.data?.teamId} type={formData.type} />
           <div><Label>Backout duration</Label><Input value={formData.backoutDuration || ""} onChange={e => setFormData({ ...formData, backoutDuration: e.target.value })} placeholder="e.g. 2 hours" /></div>
           <div className="sm:col-span-2"><Label>Business impact</Label><Input value={formData.impact || ""} onChange={e => setFormData({ ...formData, impact: e.target.value })} placeholder="Who / what is affected during the change, expected downtime" /></div>
         </FormSection>

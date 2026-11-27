@@ -18,6 +18,7 @@ import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
+import { RequestFormFields, RequestAnswers, RequestChecklist, missingAnswers } from "@/components/itsm-request-items";
 import { TicketDialog, FormSection, PendingAttachments, linkPendingFiles, pendingBusy, type PendingFile, EnvAppsFields, EnvAppsView } from "@/components/itsm-form";
 import { CategoryFields, RoutingPreview, useRoute, TeamMemberSelect, OnBehalfSelect, useMyTeams, RaisedByCell, WithCell, ClosureCell, TimeCell, ViewTabs, TransferFields, fmtDay, useCatalog } from "@/components/itsm-routing";
 import { useItsmConfig } from "@/hooks/use-itsm-config";
@@ -197,7 +198,7 @@ export default function ItsmServiceRequests() {
         await updateReq.mutateAsync({ id: editingItem.id, ...d }); toast({ title: `${editingItem.requestNo} updated` });
       } else {
         setSaving(true);
-        const r: any = await createReq.mutateAsync({ title: formData.title, description: formData.description, category: formData.category, subcategory: formData.subcategory, priority: formData.priority, urgency: formData.urgency, department: formData.department, environment: formData.environment || undefined, affectedApps: formData.affectedApps || [], assignedTo: formData.assignedTo || undefined, onBehalfOfUserId: formData.onBehalfOfUserId || undefined });
+        const r: any = await createReq.mutateAsync({ title: formData.title, description: formData.description, category: formData.category, subcategory: formData.subcategory, priority: formData.priority, urgency: formData.urgency, department: formData.department, environment: formData.environment || undefined, affectedApps: formData.affectedApps || [], formData: formData.formData || {}, assignedTo: formData.assignedTo || undefined, onBehalfOfUserId: formData.onBehalfOfUserId || undefined });
         const bad = pendingFiles.length ? await linkPendingFiles("Service Request", r.id, pendingFiles) : 0;
         toast({ title: `${r.requestNo} raised`, description: `Assigned to ${r.assignedGroup} · expected closure ${fmtDay(r.expectedClosureDate)}${pendingFiles.length ? ` · ${pendingFiles.length - bad} file(s) attached` : ""}${bad ? ` · ${bad} could not be attached` : ""}` });
       }
@@ -313,6 +314,8 @@ export default function ItsmServiceRequests() {
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{viewModal.description || "No description provided"}</p>
               <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
+              <RequestAnswers request={viewModal} />
+              <RequestChecklist requestId={viewModal.id} />
               <div className="flex flex-wrap gap-2"><CategoryBadge value={[viewModal.category, viewModal.subcategory].filter(Boolean).join(" › ") || "—"} /><PriorityBadge value={viewModal.priority} /></div>
               <SlaPanel sla={viewModal.sla} firstResponseAt={viewModal.firstResponseAt} />
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
@@ -339,14 +342,16 @@ export default function ItsmServiceRequests() {
         footer={<>
           {reqMode && !DONE.includes(editingItem.status) && editingItem.status !== "In Progress" && <Button variant="outline" className="text-red-600 sm:mr-auto" onClick={() => cancelOwn(editingItem)}>Cancel my request</Button>}
           <Button variant="outline" onClick={() => setIsModalOpen(false)}>Close</Button>
-          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title || (/^application/i.test(formData.category || "") && !(formData.affectedApps || []).length) || (reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)) || (!editingItem && !route.data?.ok) || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="request-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Raise request"}</Button>
+          <Button onClick={handleSave} disabled={saving || pendingBusy(pendingFiles) || !formData.title || (!editingItem && missingAnswers(route.data?.formFields || [], formData.formData || {}).length > 0) || (/^application/i.test(formData.category || "") && !(formData.affectedApps || []).length) || (reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)) || (!editingItem && !route.data?.ok) || (workMode && !!formData._teamId && formData._teamId !== editingItem.teamId && (formData._reason || "").trim().length < 5)} className="bg-[#2D7FF9] hover:bg-[#1B63D6] text-white" data-testid="request-save">{saving ? "Saving…" : pendingBusy(pendingFiles) ? "Uploading files…" : editingItem ? "Save" : "Raise request"}</Button>
         </>}>
+        {editingItem && <div className="space-y-2"><RequestAnswers request={editingItem} />{workMode && <RequestChecklist requestId={editingItem.id} />}</div>}
         <FormSection title="What do you need" icon={ShoppingBag}>
           <div className="sm:col-span-2"><Label>Title *</Label><Input disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.title || ""} onChange={e => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Access to the Finance shared folder" /></div>
           <div className="sm:col-span-2"><Label>Details</Label><Textarea disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What exactly, for whom, by when, and why it is needed" /></div>
           <CategoryFields kind="request" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
           <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^application/i.test(formData.category || "")} disabled={reqMode && !["Open", "Pending Approval"].includes(editingItem?.status)} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
           {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
+          {!editingItem && route.data?.ok && <RequestFormFields fields={route.data.formFields || []} value={formData.formData || {}} onChange={v => setFormData({ ...formData, formData: v })} item={[route.data.category, route.data.subcategory].filter(Boolean).join(" › ")} />}
           {editingItem && <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-[10px] border bg-muted/30 p-3 text-sm">
             <div><div className="text-[11px] text-muted-foreground">Raised by</div><div className="font-medium">{editingItem.requestedBy}</div></div>
             <div><div className="text-[11px] text-muted-foreground">Assigned group</div><div className="font-medium">{editingItem.assignedGroup || "—"}</div></div>

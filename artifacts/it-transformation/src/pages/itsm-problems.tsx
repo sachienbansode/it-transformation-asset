@@ -16,6 +16,7 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { ApprovalMatrix } from "@/components/approval-matrix";
 import { TicketWorkflow } from "@/components/ticket-workflow";
+import { RcaEditor, RcaView, KnownErrorPanel } from "@/components/itsm-problem-extras";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
 import { TicketDialog, FormSection, PendingAttachments, linkPendingFiles, pendingBusy, type PendingFile, EnvAppsFields, EnvAppsView } from "@/components/itsm-form";
@@ -168,8 +169,8 @@ export default function ItsmProblems() {
       const { _teamId, _reason, ...f } = formData;
       if (editingItem) {
         const d: any = { ...f };
-        for (const k of ["id", "problemNo", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive", "teamId", "assignedGroup", "requesterUserId", "expectedClosureDate", "firstResponseAt", "approvalStatus", "approvedBy"]) delete d[k];
-        if (!canWork(editingItem)) for (const k of ["status", "assignedTo", "category", "subcategory", "priority"]) delete d[k];
+        for (const k of ["id", "problemNo", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive", "teamId", "assignedGroup", "requesterUserId", "expectedClosureDate", "firstResponseAt", "approvalStatus", "approvedBy", "knownError", "knownErrorAt", "kbArticleId"]) delete d[k];
+        if (!canWork(editingItem)) for (const k of ["status", "assignedTo", "category", "subcategory", "priority", "rca", "rcaMethod", "rootCauseCategory", "permanentFix"]) delete d[k];
         else {
           if (_teamId && _teamId !== editingItem.teamId) { d.teamId = _teamId; d.transferReason = _reason; }
           else if (f.category !== editingItem.category || (f.subcategory || null) !== (editingItem.subcategory || null)) d.transferReason = _reason || "Category corrected";
@@ -275,7 +276,7 @@ export default function ItsmProblems() {
                   </TableCell>
                   <TableCell className="py-3"><StatusBadge value={p.status} /></TableCell>
                   <TableCell className="py-3"><PriorityBadge value={p.priority} /></TableCell>
-                  <TableCell className="py-3 text-xs text-muted-foreground max-w-[180px] truncate">{p.rootCause || <span className="italic">TBD</span>}</TableCell>
+                  <TableCell className="py-3 text-xs text-muted-foreground max-w-[180px] truncate">{p.knownError && <span className="mr-1 rounded bg-orange-100 text-orange-700 px-1 text-[10px] font-semibold">KE</span>}{p.rootCause || <span className="italic">TBD</span>}</TableCell>
                   <TableCell className="py-3"><AssigneeBadge name={p.assignedTo} /></TableCell>
                   <TableCell className="py-3 font-mono text-xs text-muted-foreground">{p.relatedIncidents || "—"}</TableCell>
                   <TableCell className="py-3 text-xs text-muted-foreground">{formatDate(p.createdAt)}</TableCell>
@@ -354,6 +355,8 @@ export default function ItsmProblems() {
                   <div className="text-sm text-amber-800 dark:text-amber-300">{viewModal.workaround}</div>
                 </div>
               )}
+              <RcaView p={viewModal} />
+              <KnownErrorPanel p={viewModal} canWork={canWork(viewModal)} onDone={async () => { const l: any[] = await apiFetch("/problems"); setViewModal(l.find(x => x.id === viewModal.id) || null); }} />
               <TicketWorkflow kind="problem" id={viewModal.id} ticketNo={viewModal.problemNo} />
               <RelatedRecords kind="problem" id={viewModal.id} />
               <ApprovalMatrix ticketId={viewModal.id} ticketType="Problem" readonly />
@@ -400,9 +403,8 @@ export default function ItsmProblems() {
           {reqMode && <div className="sm:col-span-2 text-xs text-muted-foreground">Only {editingItem.assignedGroup || "the assigned team"} can change the status or assign this ticket.</div>}
           <div><Label>Related incidents</Label><Input value={formData.relatedIncidents || ""} onChange={e => setFormData({ ...formData, relatedIncidents: e.target.value })} placeholder="INC-00001, INC-00002" /></div>
         </FormSection>
-        <FormSection title="Root cause & workaround" icon={Search}>
-          <div className="sm:col-span-2"><Label>Root cause</Label><Textarea value={formData.rootCause || ""} onChange={e => setFormData({ ...formData, rootCause: e.target.value })} rows={2} placeholder="Why did it happen? (ask “why” until you reach the real cause)" /></div>
-          <div className="sm:col-span-2"><Label>Workaround</Label><Textarea value={formData.workaround || ""} onChange={e => setFormData({ ...formData, workaround: e.target.value })} rows={2} placeholder="How users / the service desk can get going until it is fixed" /></div>
+        <FormSection title="Root cause analysis" icon={Search} hint="5 Whys, fishbone or timeline → root cause → workaround → permanent fix">
+          <RcaEditor f={formData} set={patch => setFormData((x: any) => ({ ...x, ...patch }))} disabled={reqMode} />
         </FormSection>
         <FormSection title="Files" icon={Paperclip} hint="logs, RCA reports, screenshots">
           {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Problem" ticketId={editingItem.id} /></div>

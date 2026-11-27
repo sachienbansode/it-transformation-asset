@@ -9,6 +9,7 @@ import { route, RoutingError, isMember, teamIdsOf, teamByName, teamById, userByN
 import { z } from "zod";
 import { fmtDateTime } from "../lib/dates";
 import { slaConfig, slaInfo, slaColumns, pauseColumns, clearSlaCache } from "../lib/itsm-sla";
+import { cleanRiskAnswers, riskOf, toTs, clashesOf, assertNoFreeze, istDate, needsPir, PIR_FROM, cleanRca, RCA_METHODS, ROOT_CAUSE_CATEGORIES, publishKnownError } from "../lib/itsm-advanced";
 import { pickWorkflow, wfStart, wfCheckStatus, wfAfterStatus, wfRunning } from "../lib/itsm-workflow";
 
 /*
@@ -57,7 +58,7 @@ const audit = (p: Parameters<typeof logAudit>[0]) => logAudit(p).catch(() => { /
 /** Server-owned fields are never taken from the browser. */
 const SERVER_OWNED = ["expectedClosureDate", "requesterUserId", "firstResponseAt", "dueDate", "id", "ticketNo", "problemNo", "changeNo", "requestNo", "slaBreachAt", "slaId", "resolvedAt", "closedAt", "completedAt", "isActive",
   "createdBy", "updatedBy", "createdAt", "updatedAt", "approvalStatus", "approvedBy", "views", "authorName", "slaStatus", "sla",
-  "responseDueAt", "slaPausedAt", "slaPausedMins", "slaWarnSentAt", "slaBreachSentAt", "responseBreachSentAt"];
+  "responseDueAt", "riskScore", "pirOutcome", "pirNotes", "pirLessons", "pirIncidents", "pirBy", "pirAt", "knownError", "knownErrorAt", "slaPausedAt", "slaPausedMins", "slaWarnSentAt", "slaBreachSentAt", "responseBreachSentAt"];
 function clean(body: any, extra: string[] = []) {
   const out: any = {};
   for (const [k, v] of Object.entries(body || {})) if (!SERVER_OWNED.includes(k) && !extra.includes(k)) out[k] = typeof v === "string" ? (v.trim() === "" ? null : v.trim()) : v;
@@ -92,6 +93,39 @@ const SCHEMAS = {
   change: { create: z.object({ title, type: z.enum(["Standard", "Normal", "Emergency", "Major"]).default("Normal"), riskLevel: z.enum(["High", "Medium", "Low"]).default("Medium") }).passthrough(), patch: z.object({ title: title.optional(), status: statusOf("change").optional() }).passthrough() },
   request: { create: z.object({ title, priority: prio.default("Medium") }).passthrough(), patch: z.object({ title: title.optional(), priority: prio.optional(), status: statusOf("request").optional() }).passthrough() },
 };
+
+/** 2.11: change risk score, implementation window and freeze check (create and update). */
+async function changeFields(body: any, old: any | null) {
+  const env = body.environment !== undefined ? body.environment : old?.environment;
+  if (body.riskAnswers !== undefined || (old && body.environment !== undefined && Object.keys(old.riskAnswers || {}).length)) {
+    const ans = body.riskAnswers !== undefined ? cleanRiskAnswers(body.riskAnswers) || {} : old.riskAnswers;
+    if (body.riskAnswers !== undefined) body.riskAnswers = ans;
+    const r = riskOf(ans, env);
+    if (r) { body.riskScore = r.score; body.riskLevel = r.level; } else if (body.riskAnswers !== undefined) body.riskScore = null;
+  } else if (old?.riskScore != null) delete body.riskLevel;   // the score decides the level once assessed
+  for (const [k, l] of [["plannedStart", "Window start"], ["plannedEnd", "Window end"]] as const) { const d = toTs(body[k], l); if (d === undefined) delete body[k]; else body[k] = d; }
+  const st = body.plannedStart !== undefined ? body.plannedStart : old?.plannedStart ?? null;
+  const en = body.plannedEnd !== undefined ? body.plannedEnd : old?.plannedEnd ?? null;
+  if (!!st !== !!en) throw new Bad("Give both the start and the end of the implementation window");
+  if (st && en) {
+    if (+new Date(en) <= +new Date(st)) throw new Bad("The implementation window must end after it starts");
+    if (+new Date(en) - +new Date(st) > 7 * 86400_000) throw new Bad("The implementation window cannot be longer than 7 days — split the change");
+    if (body.plannedStart !== undefined) body.implementationDate = istDate(new Date(st));
+    const moved = !old || body.plannedStart !== undefined || body.plannedEnd !== undefined || (body.type && body.type !== old.type) || (body.environment !== undefined && body.environment !== old.environment);
+    if (moved && (!old || +new Date(st) !== +new Date(old.plannedStart || 0) || +new Date(en) !== +new Date(old.plannedEnd || 0) || body.type !== undefined || body.environment !== undefined)) {
+      const c = await clashesOf({ id: old?.id, start: st, end: en, environment: env, apps: body.affectedApps ?? old?.affectedApps, teamId: body.teamId ?? old?.teamId });
+      assertNoFreeze(body.type ?? old?.type ?? "Normal", c.freezes);
+    }
+  }
+  return { st, en };
+}
+/** 2.11: root cause analysis fields on a problem. */
+function problemFields(body: any) {
+  for (const k of ["knownError", "knownErrorAt", "kbArticleId"]) delete body[k];
+  if (body.rca !== undefined) body.rca = cleanRca(body.rca) ?? {};
+  if (body.rcaMethod != null && !RCA_METHODS.includes(body.rcaMethod)) throw new Bad(`Analysis method: choose ${RCA_METHODS.join(" / ")}`);
+  if (body.rootCauseCategory != null && !ROOT_CAUSE_CATEGORIES.includes(body.rootCauseCategory)) throw new Bad("Root cause category: choose one from the list");
+}
 
 /** Next ticket number, allocated under a transaction-scoped advisory lock (no duplicates with simultaneous users). */
 async function nextNo(tx: any, table: string, col: string, prefix: string) {
@@ -331,6 +365,7 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
       requester = u;
     }
     Object.assign(values, { category: rt.category, subcategory: rt.subcategory, teamId: rt.team.id, assignedGroup: rt.team.name, expectedClosureDate: rt.expectedClosureDate, requesterUserId: requester.id });
+    if (kind === "request") { values.formData = await checkForm(rt.formFields, req.body?.formData); (values as any).__tasks = rt.tasks; }
     if (kind === "request" || kind === "change") values.requestedBy = requester.name; else { values.reportedBy = requester.name; values.reporterEmail = requester.email; }
     if (s(body.assignedTo)) {
       if (!isItsmAdmin(a) && !myTeams.includes(rt.team.id)) throw new Forbidden(`Only members of ${rt.team.name} can assign this ticket to a person`);
@@ -349,11 +384,14 @@ async function createTicket(kind: Kind, req: Request, res: Response) {
   if (kind === "request") { values.status = "Open"; values.requestedBy ||= who.name; }
   if (SLA_KINDS.includes(kind)) Object.assign(values, slaColumns(kind, values, await slaConfig()));
   if (kind === "problem") values.status = "Open";
-  if (kind === "change") { values.status = "Draft"; values.approvalStatus = "Pending"; values.requestedBy ||= who.name; }
+  if (kind === "change") { values.status = "Draft"; values.approvalStatus = "Pending"; values.requestedBy ||= who.name; await changeFields(values, null); }
+  if (kind === "problem") problemFields(values);
   const [tbl, col, prefix, key] = NO[kind];
   const item: any = await db.transaction(async tx => {
     values[key] = await nextNo(tx, tbl, col, prefix);
+    const tasks: string[] = values.__tasks || []; delete values.__tasks;
     const [row] = await tx.insert(TABLE[kind]).values(values).returning();
+    for (const [i, t] of tasks.entries()) await tx.execute(sql`INSERT INTO itsm_request_tasks (request_id, sort_order, title) VALUES (${row.id}, ${i}, ${t})`);   // 2.09 checklist
     await history(kind, row.id, who.label, `${TYPE_NAME[kind]} raised by ${who.name}${row.assignedGroup || row.assignedTo ? ` — assigned to ${[row.assignedTo, row.assignedGroup].filter(Boolean).join(" / ")}` : ""}`, null, row.status, tx);
     return row;
   });
@@ -393,7 +431,7 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     const member = await isMember(who.userId, old.teamId);
     const isRequester = old.requesterUserId === who.userId || old.createdBy === who.label;
     for (const k of ["isMajor", "majorDeclaredAt", "majorDeclaredBy", "majorReason", "majorBridge", "majorEndedAt"]) delete body[k];   // 2.05: only through /major
-    const OPS = ["status", "assignedTo", "assignedGroup", "teamId", "priority", "severity", "resolutionNotes", "fulfillmentNotes", "category", "subcategory", "problemId", "urgency", "impactLevel", "source", "parentIncidentId", "priorityManual"];
+    const OPS = ["status", "assignedTo", "assignedGroup", "teamId", "priority", "severity", "resolutionNotes", "fulfillmentNotes", "category", "subcategory", "problemId", "urgency", "impactLevel", "source", "parentIncidentId", "priorityManual", "rca", "rcaMethod", "rootCauseCategory", "permanentFix"];
     const touched = OPS.filter(k => body[k] !== undefined && String(body[k] ?? "") !== String(old[k] ?? ""));
     if (!isItsmAdmin(a) && !member) {
       const cancelOwn = (kind === "request" || kind === "change") && isRequester && touched.length === 1 && touched[0] === "status" && body.status === "Cancelled" && !DONE[kind].includes(old.status);
@@ -450,6 +488,23 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     if (newWho || newTeam) await validateAssignment(newWho, newTeam);
   }
   const to = body.status ?? old.status;
+  if (kind === "change") {   // 2.11
+    const w = await changeFields(body, old);
+    if (to !== old.status && ["Scheduled", "In Progress"].includes(to)) {
+      if ((body.type ?? old.type) !== "Standard" && !w.st) throw new Bad("Set the implementation window (start and end) before the change is scheduled or started");
+      if (w.st) assertNoFreeze(body.type ?? old.type, (await clashesOf({ id, start: w.st, end: w.en, environment: body.environment ?? old.environment })).freezes);
+    }
+    if (to !== old.status && to === "Closed" && needsPir(old) && !old.pirAt) throw new Bad("Complete the review after go-live first (outcome and what was learnt)");
+  }
+  if (kind === "problem") {   // 2.11
+    problemFields(body);
+    if (to !== old.status) {
+      const v = (k: string) => String((body[k] !== undefined ? body[k] : old[k]) ?? "").trim();
+      if (["Root Cause Identified", "Known Error", "Pending Approval", "Resolved", "Closed"].includes(to) && (v("rootCause").length < 10 || !v("rootCauseCategory"))) throw new Bad("Write the root cause (at least 10 characters) and choose its category first");
+      if (to === "Known Error" && v("workaround").length < 10) throw new Bad("A known error needs a workaround (at least 10 characters) for the service desk");
+      if (["Pending Approval", "Resolved", "Closed"].includes(to) && v("permanentFix").length < 10) throw new Bad("Describe the permanent fix (at least 10 characters) — e.g. the change that fixed it");
+    }
+  }
   if (to !== old.status) {
     if (REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(to)) {
       if (old.status === "Closed" && !isItsmAdmin(await getAccess(req))) throw new Forbidden("A closed ticket can only be re-opened by an ITSM Admin");
@@ -457,6 +512,10 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
     }
     if (kind === "incident" && to === "Resolved" && !s(body.resolutionNotes ?? old.resolutionNotes)) throw new Bad("Resolution notes are required to resolve an incident");
     if (kind === "request" && to === "Completed" && !s(body.fulfillmentNotes ?? old.fulfillmentNotes)) throw new Bad("Fulfilment notes are required to complete a request");
+    if (kind === "request" && to === "Completed") {   // 2.09: the checklist must be finished first
+      const open: any = await db.execute(sql`SELECT title FROM itsm_request_tasks WHERE request_id = ${id} AND status = 'Open' ORDER BY sort_order`);
+      const ol = (open.rows ?? open) as any[]; if (ol.length) throw new Bad(`Finish the checklist first — ${ol.length} step${ol.length > 1 ? "s" : ""} open: ${ol.slice(0, 3).map(x => x.title).join("; ")}`);
+    }
     if (kind === "change" && ["Scheduled", "In Progress", "Completed"].includes(to) && old.approvalStatus !== "Approved" && !(await wfRunning(kind, id))) throw new Bad("Change request must be approved before it is scheduled or implemented");
     await assertApproved(kind, id, to);
     // 2.04: a reopen (with its reason, checked above) is always allowed — the workflow goes back to the matching stage
@@ -483,6 +542,12 @@ async function updateTicket(kind: Kind, req: Request, res: Response) {
   if ((old.assignedGroup || null) !== (item.assignedGroup || null)) await history(kind, id, who.label, `Passed to team ${item.assignedGroup || "(none)"} from ${old.assignedGroup || "(none)"}${s(req.body?.transferReason) ? ` — ${s(req.body.transferReason)}` : ""}`);
   if ((old.assignedTo || null) !== (item.assignedTo || null)) await history(kind, id, who.label, item.assignedTo ? `Assigned to ${item.assignedTo}${old.assignedTo ? ` (was ${old.assignedTo})` : ""}` : `Unassigned (was ${old.assignedTo})`);
   if (old.priority && item.priority && old.priority !== item.priority) await history(kind, id, who.label, `Priority ${old.priority} → ${item.priority}`);
+  if (kind === "problem" && (item.status === "Known Error" && old.status !== "Known Error" || (item.kbArticleId && ["rootCause", "workaround", "permanentFix", "rootCauseCategory", "status", "title", "description"].some(k => String(old[k] ?? "") !== String(item[k] ?? "")))))
+    await publishKnownError(id, who.label).then(kb => history(kind, id, who.label, old.kbArticleId ? "Known error article updated in the knowledge base" : `Published as a known error in the knowledge base (article #${kb})`)).catch(e => console.error("known error publish", e?.message));
+  if (kind === "change" && old.status !== item.status && PIR_FROM.includes(item.status) && needsPir(item) && !item.pirAt) {
+    const asg = item.assignedTo ? await userByName(item.assignedTo, item.teamId) : null;
+    void inApp([item.requesterUserId, asg?.id], `Review after go-live due: ${item.changeNo}`, `${item.title} is ${item.status.toLowerCase()}. Record the outcome and what was learnt before closing it.`, item.status === "Completed" ? "info" : "warning", `/itsm-changes?open=${id}`);
+  }
   if (old.status !== item.status) await wfAfterStatus(kind, id, old.status, item.status, who.label, isItsmAdmin(await getAccess(req)), REOPEN_FROM[kind].includes(old.status) && !DONE[kind].includes(item.status));
   // ITH-110: ask the requester to rate the service when an incident is resolved or a request completed
   if (old.status !== item.status && ((kind === "incident" && item.status === "Resolved") || (kind === "request" && item.status === "Completed")) && item.requesterUserId && item.requesterUserId !== who.userId)
@@ -581,6 +646,54 @@ router.get("/itsm-people", wrap(async (req, res) => {
   if (!a || !(a.isAdmin || Object.entries(a.perms).some(([m, l]) => m.startsWith("itsm_") && l !== "none"))) return fail(res, 403, "No ITSM access");
   res.json(await db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email, employeeCode: usersTable.employeeCode, department: usersTable.department, userType: usersTable.userType })
     .from(usersTable).where(eq(usersTable.isActive, true)).orderBy(usersTable.name));
+}));
+
+/* ─── 2.09 SERVICE REQUEST ITEMS: answers to the item's questions, fulfilment checklist ─────────── */
+async function checkForm(fields: any[], data: any) {
+  const out: Record<string, any> = {}; const d = data && typeof data === "object" ? data : {};
+  for (const f of fields || []) {
+    let v = d[f.key]; const empty = v === undefined || v === null || String(v).trim() === "";
+    if (empty) { if (f.required) throw new Bad(`Please answer: ${f.label}`); continue; }
+    if (f.type === "number") { const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > 1e9) throw new Bad(`${f.label}: enter a number`); v = n; }
+    else if (f.type === "date") { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v))) throw new Bad(`${f.label}: choose a date`); v = String(v); }
+    else if (f.type === "yesno") { v = v === true || /^(yes|true|1)$/i.test(String(v)) ? "Yes" : "No"; }
+    else if (f.type === "select") { const o = (f.options || []).find((x: string) => x.toLowerCase() === String(v).trim().toLowerCase()); if (!o) throw new Bad(`${f.label}: choose one of ${(f.options || []).join(", ")}`); v = o; }
+    else if (f.type === "user") { const [u] = await db.select({ name: usersTable.name, email: usersTable.email }).from(usersTable).where(and(eq(usersTable.id, Number(v) || 0), eq(usersTable.isActive, true))); if (!u) throw new Bad(`${f.label}: choose an active person`); v = `${u.name} <${u.email}>`; }
+    else v = String(v).trim().slice(0, f.type === "textarea" ? 2000 : 300);
+    out[f.key] = v;
+  }
+  return out;
+}
+router.get("/service-requests/:id/tasks", wrap(async (req, res) => {
+  if (!await allowed(req, "request", "read")) return fail(res, 403, "No access to requests");
+  const [r]: any[] = await db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.id, Number(req.params.id)));
+  if (!r) return fail(res, 404, "Request not found");
+  const a = await getAccess(req); const can = !!a && (isItsmAdmin(a) || await isMember(a.userId, r.teamId));
+  const t: any = await db.execute(sql`SELECT id, title, status, note, done_by AS "doneBy", done_at AS "doneAt" FROM itsm_request_tasks WHERE request_id = ${r.id} ORDER BY sort_order, id`);
+  res.json({ canEdit: can && !["Completed", "Cancelled", "Rejected"].includes(r.status), tasks: t.rows ?? t });
+}));
+router.post("/service-requests/:id/tasks", wrap(async (req, res) => {
+  const [r]: any[] = await db.select().from(itsmServiceRequestsTable).where(eq(itsmServiceRequestsTable.id, Number(req.params.id)));
+  if (!r) return fail(res, 404, "Request not found");
+  const a = await getAccess(req); if (!a || !(isItsmAdmin(a) || await isMember(a.userId, r.teamId))) return fail(res, 403, `Only ${r.assignedGroup || "the assigned team"} can change the checklist`);
+  const title = s(req.body?.title)?.slice(0, 150); if (!title || title.length < 3) return fail(res, 400, "Write the step (at least 3 characters)");
+  const who = await actor(req);
+  await db.execute(sql`INSERT INTO itsm_request_tasks (request_id, sort_order, title) VALUES (${r.id}, (SELECT coalesce(max(sort_order), 0) + 1 FROM itsm_request_tasks WHERE request_id = ${r.id}), ${title})`);
+  await history("request", r.id, who.label, `Checklist step added: ${title}`);
+  res.status(201).json({ ok: true });
+}));
+router.patch("/request-tasks/:id", wrap(async (req, res) => {
+  const t: any = await db.execute(sql`SELECT k.*, r.team_id, r.assigned_group, r.status AS req_status FROM itsm_request_tasks k JOIN itsm_service_requests r ON r.id = k.request_id WHERE k.id = ${Number(req.params.id)}`);
+  const k = (t.rows ?? t)[0]; if (!k) return fail(res, 404, "Step not found");
+  const a = await getAccess(req); if (!a || !(isItsmAdmin(a) || await isMember(a.userId, k.team_id))) return fail(res, 403, `Only ${k.assigned_group || "the assigned team"} can tick the checklist`);
+  if (["Completed", "Cancelled", "Rejected"].includes(k.req_status)) return fail(res, 400, `The request is ${String(k.req_status).toLowerCase()}`);
+  const status = ["Open", "Done", "Not needed"].includes(req.body?.status) ? req.body.status : null; if (!status) return fail(res, 400, "status must be Open, Done or Not needed");
+  const note = s(req.body?.note)?.slice(0, 500) ?? null;
+  if (status === "Not needed" && (!note || note.length < 5)) return fail(res, 400, "Say why this step is not needed");
+  const who = await actor(req);
+  await db.execute(sql`UPDATE itsm_request_tasks SET status = ${status}, note = ${note}, done_by = ${status === "Open" ? null : who.name}, done_at = ${status === "Open" ? null : new Date()} WHERE id = ${k.id}`);
+  await history("request", k.request_id, who.label, `Checklist: “${k.title}” — ${status}${note ? ` (${note})` : ""}`);
+  res.json({ ok: true });
 }));
 
 /* ─── 2.05 ADVANCED INCIDENTS: parent / child, major incident, repeat incidents → problem ─────────── */

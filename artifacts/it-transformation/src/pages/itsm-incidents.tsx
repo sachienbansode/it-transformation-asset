@@ -17,6 +17,7 @@ import { Pagination } from "@/components/pagination";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ApprovalMatrix } from "@/components/approval-matrix";
+import { KnownErrorHints } from "@/components/itsm-problem-extras";
 import { TicketWorkflow } from "@/components/ticket-workflow";
 import { CsatPanel, RelatedRecords, useOpenFromUrl } from "@/components/itsm-extras";
 import { TicketAttachments } from "@/components/itsm-attachments";
@@ -503,6 +504,7 @@ export default function ItsmIncidents() {
           <div className="sm:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="What were you doing, what did you see (error message), since when, who else is affected?" /></div>
           <CategoryFields kind="incident" category={formData.category} subcategory={formData.subcategory} disabled={reqMode} onChange={(c, sc) => setFormData({ ...formData, category: c, subcategory: sc, assignedTo: editingItem ? formData.assignedTo : null })} />
           <EnvAppsFields env={formData.environment} apps={formData.affectedApps} appsRequired={/^application/i.test(formData.category || "")} disabled={reqMode && editingItem?.status !== "Open"} onChange={(environment, affectedApps) => setFormData({ ...formData, environment, affectedApps })} />
+          {(!editingItem || !["Resolved", "Closed"].includes(editingItem.status)) && <KnownErrorHints text={`${formData.title || ""} ${formData.description || ""}`} category={formData.category} apps={formData.affectedApps} linkedId={formData.kbArticleId} onUse={editingItem && workMode ? (kb => setFormData({ ...formData, kbArticleId: kb })) : undefined} />}
           {(!editingItem || (workMode && (formData.category !== editingItem.category || (formData.subcategory || null) !== (editingItem.subcategory || null)))) && <RoutingPreview route={route.data} loading={route.isFetching && !route.data} />}
           {editingItem && <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-[10px] border bg-muted/30 p-3 text-sm">
             <div><div className="text-[11px] text-muted-foreground">Raised by</div><div className="font-medium">{editingItem.reportedBy || "—"}</div></div>

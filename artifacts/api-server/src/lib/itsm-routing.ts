@@ -47,7 +47,8 @@ export async function route(kind: string, category: unknown, subcategory: unknow
   const [team] = await db.select().from(itsmTeamsTable).where(eq(itsmTeamsTable.id, teamId));
   if (!team || !team.isActive) throw new RoutingError(`The team mapped to ${catRow.category} is inactive — ask the ITSM admin to re-map it`);
   const days = subRow?.resolutionDays ?? catRow.resolutionDays ?? DEFAULT_DAYS;
-  return { category: catRow.category, subcategory: subRow?.subcategory ?? null, team, days, defaulted: (subRow?.resolutionDays ?? catRow.resolutionDays) == null, expectedClosureDate: addBusinessDays(createdAt, days) };
+  const pick = (k: "formFields" | "tasks") => { const sv: any = (subRow as any)?.[k]; return Array.isArray(sv) && sv.length ? sv : ((catRow as any)[k] || []); };
+  return { formFields: pick("formFields") as any[], tasks: pick("tasks") as string[], category: catRow.category, subcategory: subRow?.subcategory ?? null, team, days, defaulted: (subRow?.resolutionDays ?? catRow.resolutionDays) == null, expectedClosureDate: addBusinessDays(createdAt, days) };
 }
 
 export async function teamIdsOf(userId: number | null | undefined) {

@@ -163,12 +163,35 @@ router.patch("/itsm-catalog/:id", wrap(async (req, res) => {
   if (req.body?.isActive !== false) await checkCatalog(v, id);
   const by = await who(req);
   const set: any = { category: v.category, subcategory: s(v.subcategory), teamId: v.teamId ?? null, resolutionDays: v.resolutionDays ?? null, sortOrder: v.sortOrder ?? old.sortOrder, isActive: req.body?.isActive ?? old.isActive, updatedBy: by, updatedAt: new Date() };
+  if (req.body?.formFields !== undefined) set.formFields = cleanFields(req.body.formFields);   // 2.09
+  if (req.body?.tasks !== undefined) set.tasks = cleanTasks(req.body.tasks);
   const [r] = await db.update(itsmCatalogTable).set(set).where(eq(itsmCatalogTable.id, id)).returning();
   if (!old.subcategory && set.isActive === false) await db.update(itsmCatalogTable).set({ isActive: false, updatedBy: by, updatedAt: new Date() }).where(and(eq(itsmCatalogTable.ticketType, old.ticketType), sql`lower(${itsmCatalogTable.category}) = lower(${old.category})`));
   await audit({ entityType: "itsm_catalog", entityId: id, action: "update", performedBy: by, summary: `${r.ticketType} ${r.category}${r.subcategory ? ` › ${r.subcategory}` : ""}: team ${r.teamId ?? "inherit"}, days ${r.resolutionDays ?? "default"}${r.isActive ? "" : " (removed)"} — applies to new tickets` });
   res.json(r);
 }));
 
+
+/* 2.09: request questions and checklist, checked before saving */
+const FIELD_TYPES = ["text", "textarea", "number", "date", "select", "yesno", "user"];
+function cleanFields(v: any) {
+  if (!Array.isArray(v)) throw new Bad("Questions must be a list");
+  if (v.length > 25) throw new Bad("Up to 25 questions per item");
+  const keys = new Set<string>();
+  return v.map((f: any, i: number) => {
+    const label = s(f?.label)?.slice(0, 120); if (!label) throw new Bad(`Question ${i + 1}: write the question`);
+    const type = FIELD_TYPES.includes(f?.type) ? f.type : "text";
+    let key = String(f?.key || label).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || `q${i + 1}`; while (keys.has(key)) key += "_"; keys.add(key);
+    const options = type === "select" ? (Array.isArray(f?.options) ? f.options : String(f?.options || "").split(",")).map((o: any) => String(o).trim().slice(0, 80)).filter(Boolean).slice(0, 30) : undefined;
+    if (type === "select" && !options?.length) throw new Bad(`“${label}”: add the choices (comma separated)`);
+    return { key, label, type, required: !!f?.required, ...(options ? { options } : {}) };
+  });
+}
+function cleanTasks(v: any) {
+  const list = (Array.isArray(v) ? v : String(v || "").split("\n")).map((t: any) => String(t).trim().slice(0, 150)).filter(Boolean);
+  if (list.length > 20) throw new Bad("Up to 20 checklist steps per item");
+  return list;
+}
 
 /* ─── Excel upload: the whole catalog in one sheet ───────────────────────────
  * Rows: Ticket Type | Category | Sub-category (blank = category row) | Assigned Group | Days to Close (blank = default) | Active (Yes/No).
@@ -290,7 +313,7 @@ router.get("/itsm-route", wrap(async (req, res) => {
     const a = await getAccess(req);
     const mine = await teamIdsOf(a?.userId);
     const canAssign = !!a?.isAdmin || mine.includes(r.team.id);
-    res.json({ ok: true, category: r.category, subcategory: r.subcategory, teamId: r.team.id, team: r.team.name, days: r.days, defaulted: r.defaulted, expectedClosureDate: r.expectedClosureDate, canAssign, members: canAssign ? await teamMembers(r.team.id) : [] });
+    res.json({ ok: true, formFields: kind === "request" ? r.formFields : [], tasks: kind === "request" ? r.tasks : [], category: r.category, subcategory: r.subcategory, teamId: r.team.id, team: r.team.name, days: r.days, defaulted: r.defaulted, expectedClosureDate: r.expectedClosureDate, canAssign, members: canAssign ? await teamMembers(r.team.id) : [] });
   } catch (e: any) { if (e instanceof RoutingError) res.json({ ok: false, error: e.message }); else throw e; }
 }));
 

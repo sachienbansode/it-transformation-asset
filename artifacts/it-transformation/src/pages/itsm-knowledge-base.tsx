@@ -26,7 +26,7 @@ function exportToCsv(rows: any[], cols: { label: string; key: string }[], filena
 }
 
 const PAGE_SIZE = 10;
-const CATEGORIES = ["How-To", "Troubleshooting", "Policy", "FAQ", "Best Practice", "Architecture"];
+const CATEGORIES = ["How-To", "Troubleshooting", "Known Error", "Policy", "FAQ", "Best Practice", "Architecture"];
 const KB_STATUSES = ["Draft", "Published", "Archived"];
 
 export default function ItsmKnowledgeBase() {

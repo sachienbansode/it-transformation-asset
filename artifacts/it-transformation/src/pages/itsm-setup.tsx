@@ -11,12 +11,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth-context";
 import { apiFetch } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
-import { Users, Plus, Pencil, Save, Loader2, Trash2, FolderTree, Info, Crown, Upload, Download, Power, Search, X, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp } from "lucide-react";
+import { Users, Plus, Pencil, Save, Loader2, Trash2, FolderTree, Info, Crown, Upload, Download, Power, Search, X, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CatalogUploadDialog, downloadCatalogSheet } from "@/components/itsm-catalog-upload";
 import { SearchSelect } from "@/components/search-select";
 import { ItsmEmailAlerts } from "@/components/itsm-email-alerts";
 import { PriorityMatrixEditor } from "@/components/itsm-priority-matrix";
+import { ItemSetupDialog } from "@/components/itsm-request-items";
 
 /* ITSM Setup — assignment groups (teams + members + lead) and the category / sub-category catalog that routes tickets. */
 
@@ -175,6 +176,7 @@ function Catalog() {
   const { data: rows = [], isLoading } = useQuery<any[]>({ queryKey: ["itsm-catalog", "setup", type], queryFn: () => apiFetch(`/itsm-catalog?ticketType=${encodeURIComponent(type)}`) });
   const { data: teams = [] } = useQuery<any[]>({ queryKey: ["itsm-teams"], queryFn: () => apiFetch("/itsm-teams") });
   const [draft, setDraft] = useState<Record<number, any>>({}); const [busy, setBusy] = useState<number | null>(null); const [add, setAdd] = useState<any>(null); const [upload, setUpload] = useState(false);
+  const [item, setItem] = useState<any>(null);
   useEffect(() => { setDraft(Object.fromEntries(rows.map(r => [r.id, { teamId: r.teamId ?? null, resolutionDays: r.resolutionDays ?? "" }]))); }, [rows]);
   const groups = useMemo(() => rows.filter(r => !r.subcategory).map(c => ({ cat: c, subs: rows.filter(r => r.subcategory && r.category.toLowerCase() === c.category.toLowerCase()) })), [rows]);
   // 2.07 (ITH-186): search; categories collapsed by default, expand one / all; a search opens the matching categories
@@ -217,6 +219,7 @@ function Catalog() {
       <div className="col-span-3 md:col-span-2"><Input disabled={!canEdit} type="number" min={0} className="h-8 text-xs" value={d.resolutionDays ?? ""} onChange={e => set(r.id, "resolutionDays", e.target.value)} placeholder={sub ? `${r.effectiveDays}` : "2 (default)"} /></div>
       <div className="col-span-2 md:col-span-2 flex justify-end gap-1">
         {canEdit && <Button size="sm" variant={dirty(r) ? "default" : "ghost"} disabled={!dirty(r) || busy === r.id} className={cn("h-8 px-2", !dirty(r) && "opacity-40")} onClick={() => save(r)}>{busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}</Button>}
+        {canEdit && type === "Service Request" && <Button size="sm" variant="ghost" className={cn("h-8 px-2", (r.formFields?.length || r.tasks?.length) ? "text-primary" : "")} title={`Questions & checklist${r.formFields?.length ? ` (${r.formFields.length} questions, ${r.tasks?.length || 0} steps)` : ""}`} onClick={() => setItem(r)} data-testid={`item-setup-${r.category}${r.subcategory ? `-${r.subcategory}` : ""}`}><ListChecks className="w-3.5 h-3.5" /></Button>}
         {canEdit && !sub && <Button size="sm" variant="ghost" className="h-8 px-2" title="Add sub-category" onClick={() => setAdd({ ticketType: type, category: r.category, subcategory: "" })}><Plus className="w-3.5 h-3.5" /></Button>}
         {canEdit && <Button size="sm" variant="ghost" className="h-8 px-2" title="Deactivate" onClick={() => remove(r)}><Power className="w-3.5 h-3.5 text-red-500" /></Button>}
       </div>
@@ -245,6 +248,7 @@ function Catalog() {
       {ql && !shown.length && <div className="text-sm text-muted-foreground px-3 py-6 text-center">Nothing matches “{q}”.</div>}
       <div className="space-y-2">{shown.map((g: any) => <div key={g.cat.id} className="rounded-[10px] border overflow-hidden divide-y">{renderRow(g.cat)}{isOpen(g.cat.id) && g.subs.map((sr: any) => renderRow(sr, true))}</div>)}</div>
       <CatalogUploadDialog open={upload} onClose={() => setUpload(false)} />
+      {item && <ItemSetupDialog row={item} onClose={() => setItem(null)} />}
       {add && <AddCatalog init={add} teams={teams} onClose={() => setAdd(null)} onDone={refresh} />}
     </CardContent></Card>
   );

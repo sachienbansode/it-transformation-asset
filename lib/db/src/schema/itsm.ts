@@ -70,6 +70,13 @@ export const itsmProblemsTable = pgTable("itsm_problems", {
   assignedGroup: text("assigned_group"),
   relatedIncidents: text("related_incidents"),
   affectedSystems: text("affected_systems"),
+  rcaMethod: text("rca_method"),   // 2.11 root cause analysis
+  rca: jsonb("rca").$type<any>().notNull().default(sql`'{}'::jsonb`),
+  rootCauseCategory: text("root_cause_category"),
+  permanentFix: text("permanent_fix"),
+  knownError: boolean("known_error").notNull().default(false),
+  knownErrorAt: timestamp("known_error_at", { withTimezone: true }),
+  kbArticleId: integer("kb_article_id"),
   environment: text("environment"),   // 2.03: Dev / UAT / PROD (Masters › ITSM environments)
   affectedApps: jsonb("affected_apps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   teamId: integer("team_id"),   // 2.04: routed like incidents (category → team)
@@ -105,6 +112,16 @@ export const itsmChangesTable = pgTable("itsm_changes", {
   status: text("status").notNull().default("Draft"),
   problemId: integer("problem_id"),
   affectedAssets: text("affected_assets"),
+  riskAnswers: jsonb("risk_answers").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),   // 2.11 risk questionnaire
+  riskScore: integer("risk_score"),
+  plannedStart: timestamp("planned_start", { withTimezone: true }),   // 2.11 implementation window
+  plannedEnd: timestamp("planned_end", { withTimezone: true }),
+  pirOutcome: text("pir_outcome"),   // 2.11 review after go-live
+  pirNotes: text("pir_notes"),
+  pirLessons: text("pir_lessons"),
+  pirIncidents: text("pir_incidents"),
+  pirBy: text("pir_by"),
+  pirAt: timestamp("pir_at", { withTimezone: true }),
   environment: text("environment"),   // 2.03: Dev / UAT / PROD (Masters › ITSM environments)
   affectedApps: jsonb("affected_apps").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   teamId: integer("team_id"),   // 2.04: routed like incidents (category → team)
@@ -156,6 +173,12 @@ export const itsmKnowledgeBaseTable = pgTable("itsm_knowledge_base", {
   category: text("category"),
   tags: text("tags"),
   authorName: text("author_name"),
+  articleType: text("article_type").notNull().default("Article"),   // 2.11: Article / Known Error
+  problemId: integer("problem_id"),
+  symptoms: text("symptoms"),
+  workaround: text("workaround"),
+  rootCause: text("root_cause"),
+  permanentFix: text("permanent_fix"),
   views: integer("views").notNull().default(0),
   status: text("status").notNull().default("Published"),
   isActive: boolean("is_active").notNull().default(true),
@@ -196,6 +219,7 @@ export const itsmServiceRequestsTable = pgTable("itsm_service_requests", {
   slaWarnSentAt: timestamp("sla_warn_sent_at", { withTimezone: true }),
   slaBreachSentAt: timestamp("sla_breach_sent_at", { withTimezone: true }),
   responseBreachSentAt: timestamp("response_breach_sent_at", { withTimezone: true }),
+  formData: jsonb("form_data").$type<Record<string, any>>().notNull().default(sql`'{}'::jsonb`),   // 2.09 answers to the item questions
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),
   updatedBy: text("updated_by"),
@@ -311,6 +335,8 @@ export const itsmCatalogTable = pgTable("itsm_catalog", {
   resolutionDays: integer("resolution_days"),
   sortOrder: integer("sort_order").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
+  formFields: jsonb("form_fields").$type<any[]>().notNull().default(sql`'[]'::jsonb`),   // 2.09 questions for a request item
+  tasks: jsonb("tasks").$type<string[]>().notNull().default(sql`'[]'::jsonb`),          // 2.09 fulfilment checklist
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

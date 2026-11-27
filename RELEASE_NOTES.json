@@ -1,4 +1,25 @@
 {
+ "2.11": [
+  "Change risk score: 6 questions (users affected, downtime, testing, rollback, experience, vendor) + environment → score 0–100 sets Low / Medium / High",
+  "Implementation window (start / end) with clash check against other changes on the same application, environment or team",
+  "Change freeze windows (ITSM Admin): Normal / Standard changes cannot be planned or started inside one; Emergency allowed",
+  "Approval board (CAB): changes waiting for approval with risk, clashes and rollback plan, approve / reject in place; schedule by day; reviews due; freeze windows",
+  "Review after go-live: outcome, notes, lessons and incidents caused — required before closing Normal / Emergency (and failed / rolled-back) changes; reminder when a change is done",
+  "Problem root cause analysis: 5 Whys, fishbone or timeline; root cause category; permanent fix. Root cause needed for Root Cause Identified, workaround for Known Error, permanent fix for sign-off / Resolved",
+  "Known errors published to the knowledge base automatically (symptoms, workaround, root cause, fix) and kept up to date",
+  "Incident form shows matching known errors with their workaround; the team can link the article to the ticket",
+  "ITSM End-to-End Design document (.docx)"
+ ],
+ "2.10": [
+  "Policy decision log: the 'Text SHA-256' column is now 'Fingerprint of the accepted text (SHA-256)' — proof of exactly which wording each person accepted",
+  "IP address removed from decision log and acceptance downloads; still kept in the database as evidence",
+  "Policy type (Policy / Notice / Consent), policy code and name added to downloads and to My decision history"
+ ],
+ "2.09": [
+  "Service request catalogue: each category / item asks its own questions (text, list, yes / no, date, number, person); ready-made questions for all 12 request categories",
+  "Fulfilment checklist per request (from the item); the team ticks steps, can add steps, a request cannot be completed with open steps",
+  "ITSM Setup › Categories: edit questions and checklist per category or item"
+ ],
  "2.08": [
   "Admin › Users: separate Access roles column; Employee is the default role for every internal user (cannot be removed)",
   "Reporting manager in User Master; Org tree view (people under their manager, unmapped people under the Super Admin)",
