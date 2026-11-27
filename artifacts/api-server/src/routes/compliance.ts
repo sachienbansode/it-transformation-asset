@@ -1,4 +1,6 @@
 import { Router, type Request, type Response } from "express";
+import { fileUpload } from "./storage";
+import { FOLDERS, yearMonth } from "../lib/file-store";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
@@ -108,6 +110,7 @@ router.post("/compliance-templates/import", wrap(async (req, res) => {
   if (v.dryRun !== false) return res.json({ ...summary, applied: false });
   if (!v.name) throw new Bad("Template name is required");
   const by = await who(req);
+  await fileUpload(v.objectPath, FOLDERS.complianceTemplates, []);   // 2.14: cloud storage folder
   const tid = await db.transaction(async tx => {
     const [t] = rowsOf(await tx.execute(sql`INSERT INTO cmp_templates (name, framework, version, description, source_file, source_object, created_by) VALUES (${v.name}, ${v.framework ?? null}, ${v.version ?? null}, ${v.description ?? null}, ${v.fileName ?? null}, ${v.objectPath}, ${by}) RETURNING id`));
     for (const i of p.items) await tx.execute(sql`INSERT INTO cmp_template_items (template_id, kind, sheet, source_row, ref_no, seq, area, sub_area, checkpoint, evidence_required, doc_type, sort_order)
@@ -402,6 +405,7 @@ router.post("/compliance-documents", wrap(async (req, res) => {
   const did = await db.transaction(async tx => {
     const [d] = rowsOf(await tx.execute(sql`INSERT INTO cmp_documents (company_id, category, title, description, owner_user_id, approved_by, approved_on, last_review_date, next_review_date, confidential, created_by)
       VALUES (${v.companyId ?? null}, ${v.category}, ${v.title}, ${v.description ?? null}, ${v.ownerUserId ?? null}, ${v.approvedBy ?? null}, ${v.approvedOn ?? null}, ${v.lastReviewDate ?? null}, ${v.nextReviewDate ?? null}, ${v.confidential ?? false}, ${by}) RETURNING id`));
+    await fileUpload(v.file.objectPath, FOLDERS.compliance, [yearMonth()]);
     await tx.execute(sql`INSERT INTO cmp_document_files (document_id, version, object_path, file_name, file_size, content_type, note, uploaded_by) VALUES (${d.id}, 1, ${v.file.objectPath}, ${v.file.fileName}, ${v.file.fileSize ?? null}, ${v.file.contentType ?? null}, ${v.file.note ?? null}, ${by})`);
     if (v.itemId) await tx.execute(sql`INSERT INTO cmp_item_documents (item_id, document_id, linked_by) VALUES (${v.itemId}, ${d.id}, ${by}) ON CONFLICT DO NOTHING`);
     if (v.gridId) await tx.execute(sql`INSERT INTO cmp_grid_documents (grid_id, document_id, linked_by) VALUES (${v.gridId}, ${d.id}, ${by}) ON CONFLICT DO NOTHING`);
@@ -454,6 +458,7 @@ router.post("/compliance-documents/:id/files", wrap(async (req, res) => {
   const v = parse(fileSchema, req.body); const by = await who(req);
   const [d] = await q(sql`SELECT * FROM cmp_documents WHERE id = ${did}`); if (!d) return fail(res, 404, "Document not found");
   await readObject(v.objectPath).catch(() => { throw new Bad("Uploaded file not found — upload it again"); });
+  await fileUpload(v.objectPath, FOLDERS.compliance, [yearMonth()]);
   const [f] = await q(sql`INSERT INTO cmp_document_files (document_id, version, object_path, file_name, file_size, content_type, note, uploaded_by)
     SELECT ${did}, coalesce(max(version), 0) + 1, ${v.objectPath}, ${v.fileName}, ${v.fileSize ?? null}, ${v.contentType ?? null}, ${v.note ?? null}, ${by} FROM cmp_document_files WHERE document_id = ${did} RETURNING *`);
   await q(sql`UPDATE cmp_documents SET updated_at = now() WHERE id = ${did}`);
@@ -534,6 +539,7 @@ router.post("/compliance-references/:type/:id", wrap(async (req, res) => {
   if (!did) {
     if (!v.file || !v.title) throw new Bad("Upload a file");
     await readObject(v.file.objectPath).catch(() => { throw new Bad("Uploaded file not found — upload it again"); });
+    await fileUpload(v.file.objectPath, FOLDERS.compliance, [yearMonth()]);
     const companyId = t === "audit" ? (await q(sql`SELECT company_id FROM cmp_audits WHERE id = ${oid}`))[0].company_id : null;
     const [d] = await q(sql`INSERT INTO cmp_documents (company_id, category, title, created_by) VALUES (${companyId}, ${v.category}, ${v.title}, ${by}) RETURNING id`);
     await q(sql`INSERT INTO cmp_document_files (document_id, version, object_path, file_name, file_size, content_type, uploaded_by) VALUES (${d.id}, 1, ${v.file.objectPath}, ${v.file.fileName}, ${v.file.fileSize ?? null}, ${v.file.contentType ?? null}, ${by})`);

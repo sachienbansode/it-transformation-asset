@@ -277,7 +277,7 @@ router.post("/chats/:id/:action", requireAuth, (req, _res, next) => ["resolve", 
 }));
 
 /** ITH-088 — recording storage set by the administrator (S3 / Azure Blob); none = sessions are not recorded. */
-async function recStore(): Promise<StoreCfg | null> { const v: any = await setting("chat.recordingStorage", { provider: "none" }); const c = typeof v === "string" ? JSON.parse(v) : v; return storeConfigured(c) ? c : null; }
+async function recStore(): Promise<StoreCfg | null> { const { fileStore } = await import("../lib/file-store"); return fileStore(); }   // 2.14: Admin › Settings › File storage
 
 /* ── attachments (max size and file types set by the administrator; stored encrypted) ── */
 const MIME: Record<string, string> = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", txt: "text/plain", log: "text/plain", csv: "text/csv",
@@ -308,7 +308,12 @@ router.post("/chats/:id/attachments", requireAuth, wrap(async (req, res) => {
   if (["png", "jpg", "jpeg", "gif"].includes(ext) && !((data[0] === 0x89 && data[1] === 0x50) || (data[0] === 0xff && data[1] === 0xd8) || data.subarray(0, 3).toString() === "GIF")) return fail(res, 400, "The file content does not match its type");
   if (tooFast(m.id)) return fail(res, 429, "Too many messages — wait a minute");
   const side = c.kind === "direct" ? "Member" : role === "employee" ? "Employee" : "IT";
-  const aid = await storeAttachment(c, { id: m.id, name }, side, fileName, data, "file", s(req.body?.message));
+  // 2.14: with cloud storage the (encrypted) file goes to chats/attachments/YYYY/MM/CHAT-<id>/
+  let cloudExt: { storage: string; key: string; cfg: StoreCfg } | undefined;
+  { const fs2 = await import("../lib/file-store"); const st = await fs2.fileStore().catch(() => null);
+    if (st) { const key = fs2.keyOf(st, fs2.FOLDERS.chatAttachments, fs2.yearMonth(), `CHAT-${c.id}`, `${fs2.stamp()}_${fs2.safeName(fileName)}.enc`);
+      try { await putObject(st, key, sealBuf(data)); cloudExt = { storage: st.provider, key, cfg: st }; } catch (e: any) { return fail(res, 502, `Could not save the file to cloud storage: ${e.message}`); } } }
+  const aid = await storeAttachment(c, { id: m.id, name }, side, fileName, data, "file", s(req.body?.message), cloudExt);
   if (c.kind === "support") { if (side === "Employee") { await db.execute(sql`UPDATE device_chats SET status = 'Waiting on IT' WHERE id = ${c.id}`); await tellIT(c, `File from ${name} (chat #${c.id})`, "Open Chats to see it."); } else { await db.execute(sql`UPDATE device_chats SET status = 'Waiting on employee' WHERE id = ${c.id}`); await notify(c.user_id, "New file from IT", `${name} sent a file — open Chats.`, `/chats?c=${c.id}`); } }
   else for (const x of rowsOf(await db.execute(sql`SELECT user_id FROM chat_members WHERE chat_id = ${c.id} AND user_id <> ${m.id}`))) await notify(x.user_id, `New file from ${name}`, "Open Chats to see it.", `/chats?c=${c.id}`);
   res.status(201).json({ id: aid });
@@ -424,8 +429,9 @@ router.post("/chats/:id/sessions/:sid/recording", requireAuth, express.raw({ typ
   if (data.length > maxMB * 1048576) return fail(res, 400, `Recording is larger than ${maxMB} MB`);
   if (!(data[0] === 0x1a && data[1] === 0x45 && data[2] === 0xdf && data[3] === 0xa3)) return fail(res, 400, "Not a WebM recording");
   const st = await recStore(); if (!st) return fail(res, 409, "Recording storage is not configured by the administrator — this session is not recorded");
-  const fname = `session-${ss.id}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.webm`;
-  const key = fullKey(st, `chat-${c.id}/${fname}.enc`);
+  const { keyOf, FOLDERS, stamp, yearMonth } = await import("../lib/file-store");
+  const fname = `CHAT-${c.id}_session-${ss.id}_${stamp(new Date(), false)}.webm`;
+  const key = keyOf(st, FOLDERS.chatRecordings, yearMonth(), `${fname}.enc`);
   try { await putObject(st, key, sealBuf(data)); } catch (e: any) { return fail(res, 502, `Could not save the recording to ${storeLabel(st)}: ${e.message}`); }
   const aid = await storeAttachment(c, { id: m.id, name }, "IT", fname, data, "recording", `Recording of screen session #${ss.id} (${(data.length / 1048576).toFixed(1)} MB) — saved to ${storeLabel(st)}`, { storage: st.provider, key, cfg: st });
   await db.execute(sql`UPDATE chat_sessions SET recording_attachment_id = ${aid} WHERE id = ${ss.id}`);
@@ -520,8 +526,8 @@ router.post("/chats/:id/queue/:op", requireAuth, wrap(async (req, res) => {
 /** ITH-088: test the recording storage set in Admin › Settings › Chats (writes, reads and removes a small test file). Super Admin only. */
 router.post("/chats-recording-storage/test", requireAuth, wrap(async (req, res) => {
   if (!isSuperAdmin(await getAccess(req))) return fail(res, 403, "Super Admin only");
-  const c: StoreCfg = req.body && req.body.provider ? req.body : await setting("chat.recordingStorage", { provider: "none" });
-  if (!storeConfigured(c)) return res.json({ ok: false, message: "Recording storage is not configured — screen sessions will not be recorded." });
+  const c = await recStore();   // 2.14: Admin › Settings › File storage
+  if (!c) return res.json({ ok: false, message: "File storage is not configured — screen sessions will not be recorded." });
   const key = fullKey(c, `_test/it-hub-${Date.now()}.txt`); const probe = Buffer.from(`IT Hub storage test ${new Date().toISOString()}`);
   try { await putObject(c, key, sealBuf(probe)); const back = openBuf(await getObject(c, key)); await deleteObject(c, key).catch(() => {});
     if (!back.equals(probe)) throw new Error("the file read back did not match");

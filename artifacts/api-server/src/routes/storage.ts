@@ -9,6 +9,24 @@ import { ObjectPermission } from "../lib/objectAcl";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { checkUpload, getUploadPolicy } from "../lib/upload-policy";
+import { fileStore, keyOf, FOLDERS, safeName, stamp, yearMonth, putObject, getObject, deleteObject as cloudDelete, moveObject } from "../lib/file-store";
+import type { StoreCfg } from "../lib/object-store";
+
+/* 2.14 (ITH-151): when cloud file storage is set (Admin › Settings › File storage) uploads go to it — first into
+   <main>/uploads/pending/YYYY/MM, then fileUpload() moves them into the folder of the record they are attached to.
+   The objectPath the browser and the tables keep (/objects/uploads/<id>) does not change. */
+const rowsOf = (r: any) => (r.rows ?? r) as any[];
+async function cloudRow(id: string) { if (!ID_RE.test(id)) return null; return rowsOf(await db.execute(sql`SELECT * FROM stored_files WHERE id = ${id}::uuid`).catch(() => ({ rows: [] })))[0] || null; }
+const cfgOf = (r: any): StoreCfg => (typeof r.store_cfg === "string" ? JSON.parse(r.store_cfg) : r.store_cfg);
+/** Move an upload into its record's folder, e.g. fileUpload(path, FOLDERS.incident, ["INC-00012"]). Local files stay where they are. Never throws. */
+export async function fileUpload(objectPath: string, folder: string, parts: string[] = [], ref?: string) {
+  try {
+    const id = String(objectPath).split("/").pop() || ""; const r = await cloudRow(id); if (!r || !r.uploaded) return;
+    const c = cfgOf(r); const to = keyOf(c, folder, ...parts, `${stamp()}_${safeName(r.file_name)}`);
+    await moveObject(c, r.object_key, to);
+    await db.execute(sql`UPDATE stored_files SET object_key = ${to}, folder = ${folder}, ref = ${ref ?? parts.join("/")}, linked_at = now() WHERE id = ${id}::uuid`);
+  } catch (e) { console.error("fileUpload: could not move", objectPath, e); }
+}
 
 const RequestUploadUrlBody = z.object({
   name: z.string(),
@@ -36,8 +54,16 @@ const MAX_UPLOAD = Number(process.env.UPLOAD_MAX_MB || 25) * 1024 * 1024;
 const ID_RE = /^[a-f0-9-]{36}$/;
 if (DRIVER === "local") { try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch { /* reported on first upload */ } }
 
-router.put("/storage/local-upload/:id", express.raw({ type: () => true, limit: MAX_UPLOAD }), (req: Request, res: Response) => {
+router.put("/storage/local-upload/:id", express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req: Request, res: Response) => {
   const id = String(req.params.id);
+  const cr = await cloudRow(id);
+  if (cr) {
+    if (cr.uploaded) { res.status(409).json({ error: "Already uploaded" }); return; }
+    const data: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? ""));
+    try { await putObject(cfgOf(cr), cr.object_key, data); } catch (e: any) { res.status(502).json({ error: `Could not save the file to cloud storage: ${e.message}` }); return; }
+    await db.execute(sql`UPDATE stored_files SET uploaded = true, size_bytes = ${data.length}, sha256 = ${crypto.createHash("sha256").update(data).digest("hex")}, content_type = ${String(req.headers["content-type"] || cr.content_type)} WHERE id = ${id}::uuid`);
+    res.json({ ok: true }); return;
+  }
   if (DRIVER !== "local" || !ID_RE.test(id)) { res.status(404).json({ error: "Not found" }); return; }
   const metaFile = path.join(UPLOAD_DIR, `${id}.json`);
   if (!fs.existsSync(metaFile)) { res.status(404).json({ error: "Upload URL expired — try again" }); return; }
@@ -71,6 +97,14 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
   try {
     const { name, size, contentType } = parsed.data;
     if (size > MAX_UPLOAD) { res.status(400).json({ error: `File is larger than ${MAX_UPLOAD / 1024 / 1024} MB` }); return; }
+    const cloud = await fileStore().catch(() => null);
+    if (cloud) {
+      const id = crypto.randomUUID();
+      const key = keyOf(cloud, FOLDERS.pending, yearMonth(), `${id}_${safeName(name)}`);
+      await db.execute(sql`INSERT INTO stored_files (id, object_key, store_cfg, file_name, size_bytes, content_type, folder, uploaded_by) VALUES (${id}::uuid, ${key}, ${JSON.stringify(cloud)}::jsonb, ${name}, ${size}, ${contentType}, ${FOLDERS.pending}, ${(req.session as any)?.userId ?? null})`);
+      res.json({ uploadURL: `${(process.env.BASE_PATH || "").replace(/\/$/, "")}/api/storage/local-upload/${id}`, objectPath: `/objects/uploads/${id}`, metadata: { name, size, contentType } });
+      return;
+    }
     if (DRIVER === "local") {
       const id = crypto.randomUUID();
       fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -144,6 +178,15 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     // Audit evidence is served only by /compliance-files (access-checked and logged)
     const guarded: any = await db.execute(sql`SELECT 1 FROM cmp_document_files WHERE object_path = ${objectPath} UNION ALL SELECT 1 FROM cmp_templates WHERE source_object = ${objectPath} LIMIT 1`).catch(() => ({ rows: [] }));
     if ((guarded.rows ?? guarded).length) { res.status(403).json({ error: "Open this file from Audit & Compliance" }); return; }
+    {
+      const cr = await cloudRow(wildcardPath.split("/").pop() || "");
+      if (cr && cr.uploaded) {
+        const data = await getObject(cfgOf(cr), cr.object_key);
+        res.setHeader("Content-Type", cr.content_type || "application/octet-stream");
+        res.setHeader("Content-Disposition", `inline; filename="${String(cr.file_name || "file").replace(/"/g, "")}"`); res.setHeader("Cache-Control", "private, no-store");
+        res.send(data); return;
+      }
+    }
     if (DRIVER === "local") {
       const id = wildcardPath.split("/").pop() || "";
       const file = path.join(UPLOAD_DIR, id), metaFile = path.join(UPLOAD_DIR, `${id}.json`);
@@ -196,6 +239,8 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
 /** Read a stored object (used by modules that serve files through their own access checks, e.g. Audit & Compliance). */
 export async function readObject(objectPath: string): Promise<{ buffer: Buffer; contentType: string; name: string | null }> {
   const id = String(objectPath).split("/").pop() || "";
+  const cr = await cloudRow(id);
+  if (cr) { if (!cr.uploaded) throw new ObjectNotFoundError(); return { buffer: await getObject(cfgOf(cr), cr.object_key), contentType: cr.content_type || "application/octet-stream", name: cr.file_name || null }; }
   if (DRIVER === "local") {
     const file = path.join(UPLOAD_DIR, id), metaFile = path.join(UPLOAD_DIR, `${id}.json`);
     if (!ID_RE.test(id) || !fs.existsSync(file)) throw new ObjectNotFoundError();
@@ -210,6 +255,8 @@ export async function readObject(objectPath: string): Promise<{ buffer: Buffer; 
 /** Remove a stored object for good (local disk; previews too). Cloud objects are left to the bucket's lifecycle. Never throws. */
 export async function deleteObject(objectPath: string): Promise<boolean> {
   const id = String(objectPath).split("/").pop() || "";
+  const cr = await cloudRow(id);
+  if (cr) { try { await cloudDelete(cfgOf(cr), cr.object_key); await db.execute(sql`DELETE FROM stored_files WHERE id = ${id}::uuid`); return true; } catch { return false; } }
   if (DRIVER !== "local" || !ID_RE.test(id)) return false;
   let ok = false;
   for (const f of [path.join(UPLOAD_DIR, id), path.join(UPLOAD_DIR, `${id}.json`)]) { try { fs.unlinkSync(f); ok = true; } catch { /* already gone */ } }

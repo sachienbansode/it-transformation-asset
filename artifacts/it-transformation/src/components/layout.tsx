@@ -91,7 +91,7 @@ const MENU_WORDS: Record<string, string> = {
   "/itsm-setup": "teams groups categories catalogue email alerts priority matrix", "/compliance": "audit compliance sebi cscrf", "/compliance-library": "evidence documents",
   "/admin/users": "users people employees reporting manager org tree", "/admin/roles": "roles permissions access rights", "/admin": "settings configuration",
   "/admin?tab=masters": "master data lists departments locations", "/admin?tab=audit": "audit trail log history", "/admin/data-import": "import upload excel bulk",
-  "/admin/updates": "updates version release deploy", "/admin/archive": "email smtp m365 mail alerts archive", "/admin/integrations": "integration sso azure entra api",
+  "/admin/updates": "updates version release deploy", "/admin/archive": "email smtp m365 mail alerts archive", "/admin/integrations": "integration sso azure entra api storage blob s3 test connection",
 };
 const DEEP_LINKS: { href: string; label: string; section: string; module?: string; admin?: boolean; words: string }[] = [
   { href: "/itsm-changes?tab=board", label: "Change approval board (CAB)", section: "ITSM", module: "itsm_changes", words: "cab approve change schedule freeze review after go-live" },
@@ -105,6 +105,11 @@ const DEEP_LINKS: { href: string; label: string; section: string; module?: strin
   { href: "/asset-agents/keys", label: "Agent installation keys", section: "IT Assets", module: "asset_registry", words: "key installation agent bulk personal" },
   { href: "/asset-agents/chats", label: "Device chats", section: "IT Assets", module: "asset_registry", words: "chat remote support device" },
   { href: "/asset-agents/data", label: "Device data", section: "IT Assets", module: "asset_registry", words: "device data usage report" },
+  { href: "/admin?tab=settings&section=files", label: "File storage (Azure Blob / S3)", section: "Admin › Settings", admin: true, words: "blob azure s3 aws storage bucket container recordings files sas upload folders file types size" },
+  { href: "/admin?tab=settings&section=general", label: "General & branding", section: "Admin › Settings", admin: true, words: "company name logo branding app name tagline confirm confirmation" },
+  { href: "/admin?tab=settings&section=security", label: "Sign-in & security", section: "Admin › Settings", admin: true, words: "sso microsoft entra azure ad authentication registration sign in login" },
+  { href: "/admin?tab=settings&section=chats", label: "Chats & remote support", section: "Admin › Settings", admin: true, words: "chat screen session recording remote turn stun attachment" },
+  { href: "/admin?tab=settings&section=notifications", label: "Push notifications", section: "Admin › Settings", admin: true, words: "push notification browser phone" },
   { href: "/profile", label: "Profile & Security", section: "My Workspace", words: "password mfa otp profile sign in security" },
   { href: "/about", label: "About IT Hub", section: "My Workspace", words: "version about help" },
 ];

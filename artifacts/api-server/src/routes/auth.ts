@@ -612,6 +612,11 @@ router.patch("/auth/profile", requireAuth, async (req, res): Promise<void> => {
 
   const update: Record<string, unknown> = {};
   if (body.data.photoUrl !== undefined) update.photoUrl = body.data.photoUrl;
+  if (body.data.photoUrl) {   // 2.14: cloud storage — users/photos/<employee code>/
+    const { fileUpload } = await import("./storage"); const { FOLDERS } = await import("../lib/file-store");
+    const [me]: any[] = await db.select({ code: usersTable.employeeCode, id: usersTable.id }).from(usersTable).where(eq(usersTable.id, req.session.userId!));
+    await fileUpload(String(body.data.photoUrl), FOLDERS.userPhotos, [String(me?.code || `user-${req.session.userId}`)]);
+  }
 
   const [user] = await db.update(usersTable).set(update).where(eq(usersTable.id, req.session.userId!)).returning({
     id: usersTable.id, email: usersTable.email, name: usersTable.name,

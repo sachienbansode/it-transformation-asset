@@ -72,13 +72,10 @@ router.post("/admin/integrations/test", requireAdmin, async (req, res): Promise<
       if (add("Configured", !!(c.baseUrl && c.clientId && c.clientSecret), c.baseUrl ? `${c.baseUrl} (${c.enabled ? "on" : "off"})` : "Not set up on this server (CENTRAL_SSO_* in the settings file)")) {
         try { const r = await fetch(c.baseUrl, { signal: T(), redirect: "manual" }); add("Portal reachable from this server", r.status < 500, `HTTP ${r.status}`); } catch (e) { add("Portal reachable from this server", false, why(e)); }
       }
-    } else if (kind === "storage") {
-      const c: StoreCfg = (await getSetting("chat.recordingStorage")) || { provider: "none" };
-      if (add("Configured", storeConfigured(c), storeConfigured(c) ? storeLabel(c) : "Not set (Admin › Settings › Chats › Recording storage)")) {
-        const key = fullKey(c, `_test/it-hub-${Date.now()}.txt`); const probe = Buffer.from(`IT Hub test ${new Date().toISOString()}`);
-        try { await putObject(c, key, probe); add("Write a test file", true, key); const back = await getObject(c, key); add("Read it back", back.equals(probe), back.equals(probe) ? "Same content" : "Content differs"); await deleteObject(c, key); add("Remove it", true, "Removed"); }
-        catch (e) { add("Write / read / remove a test file", false, why(e)); }
-      }
+    } else if (kind === "storage") {   // 2.14: one file storage for everything
+      const { fileStore, setupAndTest } = await import("../lib/file-store");
+      const c = await fileStore();
+      if (add("Configured", !!c, c ? storeLabel(c) : "Not set (Admin › Settings › File storage)") && c) { const r = await setupAndTest(c); for (const x of r.steps.slice(1)) add(x.step, x.ok, x.detail); }
     } else if (kind === "push") {
       const k: any = await vapidKeys().catch(() => null);
       add("Server keys (VAPID)", !!k?.publicKey, k?.publicKey ? "Present" : "Missing");
@@ -107,13 +104,13 @@ router.post("/admin/integrations/test", requireAdmin, async (req, res): Promise<
 /** what is set up, for the Integrations page (no secrets) */
 router.get("/admin/integrations", requireAdmin, async (_req, res): Promise<void> => {
   const mc: any = await loadMailConfig().catch(() => null);
-  const store: StoreCfg = (await getSetting("chat.recordingStorage")) || { provider: "none" };
+  const store: StoreCfg = (await (await import("../lib/file-store")).fileStore()) || { provider: "none" };
   const c = centralConfig();
   res.json([
     { kind: "mail", name: "Email delivery", what: "Sign-in codes, ITSM / asset / policy emails, reports", status: mc?.provider && mc.provider !== "off" ? (mc.provider === "smtp" ? `SMTP ${mc.smtp?.host || ""}` : `Microsoft 365 (${mc.m365?.from || ""})`) : "Off", setup: "/admin/archive" },
     { kind: "sso", name: "Microsoft SSO", what: "Sign in with Microsoft", status: (await getSetting("sso.msEnabled")) === true ? "On" : "Off", setup: "/admin" },
     { kind: "central", name: "Company portal sign-in", what: "Sign in through the central portal", status: c.enabled ? "On" : c.baseUrl ? "Set, off" : "Not set", setup: null },
-    { kind: "storage", name: "Recording storage", what: "Remote-session recordings (Amazon S3 / Azure Blob)", status: storeConfigured(store) ? storeLabel(store) : "Not set", setup: "/admin" },
+    { kind: "storage", name: "File storage", what: "All files: attachments, policy PDFs, chat files, recordings (Azure Blob / Amazon S3)", status: storeConfigured(store) ? storeLabel(store) : "Not set — files stay on the server", setup: "/admin?tab=settings&section=storage" },
     { kind: "push", name: "Push notifications", what: "Browser / phone notifications", status: "Built in", setup: null },
     { kind: "preview", name: "Document preview", what: "Word / Excel previews (LibreOffice)", status: previewAvailable() ? "Installed" : "Not installed", setup: null },
     { kind: "address", name: "App address", what: "Links in emails, device agent", status: process.env.APP_URL || "Not set", setup: null },

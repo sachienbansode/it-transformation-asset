@@ -1,4 +1,15 @@
 {
+ "2.15": [
+  "File storage for ALL files (Azure Blob / Amazon S3): ticket attachments, policy PDFs, chat files, screen recordings, audit evidence and templates, profile photos",
+  "Container created automatically on Save; test writes, reads and removes a file; sign-in by the VM's managed identity (recommended), storage account key or SAS",
+  "Folders by purpose inside one main folder: chats/recordings, chats/attachments, itsm/incidents|problems|changes|service-requests/<ticket no>, policies/<POL code>, compliance/evidence, compliance/templates, users/photos, uploads/pending",
+  "Readable file names: date-time (IST) + clean original name, e.g. itsm/incidents/INC-00012/2026-11-27_15-32-10_printer-jam.png",
+  "Admin › Settings split into tabs: General & branding, Sign-in & security, Files & storage, Chats & remote support, Notifications; menu search opens each tab"
+ ],
+ "2.14": [
+  "Menu search finds the cloud file storage settings ('blob', 'azure', 's3', 'storage') and opens Admin › Settings scrolled to the card",
+  "Storage card renamed 'Cloud file storage — Azure Blob / Amazon S3' (was 'Screen-session recordings')"
+ ],
  "2.13": [
   "Ticket view (eye icon) is read-only for incidents, service requests, problems and changes: no workflow moves, approvals, Link / Unlink, major incident actions, checklist ticks, ratings, known-error publish, review after go-live or Raise change",
   "All those actions are in Edit / Work on, with the form refreshed after each workflow step",

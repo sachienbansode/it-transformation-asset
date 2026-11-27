@@ -1,11 +1,12 @@
 import { PushAdmin } from "@/components/push-admin";
 import { PasswordInput } from "@/components/ui/password-input";
 import { SearchSelect } from "@/components/search-select";
-import { ConfirmChangesSetting, ChatSettings, RecordingStorageSettings } from "@/components/confirm-setting";
+import { ConfirmChangesSetting, ChatSettings } from "@/components/confirm-setting";
 import React, { useState, useEffect } from "react";
 import { getRoleLabel, cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation, useSearch } from "wouter";
+import { FileStorageSettings } from "@/components/file-storage-settings";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -123,7 +124,7 @@ export default function Admin() {
         ))}
       </div>
 
-      {tab === "settings" && <><SettingsTab /><ConfirmChangesSetting /><ChatSettings /><RecordingStorageSettings /><PushAdmin /></>}
+      {tab === "settings" && <SettingsSections />}
       {tab === "masters" && <MastersTab />}
       {tab === "business-units" && <BusinessUnitsTab />}
       {tab === "audit" && <AuditTrailTab />}
@@ -165,7 +166,30 @@ function UploadPolicyCard({ settings, set }: { settings: AdminSettings; set: (k:
   );
 }
 
-function SettingsTab() {
+/* 2.14: Admin › Settings split into tabs by category (?tab=settings&section=…) */
+const SETTING_SECTIONS = [
+  { key: "general", label: "General & branding" }, { key: "security", label: "Sign-in & security" }, { key: "files", label: "Files & storage" },
+  { key: "chats", label: "Chats & remote support" }, { key: "notifications", label: "Notifications" },
+] as const;
+function SettingsSections() {
+  const search = useSearch(); const [, nav] = useLocation();
+  const q = new URLSearchParams(search).get("section") || "";
+  const sec = (SETTING_SECTIONS.find(x => x.key === q || (q === "storage" && x.key === "files"))?.key || "general") as typeof SETTING_SECTIONS[number]["key"];
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-1 border-b" data-testid="settings-sections">
+        {SETTING_SECTIONS.map(x => <button key={x.key} data-testid={`settings-${x.key}`} onClick={() => nav(`/admin?tab=settings&section=${x.key}`)} className={`px-3 py-2 text-sm -mb-px border-b-2 ${sec === x.key ? "border-[#2D7FF9] font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{x.label}</button>)}
+      </div>
+      {sec === "general" && <><SettingsTab part="general" /><ConfirmChangesSetting /></>}
+      {sec === "security" && <SettingsTab part="security" />}
+      {sec === "files" && <><FileStorageSettings /><SettingsTab part="files" /></>}
+      {sec === "chats" && <ChatSettings />}
+      {sec === "notifications" && <PushAdmin />}
+    </div>
+  );
+}
+
+function SettingsTab({ part }: { part: "general" | "security" | "files" }) {
   const { toast } = useToast();
   const [settings, setSettings] = useState<AdminSettings>({});
   const [loading, setLoading] = useState(true);
@@ -193,7 +217,7 @@ function SettingsTab() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      {/* Auth Settings */}
+      {part === "security" && <>{/* Auth Settings */}
       <Card>
         <CardHeader><CardTitle className="text-base">Authentication</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -224,12 +248,12 @@ function SettingsTab() {
           <MfaRoles value={settings["auth.mfaRequired.roles"] || []} onChange={v => set("auth.mfaRequired.roles", v)} />
           <PasswordPolicyEditor value={settings["auth.passwordPolicy"]} onChange={v => set("auth.passwordPolicy", v)} />
         </CardContent>
-      </Card>
+      </Card></>}
 
       {/* File uploads */}
-      <UploadPolicyCard settings={settings} set={set} />
+      {part === "files" && <UploadPolicyCard settings={settings} set={set} />}
 
-      {/* MS SSO */}
+      {part === "security" && <>{/* MS SSO */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Microsoft SSO</CardTitle>
@@ -293,9 +317,9 @@ function SettingsTab() {
             <SsoTest settings={settings} />
           </div>
         </CardContent>
-      </Card>
+      </Card></>}
 
-      {/* Branding */}
+      {part === "general" && <>{/* Branding */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Branding</CardTitle>
@@ -341,7 +365,7 @@ function SettingsTab() {
             onChange={v => set("logo_url", v)}
           />
         </CardContent>
-      </Card>
+      </Card></>}
 
       <Button onClick={save} disabled={saving} className="min-w-32">
         {saving ? "Saving..." : "Save Settings"}

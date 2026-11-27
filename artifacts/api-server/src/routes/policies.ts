@@ -120,8 +120,16 @@ async function attachDocument(policyId: number, objectPath: string, by: string) 
   if (buf.length > MAX_PDF) throw await reject("The PDF is larger than 20 MB");
   if (/\/Encrypt\b/.test(buf.subarray(0, Math.min(buf.length, 4_000_000)).toString("latin1"))) throw await reject("The PDF is password-protected — upload an unprotected copy");
   const pages = (buf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length || null;
-  const [d] = rowsOf(await db.execute(sql`INSERT INTO policy_documents (policy_id, file_name, size_bytes, pages, sha256, data, uploaded_by)
-    VALUES (${policyId}, ${name}, ${buf.length}, ${pages}, ${crypto.createHash("sha256").update(buf).digest("hex")}, ${buf}, ${by}) RETURNING id, file_name, size_bytes, pages, sha256`));
+  // 2.14: with cloud storage the PDF goes to policies/<code>/<code>_<date>_<name>.pdf; otherwise it stays in the database
+  const { fileStore, keyOf, FOLDERS, safeName, stamp, putObject } = await import("../lib/file-store");
+  const cloud = await fileStore().catch(() => null); let objectKey: string | null = null;
+  if (cloud) {
+    const [pc] = rowsOf(await db.execute(sql`SELECT code FROM policies WHERE id = ${policyId}`)); const code = String(pc?.code || `policy-${policyId}`);
+    objectKey = keyOf(cloud, FOLDERS.policies, code, `${code}_${stamp()}_${safeName(name)}`);
+    try { await putObject(cloud, objectKey, buf); } catch (e: any) { throw Object.assign(new Error(`Could not save the PDF to cloud storage: ${e.message}`), { status: 502 }); }
+  }
+  const [d] = rowsOf(await db.execute(sql`INSERT INTO policy_documents (policy_id, file_name, size_bytes, pages, sha256, data, uploaded_by, object_key, store_cfg)
+    VALUES (${policyId}, ${name}, ${buf.length}, ${pages}, ${crypto.createHash("sha256").update(buf).digest("hex")}, ${cloud ? null : buf}, ${by}, ${objectKey}, ${cloud ? JSON.stringify(cloud) : null}::jsonb) RETURNING id, file_name, size_bytes, pages, sha256`));
   await deleteObject(String(objectPath)).catch(() => false);
   return d;
 }
@@ -497,7 +505,11 @@ router.get("/policies/:id/document", requireAuth, wrap(async (req, res) => {
     }
   }
   if (!docId) return fail(res, 404, "No PDF is attached to this policy");
-  const [d] = rowsOf(await db.execute(sql`SELECT id, file_name, data FROM policy_documents WHERE id = ${docId}`)); if (!d) return fail(res, 404, "Document not found");
+  const [d] = rowsOf(await db.execute(sql`SELECT id, file_name, data, object_key, store_cfg FROM policy_documents WHERE id = ${docId}`)); if (!d) return fail(res, 404, "Document not found");
+  if (!d.data && d.object_key) {   // 2.14: kept in cloud storage
+    const { getObject } = await import("../lib/file-store");
+    try { d.data = await getObject(typeof d.store_cfg === "string" ? JSON.parse(d.store_cfg) : d.store_cfg, d.object_key); } catch (e: any) { return fail(res, 502, `Could not read the PDF from cloud storage: ${e.message}`); }
+  }
   await db.execute(sql`INSERT INTO policy_document_views (policy_id, version, document_id, user_id, ip) VALUES (${p.id}, ${version}, ${d.id}, ${me}, ${req.ip || null})`).catch(() => {});
   res.setHeader("Content-Type", "application/pdf"); res.setHeader("Cache-Control", "no-store, private"); res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Content-Disposition", `inline; filename="${String(d.file_name).replace(/[^\w. -]/g, "_")}"`);

@@ -1355,6 +1355,11 @@ router.post("/itsm-attachments", async (req, res): Promise<void> => {
     uploadedBy: userId,
     uploadedByName,
   }).returning();
+  {   // 2.14: cloud storage — move the file into itsm/<type>/<ticket no>/
+    const k = ({ "Incident": "incident", "Problem": "problem", "Change Request": "change", "Service Request": "request" } as Record<string, Kind>)[body.data.ticketType];
+    const [t]: any[] = k ? await db.select().from(TABLE[k]).where(eq(TABLE[k].id, body.data.ticketId)) : [];
+    if (k && t) { const { fileUpload } = await import("./storage"); const { FOLDERS } = await import("../lib/file-store"); await fileUpload(body.data.objectPath, FOLDERS[k], [String(t[NO[k][3]])]); }
+  }
   await logAudit({ entityType: "itsm_attachment", entityId: attachment.id, action: "CREATE", performedBy: uploadedByName, summary: `Attachment uploaded: ${body.data.fileName} for ${body.data.ticketType} #${body.data.ticketId}` }).catch(() => {});
   res.status(201).json(attachment);
 });

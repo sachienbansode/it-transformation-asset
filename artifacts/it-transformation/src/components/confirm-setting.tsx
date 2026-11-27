@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { setConfirmChanges } from "@/components/confirm-dialog";
 import { ShieldCheck } from "lucide-react";
+import { useSearch } from "wouter";
 
 /* Admin › Settings: ask in-app before every change (all modules). */
 export function ConfirmChangesSetting() {
@@ -62,6 +63,13 @@ export function RecordingStorageSettings() {
   const qc = useQueryClient(); const { toast } = useToast();
   const { data } = useQuery({ queryKey: ["admin-settings"], queryFn: () => apiFetch<Record<string, unknown>>("/admin/settings") });
   const [f, setF] = React.useState<any>(null); const [busy, setBusy] = React.useState(false); const [result, setResult] = React.useState<any>(null);
+  // 2.14: menu search › "Cloud file storage" opens Admin › Settings with ?focus=storage
+  const search = useSearch(); const [flash, setFlash] = React.useState(false);
+  React.useEffect(() => {
+    if (new URLSearchParams(search).get("focus") !== "storage" || !f) return;
+    const t = setTimeout(() => { document.getElementById("file-storage")?.scrollIntoView({ behavior: "smooth", block: "start" }); setFlash(true); setTimeout(() => setFlash(false), 2500); }, 150);
+    return () => clearTimeout(t);
+  }, [search, !!f]);
   React.useEffect(() => { if (data && !f) { let v: any = data["chat.recordingStorage"] ?? { provider: "none" }; if (typeof v === "string") { try { v = JSON.parse(v); } catch { v = { provider: "none" }; } } setF({ provider: "none", prefix: "it-hub/recordings", ...v }); } }, [data]);
   if (!f) return null;
   const clean = () => {
@@ -79,8 +87,9 @@ export function RecordingStorageSettings() {
   }
   const row = "grid sm:grid-cols-[220px_1fr] gap-2 items-center text-sm"; const inp = "h-8 rounded-md border bg-background px-2";
   return (
-    <Card className="mt-4"><CardContent className="p-4 space-y-3">
-      <div className="font-semibold text-sm">Screen-session recordings</div>
+    <Card id="file-storage" data-testid="file-storage" className={`mt-4 scroll-mt-20 transition-shadow ${flash ? "ring-2 ring-[#2D7FF9]" : ""}`}><CardContent className="p-4 space-y-3">
+      <div className="font-semibold text-sm">Cloud file storage — Azure Blob / Amazon S3</div>
+      <div className="text-xs text-muted-foreground -mt-2">Used for screen-session recordings. Storage account, container and folder (prefix) here; the access key (SAS) stays in the server settings file.</div>
       <div className="text-xs text-muted-foreground">Recordings are encrypted by IT Hub and kept in your cloud storage — never in the IT Hub database. If no storage is set, screen sessions still work but are <b>not recorded</b>, and both sides see that on screen.</div>
       <div className={row}><span>Keep recordings in</span>
         <select className={inp} value={f.provider} onChange={e => { setF({ ...f, provider: e.target.value }); setResult(null); }}>

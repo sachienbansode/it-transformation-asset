@@ -11,7 +11,7 @@ import crypto from "node:crypto";
  *   S3:    instance role of the server (recommended on EC2), or RECORDINGS_S3_ACCESS_KEY_ID + RECORDINGS_S3_SECRET_ACCESS_KEY
  *   Azure: RECORDINGS_AZURE_SAS — a SAS token for the container (read, create, write, delete)
  */
-export type StoreCfg = { provider: "none" | "s3" | "azure"; bucket?: string; region?: string; prefix?: string; endpoint?: string; account?: string; container?: string };
+export type StoreCfg = { provider: "none" | "s3" | "azure"; bucket?: string; region?: string; prefix?: string; endpoint?: string; account?: string; container?: string; auth?: "managed-identity" | "key" | "sas"; root?: string };
 
 const sha256 = (b: Buffer | string) => crypto.createHash("sha256").update(b).digest("hex");
 const hmac = (k: Buffer | string, s: string) => crypto.createHmac("sha256", k).update(s).digest();
@@ -56,21 +56,67 @@ async function s3(method: "PUT" | "GET" | "DELETE", c: StoreCfg, key: string, bo
   return method === "GET" ? Buffer.from(await r.arrayBuffer()) : null;
 }
 
-/* ── Azure Blob with a container SAS token ── */
-async function azure(method: "PUT" | "GET" | "DELETE", c: StoreCfg, key: string, body?: Buffer) {
-  const sas = String(process.env.RECORDINGS_AZURE_SAS || "").replace(/^\?/, "");
-  if (!sas) throw new Error("Set RECORDINGS_AZURE_SAS (a SAS token for the container) in /etc/it-hub.env");
+/* ── Azure Blob — 2.14: managed identity of the VM (recommended, no secret), storage account key, or container SAS ──
+ *   managed-identity: the VM's identity needs the role "Storage Blob Data Contributor" on the storage account
+ *   key:  AZURE_STORAGE_KEY in the server settings file (Shared Key signing)
+ *   sas:  FILE_STORAGE_AZURE_SAS (or the older RECORDINGS_AZURE_SAS) in the server settings file
+ */
+let miToken: { token: string; exp: number } | null = null;
+async function azureToken() {
+  if (miToken && miToken.exp - Date.now() > 5 * 60_000) return miToken.token;
+  const cid = process.env.AZURE_CLIENT_ID ? `&client_id=${encodeURIComponent(process.env.AZURE_CLIENT_ID)}` : "";
+  const r = await fetch(`http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=${encodeURIComponent("https://storage.azure.com/")}${cid}`, { headers: { Metadata: "true" }, signal: AbortSignal.timeout(3000) }).catch(() => null);
+  if (!r || !r.ok) throw new Error("No managed identity on this server — turn on the VM's system-assigned identity (Azure Portal › VM › Identity) and give it the role Storage Blob Data Contributor on the storage account");
+  const j: any = await r.json(); miToken = { token: j.access_token, exp: Number(j.expires_on) * 1000 }; return miToken.token;
+}
+export const azureAuth = (c: StoreCfg) => c.auth || (process.env.FILE_STORAGE_AZURE_SAS || process.env.RECORDINGS_AZURE_SAS ? "sas" : process.env.AZURE_STORAGE_KEY ? "key" : "managed-identity");
+function sharedKey(c: StoreCfg, method: string, url: URL, headers: Record<string, string>, len: number) {
+  const key = process.env.AZURE_STORAGE_KEY || ""; if (!key) throw new Error("Set AZURE_STORAGE_KEY (storage account key) in the server settings file, or use the managed identity");
+  const h = (n: string) => headers[n] || "";
+  const canonHeaders = Object.keys(headers).filter(k => k.startsWith("x-ms-")).sort().map(k => `${k}:${headers[k]}`).join("\n");
+  const params = [...url.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `\n${k.toLowerCase()}:${v}`).join("");
+  const canonRes = `/${c.account}${url.pathname}${params}`;
+  const toSign = [method, "", "", len ? String(len) : "", "", h("content-type"), "", "", "", "", "", "", canonHeaders, canonRes].join("\n");
+  return `SharedKey ${c.account}:${crypto.createHmac("sha256", Buffer.from(key, "base64")).update(toSign, "utf8").digest("base64")}`;
+}
+async function azureReq(method: "PUT" | "GET" | "DELETE" | "HEAD", c: StoreCfg, path: string, query: string, body?: Buffer, extra: Record<string, string> = {}) {
   if (!c.account || !c.container) throw new Error("Set the storage account and container");
   const origin = c.endpoint ? c.endpoint.replace(/\/$/, "") : `https://${c.account}.blob.core.windows.net`;
-  const url = `${origin}/${enc(c.container)}/${keyPath(key)}?${sas}`;
-  const headers: Record<string, string> = { "x-ms-version": "2021-08-06" };
-  if (method === "PUT") { headers["x-ms-blob-type"] = "BlockBlob"; headers["content-type"] = "application/octet-stream"; }
-  const r = await fetch(url, { method, headers, body: body as any, signal: AbortSignal.timeout(120_000) });
-  if (!r.ok && !(method === "DELETE" && r.status === 404)) throw new Error(`Azure Blob ${method} failed (${r.status}): ${(await r.text()).slice(0, 200)}`);
+  const mode = azureAuth(c);
+  const url = new URL(`${origin}${path}${query ? `?${query}` : ""}`);
+  const headers: Record<string, string> = { "x-ms-version": "2021-08-06", "x-ms-date": new Date().toUTCString(), ...extra };
+  if (mode === "sas") {
+    const sas = String(process.env.FILE_STORAGE_AZURE_SAS || process.env.RECORDINGS_AZURE_SAS || "").replace(/^\?/, "");
+    if (!sas) throw new Error("Set FILE_STORAGE_AZURE_SAS (a SAS token for the container) in the server settings file, or use the managed identity");
+    for (const [k, v] of new URLSearchParams(sas)) url.searchParams.append(k, v);
+  } else if (mode === "key") headers.authorization = sharedKey(c, method, url, headers, body?.length || 0);
+  else headers.authorization = `Bearer ${await azureToken()}`;
+  return fetch(url, { method, headers, body: body as any, signal: AbortSignal.timeout(120_000) });
+}
+async function azure(method: "PUT" | "GET" | "DELETE", c: StoreCfg, key: string, body?: Buffer) {
+  const extra: Record<string, string> = method === "PUT" ? { "x-ms-blob-type": "BlockBlob", "content-type": "application/octet-stream" } : {};
+  const r = await azureReq(method, c, `/${enc(c.container!)}/${keyPath(key)}`, "", body, extra);
+  if (!r.ok && !(method === "DELETE" && r.status === 404)) throw new Error(`Azure Blob ${method} failed (${r.status}): ${azureWhy(r.status, await r.text())}`);
   return method === "GET" ? Buffer.from(await r.arrayBuffer()) : null;
 }
+function azureWhy(status: number, text: string) {
+  const code = (text.match(/<Code>([^<]+)<\/Code>/) || [])[1] || "";
+  if (status === 403 && /AuthorizationPermissionMismatch|AuthorizationFailure/.test(code)) return `${code} — the server is not allowed: give the VM's managed identity the role "Storage Blob Data Contributor" on the storage account, and allow the server's IP in the storage account Networking (wait ~5 minutes after a role change)`;
+  if (status === 404 && /ContainerNotFound/.test(code)) return "ContainerNotFound — click Set up storage to create it";
+  return code || text.slice(0, 200);
+}
+/** Create the container if it is missing (managed identity or account key; a container SAS cannot create containers). */
+export async function ensureContainer(c: StoreCfg): Promise<"created" | "exists" | "skipped"> {
+  if (c.provider !== "azure") return "skipped";
+  if (azureAuth(c) === "sas") return "skipped";
+  if (!/^[a-z0-9](?!.*--)[a-z0-9-]{1,61}[a-z0-9]$/.test(c.container || "")) throw new Error("Container name: 3–63 lowercase letters, digits and single hyphens");
+  const r = await azureReq("PUT", c, `/${enc(c.container!)}`, "restype=container");
+  if (r.status === 201) return "created";
+  if (r.status === 409) return "exists";
+  throw new Error(`Could not create the container (${r.status}): ${azureWhy(r.status, await r.text())}`);
+}
 
-const call = (m: "PUT" | "GET" | "DELETE", c: StoreCfg, key: string, body?: Buffer) => c.provider === "s3" ? s3(m, c, key, body) : c.provider === "azure" ? azure(m, c, key, body) : Promise.reject(new Error("Recording storage is not configured"));
+const call = (m: "PUT" | "GET" | "DELETE", c: StoreCfg, key: string, body?: Buffer) => c.provider === "s3" ? s3(m, c, key, body) : c.provider === "azure" ? azure(m, c, key, body) : Promise.reject(new Error("Cloud file storage is not configured"));
 export const fullKey = (c: StoreCfg, name: string) => `${String(c.prefix || "it-hub/recordings").replace(/^\/+|\/+$/g, "")}/${name}`;
 export async function putObject(c: StoreCfg, key: string, data: Buffer) { await call("PUT", c, key, data); }
 export async function getObject(c: StoreCfg, key: string) { return (await call("GET", c, key)) as Buffer; }

@@ -44,6 +44,7 @@ import itsmSetupRouter from "./itsm-setup";
 import itsmWorkflowsRouter from "./itsm-workflows";
 import itsmEnterpriseRouter from "./itsm-enterprise";
 import itsmAdvancedRouter from "./itsm-advanced";
+import fileStorageRouter from "./file-storage";
 import dataImportRouter from "./data-import";
 import updatesRouter from "./updates";
 import platformRouter from "./platform";
@@ -160,6 +161,7 @@ router.use(itsmSetupRouter);
 router.use(itsmWorkflowsRouter);
 router.use(itsmEnterpriseRouter);
 router.use(itsmAdvancedRouter);
+router.use(fileStorageRouter);
 router.use(dataImportRouter);   // ITH-119 Admin › Data import (Super Admin)
 router.use(updatesRouter);      // ITH-120 Admin › Updates (client consent)
 router.use(platformRouter);     // ITH-120 NIYTRI platform console (PLATFORM_CONSOLE=1 only)
