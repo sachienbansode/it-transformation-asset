@@ -16,18 +16,17 @@ const ACCENT: Record<TicketKind, { bar: string; chip: string; label: string }> =
   change: { bar: "from-emerald-500 to-teal-500", chip: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300", label: "Change" },
 };
 
-export function TicketDialog({ open, onOpenChange, kind, title, subtitle, status, footer, children, wide }: {
+export function TicketDialog({ open, onOpenChange, kind, title, subtitle, status, footer, children, wide, side }: {
   open: boolean; onOpenChange: (v: boolean) => void; kind: TicketKind; title: string; subtitle?: React.ReactNode; status?: string | null;
-  footer: React.ReactNode; children: React.ReactNode; wide?: boolean;
+  footer: React.ReactNode; children: React.ReactNode; wide?: boolean; side?: React.ReactNode;
 }) {
   const a = ACCENT[kind];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid={`ticket-dialog-${kind}`}
-        className={cn("p-0 gap-0 flex flex-col overflow-hidden w-full max-w-full h-[100dvh] max-h-[100dvh] rounded-none sm:h-auto sm:max-h-[90dvh] sm:w-[calc(100%-2rem)] sm:rounded-xl",
-          wide ? "sm:max-w-4xl" : "sm:max-w-3xl")}>
+      <DialogContent data-fullpage="" data-testid={`ticket-dialog-${kind}`}
+        className={cn("p-0 gap-0 flex flex-col overflow-hidden left-0 top-0 translate-x-0 translate-y-0 w-full max-w-none h-[100dvh] max-h-[100dvh] rounded-none border-0 data-[state=open]:slide-in-from-left-0 data-[state=open]:slide-in-from-top-0", wide && "")}>
         <div className={cn("h-1 w-full bg-gradient-to-r shrink-0", a.bar)} />
-        <div className="shrink-0 border-b px-4 sm:px-6 py-3.5 pr-12">
+        <div className="shrink-0 border-b px-4 sm:px-6 py-3.5 pr-12 mx-auto w-full max-w-[1500px]">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", a.chip)}>{a.label}</span>
             {status && <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{status}</span>}
@@ -35,7 +34,13 @@ export function TicketDialog({ open, onOpenChange, kind, title, subtitle, status
           <DialogTitle className="mt-1.5 text-[17px] leading-snug">{title}</DialogTitle>
           {subtitle ? <DialogDescription className="mt-0.5 text-xs">{subtitle}</DialogDescription> : <DialogDescription className="sr-only">{title}</DialogDescription>}
         </div>
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 space-y-5">{children}</div>
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4">
+          {/* 2.18: full page — form on the left, workflow / trail / approvals on the right (stacked on phones) */}
+          <div className={cn("mx-auto max-w-[1500px]", side ? "grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,520px)] gap-6" : "max-w-5xl")}>
+            <div className="space-y-5 min-w-0">{children}</div>
+            {side && <aside className="space-y-4 min-w-0 xl:sticky xl:top-0 xl:self-start" data-testid="ticket-side">{side}</aside>}
+          </div>
+        </div>
         <div className="shrink-0 border-t bg-muted/30 px-4 sm:px-6 py-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end [&>button]:w-full sm:[&>button]:w-auto">{footer}</div>
       </DialogContent>
     </Dialog>

@@ -45,6 +45,8 @@ import itsmWorkflowsRouter from "./itsm-workflows";
 import itsmEnterpriseRouter from "./itsm-enterprise";
 import itsmAdvancedRouter from "./itsm-advanced";
 import fileStorageRouter from "./file-storage";
+import modulesRouter from "./modules";
+import { moduleOfPath, disabledModules, MODULES } from "../lib/modules";
 import dataImportRouter from "./data-import";
 import updatesRouter from "./updates";
 import platformRouter from "./platform";
@@ -80,6 +82,14 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/business-units" && req.method === "GET") return next();
   requireAuth(req, res, next);
 });
+
+// 2.20: modules switched off by the Super Admin are closed for everyone (data kept)
+router.use(async (req: Request, res: Response, next: NextFunction) => {
+  const m = moduleOfPath(req.path); if (!m) return next();
+  try { if ((await disabledModules()).has(m)) { res.status(403).json({ error: `${MODULES.find(x => x.key === m)!.label} is switched off by the administrator`, moduleOff: m }); return; } } catch { /* never block on a settings read error */ }
+  next();
+});
+router.use(modulesRouter);
 
 // Auditor sessions (external auditors) reach only the auditor portal API
 router.use(auditorFence);

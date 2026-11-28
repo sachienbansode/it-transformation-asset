@@ -4,7 +4,7 @@ import { usePresenceHeartbeat, useMyPresence, PresenceDot, PRESENCE_LABEL, setMy
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/contexts/auth-context";
+import { useAuth, moduleOfHref } from "@/contexts/auth-context";
 import { MajorIncidentBanner } from "@/components/itsm-extras";
 import { useCurrency } from "@/contexts/currency-context";
 import { useTheme } from "@/contexts/theme-context";
@@ -106,6 +106,7 @@ const DEEP_LINKS: { href: string; label: string; section: string; module?: strin
   { href: "/asset-agents/chats", label: "Device chats", section: "IT Assets", module: "asset_registry", words: "chat remote support device" },
   { href: "/asset-agents/data", label: "Device data", section: "IT Assets", module: "asset_registry", words: "device data usage report" },
   { href: "/admin?tab=settings&section=files", label: "File storage (Azure Blob / S3)", section: "Admin › Settings", admin: true, words: "blob azure s3 aws storage bucket container recordings files sas upload folders file types size" },
+  { href: "/admin?tab=settings&section=modules", label: "Modules (switch on / off)", section: "Admin › Settings", admin: true, words: "module enable disable switch off on turn hide" },
   { href: "/admin?tab=settings&section=general", label: "General & branding", section: "Admin › Settings", admin: true, words: "company name logo branding app name tagline confirm confirmation" },
   { href: "/admin?tab=settings&section=security", label: "Sign-in & security", section: "Admin › Settings", admin: true, words: "sso microsoft entra azure ad authentication registration sign in login" },
   { href: "/admin?tab=settings&section=chats", label: "Chats & remote support", section: "Admin › Settings", admin: true, words: "chat screen session recording remote turn stun attachment" },
@@ -201,7 +202,8 @@ function SectionLabel({
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
-  const { user, logout, isAdmin, isHR, canAccess } = useAuth();
+  const { user, logout, isAdmin, isHR, canAccess, moduleOn } = useAuth();
+  const pageOff = (() => { const g = moduleOfHref(location); return g && !moduleOn(g) ? g : null; })();
   const { unit, cycle } = useCurrency();
   const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
@@ -299,7 +301,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { key: "itsm", label: "ITSM", items: mk(visibleItsmItems, i => ({ badge: i.module === "itsm_my_approvals" ? myApprovals?.count : undefined })) },
     { key: "compliance", label: "Audit & Compliance", items: mk(visibleComplianceItems) },
     ...(isAdmin || isHR ? [{ key: "admin", label: "Admin", items: mk(isAdmin ? ADMIN_ITEMS.filter(i => i.tab !== "platform" || platformOn) : ADMIN_ITEMS.filter(i => i.tab === "users")) }] : []),
-  ].filter(x => x.items.length > 0);
+  ].map(x => ({ ...x, items: x.items.filter(i => { const g = moduleOfHref(i.href); return !g || moduleOn(g); }) })).filter(x => x.items.length > 0);   // 2.20: switched-off modules are not in the menu
   // exact admin item highlight (all admin pages share /admin)
   for (const it of navSections.find(x => x.key === "admin")?.items || []) it.active = it.href.includes("?") ? location === "/admin" && window.location.search === it.href.slice(it.href.indexOf("?")) : it.href === "/admin" ? location === "/admin" && !window.location.search : location === it.href || location.startsWith(it.href + "/");
   const q = menuQ.trim().toLowerCase();
@@ -307,7 +309,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     if (!q) return [] as any[];
     const words = q.split(/\s+/).filter(Boolean);
     const all = [...navSections.flatMap(sec => sec.items.map(i => ({ ...i, section: sec.key, sectionLabel: sec.label, words: MENU_WORDS[i.href] || "" }))),
-      ...DEEP_LINKS.filter(d => d.admin ? isAdmin : !d.module || canAccess(d.module)).map(d => ({ href: d.href, label: d.label, icon: SearchIcon2, active: false, section: "x" + d.label, sectionLabel: d.section, words: d.words }))];
+      ...DEEP_LINKS.filter(d => (d.admin ? isAdmin : !d.module || canAccess(d.module)) && (() => { const g = moduleOfHref(d.href); return !g || moduleOn(g); })()).map(d => ({ href: d.href, label: d.label, icon: SearchIcon2, active: false, section: "x" + d.label, sectionLabel: d.section, words: d.words }))];
     const scored = all.map(i => {
       const lab = i.label.toLowerCase(), hay = `${lab} ${i.sectionLabel.toLowerCase()} ${i.words}`;
       if (!words.every(w => hay.includes(w))) return null;
@@ -572,11 +574,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <Building2 className="w-4 h-4 text-blue-600" /><span className="flex-1">Add your company name — it is printed on policy watermarks, reports, asset labels and emails.</span>
                 <Link href="/admin" className="text-primary font-medium hover:underline">Admin › Settings › Branding</Link>
               </div>)}
-            <MajorIncidentBanner />
-            {children}
+            {moduleOn("itsm") && <MajorIncidentBanner />}
+            {pageOff ? <div className="max-w-lg mx-auto mt-16 rounded-xl border p-6 text-center space-y-2" data-testid="module-off"><div className="text-lg font-semibold">This module is switched off</div><div className="text-sm text-muted-foreground">The administrator has switched it off for everyone. It comes back, with all its data, when it is switched on again (Admin › Settings › Modules).</div><Link href="/" className="text-sm text-primary hover:underline">Go to the home page</Link></div> : children}
             <ForcePasswordChange />
-            <PolicyGate />
-            <ChatPopup />
+            {moduleOn("policies") && <PolicyGate />}
+            {moduleOn("chats") && <ChatPopup />}
           </div>
           <footer className="shrink-0 border-t border-border/40 px-5 py-2 text-center text-[10px] text-muted-foreground/60">
             &copy; 2026 NIYTRI Technologies. All rights reserved.

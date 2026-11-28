@@ -8,6 +8,7 @@ import { getAccess } from "../lib/rbac";
 import { isSuperAdmin } from "../lib/access-model";
 import { fileStore, setupAndTest, defaultRoot, FOLDER_LABELS, azureAuth, storeLabel } from "../lib/file-store";
 import { storeConfigured, type StoreCfg } from "../lib/object-store";
+import { migrationSummary, migrateBatch, orphanCount, cleanPending, startPendingSweep, PENDING_DAYS } from "../lib/file-migrate";
 
 const router = Router();
 const rowsOf = (r: any) => (r.rows ?? r) as any[];
@@ -64,4 +65,22 @@ router.put("/file-storage", requireAuth, wrap(async (req, res) => {
   await logAudit({ entityType: "setting", entityId: 0, action: "file_storage", performedBy: by, summary: c.provider === "none" ? "File storage turned off — new files stay on the server" : `File storage set: ${storeLabel(c)}, main folder “${c.root}”${c.provider === "azure" ? `, sign-in ${azureAuth(c)}` : ""}` });
   return res.json({ ...result, saved: true });
 }));
+/* ── 2.19: move existing files into the storage; clean up uploads never attached ── */
+router.get("/file-storage/migrate", requireAuth, wrap(async (req, res) => {
+  if (!await sa(req)) return fail(res, 403, "Super Admin only");
+  return res.json({ ...(await migrationSummary()), orphans: await orphanCount(), orphanDays: PENDING_DAYS, configured: !!(await fileStore()) });
+}));
+router.post("/file-storage/migrate", requireAuth, wrap(async (req, res) => {
+  if (!await sa(req)) return fail(res, 403, "Super Admin only");
+  const r = await migrateBatch(Math.min(Math.max(Number(req.body?.limit) || 50, 1), 200));
+  if (r.moved.length || r.failed.length) await logAudit({ entityType: "setting", entityId: 0, action: "file_storage_move", performedBy: await getPerformedBy(Number((req.session as any).userId)), summary: `Moved ${r.moved.length} existing file(s) to cloud storage${r.failed.length ? `, ${r.failed.length} failed` : ""}; ${r.remaining} remaining` });
+  return res.json(r);
+}));
+router.post("/file-storage/cleanup", requireAuth, wrap(async (req, res) => {
+  if (!await sa(req)) return fail(res, 403, "Super Admin only");
+  const r = await cleanPending();
+  await logAudit({ entityType: "setting", entityId: 0, action: "file_storage_cleanup", performedBy: await getPerformedBy(Number((req.session as any).userId)), summary: `Removed ${r.removed} upload(s) never attached to a record` });
+  return res.json(r);
+}));
+startPendingSweep();
 export default router;

@@ -31,6 +31,8 @@ interface AuthContextValue {
   effectivePermissions: Record<string, string>;
   defaultDashboard: string;
   canAccess: (module: string, level?: AccessLevel) => boolean;
+  moduleOn: (key: string) => boolean;   // 2.20: modules switched off by the Super Admin
+  modulesOff: string[];
   login: (email: string, password: string) => Promise<{ requiresMfa?: boolean; method?: "totp" | "email"; to?: string }>;
   loginMfa: (token: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -89,16 +91,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const effectivePermissions = user?.effectivePermissions ?? {};
   const defaultDashboard = user?.defaultDashboard ?? "/";
 
+  // 2.20: switched-off modules are hidden for everyone, Super Admin included
+  const [modulesOff, setModulesOff] = useState<string[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    const load = () => apiFetch<any[]>("/modules").then(l => setModulesOff(l.filter(m => !m.enabled).map(m => m.key))).catch(() => {});
+    load(); window.addEventListener("ithub:modules-changed", load); return () => window.removeEventListener("ithub:modules-changed", load);
+  }, [user]);
+  const moduleOn = useCallback((k: string) => !modulesOff.includes(k), [modulesOff]);
   const canAccess = useCallback((module: string, level: AccessLevel = "read"): boolean => {
     if (!user) return false;
+    const g = moduleOfPerm(module); if (g && modulesOff.includes(g)) return false;
     if (user.role === "admin") return true;
     const perm = effectivePermissions[module] || "none";
     return LEVEL_ORDER.indexOf(perm) >= LEVEL_ORDER.indexOf(level);
-  }, [user, effectivePermissions]);
+  }, [user, effectivePermissions, modulesOff]);
 
   return (
     <AuthContext.Provider value={{
-      user, isAdmin, isCxo, isEmployee, isHR, loading, effectivePermissions, defaultDashboard, canAccess,
+      user, isAdmin, isCxo, isEmployee, isHR, loading, effectivePermissions, defaultDashboard, canAccess, moduleOn, modulesOff,
       login, loginMfa, logout, refresh,
     }}>
       {children}
@@ -110,4 +121,27 @@ export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be inside AuthProvider");
   return ctx;
+}
+
+/** 2.20: permission key → module that can be switched off */
+export function moduleOfPerm(m: string): string | null {
+  if (/^(dashboard|checklist|roadmap|retirements|applications|aibom|sbom|reports)$/.test(m)) return "drishti";
+  if (/^kpi/.test(m)) return "performance";
+  if (/^(assets?|asset_|maintenance_records)/.test(m)) return "assets";
+  if (/^itsm_/.test(m)) return "itsm";
+  if (m === "compliance") return "audit";
+  if (m === "policies") return "policies";
+  return null;
+}
+/** 2.20: app page → module */
+export function moduleOfHref(h: string): string | null {
+  const p = h.split("?")[0];
+  if (p === "/" || /^\/(checklist|roadmap|retirements|applications|aibom|sbom|reports)/.test(p)) return "drishti";
+  if (/^\/kpi/.test(p)) return "performance";
+  if (/^\/(assets?(-|\/|$)|maintenance-records|my-assets|my-device|device-policy|software-compliance)/.test(p)) return "assets";
+  if (/^\/itsm/.test(p)) return "itsm";
+  if (/^\/chats/.test(p)) return "chats";
+  if (/^\/compliance/.test(p)) return "audit";
+  if (/^\/(policies|my-policies|admin\/policies)/.test(p)) return "policies";
+  return null;
 }

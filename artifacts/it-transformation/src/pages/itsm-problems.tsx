@@ -306,8 +306,8 @@ export default function ItsmProblems() {
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent data-fullpage="" className="left-0 top-0 translate-x-0 translate-y-0 w-full max-w-none h-[100dvh] max-h-[100dvh] rounded-none border-0 overflow-y-auto p-4 sm:p-8 block data-[state=open]:slide-in-from-left-0 data-[state=open]:slide-in-from-top-0">
+          <DialogHeader className="mx-auto w-full max-w-[1500px]">
             <DialogTitle className="flex items-center gap-3">
               <TicketNo no={viewModal?.problemNo || ""} />
               <StatusBadge value={viewModal?.status || ""} />
@@ -316,7 +316,7 @@ export default function ItsmProblems() {
           {viewModal && (() => {
             const linkedIncidents = (incidents as any[]).filter((i: any) => i.problemId === viewModal.id);
             return (
-            <div className="space-y-4">
+            <div className="mx-auto max-w-[1500px] columns-1 xl:columns-2 gap-8 [&>*]:break-inside-avoid [&>*]:mb-4" data-testid="ticket-view">
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{viewModal.description || "No description provided"}</p>
               <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
@@ -373,7 +373,16 @@ export default function ItsmProblems() {
         </DialogContent>
       </Dialog>
 
-      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="problem" status={editingItem?.status}
+      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="problem" status={editingItem?.status} side={editingItem ? <>
+        <div className="space-y-3" data-testid="edit-actions">
+          {workMode && <KnownErrorPanel p={editingItem} canWork onDone={refreshEditing} />}
+          {workMode && <Button size="sm" variant="outline" onClick={() => { setIsModalOpen(false); navigate("/itsm-changes"); }} className="h-7 text-xs gap-1.5 border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400"><GitBranch className="w-3.5 h-3.5" />Raise a change for the permanent fix</Button>}
+          <TicketWorkflow kind="problem" id={editingItem.id} ticketNo={editingItem.problemNo} onChanged={refreshEditing} />
+          <RelatedRecords kind="problem" id={editingItem.id} />
+          <TicketHistory kind="problem" id={editingItem.id} canComment />
+        </div>
+<ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" />
+        </> : undefined}
         title={editingItem ? `${editingItem.problemNo} · ${editingItem.title}` : "Record a problem"}
         subtitle={editingItem ? "Find the root cause, share a workaround, then fix it for good through a change." : "The underlying cause of one or more incidents — repeat or major ones."}
         footer={<>
@@ -415,14 +424,6 @@ export default function ItsmProblems() {
           {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Problem" ticketId={editingItem.id} /></div>
             : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
         </FormSection>
-        {editingItem && <div className="space-y-3" data-testid="edit-actions">
-          {workMode && <KnownErrorPanel p={editingItem} canWork onDone={refreshEditing} />}
-          {workMode && <Button size="sm" variant="outline" onClick={() => { setIsModalOpen(false); navigate("/itsm-changes"); }} className="h-7 text-xs gap-1.5 border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400"><GitBranch className="w-3.5 h-3.5" />Raise a change for the permanent fix</Button>}
-          <TicketWorkflow kind="problem" id={editingItem.id} ticketNo={editingItem.problemNo} onChanged={refreshEditing} />
-          <RelatedRecords kind="problem" id={editingItem.id} />
-          <TicketHistory kind="problem" id={editingItem.id} canComment />
-        </div>}
-        {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Problem" />}
       </TicketDialog>
     </div>
   );

@@ -7,6 +7,7 @@ import { getRoleLabel, cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation, useSearch } from "wouter";
 import { FileStorageSettings } from "@/components/file-storage-settings";
+import { ModulesSettings } from "@/components/modules-settings";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -168,7 +169,7 @@ function UploadPolicyCard({ settings, set }: { settings: AdminSettings; set: (k:
 
 /* 2.14: Admin › Settings split into tabs by category (?tab=settings&section=…) */
 const SETTING_SECTIONS = [
-  { key: "general", label: "General & branding" }, { key: "security", label: "Sign-in & security" }, { key: "files", label: "Files & storage" },
+  { key: "general", label: "General & branding" }, { key: "modules", label: "Modules" }, { key: "security", label: "Sign-in & security" }, { key: "files", label: "Files & storage" },
   { key: "chats", label: "Chats & remote support" }, { key: "notifications", label: "Notifications" },
 ] as const;
 function SettingsSections() {
@@ -181,6 +182,7 @@ function SettingsSections() {
         {SETTING_SECTIONS.map(x => <button key={x.key} data-testid={`settings-${x.key}`} onClick={() => nav(`/admin?tab=settings&section=${x.key}`)} className={`px-3 py-2 text-sm -mb-px border-b-2 ${sec === x.key ? "border-[#2D7FF9] font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{x.label}</button>)}
       </div>
       {sec === "general" && <><SettingsTab part="general" /><ConfirmChangesSetting /></>}
+      {sec === "modules" && <ModulesSettings />}
       {sec === "security" && <SettingsTab part="security" />}
       {sec === "files" && <><FileStorageSettings /><SettingsTab part="files" /></>}
       {sec === "chats" && <ChatSettings />}

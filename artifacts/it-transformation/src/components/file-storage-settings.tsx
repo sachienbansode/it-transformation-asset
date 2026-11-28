@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, XCircle, Folder, FolderTree, HardDrive, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, XCircle, Folder, FolderTree, HardDrive, Loader2, ShieldCheck, UploadCloud, Trash2 } from "lucide-react";
 
 const AUTH = [
   { v: "managed-identity", l: "Managed identity of the server (recommended)", d: "No password or key on the server, nothing to renew. In the Azure Portal: VM › Identity › System assigned: On; then Storage account › Access control (IAM) › Add role assignment › Storage Blob Data Contributor › Managed identity › this VM." },
@@ -83,6 +83,50 @@ export function FileStorageSettings() {
         {(result.steps || []).map((s: any, i: number) => <div key={i} className="flex items-start gap-2">{s.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" /> : <XCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />}<span><b>{s.step}</b> — <span className="text-muted-foreground break-all">{s.detail}</span></span></div>)}
         {result.saved && <div className="text-xs text-emerald-700 flex items-center gap-1 pt-1"><ShieldCheck className="w-3.5 h-3.5" />Saved. New files go to the storage; files already on the server stay there and still open.</div>}
       </div>}
+      {data.active && <ExistingFiles />}
     </CardContent></Card>
+  );
+}
+
+/** 2.19: move files still on the server / in the database into the storage; clean up uploads never attached. */
+function ExistingFiles() {
+  const { toast } = useToast();
+  const { data, refetch } = useQuery<any>({ queryKey: ["file-storage-migrate"], queryFn: () => apiFetch("/file-storage/migrate") });
+  const [busy, setBusy] = React.useState<"" | "move" | "clean">(""); const [log, setLog] = React.useState<{ moved: number; failed: any[] } | null>(null);
+  if (!data) return null;
+  async function move() {
+    setBusy("move"); let moved = 0; const failed: any[] = [];
+    try {
+      for (let i = 0; i < 200; i++) {
+        const r: any = await apiFetch("/file-storage/migrate", { method: "POST", headers: { "X-No-Confirm": "1" }, body: JSON.stringify({ limit: 50 }) });
+        moved += r.moved.length; failed.push(...r.failed); setLog({ moved, failed: [...failed] });
+        if (!r.moved.length || r.remaining <= failed.length) break;
+      }
+      toast({ title: `${moved} file(s) moved to the storage`, description: failed.length ? `${failed.length} could not be moved — see the list` : "All done" });
+    } catch (e: any) { toast({ title: "Move stopped", description: e.message, variant: "destructive" }); }
+    finally { setBusy(""); refetch(); }
+  }
+  async function clean() {
+    setBusy("clean");
+    try { const r: any = await apiFetch("/file-storage/cleanup", { method: "POST", headers: { "X-No-Confirm": "1" }, body: "{}" }); toast({ title: `${r.removed} unused upload(s) removed` }); }
+    catch (e: any) { toast({ title: "Clean-up failed", description: e.message, variant: "destructive" }); } finally { setBusy(""); refetch(); }
+  }
+  return (
+    <div className="rounded-lg border p-3 space-y-3" data-testid="existing-files">
+      <div className="flex items-start gap-2 flex-wrap">
+        <UploadCloud className="w-4 h-4 text-[#2D7FF9] mt-0.5" />
+        <div className="flex-1 min-w-[220px]"><div className="text-sm font-semibold">Files saved before the storage was set up</div>
+          <div className="text-xs text-muted-foreground">{data.total ? <>{data.total} file(s) are still on the server or in the database: {Object.entries(data.byKind).map(([k, n]) => `${k} ${n}`).join(" · ")}. Moving puts each into its folder; every file is read back and checked before the server copy is let go (server files are kept in a “_moved-to-cloud” folder).</> : "None — every file is in the storage."}</div></div>
+        {data.total > 0 && <Button size="sm" disabled={!!busy} onClick={move} data-testid="move-existing">{busy === "move" ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <UploadCloud className="w-4 h-4 mr-1" />}Move {data.total} file(s) to the storage</Button>}
+      </div>
+      {log && <div className="text-xs space-y-0.5" data-testid="move-log"><div>{log.moved} moved{busy === "move" ? " so far…" : ""}{log.failed.length ? `, ${log.failed.length} not moved:` : ""}</div>
+        {log.failed.slice(0, 20).map((f: any, i: number) => <div key={i} className="text-red-600">{f.kind} · {f.ref} · {f.name}: {f.error}</div>)}</div>}
+      <div className="flex items-start gap-2 flex-wrap border-t pt-3">
+        <Trash2 className="w-4 h-4 text-muted-foreground mt-0.5" />
+        <div className="flex-1 min-w-[220px]"><div className="text-sm font-semibold">Uploads never attached to a record</div>
+          <div className="text-xs text-muted-foreground">Files uploaded on a form that was then closed without saving. Removed automatically every day once older than {data.orphanDays} days and no ticket, document, template or profile uses them. Now: {data.orphans}.</div></div>
+        {data.orphans > 0 && <Button size="sm" variant="outline" disabled={!!busy} onClick={clean} data-testid="clean-pending">{busy === "clean" && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}Remove {data.orphans} now</Button>}
+      </div>
+    </div>
   );
 }

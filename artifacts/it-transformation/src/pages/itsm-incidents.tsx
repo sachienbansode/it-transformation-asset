@@ -439,15 +439,15 @@ export default function ItsmIncidents() {
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent data-fullpage="" className="left-0 top-0 translate-x-0 translate-y-0 w-full max-w-none h-[100dvh] max-h-[100dvh] rounded-none border-0 overflow-y-auto p-4 sm:p-8 block data-[state=open]:slide-in-from-left-0 data-[state=open]:slide-in-from-top-0">
+          <DialogHeader className="mx-auto w-full max-w-[1500px]">
             <DialogTitle className="flex items-center gap-3">
               <TicketNo no={viewModal?.ticketNo || ""} />
               <StatusBadge value={viewModal?.status || ""} />
             </DialogTitle>
           </DialogHeader>
           {viewModal && (
-            <div className="space-y-4">
+            <div className="mx-auto max-w-[1500px] columns-1 xl:columns-2 gap-8 [&>*]:break-inside-avoid [&>*]:mb-4" data-testid="ticket-view">
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{viewModal.description || "No description provided"}</p>
               <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
@@ -499,7 +499,15 @@ export default function ItsmIncidents() {
         </DialogContent>
       </Dialog>
 
-      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="incident" status={editingItem?.status}
+      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="incident" status={editingItem?.status} side={editingItem ? <>
+        <div className="space-y-3" data-testid="edit-actions">
+          <CsatPanel kind="incident" id={editingItem.id} />
+          <TicketWorkflow kind="incident" id={editingItem.id} ticketNo={editingItem.ticketNo} onChanged={refreshEditing} />
+          <RelatedRecords kind="incident" id={editingItem.id} />
+          <TicketHistory kind="incident" id={editingItem.id} canComment />
+        </div>
+<ApprovalMatrix ticketId={editingItem.id} ticketType="Incident" />
+        </> : undefined}
         title={editingItem ? `${editingItem.ticketNo} · ${editingItem.title}` : "Report an incident"}
         subtitle={editingItem ? `${workMode ? "Working on this incident" : "Your incident"} · raised by ${editingItem.reportedBy || "—"}` : "Something is broken or not working as it should. It goes to the right team automatically."}
         footer={<>
@@ -575,13 +583,6 @@ export default function ItsmIncidents() {
           {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Incident" ticketId={editingItem.id} /></div>
             : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
         </FormSection>
-        {editingItem && <div className="space-y-3" data-testid="edit-actions">
-          <CsatPanel kind="incident" id={editingItem.id} />
-          <TicketWorkflow kind="incident" id={editingItem.id} ticketNo={editingItem.ticketNo} onChanged={refreshEditing} />
-          <RelatedRecords kind="incident" id={editingItem.id} />
-          <TicketHistory kind="incident" id={editingItem.id} canComment />
-        </div>}
-        {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Incident" />}
       </TicketDialog>
     </div>
   );

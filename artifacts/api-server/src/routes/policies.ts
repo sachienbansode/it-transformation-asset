@@ -96,6 +96,7 @@ export async function recordDecision(p: any, userId: number, decision: string, m
 const gateCache = new Map<number, { at: number; blocked: string | null }>();
 const OPEN = [/^\/auth(\/|$)/, /^\/my-policies(\/|$)/, /^\/policies(\/|$)/, /^\/policies-people$/, /^\/notifications(\/|$)/, /^\/push(\/|$)/, /^\/config$/, /^\/masters$/, /^\/healthz$/, /^\/agent\//, /^\/central(\/|$)/, /^\/auditor(\/|$)/];
 export async function policyGate(req: Request, res: Response, next: NextFunction) {
+  try { const { moduleOn } = await import("../lib/modules"); if (!(await moduleOn("policies"))) return next(); } catch { /* keep the gate */ }
   const id = uid(req); if (!id || OPEN.some(r => r.test(req.path))) return next();
   let c = gateCache.get(id);
   if (!c || Date.now() - c.at > 60_000) {

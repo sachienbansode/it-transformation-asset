@@ -1,4 +1,19 @@
 {
+ "2.20": [
+  "Admin › Settings › Modules: switch IT – Drishti, Performance, IT Assets, ITSM, Chats, Audit & Compliance and Policies on / off. Off = not in the menu, menu search or pages, and its API closed — for everyone, Super Admin included; data kept; reason required; audited",
+  "Policies switched off also lifts the overdue-policy access lock",
+  "Service request category 'IT Procurement' with 10 sub-categories (laptop / desktop, monitors & accessories, mobile, printer, network / server hardware, software licence, cloud / SaaS, AMC renewal, consumables, others): own questions (item, quantity, new / replacement, reason, estimated cost, needed by, vendor) and purchase checklist (stock check, quotes, finance approval, PO, delivery, Asset Registry, hand-over); manager approval through the hardware workflow"
+ ],
+ "2.19": [
+  "Files & storage: move files saved before the storage was set up (ticket attachments, policy PDFs, chat files, audit evidence and templates, profile photos) into their folders — each read back and checked; server copies kept in _moved-to-cloud",
+  "Uploads never attached to a record (form closed without saving) removed automatically every day after 7 days, only when no ticket, document, template or profile uses them; 'Remove now' button",
+  "Chat files stay read-only for audit; the only change allowed is moving the same encrypted file to the storage"
+ ],
+ "2.18": [
+  "Ticket view and edit open full page for incidents, service requests, problems and changes",
+  "Edit: form on the left; workflow, related records, comments / trail and approvals on the right (stacked on phones)",
+  "View: details in two columns on wide screens"
+ ],
  "2.17": [
   "Ticket trail for incidents, service requests, problems and changes: every save records each changed field (old → new, long text expandable), status, assignment, files added / removed — latest on top with date, time and who",
   "Comments: the assigned team, ITSM Admin and the person who raised the ticket add comments in Edit; comments cannot be edited or deleted; the requester is notified",

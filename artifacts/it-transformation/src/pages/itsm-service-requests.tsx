@@ -314,10 +314,10 @@ export default function ItsmServiceRequests() {
       </Card>
 
       <Dialog open={!!viewModal} onOpenChange={() => setViewModal(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle className="flex items-center gap-3"><TicketNo no={viewModal?.requestNo || ""} /><StatusBadge value={viewModal?.status || ""} /></DialogTitle></DialogHeader>
+        <DialogContent data-fullpage="" className="left-0 top-0 translate-x-0 translate-y-0 w-full max-w-none h-[100dvh] max-h-[100dvh] rounded-none border-0 overflow-y-auto p-4 sm:p-8 block data-[state=open]:slide-in-from-left-0 data-[state=open]:slide-in-from-top-0">
+          <DialogHeader className="mx-auto w-full max-w-[1500px]"><DialogTitle className="flex items-center gap-3"><TicketNo no={viewModal?.requestNo || ""} /><StatusBadge value={viewModal?.status || ""} /></DialogTitle></DialogHeader>
           {viewModal && (
-            <div className="space-y-4">
+            <div className="mx-auto max-w-[1500px] columns-1 xl:columns-2 gap-8 [&>*]:break-inside-avoid [&>*]:mb-4" data-testid="ticket-view">
               <h3 className="font-semibold text-base">{viewModal.title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{viewModal.description || "No description provided"}</p>
               <EnvAppsView env={viewModal.environment} apps={viewModal.affectedApps} />
@@ -344,7 +344,15 @@ export default function ItsmServiceRequests() {
         </DialogContent>
       </Dialog>
 
-      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="request" status={editingItem?.status}
+      <TicketDialog open={isModalOpen} onOpenChange={setIsModalOpen} kind="request" status={editingItem?.status} side={editingItem ? <>
+        <div className="space-y-3" data-testid="edit-actions">
+          <CsatPanel kind="request" id={editingItem.id} />
+          <TicketWorkflow kind="request" id={editingItem.id} ticketNo={editingItem.requestNo} onChanged={refreshEditing} />
+          <RelatedRecords kind="request" id={editingItem.id} />
+          <TicketHistory kind="request" id={editingItem.id} canComment />
+        </div>
+<ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" />
+        </> : undefined}
         title={editingItem ? `${editingItem.requestNo} · ${editingItem.title}` : "Request something"}
         subtitle={editingItem ? `${workMode ? "Fulfilling this request" : "Your request"} · raised by ${editingItem.requestedBy || "—"}` : "Access, software, hardware, accounts — anything new you need from IT."}
         footer={<>
@@ -387,13 +395,6 @@ export default function ItsmServiceRequests() {
           {editingItem ? <div className="sm:col-span-2"><TicketAttachments ticketType="Service Request" ticketId={editingItem.id} /></div>
             : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />}
         </FormSection>
-        {editingItem && <div className="space-y-3" data-testid="edit-actions">
-          <CsatPanel kind="request" id={editingItem.id} />
-          <TicketWorkflow kind="request" id={editingItem.id} ticketNo={editingItem.requestNo} onChanged={refreshEditing} />
-          <RelatedRecords kind="request" id={editingItem.id} />
-          <TicketHistory kind="request" id={editingItem.id} canComment />
-        </div>}
-        {editingItem && <ApprovalMatrix ticketId={editingItem.id} ticketType="Service Request" />}
       </TicketDialog>
     </div>
   );
